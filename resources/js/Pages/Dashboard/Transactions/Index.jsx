@@ -670,6 +670,7 @@ export default function Index({
                         onAddToCart={handleAddToCart}
                         addingProductId={addingProductId}
                         searchInputRef={searchInputRef}
+                        onBarcodeDetected={handleBarcodeScan}
                     />
                 </div>
 

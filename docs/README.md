@@ -12,6 +12,7 @@ Dokumentasi ini ditujukan untuk developer yang ingin setup, memahami alur modul,
 ### Arsitektur
 
 - `docs/architecture-overview.md`
+- `docs/system-map.md`
 - `docs/feature-index.md`
 
 ### Fitur Operasional
@@ -42,6 +43,7 @@ Dokumentasi ini ditujukan untuk developer yang ingin setup, memahami alur modul,
 
 - Jika baru pertama kali menjalankan repo, mulai dari `docs/getting-started.md`
 - Jika ingin memahami struktur aplikasi, baca `docs/architecture-overview.md`
+- Jika ingin memahami boundary modul, milestone engineering, dan coding standard repo, baca `docs/system-map.md`
 - Jika ingin bekerja pada modul tertentu, buka `docs/feature-index.md` lalu masuk ke dokumen fitur terkait
 - Jika menemui masalah akses, selalu cek `docs/features/rbac-users-roles.md`
 

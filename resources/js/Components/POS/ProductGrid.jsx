@@ -1,11 +1,12 @@
-import React from "react";
+import React, { useState } from "react";
 import {
     IconShoppingBag,
     IconPhoto,
-    IconMinus,
-    IconPlus,
+    IconSearch,
+    IconCamera,
 } from "@tabler/icons-react";
 import { getProductImageUrl } from "@/Utils/imageUrl";
+import CameraBarcodeScanner from "./CameraBarcodeScanner";
 
 const formatPrice = (value = 0) =>
     Number(value || 0).toLocaleString("id-ID", {
@@ -143,8 +144,12 @@ function SearchInput({
     isSearching,
     placeholder,
     inputRef,
+    onBarcodeDetected,
 }) {
+    const [cameraOpen, setCameraOpen] = useState(false);
+
     return (
+        <>
         <div className="relative">
             <input
                 ref={inputRef}
@@ -163,14 +168,31 @@ function SearchInput({
                     transition-all text-base"
                 disabled={isSearching}
             />
-            <div className="absolute right-3 top-1/2 -translate-y-1/2">
+            <div className="absolute right-3 top-1/2 flex -translate-y-1/2 items-center gap-1">
+                <button
+                    type="button"
+                    onClick={() => setCameraOpen(true)}
+                    className="rounded-lg p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-primary-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-primary-400"
+                    title="Scan dengan kamera"
+                >
+                    <IconCamera size={18} />
+                </button>
                 {isSearching ? (
                     <div className="w-5 h-5 border-2 border-primary-500 border-t-transparent rounded-full animate-spin" />
                 ) : (
-                    <IconShoppingBag size={20} className="text-slate-400" />
+                    <IconSearch size={18} className="text-slate-400" />
                 )}
             </div>
         </div>
+        <CameraBarcodeScanner
+            open={cameraOpen}
+            onClose={() => setCameraOpen(false)}
+            onDetected={(barcode) => {
+                onChange?.(barcode);
+                onBarcodeDetected?.(barcode);
+            }}
+        />
+        </>
     );
 }
 
@@ -187,6 +209,7 @@ export default function ProductGrid({
     onAddToCart,
     addingProductId,
     searchInputRef,
+    onBarcodeDetected,
 }) {
     const normalizedSelectedCategory =
         selectedCategory === null ? null : Number(selectedCategory);
@@ -214,6 +237,7 @@ export default function ProductGrid({
                     isSearching={isSearching}
                     placeholder="Cari produk atau scan barcode... (tekan / untuk fokus)"
                     inputRef={searchInputRef}
+                    onBarcodeDetected={onBarcodeDetected}
                 />
             </div>
 

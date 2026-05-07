@@ -43,14 +43,14 @@ Route::get('/', function () {
 
 Route::get('/dashboard/access', function () {
     return Inertia::render('Dashboard/Access');
-})->middleware(['auth', 'verified'])->name('dashboard.access');
+})->middleware(['auth'])->name('dashboard.access');
 
 // Public share routes (no login)
 Route::get('/share/transactions/{invoice}', [\App\Http\Controllers\DocumentController::class, 'publicInvoice'])
     ->name('transactions.public');
 
-Route::group(['prefix' => 'dashboard', 'middleware' => ['auth', 'verified']], function () {
-    Route::get('/', [DashboardController::class, 'index'])->middleware(['auth', 'verified', 'permission:dashboard-access'])->name('dashboard');
+Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
+    Route::get('/', [DashboardController::class, 'index'])->middleware(['auth', 'permission:dashboard-access'])->name('dashboard');
     Route::get('/permissions', [PermissionController::class, 'index'])->middleware('permission:permissions-access')->name('permissions.index');
     // roles route
     Route::resource('/roles', RoleController::class)

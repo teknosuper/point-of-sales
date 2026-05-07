@@ -130,7 +130,7 @@ export default function Sidebar({ sidebarOpen }) {
             {sidebarOpen && (
                 <div className="p-4 border-t border-slate-100 dark:border-slate-800">
                     <p className="text-[10px] text-slate-400 dark:text-slate-600 text-center">
-                        Point of Sales v2.0
+                        POINZA v2.0
                     </p>
                 </div>
             )}

@@ -47,17 +47,17 @@ export default function Register({ botGuard }) {
                             <IconShoppingCart size={48} />
                         </div>
                         <h2 className="text-3xl font-bold mb-4">
-                            Bergabung Bersama Kami
+                            Bergabung dengan POINZA
                         </h2>
                         <p className="text-lg opacity-90">
-                            Mulai kelola bisnis Anda dengan sistem Point of Sale
-                            yang modern, cepat, dan mudah digunakan.
+                            Mulai kelola bisnis Anda dengan POINZA yang
+                            modern, cepat, dan mudah digunakan.
                         </p>
                         <div className="mt-8 space-y-3">
                             {[
-                                "Gratis untuk memulai",
-                                "Setup dalam 5 menit",
-                                "Dukungan penuh",
+                                "Transaksi lebih rapi",
+                                "Setup cepat",
+                                "Dashboard terpadu",
                             ].map((feature, i) => (
                                 <div
                                     key={i}
@@ -90,14 +90,14 @@ export default function Register({ botGuard }) {
                                     />
                                 </div>
                                 <span className="text-2xl font-bold text-slate-900 dark:text-white">
-                                    Aplikasi Kasir
+                                    POINZA
                                 </span>
                             </Link>
                             <h1 className="text-3xl font-bold text-slate-900 dark:text-white">
                                 Buat Akun Baru
                             </h1>
                             <p className="mt-2 text-slate-600 dark:text-slate-400">
-                                Daftarkan bisnis Anda sekarang
+                                Buat akun baru untuk mulai menggunakan POINZA
                             </p>
                         </div>
 

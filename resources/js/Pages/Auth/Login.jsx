@@ -53,7 +53,7 @@ export default function Login({ status, canResetPassword, canRegister, botGuard 
                                     />
                                 </div>
                                 <span className="text-2xl font-bold text-slate-900 dark:text-white">
-                                    Aplikasi Kasir
+                                    POINZA
                                 </span>
                             </Link>
                             <h1 className="text-3xl font-bold text-slate-900 dark:text-white">
@@ -229,12 +229,11 @@ export default function Login({ status, canResetPassword, canRegister, botGuard 
                             <IconShoppingCart size={48} />
                         </div>
                         <h2 className="text-3xl font-bold mb-4">
-                            Kelola Bisnis Anda dengan Mudah
+                            Kelola Operasional Bisnis dengan Lebih Mudah
                         </h2>
                         <p className="text-lg opacity-90">
-                            Sistem Point of Sale modern yang membantu Anda
-                            mengelola transaksi, inventori, dan laporan keuangan
-                            dengan efisien.
+                            POINZA membantu Anda mengelola transaksi,
+                            inventori, dan laporan bisnis dari satu dashboard.
                         </p>
                         <div className="mt-8 flex flex-wrap justify-center gap-3">
                             {[

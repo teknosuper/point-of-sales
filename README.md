@@ -153,6 +153,7 @@ Catatan:
 - Indeks dokumentasi: `docs/README.md`
 - Getting started: `docs/getting-started.md`
 - Gambaran arsitektur: `docs/architecture-overview.md`
+- System map developer: `docs/system-map.md`
 - Konfigurasi aplikasi: `docs/configuration.md`
 - Indeks fitur: `docs/feature-index.md`
 
