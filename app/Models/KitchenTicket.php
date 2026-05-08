@@ -58,4 +58,9 @@ class KitchenTicket extends Model
     {
         return $this->hasMany(KitchenTicketEvent::class);
     }
+
+    public function printJobs()
+    {
+        return $this->hasMany(PrintJob::class);
+    }
 }

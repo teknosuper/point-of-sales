@@ -112,6 +112,9 @@ export default function Form({ mode = "create", voucher = null, customers = [] }
                                         </option>
                                     ))}
                                 </select>
+                                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                                    Voucher personal hanya bisa diberikan ke customer terdaftar. Transaksi umum / walk-in tidak bisa menerima voucher ini karena tidak memiliki profil customer.
+                                </p>
                                 <InputError message={errors.customer_id} />
                             </div>
 

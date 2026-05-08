@@ -124,6 +124,21 @@ class User extends Authenticatable
             ->withTimestamps();
     }
 
+    public function hasAccessToOutlet(int $outletId): bool
+    {
+        if ($this->isSuperAdmin()) {
+            return true;
+        }
+
+        if ($this->relationLoaded('outlets')) {
+            return $this->outlets->contains('id', $outletId);
+        }
+
+        return $this->outlets()
+            ->where('outlets.id', $outletId)
+            ->exists();
+    }
+
     public function auditLogs()
     {
         return $this->hasMany(AuditLog::class);

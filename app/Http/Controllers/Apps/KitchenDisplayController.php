@@ -7,6 +7,7 @@ use App\Models\KitchenStation;
 use App\Models\KitchenStationDevice;
 use App\Models\KitchenTicket;
 use App\Services\OutletResolver;
+use App\Services\PrintJobService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -15,7 +16,8 @@ use Inertia\Inertia;
 class KitchenDisplayController extends Controller
 {
     public function __construct(
-        private readonly OutletResolver $outletResolver
+        private readonly OutletResolver $outletResolver,
+        private readonly PrintJobService $printJobService
     ) {}
 
     public function index(Request $request)
@@ -170,20 +172,45 @@ class KitchenDisplayController extends Controller
 
     public function dispatch(Request $request, KitchenTicket $kitchenTicket): RedirectResponse|JsonResponse
     {
+        return $this->recordDispatchEvent($request, $kitchenTicket, 'ticket.dispatched', 'Ticket berhasil didispatch ke device dapur.');
+    }
+
+    public function queueDispatch(Request $request, KitchenTicket $kitchenTicket): RedirectResponse|JsonResponse
+    {
+        [$device] = $this->resolveDispatchDevice($request, $kitchenTicket);
+        $printJob = $this->printJobService->queueKitchenTicket($kitchenTicket, $device, $request->user()?->id);
+
+        return $this->recordDispatchEvent(
+            $request,
+            $kitchenTicket,
+            'ticket.dispatch_queued',
+            'Ticket berhasil masuk antrian printer.',
+            [
+                'print_job_id' => $printJob->id,
+                'print_job_status' => $printJob->status,
+            ]
+        );
+    }
+
+    public function failDispatch(Request $request, KitchenTicket $kitchenTicket): RedirectResponse|JsonResponse
+    {
         $this->ensureKitchenAccess($request, $kitchenTicket);
 
-        $validated = $request->validate([
-            'device_id' => ['required', 'integer'],
-        ]);
+        [$device, $validated] = $this->resolveDispatchDevice($request, $kitchenTicket, withReason: true);
+        $printJob = $this->printJobService->latestQueuedKitchenTicketJob($kitchenTicket->id, $device->id);
+        if ($printJob) {
+            $this->printJobService->markFailed($printJob, $validated['reason'] ?? null);
+        }
 
-        $device = KitchenStationDevice::query()
-            ->where('kitchen_station_id', $kitchenTicket->kitchen_station_id)
-            ->where('is_active', true)
-            ->findOrFail($validated['device_id']);
+        $fallbackDevice = $this->resolveFallbackDevice($device);
+        $fallbackPrintJob = null;
+        if ($fallbackDevice) {
+            $fallbackPrintJob = $this->printJobService->queueKitchenTicket($kitchenTicket, $fallbackDevice, $request->user()?->id);
+        }
 
         $event = $kitchenTicket->events()->create([
             'user_id' => $request->user()?->id,
-            'event' => 'ticket.dispatched',
+            'event' => 'ticket.dispatch_failed',
             'payload' => [
                 'station_id' => $kitchenTicket->kitchen_station_id,
                 'device_id' => $device->id,
@@ -191,6 +218,13 @@ class KitchenDisplayController extends Controller
                 'device_type' => $device->device_type,
                 'connection_driver' => $device->connection_driver,
                 'endpoint' => $device->endpoint,
+                'print_job_id' => $printJob?->id,
+                'print_job_status' => $printJob?->status,
+                'reason' => $validated['reason'] ?? 'Dispatch printer ditandai gagal dari board dapur.',
+                'fallback_device_id' => $fallbackDevice?->id,
+                'fallback_device_name' => $fallbackDevice?->name,
+                'fallback_print_job_id' => $fallbackPrintJob?->id,
+                'fallback_print_job_status' => $fallbackPrintJob?->status,
             ],
             'created_at' => now(),
         ]);
@@ -198,12 +232,16 @@ class KitchenDisplayController extends Controller
         if ($request->wantsJson()) {
             return response()->json([
                 'success' => true,
-                'message' => 'Ticket berhasil didispatch ke device dapur.',
+                'message' => $fallbackDevice
+                    ? 'Kegagalan dispatch printer dicatat dan fallback printer berhasil masuk antrian.'
+                    : 'Kegagalan dispatch printer berhasil dicatat.',
                 'event_id' => $event->id,
             ]);
         }
 
-        return back()->with('success', 'Ticket berhasil didispatch ke device dapur.');
+        return back()->with('success', $fallbackDevice
+            ? 'Kegagalan dispatch printer dicatat dan fallback printer berhasil masuk antrian.'
+            : 'Kegagalan dispatch printer berhasil dicatat.');
     }
 
     private function ensureKitchenAccess(Request $request, KitchenTicket $kitchenTicket): void
@@ -251,7 +289,7 @@ class KitchenDisplayController extends Controller
             ->get()
             ->map(function (KitchenTicket $ticket) {
                 $latestDispatchEvent = $ticket->events()
-                    ->where('event', 'ticket.dispatched')
+                    ->whereIn('event', ['ticket.dispatch_queued', 'ticket.dispatched', 'ticket.dispatch_failed'])
                     ->latest('created_at')
                     ->first();
 
@@ -265,10 +303,19 @@ class KitchenDisplayController extends Controller
                     'customer_name' => $ticket->transaction?->customer?->name,
                     'notes' => $ticket->notes,
                     'dispatch' => $latestDispatchEvent ? [
+                        'event' => $latestDispatchEvent->event,
+                        'status' => match ($latestDispatchEvent->event) {
+                            'ticket.dispatch_queued' => 'queued',
+                            'ticket.dispatch_failed' => 'failed',
+                            default => 'dispatched',
+                        },
                         'dispatched_at' => optional($latestDispatchEvent->created_at)?->toIso8601String(),
                         'device_id' => data_get($latestDispatchEvent->payload, 'device_id'),
                         'device_name' => data_get($latestDispatchEvent->payload, 'device_name'),
                         'device_type' => data_get($latestDispatchEvent->payload, 'device_type'),
+                        'print_job_id' => data_get($latestDispatchEvent->payload, 'print_job_id'),
+                        'print_job_status' => data_get($latestDispatchEvent->payload, 'print_job_status'),
+                        'reason' => data_get($latestDispatchEvent->payload, 'reason'),
                     ] : null,
                     'items' => $ticket->items->map(fn ($item) => [
                         'id' => $item->id,
@@ -323,6 +370,87 @@ class KitchenDisplayController extends Controller
             'endpoint' => $device->endpoint,
             'is_primary' => (bool) $device->is_primary,
             'is_active' => (bool) $device->is_active,
+            'meta' => $device->meta ?? [],
         ];
+    }
+
+    private function recordDispatchEvent(
+        Request $request,
+        KitchenTicket $kitchenTicket,
+        string $eventName,
+        string $message,
+        array $extraPayload = []
+    ): RedirectResponse|JsonResponse {
+        $this->ensureKitchenAccess($request, $kitchenTicket);
+
+        [$device] = $this->resolveDispatchDevice($request, $kitchenTicket);
+        $printJob = $eventName === 'ticket.dispatched'
+            ? $this->printJobService->latestQueuedKitchenTicketJob($kitchenTicket->id, $device->id)
+            : null;
+
+        if ($printJob) {
+            $printJob = $this->printJobService->markSuccess($printJob);
+        }
+
+        $event = $kitchenTicket->events()->create([
+            'user_id' => $request->user()?->id,
+            'event' => $eventName,
+            'payload' => [
+                'station_id' => $kitchenTicket->kitchen_station_id,
+                'device_id' => $device->id,
+                'device_name' => $device->name,
+                'device_type' => $device->device_type,
+                'connection_driver' => $device->connection_driver,
+                'endpoint' => $device->endpoint,
+                'print_job_id' => $printJob?->id,
+                'print_job_status' => $printJob?->status,
+                ...$extraPayload,
+            ],
+            'created_at' => now(),
+        ]);
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => $message,
+                'event_id' => $event->id,
+            ]);
+        }
+
+        return back()->with('success', $message);
+    }
+
+    private function resolveDispatchDevice(Request $request, KitchenTicket $kitchenTicket, bool $withReason = false): array
+    {
+        $rules = [
+            'device_id' => ['required', 'integer'],
+        ];
+
+        if ($withReason) {
+            $rules['reason'] = ['nullable', 'string', 'max:255'];
+        }
+
+        $validated = $request->validate($rules);
+
+        $device = KitchenStationDevice::query()
+            ->where('kitchen_station_id', $kitchenTicket->kitchen_station_id)
+            ->where('is_active', true)
+            ->findOrFail($validated['device_id']);
+
+        return [$device, $validated];
+    }
+
+    private function resolveFallbackDevice(KitchenStationDevice $device): ?KitchenStationDevice
+    {
+        $fallbackDeviceId = data_get($device->meta, 'fallback_device_id');
+
+        if (! $fallbackDeviceId) {
+            return null;
+        }
+
+        return KitchenStationDevice::query()
+            ->where('kitchen_station_id', $device->kitchen_station_id)
+            ->where('is_active', true)
+            ->find($fallbackDeviceId);
     }
 }

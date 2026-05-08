@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { Head, Link, useForm } from "@inertiajs/react";
 import AuthBotGuardFields from "@/Components/AuthBotGuardFields";
+import axios from "axios";
 import {
     IconShoppingCart,
     IconMail,
@@ -23,9 +24,47 @@ export default function Login({ status, canResetPassword, canRegister, botGuard 
     });
     const [showPassword, setShowPassword] = useState(false);
 
+    const refreshBotGuard = async () => {
+        try {
+            const response = await axios.get(route("bot-guard.payload"), {
+                headers: {
+                    Accept: "application/json",
+                },
+            });
+
+            const payload = response?.data?.botGuard;
+            if (payload?.token) {
+                setData(tokenField, payload.token);
+                setData(honeypotField, "");
+            }
+        } catch (error) {
+            console.error("Failed to refresh bot guard token", error);
+        }
+    };
+
     useEffect(() => {
         return () => reset("password");
     }, []);
+
+    useEffect(() => {
+        refreshBotGuard();
+
+        const handlePageShow = () => {
+            refreshBotGuard();
+        };
+
+        window.addEventListener("pageshow", handlePageShow);
+
+        return () => {
+            window.removeEventListener("pageshow", handlePageShow);
+        };
+    }, []);
+
+    useEffect(() => {
+        if (errors.human) {
+            refreshBotGuard();
+        }
+    }, [errors.human]);
 
     const submit = (e) => {
         e.preventDefault();

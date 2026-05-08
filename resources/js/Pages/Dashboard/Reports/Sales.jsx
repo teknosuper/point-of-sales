@@ -57,6 +57,11 @@ const defaultFilterState = {
     settlement_status: "",
 };
 
+const WALK_IN_REPORT_OPTION = {
+    id: "walk_in",
+    name: "Transaksi Umum / Walk-in",
+};
+
 const formatCurrency = (value = 0) =>
     new Intl.NumberFormat("id-ID", {
         style: "currency",
@@ -98,10 +103,17 @@ const Sales = ({
 
     const customerFromFilters = useMemo(
         () =>
-            customers.find(
-                (c) => castFilterString(c.id) === filterData.customer_id
-            ) ?? null,
+            filterData.customer_id === "walk_in"
+                ? WALK_IN_REPORT_OPTION
+                : customers.find(
+                      (c) => castFilterString(c.id) === filterData.customer_id
+                  ) ?? null,
         [customers, filterData.customer_id]
+    );
+
+    const customerOptions = useMemo(
+        () => [WALK_IN_REPORT_OPTION, ...customers],
+        [customers]
     );
 
     const [selectedCashier, setSelectedCashier] = useState(cashierFromFilters);
@@ -217,6 +229,8 @@ const Sales = ({
         items_sold: summary?.items_sold ?? 0,
         profit_total: summary?.profit_total ?? 0,
         average_order: summary?.average_order ?? 0,
+        walk_in_count: summary?.walk_in_count ?? 0,
+        registered_customer_count: summary?.registered_customer_count ?? 0,
     };
     const tenantSummary = {
         allocation_count: tenantSettlement?.summary?.allocation_count ?? 0,
@@ -265,6 +279,20 @@ const Sales = ({
             description: "Akumulasi promo",
             icon: <IconDiscount2 />,
             gradient: "from-warning-500 to-warning-600",
+        },
+        {
+            title: "Transaksi Walk-in",
+            value: safeSummary.walk_in_count.toLocaleString("id-ID"),
+            description: `${safeSummary.orders_count > 0 ? ((safeSummary.walk_in_count / safeSummary.orders_count) * 100).toFixed(0) : 0}% dari transaksi`,
+            icon: <IconUsers />,
+            gradient: "from-slate-500 to-slate-700",
+        },
+        {
+            title: "Customer Terdaftar",
+            value: safeSummary.registered_customer_count.toLocaleString("id-ID"),
+            description: `${safeSummary.orders_count > 0 ? ((safeSummary.registered_customer_count / safeSummary.orders_count) * 100).toFixed(0) : 0}% dari transaksi`,
+            icon: <IconWallet />,
+            gradient: "from-cyan-500 to-cyan-700",
         },
     ];
 
@@ -568,10 +596,10 @@ const Sales = ({
                                 />
                                 <InputSelect
                                     label="Pelanggan"
-                                    data={customers}
+                                    data={customerOptions}
                                     selected={selectedCustomer}
                                     setSelected={handleSelectCustomer}
-                                    placeholder="Semua pelanggan"
+                                    placeholder="Semua pelanggan / umum"
                                     searchable
                                 />
                                 <div>
@@ -699,7 +727,7 @@ const Sales = ({
                                                 {trx.created_at}
                                             </td>
                                             <td className="px-4 py-4 text-sm text-slate-600 dark:text-slate-400">
-                                                {trx.customer?.name ?? "-"}
+                                                {trx.customer?.name ?? "Umum / Walk-in"}
                                             </td>
                                             <td className="px-4 py-4 text-sm text-slate-600 dark:text-slate-400">
                                                 {trx.cashier?.name ?? "-"}

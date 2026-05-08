@@ -93,6 +93,19 @@ function UserCard({
                         </span>
                     ))}
                 </div>
+                {user.outlets?.length ? (
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                        {user.outlets.map((outlet) => (
+                            <span
+                                key={outlet.id}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full bg-primary-100 dark:bg-primary-900/50 text-primary-700 dark:text-primary-300"
+                            >
+                                <IconUser size={12} />
+                                {outlet.code}
+                            </span>
+                        ))}
+                    </div>
+                ) : null}
             </div>
 
             {/* Actions */}
@@ -302,6 +315,7 @@ export default function Index() {
                                     </Table.Th>
                                     <Table.Th className={"w-10"}>No</Table.Th>
                                     <Table.Th>Pengguna</Table.Th>
+                                    <Table.Th>Outlet</Table.Th>
                                     <Table.Th>Group Akses</Table.Th>
                                     <Table.Th></Table.Th>
                                 </tr>
@@ -351,6 +365,24 @@ export default function Index() {
                                                         {user.email}
                                                     </p>
                                                 </div>
+                                            </div>
+                                        </Table.Td>
+                                        <Table.Td>
+                                            <div className="flex flex-wrap gap-1">
+                                                {user.outlets?.length ? (
+                                                    user.outlets.map((outlet) => (
+                                                        <span
+                                                            key={outlet.id}
+                                                            className="px-2 py-0.5 text-xs font-medium bg-primary-100 dark:bg-primary-900/50 text-primary-700 dark:text-primary-300 rounded-full"
+                                                        >
+                                                            {outlet.code}
+                                                        </span>
+                                                    ))
+                                                ) : (
+                                                    <span className="text-xs text-slate-400 dark:text-slate-500">
+                                                        Belum ada outlet
+                                                    </span>
+                                                )}
                                             </div>
                                         </Table.Td>
                                         <Table.Td>

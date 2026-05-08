@@ -213,7 +213,7 @@ export default function Index({
 
         axios
             .post(route("transactions.pricing-preview"), {
-                customer_id: selectedCustomer?.id ?? null,
+                customer_id: isWalkInCustomer ? null : selectedCustomer?.id ?? null,
                 discount,
                 shipping_cost: shipping,
                 redeem_points: Number(redeemPointsInput || 0),
@@ -240,6 +240,7 @@ export default function Index({
         };
     }, [
         selectedCustomer?.id,
+        isWalkInCustomer,
         pricingDependency,
         discount,
         shipping,
@@ -435,8 +436,7 @@ export default function Index({
                     break;
                 case "F2":
                     e.preventDefault();
-                    if (carts.length > 0 && selectedCustomer)
-                        handleSubmitTransaction();
+                    if (carts.length > 0) handleSubmitTransaction();
                     break;
                 case "F3":
                     e.preventDefault();
@@ -484,11 +484,6 @@ export default function Index({
             return;
         }
 
-        if (!selectedCustomer?.id) {
-            toast.error("Pilih pelanggan terlebih dahulu");
-            return;
-        }
-
         if (payLater && !dueDate) {
             toast.error("Isi tanggal jatuh tempo untuk nota barang");
             return;
@@ -511,7 +506,7 @@ export default function Index({
         router.post(
             route("transactions.store"),
             {
-                customer_id: selectedCustomer.id,
+                customer_id: isWalkInCustomer ? null : selectedCustomer?.id ?? null,
                 discount,
                 redeem_points: Number(redeemPointsInput || 0),
                 customer_voucher_id: selectedVoucherId || null,
@@ -718,7 +713,7 @@ export default function Index({
                             customers={customers}
                             selected={selectedCustomer}
                             onSelect={setSelectedCustomer}
-                            placeholder="Pilih pelanggan..."
+                            placeholder="Pilih pelanggan / umum..."
                             error={errors?.customer_id}
                             label="Pelanggan"
                             tierOptions={loyaltyTierOptions}
@@ -1184,6 +1179,38 @@ export default function Index({
                                 </div>
                             )}
 
+                            {isWalkInCustomer && (
+                                <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/40 dark:bg-amber-950/20">
+                                    <div className="flex items-start justify-between gap-3">
+                                        <div>
+                                            <p className="text-sm font-semibold text-amber-700 dark:text-amber-300">
+                                                Transaksi Umum / Walk-in
+                                            </p>
+                                            <p className="text-xs text-amber-600/80 dark:text-amber-400/80">
+                                                Poin, voucher customer, dan benefit member tidak berlaku karena transaksi ini tidak terhubung ke customer terdaftar.
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {selectedCustomer &&
+                                !isWalkInCustomer &&
+                                !selectedCustomer?.is_loyalty_member && (
+                                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/50">
+                                        <div className="flex items-start justify-between gap-3">
+                                            <div>
+                                                <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                                                    Pelanggan Non-member
+                                                </p>
+                                                <p className="text-xs text-slate-500 dark:text-slate-400">
+                                                    Transaksi tetap bisa diproses, tetapi redeem poin dan voucher customer belum tersedia sampai pelanggan di-upgrade menjadi member.
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
                             {selectedCustomer?.is_loyalty_member && (
                                 <div className="rounded-xl border border-primary-200 bg-primary-50 p-3 dark:border-primary-900/40 dark:bg-primary-950/20">
                                     <div className="flex items-start justify-between gap-3">
@@ -1472,7 +1499,6 @@ export default function Index({
                             onClick={handleSubmitTransaction}
                             disabled={
                                 !carts.length ||
-                                !selectedCustomer ||
                                 (!payLater &&
                                     paymentMethod === "cash" &&
                                     cash < payable) ||
@@ -1481,7 +1507,6 @@ export default function Index({
                             }
                             className={`w-full h-12 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-all ${
                                 carts.length &&
-                                selectedCustomer &&
                                 (paymentMethod !== "cash" || cash >= payable)
                                     && !isLoadingPricing
                                     ? "bg-gradient-to-r from-primary-500 to-primary-600 hover:from-primary-600 hover:to-primary-700 text-white shadow-lg shadow-primary-500/30"
@@ -1496,8 +1521,6 @@ export default function Index({
                                     <span>
                                         {!carts.length
                                             ? "Keranjang Kosong"
-                                            : !selectedCustomer
-                                            ? "Pilih Pelanggan"
                                             : paymentMethod === "cash" &&
                                               cash < payable
                                             ? `Kurang ${formatPrice(
@@ -1571,3 +1594,4 @@ export default function Index({
 }
 
 Index.layout = (page) => <POSLayout children={page} />;
+    const isWalkInCustomer = selectedCustomer?.is_walk_in === true;

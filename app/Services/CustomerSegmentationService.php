@@ -170,7 +170,7 @@ class CustomerSegmentationService
     public function serializeCustomerSegments(Customer $customer, ?int $outletId = null): array
     {
         return $customer->segments()
-            ->when($outletId, fn ($query) => $query->wherePivot('outlet_id', $outletId))
+            ->when($outletId, fn ($query) => $query->where('customer_segment_memberships.outlet_id', $outletId))
             ->get()
             ->sortBy('name')
             ->values()

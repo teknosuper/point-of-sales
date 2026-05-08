@@ -115,6 +115,24 @@ export default function Show({
 
                 <div className="grid gap-6 xl:grid-cols-[1.7fr_1fr]">
                     <div className="space-y-6">
+                        {!customer.is_loyalty_member && (
+                            <section className="rounded-2xl border border-amber-200 bg-amber-50 p-5 dark:border-amber-900/40 dark:bg-amber-950/20">
+                                <div className="flex items-start gap-3">
+                                    <div className="mt-0.5 rounded-xl bg-amber-100 p-2 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                                        <IconCrown size={18} />
+                                    </div>
+                                    <div>
+                                        <h2 className="text-base font-semibold text-amber-800 dark:text-amber-200">
+                                            Pelanggan ini masih non-member
+                                        </h2>
+                                        <p className="mt-1 text-sm text-amber-700/90 dark:text-amber-300/90">
+                                            Riwayat transaksi tetap tercatat, tetapi benefit loyalty seperti redeem poin, tier member, dan voucher personal belum aktif sampai pelanggan di-upgrade menjadi member.
+                                        </p>
+                                    </div>
+                                </div>
+                            </section>
+                        )}
+
                         <section className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
                             <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">
                                 Ringkasan Pelanggan

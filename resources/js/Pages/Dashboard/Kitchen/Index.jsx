@@ -105,6 +105,43 @@ export default function KitchenIndex({
         );
     };
 
+    const handleQueueDispatch = (ticketId) => {
+        if (!boardState.selectedDevice?.id) {
+            toast.error("Pilih device dapur aktif terlebih dahulu.");
+            return;
+        }
+
+        router.post(
+            route("kitchen.tickets.queue-dispatch", ticketId),
+            {
+                device_id: boardState.selectedDevice.id,
+            },
+            {
+                preserveScroll: true,
+            }
+        );
+    };
+
+    const handleDispatchFailed = (ticketId) => {
+        if (!boardState.selectedDevice?.id) {
+            toast.error("Pilih device dapur aktif terlebih dahulu.");
+            return;
+        }
+
+        const reason = window.prompt("Catatan kegagalan printer", "Printer belum merespons");
+
+        router.post(
+            route("kitchen.tickets.fail-dispatch", ticketId),
+            {
+                device_id: boardState.selectedDevice.id,
+                reason: reason || "Printer belum merespons",
+            },
+            {
+                preserveScroll: true,
+            }
+        );
+    };
+
     const handleRefresh = () => {
         fetchBoardData(boardState.filters?.status || "active");
     };
@@ -127,7 +164,7 @@ export default function KitchenIndex({
         }
 
         try {
-        const response = await fetch(
+            const response = await fetch(
                 route("kitchen.feed", boardState.activeStation.slug) +
                     `?status=${encodeURIComponent(status)}&device_id=${encodeURIComponent(boardState.selectedDevice?.id || "")}`
             );
@@ -396,13 +433,23 @@ export default function KitchenIndex({
                                             <div className="mt-2 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
                                                 {deviceIcon(ticket.dispatch.device_type || "printer")}
                                                 <span>
-                                                    Dispatch {formatTime(ticket.dispatch.dispatched_at)}
+                                                    {ticket.dispatch.status === "queued"
+                                                        ? "Queue"
+                                                        : ticket.dispatch.status === "failed"
+                                                          ? "Gagal"
+                                                          : "Dispatch"}{" "}
+                                                    {formatTime(ticket.dispatch.dispatched_at)}
                                                     {ticket.dispatch.device_name
                                                         ? ` • ${ticket.dispatch.device_name}`
                                                         : ""}
                                                 </span>
                                             </div>
                                         )}
+                                        {ticket.dispatch?.reason ? (
+                                            <div className="mt-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-300">
+                                                {ticket.dispatch.reason}
+                                            </div>
+                                        ) : null}
 
                                         <div className="mt-4 space-y-2 rounded-2xl bg-white p-3 dark:bg-slate-900">
                                             {ticket.items.map((item) => (
@@ -452,14 +499,32 @@ export default function KitchenIndex({
                                             <div className="mt-4 space-y-2">
                                                 <button
                                                     type="button"
-                                                    onClick={() => handleDispatch(ticket.id)}
-                                                    className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-700 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200"
+                                                    onClick={() => handleQueueDispatch(ticket.id)}
+                                                    className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-primary-700"
                                                 >
                                                     <IconPrinter size={16} />
-                                                    Tandai Dispatch ke Printer
+                                                    Masuk Queue Printer
                                                 </button>
+                                                <div className="grid grid-cols-2 gap-2">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleDispatch(ticket.id)}
+                                                        className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-700 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200"
+                                                    >
+                                                        <IconCheck size={16} />
+                                                        Berhasil
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleDispatchFailed(ticket.id)}
+                                                        className="inline-flex items-center justify-center gap-2 rounded-xl bg-rose-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-rose-700"
+                                                    >
+                                                        <IconRefresh size={16} />
+                                                        Gagal
+                                                    </button>
+                                                </div>
                                                 <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
-                                                    Mode printer: ticket ditampilkan sebagai antrian cetak. Dispatch dicatat per device aktif.
+                                                    Mode printer: ticket bisa diantrikan, ditandai berhasil, atau ditandai gagal per device aktif.
                                                 </div>
                                             </div>
                                         )}

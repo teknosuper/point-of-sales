@@ -6,6 +6,7 @@ import {
     IconDeviceFloppy,
     IconArrowLeft,
     IconShield,
+    IconBuildingStore,
 } from "@tabler/icons-react";
 import Input from "@/Components/Dashboard/Input";
 import Checkbox from "@/Components/Dashboard/Checkbox";
@@ -13,7 +14,11 @@ import toast from "react-hot-toast";
 import { useState } from "react";
 
 export default function Edit() {
-    const { roles, user } = usePage().props;
+    const { roles, user, outlets = [] } = usePage().props;
+
+    const selectedOutletIds = user.outlets?.map((outlet) => outlet.id) ?? [];
+    const primaryOutletId =
+        user.outlets?.find((outlet) => Boolean(outlet.pivot?.is_primary))?.id ?? "";
 
     const { data, setData, post, errors, processing } = useForm({
         name: user.name,
@@ -21,6 +26,8 @@ export default function Edit() {
         password: "",
         password_confirmation: "",
         selectedRoles: user.roles.map((role) => role.name),
+        selectedOutlets: selectedOutletIds,
+        primary_outlet_id: primaryOutletId,
         avatar: null,
         _method: "PUT",
     });
@@ -35,6 +42,22 @@ export default function Edit() {
             items.push(e.target.value);
         }
         setData("selectedRoles", items);
+    };
+
+    const setSelectedOutlets = (e) => {
+        const value = Number(e.target.value);
+        let items = [...data.selectedOutlets];
+        if (items.includes(value)) {
+            items = items.filter((id) => id !== value);
+        } else {
+            items.push(value);
+        }
+
+        setData("selectedOutlets", items);
+
+        if (data.primary_outlet_id && !items.includes(Number(data.primary_outlet_id))) {
+            setData("primary_outlet_id", "");
+        }
     };
 
     const submit = (e) => {
@@ -193,6 +216,72 @@ export default function Edit() {
                                 {errors.selectedRoles}
                             </p>
                         )}
+                    </div>
+
+                    <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6">
+                        <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-4 flex items-center gap-2">
+                            <IconBuildingStore size={16} />
+                            Akses Outlet
+                        </h3>
+                        <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">
+                            Ubah outlet yang dapat diakses user dan pilih outlet utama untuk resolver default.
+                        </p>
+                        <div className="grid gap-3 md:grid-cols-2">
+                            {outlets.map((outlet) => (
+                                <label
+                                    key={outlet.id}
+                                    className={`flex items-start gap-3 rounded-xl border px-4 py-3 transition-all ${
+                                        data.selectedOutlets.includes(outlet.id)
+                                            ? "border-primary-500 bg-primary-50 dark:bg-primary-950/50"
+                                            : "border-slate-200 dark:border-slate-700 hover:border-primary-300"
+                                    }`}
+                                >
+                                    <Checkbox
+                                        value={String(outlet.id)}
+                                        onChange={setSelectedOutlets}
+                                        checked={data.selectedOutlets.includes(outlet.id)}
+                                    />
+                                    <div>
+                                        <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                                            {outlet.code} - {outlet.name}
+                                        </p>
+                                        <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                            {outlet.outlet_type || "main"}
+                                        </p>
+                                    </div>
+                                </label>
+                            ))}
+                        </div>
+                        {errors.selectedOutlets && (
+                            <p className="text-xs text-danger-500 mt-3">
+                                {errors.selectedOutlets}
+                            </p>
+                        )}
+
+                        <div className="mt-4">
+                            <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                Outlet Utama
+                            </label>
+                            <select
+                                value={data.primary_outlet_id}
+                                onChange={(e) => setData("primary_outlet_id", e.target.value)}
+                                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                            >
+                                <option value="">Pilih outlet utama</option>
+                                {outlets
+                                    .filter((outlet) => data.selectedOutlets.includes(outlet.id))
+                                    .map((outlet) => (
+                                        <option key={outlet.id} value={outlet.id}>
+                                            {outlet.code} - {outlet.name}
+                                        </option>
+                                    ))}
+                            </select>
+                            {errors.primary_outlet_id && (
+                                <p className="text-xs text-danger-500 mt-3">
+                                    {errors.primary_outlet_id}
+                                </p>
+                            )}
+                        </div>
                     </div>
 
                     {/* Submit */}

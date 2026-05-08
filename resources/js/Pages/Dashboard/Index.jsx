@@ -192,6 +192,8 @@ export default function Dashboard({
     totalProducts,
     totalTransactions,
     totalCustomers,
+    walkInTransactions = 0,
+    memberTransactions = 0,
     revenueTrend,
     totalRevenue,
     totalProfit,
@@ -475,6 +477,21 @@ export default function Dashboard({
                         title="Total Pelanggan"
                         value={totalCustomers}
                         icon={IconUsers}
+                    />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <InfoCard
+                        title="Transaksi Umum / Walk-in"
+                        value={walkInTransactions}
+                        subtitle={`${totalTransactions > 0 ? ((walkInTransactions / totalTransactions) * 100).toFixed(0) : 0}% dari total transaksi`}
+                        icon={IconUsers}
+                    />
+                    <InfoCard
+                        title="Transaksi Customer Terdaftar"
+                        value={memberTransactions}
+                        subtitle={`${totalTransactions > 0 ? ((memberTransactions / totalTransactions) * 100).toFixed(0) : 0}% dari total transaksi`}
+                        icon={IconWallet}
                     />
                 </div>
 

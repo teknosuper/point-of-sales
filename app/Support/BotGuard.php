@@ -29,7 +29,7 @@ class BotGuard
         ], JSON_THROW_ON_ERROR));
     }
 
-    public static function validate(Request $request): void
+    public static function validate(Request $request, bool $skipMinimumDelay = false): void
     {
         if (! config('security.bot_guard.enabled', true)) {
             return;
@@ -56,7 +56,7 @@ class BotGuard
 
                     if ($issuedAt <= 0) {
                         $reason = 'invalid_token_payload';
-                    } elseif ($age < config('security.bot_guard.min_submit_seconds', 2)) {
+                    } elseif (! $skipMinimumDelay && $age < config('security.bot_guard.min_submit_seconds', 2)) {
                         $reason = 'submitted_too_fast';
                     } elseif ($age > config('security.bot_guard.token_ttl_seconds', 1800)) {
                         $reason = 'expired_token';

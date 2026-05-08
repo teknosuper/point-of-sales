@@ -18,6 +18,12 @@ const defaultDevice = {
     device_type: "screen",
     connection_driver: "browser",
     endpoint: "",
+    print_profile: "browser_manual",
+    dispatch_mode: "manual",
+    fallback_device_id: "",
+    rawbt_intent_url: "",
+    qz_printer_name: "",
+    bridge_device_key: "",
     paper_width: "80mm",
     template_style: "standard",
     print_copies: 1,
@@ -25,9 +31,27 @@ const defaultDevice = {
     is_active: true,
 };
 
-export default function Index({ stations = [], filters = {}, outlets = [], setupStatus = {}, ui = {} }) {
+const formatDateTime = (value) =>
+    value
+        ? new Date(value).toLocaleString("id-ID", {
+              day: "2-digit",
+              month: "short",
+              hour: "2-digit",
+              minute: "2-digit",
+          })
+        : "-";
+
+const printProfileDescriptions = {
+    browser_manual: "Cetak lewat dialog print browser biasa.",
+    rawbt_android: "Browser Android meneruskan print ke aplikasi RawBT dan printer thermal Bluetooth.",
+    qz_tray: "Browser desktop meneruskan print langsung ke QZ Tray.",
+    local_bridge: "Laravel queue dan printer agent lokal yang mengeksekusi cetak.",
+};
+
+export default function Index({ stations = [], filters = {}, outlets = [], printProfiles = {}, setupStatus = {}, ui = {}, recentPrintJobs = [] }) {
     const { flash } = usePage().props;
     const [selectedOutlet, setSelectedOutlet] = useState(filters?.outlet_id || "");
+    const [issuesOnly, setIssuesOnly] = useState(false);
     const [editingStation, setEditingStation] = useState(null);
     const [editingDevice, setEditingDevice] = useState(null);
     const stationForm = useForm(defaultStation);
@@ -47,10 +71,18 @@ export default function Index({ stations = [], filters = {}, outlets = [], setup
 
     const filteredStations = useMemo(
         () =>
-            stations.filter((station) =>
-                selectedOutlet ? String(station.outlet_id) === String(selectedOutlet) : true
-            ),
-        [stations, selectedOutlet]
+            stations
+                .filter((station) =>
+                    selectedOutlet ? String(station.outlet_id) === String(selectedOutlet) : true
+                )
+                .map((station) => ({
+                    ...station,
+                    devices: issuesOnly
+                        ? (station.devices || []).filter((device) => device.operational_status?.is_issue)
+                        : station.devices || [],
+                }))
+                .filter((station) => (issuesOnly ? (station.devices || []).length > 0 : true)),
+        [stations, selectedOutlet, issuesOnly]
     );
     const selectedOutletRecord = useMemo(
         () => outlets.find((outlet) => String(outlet.id) === String(selectedOutlet)) || null,
@@ -98,6 +130,12 @@ export default function Index({ stations = [], filters = {}, outlets = [], setup
             device_type: device.device_type || "screen",
             connection_driver: device.connection_driver || "browser",
             endpoint: device.endpoint || "",
+            print_profile: device.meta?.print_profile || "browser_manual",
+            dispatch_mode: device.meta?.dispatch_mode || "manual",
+            fallback_device_id: device.meta?.fallback_device_id ? String(device.meta.fallback_device_id) : "",
+            rawbt_intent_url: device.meta?.rawbt_intent_url || "",
+            qz_printer_name: device.meta?.qz_printer_name || "",
+            bridge_device_key: device.meta?.bridge_device_key || "",
             paper_width: device.meta?.paper_width || "80mm",
             template_style: device.meta?.template_style || "standard",
             print_copies: Number(device.meta?.print_copies ?? 1),
@@ -134,6 +172,16 @@ export default function Index({ stations = [], filters = {}, outlets = [], setup
     const runDeviceAction = (routeName, deviceId) => {
         router.post(
             route(routeName, deviceId),
+            {},
+            {
+                preserveScroll: true,
+            }
+        );
+    };
+
+    const toggleDevice = (deviceId) => {
+        router.patch(
+            route("settings.kitchen-devices.toggle", deviceId),
             {},
             {
                 preserveScroll: true,
@@ -248,22 +296,35 @@ export default function Index({ stations = [], filters = {}, outlets = [], setup
                 ) : null}
 
                 <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
-                    <div className="mb-4">
-                        <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                            Filter outlet
-                        </label>
-                        <select
-                            value={selectedOutlet}
-                            onChange={(event) => setSelectedOutlet(event.target.value)}
-                            className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm md:w-80 dark:border-slate-700 dark:bg-slate-800"
+                    <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                        <div>
+                            <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                Filter outlet
+                            </label>
+                            <select
+                                value={selectedOutlet}
+                                onChange={(event) => setSelectedOutlet(event.target.value)}
+                                className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm md:w-80 dark:border-slate-700 dark:bg-slate-800"
+                            >
+                                <option value="">Semua outlet</option>
+                                {outlets.map((outlet) => (
+                                    <option key={outlet.id} value={String(outlet.id)}>
+                                        {outlet.name}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setIssuesOnly((value) => !value)}
+                            className={`rounded-xl px-4 py-2 text-sm font-medium ${
+                                issuesOnly
+                                    ? "bg-rose-100 text-rose-700 dark:bg-rose-950/30 dark:text-rose-300"
+                                    : "border border-slate-200 text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                            }`}
                         >
-                            <option value="">Semua outlet</option>
-                            {outlets.map((outlet) => (
-                                <option key={outlet.id} value={String(outlet.id)}>
-                                    {outlet.name}
-                                </option>
-                            ))}
-                        </select>
+                            {issuesOnly ? "Menampilkan Hanya Device Bermasalah" : "Tampilkan Hanya Device Bermasalah"}
+                        </button>
                     </div>
 
                     {showStationForm ? (
@@ -354,6 +415,9 @@ export default function Index({ stations = [], filters = {}, outlets = [], setup
                                     <p className="text-sm text-slate-500 dark:text-slate-400">
                                         {station.code || "-"} • {station.station_type} • {station.display_mode}
                                     </p>
+                                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                        Device sehat: {station.operational_summary?.healthy_count || 0} • Bermasalah: {station.operational_summary?.issue_count || 0}
+                                    </p>
                                 </div>
                                 <button
                                     type="button"
@@ -398,6 +462,17 @@ export default function Index({ stations = [], filters = {}, outlets = [], setup
                                     className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
                                 />
                                 <select
+                                    value={editingDevice?.stationId === station.id ? deviceForm.data.print_profile : "browser_manual"}
+                                    onChange={(event) => deviceForm.setData("print_profile", event.target.value)}
+                                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
+                                >
+                                    {Object.entries(printProfiles).map(([value, label]) => (
+                                        <option key={value} value={value}>
+                                            {label}
+                                        </option>
+                                    ))}
+                                </select>
+                                <select
                                     value={editingDevice?.stationId === station.id ? deviceForm.data.paper_width : "80mm"}
                                     onChange={(event) => deviceForm.setData("paper_width", event.target.value)}
                                     className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
@@ -423,6 +498,52 @@ export default function Index({ stations = [], filters = {}, outlets = [], setup
                                     placeholder="Copies"
                                     className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
                                 />
+                                <select
+                                    value={editingDevice?.stationId === station.id ? deviceForm.data.dispatch_mode : "manual"}
+                                    onChange={(event) => deviceForm.setData("dispatch_mode", event.target.value)}
+                                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
+                                >
+                                    <option value="manual">Dispatch Manual</option>
+                                    <option value="auto">Dispatch Otomatis</option>
+                                </select>
+                                <select
+                                    value={editingDevice?.stationId === station.id ? deviceForm.data.fallback_device_id : ""}
+                                    onChange={(event) => deviceForm.setData("fallback_device_id", event.target.value)}
+                                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
+                                >
+                                    <option value="">Tanpa fallback device</option>
+                                    {station.devices
+                                        ?.filter((candidate) => !editingDevice?.deviceId || candidate.id !== editingDevice.deviceId)
+                                        .map((candidate) => (
+                                            <option key={candidate.id} value={String(candidate.id)}>
+                                                {candidate.name}
+                                            </option>
+                                        ))}
+                                </select>
+                                {editingDevice?.stationId === station.id && deviceForm.data.print_profile === "rawbt_android" ? (
+                                    <input
+                                        value={deviceForm.data.rawbt_intent_url}
+                                        onChange={(event) => deviceForm.setData("rawbt_intent_url", event.target.value)}
+                                        placeholder="RawBT intent / URL scheme"
+                                        className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm md:col-span-2 dark:border-slate-700 dark:bg-slate-800"
+                                    />
+                                ) : null}
+                                {editingDevice?.stationId === station.id && deviceForm.data.print_profile === "qz_tray" ? (
+                                    <input
+                                        value={deviceForm.data.qz_printer_name}
+                                        onChange={(event) => deviceForm.setData("qz_printer_name", event.target.value)}
+                                        placeholder="Nama printer di QZ Tray"
+                                        className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm md:col-span-2 dark:border-slate-700 dark:bg-slate-800"
+                                    />
+                                ) : null}
+                                {editingDevice?.stationId === station.id && deviceForm.data.print_profile === "local_bridge" ? (
+                                    <input
+                                        value={deviceForm.data.bridge_device_key}
+                                        onChange={(event) => deviceForm.setData("bridge_device_key", event.target.value)}
+                                        placeholder="Bridge device key / queue key"
+                                        className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm md:col-span-2 dark:border-slate-700 dark:bg-slate-800"
+                                    />
+                                ) : null}
                                 <div className="md:col-span-4 flex items-center gap-4">
                                     <label className="inline-flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
                                         <input
@@ -452,6 +573,20 @@ export default function Index({ stations = [], filters = {}, outlets = [], setup
                                         </button>
                                     ) : null}
                                 </div>
+                                <div className="md:col-span-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-xs text-blue-800 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-200">
+                                    {printProfileDescriptions[editingDevice?.stationId === station.id ? deviceForm.data.print_profile : "browser_manual"]}
+                                    <div className="mt-1">
+                                        {editingDevice?.stationId === station.id && deviceForm.data.print_profile === "rawbt_android"
+                                            ? "Untuk RawBT, browser Android tetap jadi UI. Printer Bluetooth ditangani aplikasi RawBT di device Android."
+                                            : null}
+                                        {editingDevice?.stationId === station.id && deviceForm.data.print_profile === "qz_tray"
+                                            ? "Untuk QZ Tray, buka aplikasi dari desktop atau mini PC yang sudah memasang QZ Tray."
+                                            : null}
+                                        {editingDevice?.stationId === station.id && deviceForm.data.print_profile === "local_bridge"
+                                            ? "Untuk Local Bridge, gunakan endpoint/queue yang akan dibaca agent printer lokal."
+                                            : null}
+                                    </div>
+                                </div>
                             </form>
                             ) : (
                                 <div className="mb-4 rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-950/30 dark:text-slate-400">
@@ -470,10 +605,35 @@ export default function Index({ stations = [], filters = {}, outlets = [], setup
                                                 {device.device_type} • {device.connection_driver} • {device.endpoint || "-"}
                                             </p>
                                             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                {printProfiles[device.meta?.print_profile || "browser_manual"] || "Browser Manual"} •{" "}
                                                 {device.meta?.paper_width || "80mm"} •{" "}
                                                 {device.meta?.template_style || "standard"} •{" "}
                                                 {device.meta?.print_copies || 1} copy
                                             </p>
+                                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                Dispatch: {device.meta?.dispatch_mode || "manual"} •{" "}
+                                                Fallback: {station.devices?.find((candidate) => candidate.id === device.meta?.fallback_device_id)?.name || "-"}
+                                            </p>
+                                            {device.meta?.rawbt_intent_url ? (
+                                                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                    RawBT: {device.meta.rawbt_intent_url}
+                                                </p>
+                                            ) : null}
+                                            {device.meta?.qz_printer_name ? (
+                                                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                    QZ Printer: {device.meta.qz_printer_name}
+                                                </p>
+                                            ) : null}
+                                            {device.meta?.bridge_device_key ? (
+                                                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                    Bridge Key: {device.meta.bridge_device_key}
+                                                </p>
+                                            ) : null}
+                                            {device.meta?.dispatch_mode === "auto" ? (
+                                                <p className="mt-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-300">
+                                                    Auto dispatch aktif. Device ini diprioritaskan untuk antrian print otomatis.
+                                                </p>
+                                            ) : null}
                                             {device.meta?.last_health_check ? (
                                                 <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                                                     Health: {device.meta.last_health_check.status} •{" "}
@@ -513,12 +673,36 @@ export default function Index({ stations = [], filters = {}, outlets = [], setup
                                             <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${device.is_active ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300" : "bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300"}`}>
                                                 {device.is_active ? "Aktif" : "Nonaktif"}
                                             </span>
+                                            <span
+                                                className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                                                    device.operational_status?.tone === "rose"
+                                                        ? "bg-rose-100 text-rose-700 dark:bg-rose-950/30 dark:text-rose-300"
+                                                        : device.operational_status?.tone === "amber"
+                                                          ? "bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300"
+                                                          : device.operational_status?.tone === "blue"
+                                                            ? "bg-blue-100 text-blue-700 dark:bg-blue-950/30 dark:text-blue-300"
+                                                            : "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300"
+                                                }`}
+                                            >
+                                                {device.operational_status?.label || "Siap"}
+                                            </span>
                                             <button
                                                 type="button"
                                                 onClick={() => startDeviceEdit(station, device)}
                                                 className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
                                             >
                                                 Edit Device
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => toggleDevice(device.id)}
+                                                className={`rounded-xl px-3 py-2 text-sm font-medium ${
+                                                    device.is_active
+                                                        ? "border border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300"
+                                                        : "border border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-300"
+                                                }`}
+                                            >
+                                                {device.is_active ? "Matikan" : "Aktifkan"}
                                             </button>
                                             <button
                                                 type="button"
@@ -539,11 +723,72 @@ export default function Index({ stations = [], filters = {}, outlets = [], setup
                                                 Test Device
                                             </button>
                                         </div>
+                                        {device.operational_status?.message ? (
+                                            <div className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+                                                {device.operational_status.message}
+                                            </div>
+                                        ) : null}
                                     </div>
                                 ))}
                             </div>
                         </div>
                     ))}
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+                    <div className="mb-4">
+                        <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+                            Riwayat Print Job Terbaru
+                        </h2>
+                        <p className="text-sm text-slate-500 dark:text-slate-400">
+                            Queue formal untuk printer kitchen. Gunakan ini untuk melihat job mana yang masih queued, sudah berhasil, atau gagal.
+                        </p>
+                    </div>
+
+                    {recentPrintJobs.length === 0 ? (
+                        <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-950/30 dark:text-slate-400">
+                            Belum ada print job yang tercatat untuk filter outlet ini.
+                        </div>
+                    ) : (
+                        <div className="space-y-3">
+                            {recentPrintJobs.map((job) => (
+                                <div
+                                    key={job.id}
+                                    className="flex flex-col gap-2 rounded-xl border border-slate-100 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/30 lg:flex-row lg:items-start lg:justify-between"
+                                >
+                                    <div>
+                                        <p className="text-sm font-semibold text-slate-800 dark:text-white">
+                                            {job.ticket_number || "Ticket"} • {job.invoice || "Tanpa nota"}
+                                        </p>
+                                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                                            {job.outlet_code || "OUT"} • {job.station_name || "-"} • {job.device_name || "-"} • {job.copies} copy
+                                        </p>
+                                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                            Queue: {formatDateTime(job.queued_at)} • Selesai: {formatDateTime(job.processed_at)} • Gagal: {formatDateTime(job.failed_at)}
+                                        </p>
+                                        {job.failure_reason ? (
+                                            <p className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-300">
+                                                {job.failure_reason}
+                                            </p>
+                                        ) : null}
+                                    </div>
+                                    <div>
+                                        <span
+                                            className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                                                job.status === "success"
+                                                    ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300"
+                                                    : job.status === "failed"
+                                                      ? "bg-rose-100 text-rose-700 dark:bg-rose-950/30 dark:text-rose-300"
+                                                      : "bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300"
+                                            }`}
+                                        >
+                                            {job.status}
+                                        </span>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </div>
             </div>
         </>

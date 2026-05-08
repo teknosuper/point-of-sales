@@ -10,6 +10,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -74,7 +75,20 @@ class AuthenticatedSessionController extends Controller
             }
         }
 
-        return redirect()->intended(route($defaultRoute, absolute: false));
+        $intendedUrl = (string) $request->session()->get('url.intended', '');
+        $loginUrl = route('login', absolute: false);
+
+        if (
+            filled($intendedUrl)
+            && ! Str::contains($intendedUrl, $loginUrl)
+            && ! Str::contains($intendedUrl, '/logout')
+        ) {
+            return redirect()->intended(route($defaultRoute, absolute: false));
+        }
+
+        $request->session()->forget('url.intended');
+
+        return redirect()->route($defaultRoute);
     }
 
     /**
@@ -99,6 +113,9 @@ class AuthenticatedSessionController extends Controller
 
         $request->session()->regenerateToken();
 
-        return redirect('/');
+        $request->session()->forget('url.intended');
+        $request->session()->forget('security.session_started_at');
+
+        return redirect()->route('login');
     }
 }

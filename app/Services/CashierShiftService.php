@@ -99,6 +99,8 @@ class CashierShiftService
             ->sum(DB::raw('COALESCE(credited_amount, 0)'));
 
         $transactionsCount = (int) (clone $transactions)->count();
+        $walkInTransactionsCount = (int) (clone $transactions)->whereNull('customer_id')->count();
+        $registeredTransactionsCount = max(0, $transactionsCount - $walkInTransactionsCount);
         $salesReturnsCount = (int) (clone $salesReturns)->count();
         $expectedCash = (int) $shift->opening_cash + $cashSalesTotal - $cashRefundTotal;
 
@@ -108,6 +110,8 @@ class CashierShiftService
             'cash_refund_total' => $cashRefundTotal,
             'non_cash_refund_total' => $nonCashRefundTotal,
             'transactions_count' => $transactionsCount,
+            'walk_in_transactions_count' => $walkInTransactionsCount,
+            'registered_transactions_count' => $registeredTransactionsCount,
             'sales_returns_count' => $salesReturnsCount,
             'expected_cash' => $expectedCash,
         ];

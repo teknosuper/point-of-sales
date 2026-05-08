@@ -4,10 +4,13 @@ namespace App\Http\Controllers\Apps;
 
 use App\Http\Controllers\Controller;
 use App\Models\Category;
+use App\Models\KitchenStation;
 use App\Models\Outlet;
 use App\Models\Product;
 use App\Models\ProductKitchenStationMapping;
+use App\Models\ProductOutletStock;
 use App\Services\AuditLogService;
+use App\Services\OutletResolver;
 use App\Services\StockMutationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -17,7 +20,8 @@ class ProductController extends Controller
 {
     public function __construct(
         private readonly StockMutationService $stockMutationService,
-        private readonly AuditLogService $auditLogService
+        private readonly AuditLogService $auditLogService,
+        private readonly OutletResolver $outletResolver
     ) {}
 
     /**
@@ -27,6 +31,8 @@ class ProductController extends Controller
      */
     public function index(Request $request)
     {
+        $activeOutletId = $this->outletResolver->resolve($request)?->id;
+
         $filters = [
             'search' => trim((string) $request->input('search', '')),
             'category_id' => $request->input('category_id', ''),
@@ -43,7 +49,14 @@ class ProductController extends Controller
         }
 
         $products = Product::query()
-            ->with(['category:id,name', 'tenantOutlet:id,name,code'])
+            ->with([
+                'category:id,name',
+                'tenantOutlet:id,name,code',
+                'outletStocks' => fn ($query) => $query
+                    ->with('outlet:id,name,code')
+                    ->orderByDesc('stock')
+                    ->orderBy('outlet_id'),
+            ])
             ->withCount([
                 'kitchenStationMappings as active_kitchen_station_mappings_count' => fn ($query) => $query->where('is_active', true),
             ])
@@ -98,7 +111,8 @@ class ProductController extends Controller
 
         $products = $products
             ->paginate($filters['per_page'])
-            ->withQueryString();
+            ->withQueryString()
+            ->through(fn (Product $product) => $this->productIndexPayload($product, $activeOutletId));
 
         $tenantOutlets = Outlet::active()->ordered()->get(['id', 'name', 'code', 'outlet_type']);
         $tenantOutletIds = $tenantOutlets
@@ -130,8 +144,67 @@ class ProductController extends Controller
                 'per_page_options' => $allowedPerPage,
                 'categories' => Category::query()->orderBy('name')->get(['id', 'name']),
                 'tenantOutlets' => $tenantOutlets,
+                'kitchenStations' => KitchenStation::query()
+                    ->with('outlet:id,name,code')
+                    ->where('is_active', true)
+                    ->orderBy('outlet_id')
+                    ->orderBy('sort_order')
+                    ->orderBy('name')
+                    ->get(['id', 'outlet_id', 'name', 'code']),
             ],
         ]);
+    }
+
+    public function bulkMapping(Request $request)
+    {
+        $data = $request->validate([
+            'product_ids' => ['required', 'array', 'min:1'],
+            'product_ids.*' => ['integer', 'exists:products,id'],
+            'apply_tenant' => ['nullable', 'boolean'],
+            'tenant_outlet_id' => ['nullable', 'exists:outlets,id'],
+            'apply_kitchen' => ['nullable', 'boolean'],
+            'kitchen_station_id' => ['nullable', 'exists:kitchen_stations,id'],
+        ]);
+
+        $products = Product::query()
+            ->whereIn('id', $data['product_ids'])
+            ->get();
+
+        if ((bool) ($data['apply_tenant'] ?? false)) {
+            $tenantOutletId = $request->filled('tenant_outlet_id')
+                ? (int) $data['tenant_outlet_id']
+                : null;
+
+            Product::query()
+                ->whereIn('id', $products->pluck('id'))
+                ->update(['tenant_outlet_id' => $tenantOutletId]);
+        }
+
+        if ((bool) ($data['apply_kitchen'] ?? false)) {
+            $stationId = $request->filled('kitchen_station_id')
+                ? (int) $data['kitchen_station_id']
+                : null;
+
+            foreach ($products as $product) {
+                $product->kitchenStationMappings()->update(['is_active' => false]);
+
+                if ($stationId) {
+                    ProductKitchenStationMapping::query()->updateOrCreate(
+                        [
+                            'product_id' => $product->id,
+                            'kitchen_station_id' => $stationId,
+                        ],
+                        [
+                            'priority' => 1,
+                            'fire_on_sale' => true,
+                            'is_active' => true,
+                        ]
+                    );
+                }
+            }
+        }
+
+        return back()->with('success', 'Bulk mapping produk berhasil diperbarui.');
     }
 
     /**
@@ -213,12 +286,76 @@ class ProductController extends Controller
     {
         // get categories
         $categories = Category::all();
+        $product->load(['outletStocks.outlet']);
+
+        $outletStocks = Outlet::active()
+            ->ordered()
+            ->get(['id', 'name', 'code', 'outlet_type'])
+            ->map(function (Outlet $outlet) use ($product) {
+                /** @var ProductOutletStock|null $existingStock */
+                $existingStock = $product->outletStocks->firstWhere('outlet_id', $outlet->id);
+
+                return [
+                    'outlet_id' => $outlet->id,
+                    'outlet_name' => $outlet->name,
+                    'outlet_code' => $outlet->code,
+                    'outlet_type' => $outlet->outlet_type,
+                    'stock' => $existingStock ? (int) $existingStock->stock : (int) $product->stock,
+                    'reorder_level' => $existingStock?->reorder_level !== null
+                        ? (int) $existingStock->reorder_level
+                        : 0,
+                    'last_counted_at' => optional($existingStock?->last_counted_at)?->toIso8601String(),
+                ];
+            })
+            ->values();
 
         return Inertia::render('Dashboard/Products/Edit', [
             'product' => $product,
             'categories' => $categories,
             'tenantOutlets' => Outlet::active()->ordered()->get(['id', 'name', 'code']),
+            'outletStocks' => $outletStocks,
         ]);
+    }
+
+    public function updateOutletStocks(Request $request, Product $product)
+    {
+        $data = $request->validate([
+            'notes' => ['nullable', 'string', 'max:255'],
+            'outlet_stocks' => ['required', 'array', 'min:1'],
+            'outlet_stocks.*.outlet_id' => ['required', 'integer', 'exists:outlets,id'],
+            'outlet_stocks.*.stock' => ['required', 'integer', 'min:0'],
+            'outlet_stocks.*.reorder_level' => ['nullable', 'integer', 'min:0'],
+        ]);
+
+        foreach ($data['outlet_stocks'] as $row) {
+            $outletId = (int) $row['outlet_id'];
+            $targetStock = (int) $row['stock'];
+            $reorderLevel = isset($row['reorder_level']) ? (int) $row['reorder_level'] : 0;
+
+            $this->stockMutationService->setPhysicalStockForOutlet(
+                product: $product,
+                outletId: $outletId,
+                stockAfter: $targetStock,
+                referenceType: 'product_admin_adjustment',
+                referenceId: $product->id,
+                notes: $data['notes'] ?: 'Adjustment stok outlet dari halaman edit produk.',
+                userId: $request->user()?->id,
+            );
+
+            ProductOutletStock::query()->updateOrCreate(
+                [
+                    'outlet_id' => $outletId,
+                    'product_id' => $product->id,
+                ],
+                [
+                    'stock' => $targetStock,
+                    'reorder_level' => $reorderLevel,
+                    'last_counted_at' => now(),
+                ]
+            );
+        }
+
+        return back()->with('success', 'Stok outlet produk berhasil diperbarui.');
     }
 
     /**
@@ -367,5 +504,47 @@ class ProductController extends Controller
             'category_id',
             'tenant_outlet_id',
         ]);
+    }
+
+    private function productIndexPayload(Product $product, ?int $activeOutletId = null): array
+    {
+        $outletStocks = $product->outletStocks
+            ->map(fn ($stock) => [
+                'id' => $stock->id,
+                'outlet_id' => $stock->outlet_id,
+                'outlet_code' => $stock->outlet?->code,
+                'outlet_name' => $stock->outlet?->name,
+                'stock' => (int) $stock->stock,
+                'reorder_level' => $stock->reorder_level !== null ? (int) $stock->reorder_level : null,
+            ])
+            ->values();
+
+        $activeOutletStock = $activeOutletId
+            ? $outletStocks->firstWhere('outlet_id', $activeOutletId)
+            : null;
+
+        return [
+            ...$product->toArray(),
+            'category' => $product->category
+                ? [
+                    'id' => $product->category->id,
+                    'name' => $product->category->name,
+                ]
+                : null,
+            'tenant_outlet' => $product->tenantOutlet
+                ? [
+                    'id' => $product->tenantOutlet->id,
+                    'name' => $product->tenantOutlet->name,
+                    'code' => $product->tenantOutlet->code,
+                ]
+                : null,
+            'active_outlet_stock' => $activeOutletStock ? (int) $activeOutletStock['stock'] : null,
+            'active_outlet_stock_label' => $activeOutletStock
+                ? sprintf('%s: %d', $activeOutletStock['outlet_code'] ?? 'Outlet aktif', $activeOutletStock['stock'])
+                : null,
+            'total_outlet_stock' => (int) $outletStocks->sum('stock'),
+            'outlet_stock_count' => $outletStocks->count(),
+            'outlet_stock_summary' => $outletStocks->take(3)->all(),
+        ];
     }
 }

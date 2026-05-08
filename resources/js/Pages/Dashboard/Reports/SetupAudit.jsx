@@ -88,7 +88,19 @@ export default function SetupAudit({
                         emptyMessage="Semua outlet sudah punya user."
                         renderItem={(outlet) => (
                             <div key={outlet.id} className="rounded-xl border border-slate-100 bg-slate-50 p-4 text-sm dark:border-slate-800 dark:bg-slate-950/30">
-                                {outlet.name} ({outlet.code}) • {outlet.outlet_type}
+                                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                                    <div>
+                                        {outlet.name} ({outlet.code}) • {outlet.outlet_type}
+                                    </div>
+                                    <div className="flex flex-wrap gap-2">
+                                        <Link href={route("outlets.show", outlet.id)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600 dark:border-slate-700 dark:text-slate-300">
+                                            Detail Outlet
+                                        </Link>
+                                        <Link href={route("outlets.index")} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600 dark:border-slate-700 dark:text-slate-300">
+                                            Assign User
+                                        </Link>
+                                    </div>
+                                </div>
                             </div>
                         )}
                     />
@@ -106,7 +118,19 @@ export default function SetupAudit({
                         emptyMessage="Semua outlet sudah punya station."
                         renderItem={(outlet) => (
                             <div key={outlet.id} className="rounded-xl border border-slate-100 bg-slate-50 p-4 text-sm dark:border-slate-800 dark:bg-slate-950/30">
-                                {outlet.name} ({outlet.code}) • {outlet.outlet_type}
+                                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                                    <div>
+                                        {outlet.name} ({outlet.code}) • {outlet.outlet_type}
+                                    </div>
+                                    <div className="flex flex-wrap gap-2">
+                                        <Link href={route("outlets.show", outlet.id)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600 dark:border-slate-700 dark:text-slate-300">
+                                            Detail Outlet
+                                        </Link>
+                                        <Link href={route("settings.kitchen-devices.index", { outlet_id: outlet.id, station_create: 1 })} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600 dark:border-slate-700 dark:text-slate-300">
+                                            Buat Station
+                                        </Link>
+                                    </div>
+                                </div>
                             </div>
                         )}
                     />
@@ -124,7 +148,16 @@ export default function SetupAudit({
                         emptyMessage="Semua station sudah punya device."
                         renderItem={(station) => (
                             <div key={station.id} className="rounded-xl border border-slate-100 bg-slate-50 p-4 text-sm dark:border-slate-800 dark:bg-slate-950/30">
-                                {station.name} ({station.code || "-"}) • {station.outlet?.name || "Outlet"}
+                                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                                    <div>
+                                        {station.name} ({station.code || "-"}) • {station.outlet?.name || "Outlet"}
+                                    </div>
+                                    <div className="flex flex-wrap gap-2">
+                                        <Link href={route("settings.kitchen-devices.index", { outlet_id: station.outlet_id, device_create: 1 })} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600 dark:border-slate-700 dark:text-slate-300">
+                                            Tambah Device
+                                        </Link>
+                                    </div>
+                                </div>
                             </div>
                         )}
                     />
@@ -142,7 +175,16 @@ export default function SetupAudit({
                         emptyMessage="Semua printer sudah punya endpoint."
                         renderItem={(device) => (
                             <div key={device.id} className="rounded-xl border border-slate-100 bg-slate-50 p-4 text-sm dark:border-slate-800 dark:bg-slate-950/30">
-                                {device.name} • {device.kitchenStation?.name || "Station"} • {device.kitchenStation?.outlet?.name || "Outlet"}
+                                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                                    <div>
+                                        {device.name} • {device.kitchenStation?.name || "Station"} • {device.kitchenStation?.outlet?.name || "Outlet"}
+                                    </div>
+                                    <div className="flex flex-wrap gap-2">
+                                        <Link href={route("settings.kitchen-devices.index", { outlet_id: device.kitchenStation?.outlet?.id || device.kitchenStation?.outlet_id })} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600 dark:border-slate-700 dark:text-slate-300">
+                                            Edit Printer
+                                        </Link>
+                                    </div>
+                                </div>
                             </div>
                         )}
                     />
@@ -160,7 +202,19 @@ export default function SetupAudit({
                         emptyMessage="Semua produk sudah punya tenant atau tenant foodcourt belum dipakai."
                         renderItem={(product) => (
                             <div key={product.id} className="rounded-xl border border-slate-100 bg-slate-50 p-4 text-sm dark:border-slate-800 dark:bg-slate-950/30">
-                                {product.title} • {product.category?.name || "Tanpa kategori"} • {product.sku || product.barcode || "-"}
+                                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                                    <div>
+                                        {product.title} • {product.category?.name || "Tanpa kategori"} • {product.sku || product.barcode || "-"}
+                                    </div>
+                                    <div className="flex flex-wrap gap-2">
+                                        <Link href={route("products.edit", product.id)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600 dark:border-slate-700 dark:text-slate-300">
+                                            Edit Produk
+                                        </Link>
+                                        <Link href={route("products.index", { mapping_status: "tenant_missing" })} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600 dark:border-slate-700 dark:text-slate-300">
+                                            Lihat Semua Gap Tenant
+                                        </Link>
+                                    </div>
+                                </div>
                             </div>
                         )}
                     />
@@ -178,7 +232,19 @@ export default function SetupAudit({
                         emptyMessage="Semua produk sudah punya mapping kitchen."
                         renderItem={(product) => (
                             <div key={product.id} className="rounded-xl border border-slate-100 bg-slate-50 p-4 text-sm dark:border-slate-800 dark:bg-slate-950/30">
-                                {product.title} • {product.tenantOutlet?.code || "Global"} • {product.category?.name || "Tanpa kategori"}
+                                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                                    <div>
+                                        {product.title} • {product.tenantOutlet?.code || "Global"} • {product.category?.name || "Tanpa kategori"}
+                                    </div>
+                                    <div className="flex flex-wrap gap-2">
+                                        <Link href={route("products.edit", product.id)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600 dark:border-slate-700 dark:text-slate-300">
+                                            Edit Produk
+                                        </Link>
+                                        <Link href={route("products.index", { mapping_status: "kitchen_missing" })} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600 dark:border-slate-700 dark:text-slate-300">
+                                            Lihat Semua Gap Kitchen
+                                        </Link>
+                                    </div>
+                                </div>
                             </div>
                         )}
                     />

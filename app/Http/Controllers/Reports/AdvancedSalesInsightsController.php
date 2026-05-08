@@ -116,7 +116,12 @@ class AdvancedSalesInsightsController extends Controller
         return $query
             ->when($filters['outlet_id'] ?? null, fn (Builder $q, $outletId) => $q->where('transactions.outlet_id', $outletId))
             ->when($filters['cashier_id'] ?? null, fn (Builder $q, $cashierId) => $q->where('transactions.cashier_id', $cashierId))
-            ->when($filters['customer_id'] ?? null, fn (Builder $q, $customerId) => $q->where('transactions.customer_id', $customerId))
+            ->when($filters['customer_id'] ?? null, function (Builder $q, $customerId) {
+                return match ((string) $customerId) {
+                    'walk_in' => $q->whereNull('transactions.customer_id'),
+                    default => $q->where('transactions.customer_id', $customerId),
+                };
+            })
             ->when($filters['start_date'] ?? null, fn (Builder $q, $startDate) => $q->whereDate('transactions.created_at', '>=', $startDate))
             ->when($filters['end_date'] ?? null, fn (Builder $q, $endDate) => $q->whereDate('transactions.created_at', '<=', $endDate))
             ->when($filters['category_id'] ?? null, function (Builder $q, $categoryId) {
@@ -132,7 +137,12 @@ class AdvancedSalesInsightsController extends Controller
             ->leftJoin('categories as c', 'c.id', '=', 'p.category_id')
             ->when($filters['outlet_id'] ?? null, fn ($q, $outletId) => $q->where('t.outlet_id', $outletId))
             ->when($filters['cashier_id'] ?? null, fn ($q, $cashierId) => $q->where('t.cashier_id', $cashierId))
-            ->when($filters['customer_id'] ?? null, fn ($q, $customerId) => $q->where('t.customer_id', $customerId))
+            ->when($filters['customer_id'] ?? null, function ($q, $customerId) {
+                return match ((string) $customerId) {
+                    'walk_in' => $q->whereNull('t.customer_id'),
+                    default => $q->where('t.customer_id', $customerId),
+                };
+            })
             ->when($filters['start_date'] ?? null, fn ($q, $startDate) => $q->whereDate('t.created_at', '>=', $startDate))
             ->when($filters['end_date'] ?? null, fn ($q, $endDate) => $q->whereDate('t.created_at', '<=', $endDate))
             ->when($filters['category_id'] ?? null, fn ($q, $categoryId) => $q->where('p.category_id', $categoryId));
@@ -345,7 +355,13 @@ class AdvancedSalesInsightsController extends Controller
     protected function cashierPerformance(array $filters): array
     {
         $transactionsByCashier = $this->applyTransactionFilters(Transaction::query(), $filters)
-            ->selectRaw('cashier_id, COUNT(*) as orders_count, COALESCE(SUM(grand_total), 0) as revenue_total')
+            ->selectRaw('
+                cashier_id,
+                COUNT(*) as orders_count,
+                COALESCE(SUM(grand_total), 0) as revenue_total,
+                SUM(CASE WHEN customer_id IS NULL THEN 1 ELSE 0 END) as walk_in_orders_count,
+                COALESCE(SUM(CASE WHEN customer_id IS NULL THEN grand_total ELSE 0 END), 0) as walk_in_revenue_total
+            ')
             ->groupBy('cashier_id');
 
         $itemsByCashier = $this->detailMetricsQuery($filters)
@@ -367,6 +383,8 @@ class AdvancedSalesInsightsController extends Controller
                 users.name as cashier_name,
                 tx.orders_count,
                 tx.revenue_total,
+                tx.walk_in_orders_count,
+                tx.walk_in_revenue_total,
                 COALESCE(items.items_sold, 0) as items_sold,
                 COALESCE(profits.profit_total, 0) as profit_total
             ')
@@ -377,18 +395,26 @@ class AdvancedSalesInsightsController extends Controller
                 'cashier_id' => (int) $row->cashier_id,
                 'cashier_name' => $row->cashier_name,
                 'orders_count' => (int) $row->orders_count,
+                'walk_in_orders_count' => (int) ($row->walk_in_orders_count ?? 0),
+                'registered_orders_count' => max(0, (int) $row->orders_count - (int) ($row->walk_in_orders_count ?? 0)),
                 'items_sold' => (int) $row->items_sold,
                 'revenue_total' => (int) round($row->revenue_total),
+                'walk_in_revenue_total' => (int) round($row->walk_in_revenue_total ?? 0),
+                'registered_revenue_total' => max(0, (int) round($row->revenue_total) - (int) round($row->walk_in_revenue_total ?? 0)),
                 'profit_total' => (int) round($row->profit_total),
                 'average_basket' => (int) ($row->orders_count > 0
                     ? round($row->revenue_total / $row->orders_count)
                     : 0),
+                'walk_in_share' => (int) $row->orders_count > 0
+                    ? round((((int) ($row->walk_in_orders_count ?? 0)) / (int) $row->orders_count) * 100, 2)
+                    : 0,
             ])
             ->all();
     }
 
     protected function repeatCustomerMetrics(array $filters): array
     {
+        $baseTransactionQuery = $this->applyTransactionFilters(Transaction::query(), $filters);
         $rows = $this->applyTransactionFilters(Transaction::query(), $filters)
             ->whereNotNull('transactions.customer_id')
             ->leftJoin('customers', 'customers.id', '=', 'transactions.customer_id')
@@ -439,6 +465,9 @@ class AdvancedSalesInsightsController extends Controller
         $memberRevenue = $rows->where('is_loyalty_member', true)->sum('revenue_total');
         $nonMemberRevenue = $rows->where('is_loyalty_member', false)->sum('revenue_total');
         $repeatRevenue = $repeatCustomers->sum('revenue_total');
+        $walkInCount = (clone $baseTransactionQuery)->whereNull('customer_id')->count();
+        $walkInRevenue = (clone $baseTransactionQuery)->whereNull('customer_id')->sum('grand_total');
+        $registeredRevenue = (clone $baseTransactionQuery)->whereNotNull('customer_id')->sum('grand_total');
 
         return [
             'summary' => [
@@ -451,6 +480,12 @@ class AdvancedSalesInsightsController extends Controller
                 'repeat_revenue_total' => (int) $repeatRevenue,
                 'member_revenue_total' => (int) $memberRevenue,
                 'non_member_revenue_total' => (int) $nonMemberRevenue,
+                'walk_in_count' => (int) $walkInCount,
+                'walk_in_revenue_total' => (int) $walkInRevenue,
+                'registered_revenue_total' => (int) $registeredRevenue,
+                'walk_in_revenue_share' => ($walkInRevenue + $registeredRevenue) > 0
+                    ? round(($walkInRevenue / ($walkInRevenue + $registeredRevenue)) * 100, 2)
+                    : 0,
                 'member_revenue_share' => ($memberRevenue + $nonMemberRevenue) > 0
                     ? round(($memberRevenue / ($memberRevenue + $nonMemberRevenue)) * 100, 2)
                     : 0,

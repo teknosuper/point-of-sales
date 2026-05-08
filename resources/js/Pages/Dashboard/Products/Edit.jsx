@@ -12,10 +12,11 @@ import {
     IconPhoto,
     IconBarcode,
     IconCurrencyDollar,
+    IconBuildingStore,
 } from "@tabler/icons-react";
 import { getProductImageUrl } from "@/Utils/imageUrl";
 
-export default function Edit({ categories, product, tenantOutlets = [] }) {
+export default function Edit({ categories, product, tenantOutlets = [], outletStocks = [] }) {
     const { errors } = usePage().props;
 
     const { data, setData, post, processing } = useForm({
@@ -29,6 +30,19 @@ export default function Edit({ categories, product, tenantOutlets = [] }) {
         buy_price: product.buy_price,
         sell_price: product.sell_price,
         _method: "PUT",
+    });
+    const {
+        data: stockData,
+        setData: setStockData,
+        patch: patchStockData,
+        processing: processingStock,
+    } = useForm({
+        notes: "",
+        outlet_stocks: outletStocks.map((row) => ({
+            outlet_id: row.outlet_id,
+            stock: row.stock,
+            reorder_level: row.reorder_level ?? 0,
+        })),
     });
 
     const [selectedCategory, setSelectedCategory] = useState(null);
@@ -62,6 +76,23 @@ export default function Edit({ categories, product, tenantOutlets = [] }) {
         post(route("products.update", product.id), {
             onSuccess: () => toast.success("Produk berhasil diperbarui"),
             onError: () => toast.error("Gagal memperbarui produk"),
+        });
+    };
+
+    const updateOutletStockRow = (index, field, value) => {
+        setStockData(
+            "outlet_stocks",
+            stockData.outlet_stocks.map((row, rowIndex) =>
+                rowIndex === index ? { ...row, [field]: value } : row
+            )
+        );
+    };
+
+    const submitOutletStocks = () => {
+        patchStockData(route("products.outlet-stocks.update", product.id), {
+            preserveScroll: true,
+            onSuccess: () => toast.success("Stok outlet berhasil diperbarui"),
+            onError: () => toast.error("Gagal memperbarui stok outlet"),
         });
     };
 
@@ -285,6 +316,106 @@ export default function Edit({ categories, product, tenantOutlets = [] }) {
                                     </div>
                                 </div>
                             )}
+                        </div>
+
+                        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">
+                            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                <div>
+                                    <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1 flex items-center gap-2">
+                                        <IconBuildingStore size={18} />
+                                        Stok per Outlet
+                                    </h3>
+                                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                                        Penyesuaian di sini akan dicatat sebagai adjustment stok outlet dan membantu admin menjaga akurasi stok multi outlet.
+                                    </p>
+                                </div>
+                                <Link
+                                    href={route("stock-opnames.index")}
+                                    className="text-xs font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400"
+                                >
+                                    Buka Stock Opname
+                                </Link>
+                            </div>
+
+                            <div className="mt-4 space-y-4">
+                                <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
+                                    <table className="min-w-full divide-y divide-slate-200 text-sm dark:divide-slate-800">
+                                        <thead className="bg-slate-50 dark:bg-slate-800/60">
+                                            <tr>
+                                                <th className="px-4 py-3 text-left font-semibold text-slate-600 dark:text-slate-300">Outlet</th>
+                                                <th className="px-4 py-3 text-left font-semibold text-slate-600 dark:text-slate-300">Tipe</th>
+                                                <th className="px-4 py-3 text-left font-semibold text-slate-600 dark:text-slate-300">Stok Fisik</th>
+                                                <th className="px-4 py-3 text-left font-semibold text-slate-600 dark:text-slate-300">Reorder Level</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                                            {outletStocks.map((row, index) => (
+                                                <tr key={row.outlet_id} className="bg-white dark:bg-slate-900">
+                                                    <td className="px-4 py-3">
+                                                        <div>
+                                                            <p className="font-medium text-slate-800 dark:text-slate-100">
+                                                                {row.outlet_code} - {row.outlet_name}
+                                                            </p>
+                                                            {row.last_counted_at ? (
+                                                                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                                    Counted: {new Date(row.last_counted_at).toLocaleString("id-ID")}
+                                                                </p>
+                                                            ) : null}
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-4 py-3">
+                                                        <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-medium uppercase tracking-wide text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                                                            {row.outlet_type || "main"}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-4 py-3">
+                                                        <input
+                                                            type="number"
+                                                            min="0"
+                                                            value={stockData.outlet_stocks[index]?.stock ?? 0}
+                                                            onChange={(e) =>
+                                                                updateOutletStockRow(index, "stock", e.target.value)
+                                                            }
+                                                            className="w-28 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                                        />
+                                                    </td>
+                                                    <td className="px-4 py-3">
+                                                        <input
+                                                            type="number"
+                                                            min="0"
+                                                            value={stockData.outlet_stocks[index]?.reorder_level ?? 0}
+                                                            onChange={(e) =>
+                                                                updateOutletStockRow(index, "reorder_level", e.target.value)
+                                                            }
+                                                            className="w-28 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                                        />
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                <Textarea
+                                    label="Catatan Adjustment"
+                                    placeholder="Contoh: hasil audit stok outlet pagi"
+                                    value={stockData.notes}
+                                    onChange={(e) => setStockData("notes", e.target.value)}
+                                    rows={2}
+                                />
+
+                                <div className="flex justify-end">
+                                    <button
+                                        type="button"
+                                        onClick={submitOutletStocks}
+                                        disabled={processingStock}
+                                        className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-primary-500 hover:bg-primary-600 text-white font-medium transition-colors disabled:opacity-50"
+                                    >
+                                        <IconDeviceFloppy size={18} />
+                                        {processingStock ? "Menyimpan Stok Outlet..." : "Simpan Stok Outlet"}
+                                    </button>
+                                </div>
+                            </div>
                         </div>
 
                         <div className="flex justify-end gap-3">

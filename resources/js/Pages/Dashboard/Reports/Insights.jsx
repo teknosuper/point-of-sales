@@ -27,6 +27,11 @@ const defaultFilters = {
     category_id: "",
 };
 
+const WALK_IN_CUSTOMER_OPTION = {
+    id: "walk_in",
+    name: "Transaksi Umum / Walk-in",
+};
+
 const formatCurrency = (value = 0) =>
     new Intl.NumberFormat("id-ID", {
         style: "currency",
@@ -195,6 +200,10 @@ export default function Insights({
     const [selectedCashier, setSelectedCashier] = useState(null);
     const [selectedCustomer, setSelectedCustomer] = useState(null);
     const [selectedCategory, setSelectedCategory] = useState(null);
+    const customerOptions = useMemo(
+        () => [WALK_IN_CUSTOMER_OPTION, ...customers],
+        [customers]
+    );
 
     const salesHourChartRef = useRef(null);
     const salesHourChart = useRef(null);
@@ -210,7 +219,9 @@ export default function Insights({
             cashiers.find((item) => String(item.id) === String(filters.cashier_id || "")) || null
         );
         setSelectedCustomer(
-            customers.find((item) => String(item.id) === String(filters.customer_id || "")) || null
+            String(filters.customer_id || "") === "walk_in"
+                ? WALK_IN_CUSTOMER_OPTION
+                : customers.find((item) => String(item.id) === String(filters.customer_id || "")) || null
         );
         setSelectedCategory(
             categories.find((item) => String(item.id) === String(filters.category_id || "")) || null
@@ -449,13 +460,13 @@ export default function Insights({
                                 />
                                 <InputSelect
                                     label="Pelanggan"
-                                    data={customers}
+                                    data={customerOptions}
                                     selected={selectedCustomer}
                                     setSelected={(value) => {
                                         setSelectedCustomer(value);
                                         handleChange("customer_id", value ? String(value.id) : "");
                                     }}
-                                    placeholder="Semua pelanggan"
+                                    placeholder="Semua pelanggan / umum"
                                     searchable
                                 />
                                 <InputSelect
@@ -530,6 +541,15 @@ export default function Insights({
                         )}
                         icon={IconCoin}
                         gradient="from-teal-500 to-teal-700"
+                    />
+                    <SummaryCard
+                        title="Walk-in Revenue Share"
+                        value={`${formatPercentage(repeatSummary.walk_in_revenue_share ?? 0)}%`}
+                        description={formatCurrency(
+                            repeatSummary.walk_in_revenue_total ?? 0
+                        )}
+                        icon={IconUsers}
+                        gradient="from-slate-500 to-slate-700"
                     />
                     <SummaryCard
                         title="Stok Perlu Perhatian"
@@ -686,6 +706,7 @@ export default function Insights({
                                 <Table.Th className="text-right">Transaksi</Table.Th>
                                 <Table.Th className="text-right">Items Sold</Table.Th>
                                 <Table.Th className="text-right">Omzet</Table.Th>
+                                <Table.Th className="text-right">Walk-in</Table.Th>
                                 <Table.Th className="text-right">Profit</Table.Th>
                                 <Table.Th className="text-right">Avg Basket</Table.Th>
                             </tr>
@@ -698,19 +719,27 @@ export default function Insights({
                                         <Table.Td className="text-right">{item.orders_count}</Table.Td>
                                         <Table.Td className="text-right">{item.items_sold}</Table.Td>
                                         <Table.Td className="text-right">{formatCurrency(item.revenue_total)}</Table.Td>
+                                        <Table.Td className="text-right">
+                                            <div className="font-semibold text-slate-900 dark:text-white">
+                                                {item.walk_in_orders_count}
+                                            </div>
+                                            <div className="text-xs text-slate-500 dark:text-slate-400">
+                                                {formatPercentage(item.walk_in_share)}%
+                                            </div>
+                                        </Table.Td>
                                         <Table.Td className="text-right">{formatCurrency(item.profit_total)}</Table.Td>
                                         <Table.Td className="text-right">{formatCurrency(item.average_basket)}</Table.Td>
                                     </tr>
                                 ))
                             ) : (
-                                <Table.Empty colSpan={6} message="Belum ada data performa kasir pada periode ini." />
+                                <Table.Empty colSpan={7} message="Belum ada data performa kasir pada periode ini." />
                             )}
                         </Table.Tbody>
                     </Table>
                 </Table.Card>
 
                 <Table.Card title="Repeat Customer Metrics">
-                    <div className="mb-4 grid gap-3 md:grid-cols-3">
+                    <div className="mb-4 grid gap-3 md:grid-cols-4">
                         <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-800/60">
                             <p className="text-sm text-slate-500 dark:text-slate-400">
                                 Repeat Revenue
@@ -738,6 +767,16 @@ export default function Insights({
                             <p className="mt-2 text-xl font-semibold text-slate-900 dark:text-white">
                                 {formatCurrency(
                                     repeatSummary.non_member_revenue_total ?? 0
+                                )}
+                            </p>
+                        </div>
+                        <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-800/60">
+                            <p className="text-sm text-slate-500 dark:text-slate-400">
+                                Revenue Walk-in
+                            </p>
+                            <p className="mt-2 text-xl font-semibold text-slate-900 dark:text-white">
+                                {formatCurrency(
+                                    repeatSummary.walk_in_revenue_total ?? 0
                                 )}
                             </p>
                         </div>

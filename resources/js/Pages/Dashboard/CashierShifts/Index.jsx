@@ -153,7 +153,7 @@ export default function Index({
                 )}
 
                 {activeShift && (
-                    <div className="grid gap-4 md:grid-cols-4">
+                    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
                         <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900/50 dark:bg-emerald-950/30">
                             <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
                                 Shift Aktif
@@ -187,6 +187,22 @@ export default function Index({
                             </p>
                             <p className="mt-2 text-lg font-semibold text-slate-900 dark:text-white">
                                 {activeShift.transactions_count}
+                            </p>
+                        </div>
+                        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/50 dark:bg-amber-950/30">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">
+                                Walk-in
+                            </p>
+                            <p className="mt-2 text-lg font-semibold text-amber-900 dark:text-amber-100">
+                                {activeShift.walk_in_transactions_count ?? 0}
+                            </p>
+                        </div>
+                        <div className="rounded-2xl border border-primary-200 bg-primary-50 p-4 dark:border-primary-900/50 dark:bg-primary-950/30">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-primary-700 dark:text-primary-300">
+                                Customer
+                            </p>
+                            <p className="mt-2 text-lg font-semibold text-primary-900 dark:text-primary-100">
+                                {activeShift.registered_transactions_count ?? 0}
                             </p>
                         </div>
                     </div>
@@ -261,6 +277,18 @@ export default function Index({
                                                 <p className="text-xs text-slate-500 dark:text-slate-400">
                                                     Modal {formatCurrency(shift.opening_cash)}
                                                 </p>
+                                                <div className="mt-2 flex flex-wrap gap-1">
+                                                    <span className="inline-flex rounded-full bg-amber-50 px-2 py-1 text-[11px] font-medium text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                                                        Walk-in:{" "}
+                                                        {shift.walk_in_transactions_count ??
+                                                            0}
+                                                    </span>
+                                                    <span className="inline-flex rounded-full bg-primary-50 px-2 py-1 text-[11px] font-medium text-primary-700 dark:bg-primary-950/40 dark:text-primary-300">
+                                                        Customer:{" "}
+                                                        {shift.registered_transactions_count ??
+                                                            0}
+                                                    </span>
+                                                </div>
                                             </div>
                                         </Table.Td>
                                         <Table.Td>

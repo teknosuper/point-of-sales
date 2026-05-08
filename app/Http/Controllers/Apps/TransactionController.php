@@ -835,6 +835,7 @@ class TransactionController extends Controller
             'invoice' => $request->input('invoice'),
             'start_date' => $request->input('start_date'),
             'end_date' => $request->input('end_date'),
+            'customer_scope' => $request->input('customer_scope'),
         ];
 
         $query = Transaction::query()
@@ -867,6 +868,12 @@ class TransactionController extends Controller
             })
             ->when($filters['end_date'], function (Builder $builder, $date) {
                 $builder->whereDate('created_at', '<=', $date);
+            })
+            ->when($filters['customer_scope'] === 'walk_in', function (Builder $builder) {
+                $builder->whereNull('customer_id');
+            })
+            ->when($filters['customer_scope'] === 'registered', function (Builder $builder) {
+                $builder->whereNotNull('customer_id');
             });
 
         $transactions = $query->paginate(10)->withQueryString();
@@ -893,6 +900,7 @@ class TransactionController extends Controller
             return [
                 ...$transaction->toArray(),
                 'can_create_sales_return' => $canCreateSalesReturn,
+                'can_create_share_campaign' => (bool) $transaction->customer_id,
             ];
         });
 

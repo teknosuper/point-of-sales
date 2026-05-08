@@ -2,6 +2,7 @@
 
 use App\Http\Middleware\EnforceAbsoluteSessionLifetime;
 use App\Http\Middleware\EnsureActiveCashierShift;
+use App\Http\Middleware\EnsureAccessibleOutletContext;
 use App\Http\Middleware\EnsureBotGuard;
 use App\Http\Middleware\EnsurePublicRegistrationEnabled;
 use App\Http\Middleware\EnsureRecentPasswordConfirmation;
@@ -9,6 +10,7 @@ use App\Http\Middleware\SecureHeaders;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Auth\AuthenticationException;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
@@ -39,6 +41,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'permission' => PermissionMiddleware::class,
             'role_or_permission' => RoleOrPermissionMiddleware::class,
             'active_shift' => EnsureActiveCashierShift::class,
+            'outlet_access' => EnsureAccessibleOutletContext::class,
             'registration.enabled' => EnsurePublicRegistrationEnabled::class,
             'bot.guard' => EnsureBotGuard::class,
             'step_up' => EnsureRecentPasswordConfirmation::class,
@@ -48,6 +51,16 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->render(function (\Throwable $exception, Request $request) {
             if ($exception instanceof ValidationException) {
                 return null;
+            }
+
+            if ($exception instanceof AuthenticationException) {
+                if ($request->expectsJson()) {
+                    return response()->json([
+                        'message' => __('Unauthenticated.'),
+                    ], Response::HTTP_UNAUTHORIZED);
+                }
+
+                return redirect()->guest(route('login'));
             }
 
             $status = match (true) {

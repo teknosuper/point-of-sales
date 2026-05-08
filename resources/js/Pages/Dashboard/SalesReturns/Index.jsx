@@ -162,7 +162,23 @@ export default function Index({ salesReturns, filters }) {
                                             {formatDate(item.created_at)}
                                         </td>
                                         <td className="px-4 py-4">
-                                            {item.customer?.name || "Umum"}
+                                            <div className="space-y-2">
+                                                <p>
+                                                    {item.customer?.name ||
+                                                        "Umum / Walk-in"}
+                                                </p>
+                                                <span
+                                                    className={`inline-flex rounded-full px-2 py-1 text-[11px] font-medium ${
+                                                        item.customer_id
+                                                            ? "bg-primary-50 text-primary-700 dark:bg-primary-950/40 dark:text-primary-300"
+                                                            : "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
+                                                    }`}
+                                                >
+                                                    {item.customer_id
+                                                        ? "Customer"
+                                                        : "Walk-in"}
+                                                </span>
+                                            </div>
                                         </td>
                                         <td className="px-4 py-4">
                                             {item.return_type === "store_credit"

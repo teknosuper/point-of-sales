@@ -560,8 +560,8 @@ class CustomerController extends Controller
     private function transactionQuery(Customer $customer, ?int $outletId = null)
     {
         return Transaction::query()
-            ->where('customer_id', $customer->id)
-            ->when($outletId, fn ($query) => $query->where('outlet_id', $outletId));
+            ->where('transactions.customer_id', $customer->id)
+            ->when($outletId, fn ($query) => $query->where('transactions.outlet_id', $outletId));
     }
 
     private function activeOutletId(Request $request): ?int

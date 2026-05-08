@@ -149,6 +149,8 @@ class SalesReportController extends Controller
                 ? (int) round($totals->revenue_total / $totals->orders_count)
                 : 0,
         ];
+        $summary['walk_in_count'] = (clone $aggregateQuery)->whereNull('customer_id')->count();
+        $summary['registered_customer_count'] = max(0, $summary['orders_count'] - $summary['walk_in_count']);
         $tenantSummary['management_fee_total'] = (int) round($tenantMetricAllocations->sum('management_fee_total'));
         $tenantSummary['tenant_payout_total'] = (int) round($tenantMetricAllocations->sum('tenant_payout_total'));
 
@@ -190,7 +192,12 @@ class SalesReportController extends Controller
             ->when($filters['outlet_id'] ?? null, fn ($q, $outletId) => $q->where('outlet_id', $outletId))
             ->when($filters['invoice'] ?? null, fn ($q, $invoice) => $q->where('invoice', 'like', '%'.$invoice.'%'))
             ->when($filters['cashier_id'] ?? null, fn ($q, $cashier) => $q->where('cashier_id', $cashier))
-            ->when($filters['customer_id'] ?? null, fn ($q, $customer) => $q->where('customer_id', $customer))
+            ->when($filters['customer_id'] ?? null, function ($q, $customer) {
+                return match ((string) $customer) {
+                    'walk_in' => $q->whereNull('customer_id'),
+                    default => $q->where('customer_id', $customer),
+                };
+            })
             ->when($filters['start_date'] ?? null, fn ($q, $start) => $q->whereDate('created_at', '>=', $start))
             ->when($filters['end_date'] ?? null, fn ($q, $end) => $q->whereDate('created_at', '<=', $end));
     }
@@ -201,7 +208,12 @@ class SalesReportController extends Controller
             ->when($filters['outlet_id'] ?? null, fn ($q, $outletId) => $q->where('outlet_id', $outletId))
             ->when($filters['invoice'] ?? null, fn ($q, $invoice) => $q->whereHas('transaction', fn ($transactionQuery) => $transactionQuery->where('invoice', 'like', '%'.$invoice.'%')))
             ->when($filters['cashier_id'] ?? null, fn ($q, $cashierId) => $q->where('cashier_id', $cashierId))
-            ->when($filters['customer_id'] ?? null, fn ($q, $customerId) => $q->whereHas('transaction', fn ($transactionQuery) => $transactionQuery->where('customer_id', $customerId)))
+            ->when($filters['customer_id'] ?? null, function ($q, $customerId) {
+                return match ((string) $customerId) {
+                    'walk_in' => $q->whereHas('transaction', fn ($transactionQuery) => $transactionQuery->whereNull('customer_id')),
+                    default => $q->whereHas('transaction', fn ($transactionQuery) => $transactionQuery->where('customer_id', $customerId)),
+                };
+            })
             ->when($filters['tenant_outlet_id'] ?? null, fn ($q, $tenantOutletId) => $q->where('tenant_outlet_id', $tenantOutletId))
             ->when($filters['settlement_status'] ?? null, function ($q, $status) {
                 return match ($status) {

@@ -70,6 +70,21 @@ export default function Show({ cashierShift, canForceClose = false }) {
     const difference = actualCash === ""
         ? null
         : actualCashNumber - Number(cashierShift.expected_cash || 0);
+    const totalTransactions = Number(cashierShift.transactions_count || 0);
+    const walkInTransactions = Number(
+        cashierShift.walk_in_transactions_count || 0
+    );
+    const registeredTransactions = Number(
+        cashierShift.registered_transactions_count || 0
+    );
+    const walkInShare =
+        totalTransactions > 0
+            ? ((walkInTransactions / totalTransactions) * 100).toFixed(0)
+            : "0";
+    const registeredShare =
+        totalTransactions > 0
+            ? ((registeredTransactions / totalTransactions) * 100).toFixed(0)
+            : "0";
 
     const handleCloseShift = (event) => {
         event.preventDefault();
@@ -118,11 +133,13 @@ export default function Show({ cashierShift, canForceClose = false }) {
                     </span>
                 </div>
 
-                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
                     <MetricCard title="Modal Awal" value={formatCurrency(cashierShift.opening_cash)} icon={IconWallet} />
                     <MetricCard title="Expected Cash" value={formatCurrency(cashierShift.expected_cash)} icon={IconCashBanknote} />
                     <MetricCard title="Penjualan Tunai" value={formatCurrency(cashierShift.cash_sales_total)} icon={IconReceipt} />
                     <MetricCard title="Refund Tunai" value={formatCurrency(cashierShift.cash_refund_total)} icon={IconRotateClockwise2} />
+                    <MetricCard title="Transaksi Walk-in" value={walkInTransactions.toLocaleString("id-ID")} icon={IconReceipt} />
+                    <MetricCard title="Customer Terdaftar" value={registeredTransactions.toLocaleString("id-ID")} icon={IconReceipt} />
                 </div>
 
                 <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
@@ -152,6 +169,14 @@ export default function Show({ cashierShift, canForceClose = false }) {
                                 <p className="mt-2 text-sm text-slate-900 dark:text-white">{cashierShift.transactions_count}</p>
                             </div>
                             <div>
+                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Transaksi Walk-in</p>
+                                <p className="mt-2 text-sm text-slate-900 dark:text-white">{walkInTransactions}</p>
+                            </div>
+                            <div>
+                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Customer Terdaftar</p>
+                                <p className="mt-2 text-sm text-slate-900 dark:text-white">{registeredTransactions}</p>
+                            </div>
+                            <div>
                                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Total Retur</p>
                                 <p className="mt-2 text-sm text-slate-900 dark:text-white">{cashierShift.sales_returns_count}</p>
                             </div>
@@ -166,6 +191,18 @@ export default function Show({ cashierShift, canForceClose = false }) {
                         </div>
 
                         <div className="mt-5 grid gap-4 md:grid-cols-2">
+                            <div className="rounded-2xl bg-amber-50 p-4 dark:bg-amber-950/20">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">Komposisi Walk-in</p>
+                                <p className="mt-2 text-sm text-amber-900 dark:text-amber-100">
+                                    {walkInTransactions} transaksi, sekitar {walkInShare}% dari total shift.
+                                </p>
+                            </div>
+                            <div className="rounded-2xl bg-primary-50 p-4 dark:bg-primary-950/20">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-primary-700 dark:text-primary-300">Komposisi Customer</p>
+                                <p className="mt-2 text-sm text-primary-900 dark:text-primary-100">
+                                    {registeredTransactions} transaksi, sekitar {registeredShare}% dari total shift.
+                                </p>
+                            </div>
                             <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-800/60">
                                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Catatan Shift</p>
                                 <p className="mt-2 text-sm text-slate-700 dark:text-slate-300">{cashierShift.notes || "Tidak ada catatan pembukaan."}</p>

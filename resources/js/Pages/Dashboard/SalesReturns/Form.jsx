@@ -31,6 +31,7 @@ export default function SalesReturnForm({
     canComplete = false,
     completeRoute = null,
 }) {
+    const isWalkInTransaction = !transaction.customer;
     const itemDefaults = useMemo(
         () =>
             transaction.details.map((detail) => ({
@@ -238,7 +239,7 @@ export default function SalesReturnForm({
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                     <InfoCard
                         label="Pelanggan"
-                        value={transaction.customer?.name || "Umum"}
+                        value={transaction.customer?.name || "Umum / Walk-in"}
                     />
                     <InfoCard
                         label="Metode Bayar"
@@ -385,7 +386,7 @@ export default function SalesReturnForm({
                                     </label>
                                     <select
                                         value={form.data.return_type}
-                                        disabled={!canEdit || !transaction.customer}
+                                        disabled={!canEdit || isWalkInTransaction}
                                         onChange={(event) =>
                                             form.setData(
                                                 "return_type",
@@ -397,16 +398,17 @@ export default function SalesReturnForm({
                                         <option value="refund_cash">
                                             Refund Tunai
                                         </option>
-                                        {transaction.customer && (
+                                        {!isWalkInTransaction && (
                                             <option value="store_credit">
                                                 Saldo Toko / Credit
                                             </option>
                                         )}
                                     </select>
-                                    {!transaction.customer && (
-                                        <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                                            Transaksi tanpa pelanggan hanya
-                                            dapat memakai refund tunai.
+                                    {isWalkInTransaction && (
+                                        <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
+                                            Transaksi umum hanya dapat memakai
+                                            refund tunai karena tidak ada profil
+                                            customer untuk menerima saldo toko.
                                         </p>
                                     )}
                                 </div>

@@ -12,6 +12,17 @@ import {
 import { CustomerHistoryButton } from "./CustomerHistoryPanel";
 import AddCustomerModal from "./AddCustomerModal";
 
+const WALK_IN_CUSTOMER = {
+    id: "walk_in",
+    name: "Pelanggan Umum / Walk-in",
+    no_telp: "",
+    member_code: "",
+    is_loyalty_member: false,
+    is_walk_in: true,
+    loyalty_tier: null,
+    loyalty_points: 0,
+};
+
 export default function CustomerSelect({
     customers = [],
     selected,
@@ -29,11 +40,21 @@ export default function CustomerSelect({
     const inputRef = useRef(null);
 
     // Filter customers by search
-    const filteredCustomers = customers.filter(
-        (customer) =>
-            customer.name.toLowerCase().includes(search.toLowerCase()) ||
-            customer.no_telp?.toLowerCase().includes(search.toLowerCase()) ||
-            customer.member_code?.toLowerCase().includes(search.toLowerCase())
+    const filteredCustomers = [
+        WALK_IN_CUSTOMER,
+        ...customers.filter(
+            (customer) =>
+                customer.name.toLowerCase().includes(search.toLowerCase()) ||
+                customer.no_telp?.toLowerCase().includes(search.toLowerCase()) ||
+                customer.member_code?.toLowerCase().includes(search.toLowerCase())
+        ),
+    ].filter((customer) =>
+        customer.is_walk_in
+            ? customer.name.toLowerCase().includes(search.toLowerCase()) ||
+              "umum".includes(search.toLowerCase()) ||
+              "walk-in".includes(search.toLowerCase()) ||
+              "walk in".includes(search.toLowerCase())
+            : true
     );
 
     // Close on click outside
@@ -73,7 +94,7 @@ export default function CustomerSelect({
     };
 
     const handleUpgradeMember = async () => {
-        if (!selected || selected.is_loyalty_member) {
+        if (!selected || selected.is_loyalty_member || selected.is_walk_in) {
             return;
         }
 
@@ -148,18 +169,20 @@ export default function CustomerSelect({
                                     <p className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">
                                         {selected.name}
                                     </p>
-                                    {selected.no_telp && (
+                                    {!selected.is_walk_in && selected.no_telp && (
                                         <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
                                             {selected.no_telp}
                                         </p>
                                     )}
-                                    {selected.member_code ? (
+                                    {!selected.is_walk_in && selected.member_code ? (
                                         <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
                                             {selected.member_code}
                                         </p>
                                     ) : null}
                                     <p className="text-[11px] text-primary-500 dark:text-primary-300 truncate">
-                                        {selected.is_loyalty_member
+                                        {selected.is_walk_in
+                                            ? "Transaksi umum tanpa customer terdaftar"
+                                            : selected.is_loyalty_member
                                             ? `${selected.loyalty_tier} • ${selected.loyalty_points || 0} poin`
                                             : "Non-member"}
                                     </p>
@@ -179,14 +202,16 @@ export default function CustomerSelect({
                     </button>
 
                     {/* History Button - Show when customer is selected */}
-                    {selected && (
+                    {selected && !selected.is_walk_in && (
                         <CustomerHistoryButton
                             customerId={selected.id}
                             customerName={selected.name}
                         />
                     )}
 
-                    {selected && !selected.is_loyalty_member ? (
+                    {selected &&
+                    !selected.is_walk_in &&
+                    !selected.is_loyalty_member ? (
                         <button
                             type="button"
                             onClick={handleUpgradeMember}
@@ -291,16 +316,20 @@ export default function CustomerSelect({
                                                         {customer.name}
                                                     </p>
                                                     <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
-                                                        {customer.no_telp ||
-                                                            "-"}
+                                                        {customer.is_walk_in
+                                                            ? "Tanpa customer terdaftar"
+                                                            : customer.no_telp ||
+                                                              "-"}
                                                     </p>
-                                                    {customer.member_code ? (
+                                                    {!customer.is_walk_in && customer.member_code ? (
                                                         <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
                                                             {customer.member_code}
                                                         </p>
                                                     ) : null}
                                                     <p className="text-[11px] text-primary-500 dark:text-primary-300 truncate">
-                                                        {customer.is_loyalty_member
+                                                        {customer.is_walk_in
+                                                            ? "Umum / Walk-in"
+                                                            : customer.is_loyalty_member
                                                             ? `${customer.loyalty_tier} • ${customer.loyalty_points || 0} poin`
                                                             : "Non-member"}
                                                     </p>

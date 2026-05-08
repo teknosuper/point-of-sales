@@ -9,9 +9,12 @@ use Symfony\Component\HttpFoundation\Response;
 
 class EnsureBotGuard
 {
-    public function handle(Request $request, Closure $next): Response
+    public function handle(Request $request, Closure $next, ?string $mode = null): Response
     {
-        BotGuard::validate($request);
+        BotGuard::validate(
+            $request,
+            skipMinimumDelay: $mode === 'login'
+        );
 
         return $next($request);
     }

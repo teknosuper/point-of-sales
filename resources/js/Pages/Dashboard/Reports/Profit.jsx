@@ -47,6 +47,11 @@ const defaultFilters = {
     customer_id: "",
 };
 
+const WALK_IN_CUSTOMER_OPTION = {
+    id: "walk_in",
+    name: "Transaksi Umum / Walk-in",
+};
+
 const formatCurrency = (value = 0) =>
     new Intl.NumberFormat("id-ID", {
         style: "currency",
@@ -57,6 +62,7 @@ const formatCurrency = (value = 0) =>
 const ProfitReport = ({
     transactions,
     summary,
+    cashierSummary = [],
     filters,
     cashiers,
     customers,
@@ -68,6 +74,7 @@ const ProfitReport = ({
     });
     const [selectedCashier, setSelectedCashier] = useState(null);
     const [selectedCustomer, setSelectedCustomer] = useState(null);
+    const customerOptions = [WALK_IN_CUSTOMER_OPTION, ...customers];
 
     useEffect(() => {
         setFilterData({ ...defaultFilters, ...filters });
@@ -75,7 +82,10 @@ const ProfitReport = ({
             cashiers.find((c) => String(c.id) === filters.cashier_id) || null
         );
         setSelectedCustomer(
-            customers.find((c) => String(c.id) === filters.customer_id) || null
+            String(filters.customer_id || "") === "walk_in"
+                ? WALK_IN_CUSTOMER_OPTION
+                : customers.find((c) => String(c.id) === filters.customer_id) ||
+                      null
         );
     }, [filters, cashiers, customers]);
 
@@ -122,6 +132,8 @@ const ProfitReport = ({
         margin: summary?.margin ?? 0,
         best_invoice: summary?.best_invoice ?? "-",
         best_profit: summary?.best_profit ?? 0,
+        walk_in_count: summary?.walk_in_count ?? 0,
+        registered_customer_count: summary?.registered_customer_count ?? 0,
     };
 
     const summaryCards = [
@@ -152,6 +164,20 @@ const ProfitReport = ({
             description: formatCurrency(stats.best_profit),
             icon: <IconReceipt />,
             gradient: "from-accent-500 to-accent-700",
+        },
+        {
+            title: "Transaksi Walk-in",
+            value: stats.walk_in_count.toLocaleString("id-ID"),
+            description: `${stats.orders_count > 0 ? ((stats.walk_in_count / stats.orders_count) * 100).toFixed(0) : 0}% dari transaksi`,
+            icon: <IconReceipt />,
+            gradient: "from-amber-500 to-amber-700",
+        },
+        {
+            title: "Customer Terdaftar",
+            value: stats.registered_customer_count.toLocaleString("id-ID"),
+            description: `${stats.orders_count > 0 ? ((stats.registered_customer_count / stats.orders_count) * 100).toFixed(0) : 0}% dari transaksi`,
+            icon: <IconTrendingUp />,
+            gradient: "from-sky-500 to-sky-700",
         },
     ];
 
@@ -188,11 +214,95 @@ const ProfitReport = ({
                 </div>
 
                 {/* Summary Cards */}
-                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
                     {summaryCards.map((card) => (
                         <SummaryCard key={card.title} {...card} />
                     ))}
                 </div>
+
+                {cashierSummary.length > 0 && (
+                    <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+                        <div className="mb-4">
+                            <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+                                Ringkasan Profit per Kasir
+                            </h2>
+                            <p className="text-sm text-slate-500 dark:text-slate-400">
+                                Melihat kontribusi profit dan komposisi transaksi umum vs customer terdaftar.
+                            </p>
+                        </div>
+
+                        <div className="overflow-x-auto">
+                            <table className="w-full">
+                                <thead>
+                                    <tr className="border-b border-slate-100 dark:border-slate-800">
+                                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500">
+                                            Kasir
+                                        </th>
+                                        <th className="px-4 py-3 text-center text-xs font-semibold uppercase text-slate-500">
+                                            Order
+                                        </th>
+                                        <th className="px-4 py-3 text-center text-xs font-semibold uppercase text-slate-500">
+                                            Walk-in
+                                        </th>
+                                        <th className="px-4 py-3 text-center text-xs font-semibold uppercase text-slate-500">
+                                            Customer
+                                        </th>
+                                        <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500">
+                                            Revenue
+                                        </th>
+                                        <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500">
+                                            Profit
+                                        </th>
+                                        <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500">
+                                            Avg Profit
+                                        </th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                    {cashierSummary.map((item) => (
+                                        <tr
+                                            key={item.cashier_id}
+                                            className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+                                        >
+                                            <td className="px-4 py-4">
+                                                <div>
+                                                    <p className="font-semibold text-slate-900 dark:text-white">
+                                                        {item.cashier_name || "-"}
+                                                    </p>
+                                                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                                                        Walk-in share {item.walk_in_share}%
+                                                    </p>
+                                                </div>
+                                            </td>
+                                            <td className="px-4 py-4 text-center text-sm text-slate-700 dark:text-slate-300">
+                                                {item.orders_count}
+                                            </td>
+                                            <td className="px-4 py-4 text-center">
+                                                <span className="inline-flex rounded-full bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                                                    {item.walk_in_count}
+                                                </span>
+                                            </td>
+                                            <td className="px-4 py-4 text-center">
+                                                <span className="inline-flex rounded-full bg-primary-50 px-2 py-1 text-xs font-medium text-primary-700 dark:bg-primary-950/40 dark:text-primary-300">
+                                                    {item.registered_customer_count}
+                                                </span>
+                                            </td>
+                                            <td className="px-4 py-4 text-right text-sm text-slate-900 dark:text-white">
+                                                {formatCurrency(item.revenue_total)}
+                                            </td>
+                                            <td className="px-4 py-4 text-right text-sm font-semibold text-success-600 dark:text-success-400">
+                                                {formatCurrency(item.profit_total)}
+                                            </td>
+                                            <td className="px-4 py-4 text-right text-sm text-slate-700 dark:text-slate-300">
+                                                {formatCurrency(item.average_profit)}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                )}
 
                 {/* Filters */}
                 {showFilters && (
@@ -264,7 +374,7 @@ const ProfitReport = ({
                                 />
                                 <InputSelect
                                     label="Pelanggan"
-                                    data={customers}
+                                    data={customerOptions}
                                     selected={selectedCustomer}
                                     setSelected={(v) => {
                                         setSelectedCustomer(v);
@@ -273,7 +383,7 @@ const ProfitReport = ({
                                             v ? String(v.id) : ""
                                         );
                                     }}
-                                    placeholder="Semua pelanggan"
+                                    placeholder="Semua pelanggan / umum"
                                     searchable
                                 />
                             </div>
@@ -352,8 +462,24 @@ const ProfitReport = ({
                                             <td className="px-4 py-4 text-sm text-slate-600 dark:text-slate-400">
                                                 {trx.cashier?.name ?? "-"}
                                             </td>
-                                            <td className="px-4 py-4 text-sm text-slate-600 dark:text-slate-400">
-                                                {trx.customer?.name ?? "-"}
+                                            <td className="px-4 py-4">
+                                                <div className="space-y-2">
+                                                    <p className="text-sm text-slate-600 dark:text-slate-400">
+                                                        {trx.customer?.name ??
+                                                            "Umum / Walk-in"}
+                                                    </p>
+                                                    <span
+                                                        className={`inline-flex items-center rounded-full px-2 py-1 text-[11px] font-medium ${
+                                                            trx.customer_id
+                                                                ? "bg-primary-50 text-primary-700 dark:bg-primary-950/40 dark:text-primary-300"
+                                                                : "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
+                                                        }`}
+                                                    >
+                                                        {trx.customer_id
+                                                            ? "Customer"
+                                                            : "Walk-in"}
+                                                    </span>
+                                                </div>
                                             </td>
                                             <td className="px-4 py-4 text-center">
                                                 <span className="px-2 py-0.5 text-xs font-medium bg-primary-100 dark:bg-primary-900/50 text-primary-700 dark:text-primary-400 rounded-full">
@@ -415,7 +541,21 @@ const ProfitReport = ({
                                             <p className="text-xs text-slate-500 dark:text-slate-400">
                                                 Pelanggan
                                             </p>
-                                            <p className="font-medium">{trx.customer?.name ?? "-"}</p>
+                                            <p className="font-medium">
+                                                {trx.customer?.name ??
+                                                    "Umum / Walk-in"}
+                                            </p>
+                                            <span
+                                                className={`mt-1 inline-flex items-center rounded-full px-2 py-1 text-[11px] font-medium ${
+                                                    trx.customer_id
+                                                        ? "bg-primary-50 text-primary-700 dark:bg-primary-950/40 dark:text-primary-300"
+                                                        : "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
+                                                }`}
+                                            >
+                                                {trx.customer_id
+                                                    ? "Customer"
+                                                    : "Walk-in"}
+                                            </span>
                                         </div>
                                         <div>
                                             <p className="text-xs text-slate-500 dark:text-slate-400">

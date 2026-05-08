@@ -6,6 +6,8 @@ use App\Http\Controllers\Auth\NewPasswordController;
 use App\Http\Controllers\Auth\PasswordController;
 use App\Http\Controllers\Auth\PasswordResetLinkController;
 use App\Http\Controllers\Auth\RegisteredUserController;
+use App\Support\BotGuard;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware('guest')->group(function () {
@@ -19,8 +21,14 @@ Route::middleware('guest')->group(function () {
     Route::get('login', [AuthenticatedSessionController::class, 'create'])
         ->name('login');
 
+    Route::get('bot-guard/payload', function (Request $request) {
+        return response()->json([
+            'botGuard' => BotGuard::payload(),
+        ]);
+    })->name('bot-guard.payload');
+
     Route::post('login', [AuthenticatedSessionController::class, 'store'])
-        ->middleware('bot.guard');
+        ->middleware('bot.guard:login');
 
     Route::get('forgot-password', [PasswordResetLinkController::class, 'create'])
         ->name('password.request');

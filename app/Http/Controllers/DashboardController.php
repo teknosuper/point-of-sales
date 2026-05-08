@@ -46,6 +46,8 @@ class DashboardController extends Controller
         $totalProfit = (clone $profitQuery)->sum('total');
         $averageOrder = (clone $transactionQuery)->avg('grand_total') ?? 0;
         $todayTransactions = (clone $transactionQuery)->whereDate('created_at', Carbon::today())->count();
+        $walkInTransactions = (clone $transactionQuery)->whereNull('customer_id')->count();
+        $memberTransactions = max(0, $totalTransactions - $walkInTransactions);
 
         // New: Today's Sales and Profit
         $todaySales = (clone $transactionQuery)->whereDate('created_at', Carbon::today())->sum('grand_total');
@@ -306,6 +308,8 @@ class DashboardController extends Controller
             'totalProfit' => (int) $totalProfit,
             'averageOrder' => (int) round($averageOrder),
             'todayTransactions' => (int) $todayTransactions,
+            'walkInTransactions' => (int) $walkInTransactions,
+            'memberTransactions' => (int) $memberTransactions,
             'todaySales' => (int) $todaySales,
             'todayProfit' => (int) $todayProfit,
             'monthlyTarget' => (int) $monthlyTarget,

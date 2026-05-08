@@ -154,6 +154,11 @@ class CrmCampaignController extends Controller
     public function shareTransaction(Transaction $transaction, Request $request)
     {
         $this->ensureOutletAccess($request, $transaction->outlet_id);
+
+        if (! $transaction->customer_id) {
+            return back()->with('error', 'Transaksi umum / walk-in tidak bisa dibuatkan campaign customer.');
+        }
+
         $campaign = $this->crmAutomationService->createInvoiceShareCampaignForTransaction($transaction, $request->user()->id);
 
         return redirect()

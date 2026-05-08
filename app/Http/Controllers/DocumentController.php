@@ -8,6 +8,7 @@ use App\Models\Receivable;
 use App\Models\Transaction;
 use App\Services\OutletResolver;
 use Barryvdh\DomPDF\Facade\Pdf;
+use Illuminate\Http\Request;
 use Picqer\Barcode\BarcodeGeneratorPNG;
 
 class DocumentController extends Controller
@@ -62,13 +63,25 @@ class DocumentController extends Controller
         return 'data:image/png;base64,'.base64_encode($data);
     }
 
-    public function invoice(string $invoice)
+    private function ensureUserCanAccessOutlet(Request $request, ?int $outletId): void
+    {
+        $user = $request->user();
+
+        if (! $user || $user->isSuperAdmin() || ! $outletId) {
+            return;
+        }
+
+        abort_unless($user->hasAccessToOutlet($outletId), 403);
+    }
+
+    public function invoice(Request $request, string $invoice)
     {
         $this->ensureFontDirectory();
 
         $transaction = Transaction::with(['details.product', 'cashier', 'customer', 'outlet'])
             ->where('invoice', $invoice)
             ->firstOrFail();
+        $this->ensureUserCanAccessOutlet($request, $transaction->outlet_id);
 
         $pdf = Pdf::loadView('pdf.invoice', [
             'transaction' => $transaction,
@@ -82,18 +95,19 @@ class DocumentController extends Controller
     /**
      * Public version of invoice (no auth needed).
      */
-    public function publicInvoice(string $invoice)
+    public function publicInvoice(Request $request, string $invoice)
     {
-        return $this->invoice($invoice);
+        return $this->invoice($request, $invoice);
     }
 
-    public function receipt(string $invoice, string $size = '80')
+    public function receipt(Request $request, string $invoice, string $size = '80')
     {
         $this->ensureFontDirectory();
 
         $transaction = Transaction::with(['details.product', 'cashier', 'customer', 'outlet'])
             ->where('invoice', $invoice)
             ->firstOrFail();
+        $this->ensureUserCanAccessOutlet($request, $transaction->outlet_id);
 
         $template = $size === '58' ? 'pdf.receipt_58' : 'pdf.receipt_80';
         $width = $size === '58' ? 164.4 : 226.8; // points (mm*2.8346)
@@ -106,13 +120,14 @@ class DocumentController extends Controller
         return $pdf->stream("receipt-{$transaction->invoice}-{$size}.pdf");
     }
 
-    public function shipping(string $invoice)
+    public function shipping(Request $request, string $invoice)
     {
         $this->ensureFontDirectory();
 
         $transaction = Transaction::with(['details.product', 'customer', 'cashier', 'outlet'])
             ->where('invoice', $invoice)
             ->firstOrFail();
+        $this->ensureUserCanAccessOutlet($request, $transaction->outlet_id);
 
         $pdf = Pdf::loadView('pdf.shipping_label', [
             'transaction' => $transaction,
@@ -127,9 +142,10 @@ class DocumentController extends Controller
         return $pdf->stream("shipping-{$transaction->invoice}.pdf");
     }
 
-    public function receivable(Receivable $receivable)
+    public function receivable(Request $request, Receivable $receivable)
     {
         $this->ensureFontDirectory();
+        $this->ensureUserCanAccessOutlet($request, $receivable->outlet_id);
 
         $receivable->load(['customer', 'payments.bankAccount', 'payments.user', 'outlet']);
 
@@ -142,9 +158,10 @@ class DocumentController extends Controller
         return $pdf->stream("piutang-{$receivable->invoice}.pdf");
     }
 
-    public function payable(Payable $payable)
+    public function payable(Request $request, Payable $payable)
     {
         $this->ensureFontDirectory();
+        $this->ensureUserCanAccessOutlet($request, $payable->outlet_id);
 
         $payable->load(['supplier', 'payments.bankAccount', 'payments.user', 'outlet']);
 

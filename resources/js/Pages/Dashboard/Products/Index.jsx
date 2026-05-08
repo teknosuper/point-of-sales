@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
-import { Head, Link, router } from "@inertiajs/react";
+import { Head, Link, router, usePage } from "@inertiajs/react";
 import Button from "@/Components/Dashboard/Button";
 import {
     IconAdjustmentsHorizontal,
@@ -43,12 +43,51 @@ const defaultFilters = {
 const castFilterValue = (value, fallback = "") =>
     value === null || value === undefined ? fallback : String(value);
 
+function OutletStockSummary({ product, activeOutletName = "Outlet aktif" }) {
+    const outletStocks = product.outlet_stock_summary ?? [];
+    const outletStockCount = Number(product.outlet_stock_count ?? 0);
+
+    if (outletStockCount === 0) {
+        return (
+            <p className="text-xs text-slate-400 dark:text-slate-500">
+                Belum ada stok outlet.
+            </p>
+        );
+    }
+
+    return (
+        <div className="space-y-1">
+            <p className="text-xs font-medium text-slate-600 dark:text-slate-300">
+                {product.active_outlet_stock !== null && product.active_outlet_stock !== undefined
+                    ? `${activeOutletName}: ${product.active_outlet_stock}`
+                    : `Total semua outlet: ${product.total_outlet_stock ?? 0}`}
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+                {outletStocks.map((stock) => (
+                    <span
+                        key={`${product.id}-${stock.outlet_id}`}
+                        className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+                    >
+                        {stock.outlet_code || "OUT"} {stock.stock}
+                    </span>
+                ))}
+                {outletStockCount > outletStocks.length ? (
+                    <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                        +{outletStockCount - outletStocks.length} outlet
+                    </span>
+                ) : null}
+            </div>
+        </div>
+    );
+}
+
 function ProductCard({
     product,
     isSelected,
     onToggle,
     canUpdate,
     canDelete,
+    activeOutletName,
 }) {
     const lowStock = product.stock > 0 && product.stock <= 5;
     const outOfStock = product.stock === 0;
@@ -193,6 +232,12 @@ function ProductCard({
                             </span>
                         ) : null}
                     </div>
+                    <div className="mt-2 border-t border-slate-100 pt-2 dark:border-slate-800">
+                        <OutletStockSummary
+                            product={product}
+                            activeOutletName={activeOutletName}
+                        />
+                    </div>
                 </div>
             </div>
         </div>
@@ -201,11 +246,18 @@ function ProductCard({
 
 export default function Index({ products, filters = {}, setupStatus = {}, meta = {} }) {
     const { can } = useAuthorization();
+    const { activeOutlet } = usePage().props;
     const [viewMode, setViewMode] = useState("grid");
     const [showFilters, setShowFilters] = useState(false);
     const [showBarcodeModal, setShowBarcodeModal] = useState(false);
     const [singleProductBarcode, setSingleProductBarcode] = useState(null);
     const [selectedProducts, setSelectedProducts] = useState([]);
+    const [bulkMapping, setBulkMapping] = useState({
+        apply_tenant: true,
+        tenant_outlet_id: "",
+        apply_kitchen: true,
+        kitchen_station_id: "",
+    });
     const [filterData, setFilterData] = useState({
         ...defaultFilters,
         search: castFilterValue(filters?.search),
@@ -352,6 +404,29 @@ export default function Index({ products, filters = {}, setupStatus = {}, meta =
     const perPageOptions = meta?.per_page_options ?? [10, 25, 50, 100];
     const categories = meta?.categories ?? [];
     const tenantOutlets = meta?.tenantOutlets ?? [];
+    const kitchenStations = meta?.kitchenStations ?? [];
+    const activeOutletName = activeOutlet?.code || activeOutlet?.name || "Outlet aktif";
+
+    const submitBulkMapping = () => {
+        if (selectedProducts.length === 0) return;
+
+        router.post(
+            route("products.bulk-mapping"),
+            {
+                product_ids: selectedProducts.map((product) => product.id),
+                apply_tenant: bulkMapping.apply_tenant,
+                tenant_outlet_id: bulkMapping.tenant_outlet_id || null,
+                apply_kitchen: bulkMapping.apply_kitchen,
+                kitchen_station_id: bulkMapping.kitchen_station_id || null,
+            },
+            {
+                preserveScroll: true,
+                onSuccess: () => {
+                    setSelectedProducts([]);
+                },
+            }
+        );
+    };
 
     return (
         <>
@@ -783,6 +858,113 @@ export default function Index({ products, filters = {}, setupStatus = {}, meta =
                     </div>
                 </div>
 
+                {selectedProducts.length > 0 ? (
+                    <div className="rounded-2xl border border-primary-200 bg-primary-50 p-5 dark:border-primary-900/40 dark:bg-primary-950/20">
+                        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                            <div>
+                                <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+                                    Bulk Mapping Produk
+                                </h2>
+                                <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+                                    {selectedProducts.length} produk terpilih. Gunakan panel ini untuk assign tenant outlet dan station dapur sekaligus.
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setSelectedProducts([])}
+                                className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                            >
+                                Kosongkan Pilihan
+                            </button>
+                        </div>
+
+                        <div className="mt-4 grid gap-4 xl:grid-cols-2">
+                            <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+                                <label className="mb-3 flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-300">
+                                    <input
+                                        type="checkbox"
+                                        checked={bulkMapping.apply_tenant}
+                                        onChange={(event) =>
+                                            setBulkMapping((prev) => ({
+                                                ...prev,
+                                                apply_tenant: event.target.checked,
+                                            }))
+                                        }
+                                        className="h-4 w-4 rounded border-slate-300 text-primary-500 focus:ring-primary-500"
+                                    />
+                                    Update tenant outlet
+                                </label>
+                                <select
+                                    value={bulkMapping.tenant_outlet_id}
+                                    onChange={(event) =>
+                                        setBulkMapping((prev) => ({
+                                            ...prev,
+                                            tenant_outlet_id: event.target.value,
+                                        }))
+                                    }
+                                    disabled={!bulkMapping.apply_tenant}
+                                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-700 outline-none transition focus:border-primary-300 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                                >
+                                    <option value="">Kosongkan / Global</option>
+                                    {tenantOutlets.map((outlet) => (
+                                        <option key={outlet.id} value={String(outlet.id)}>
+                                            {outlet.code} - {outlet.name}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+                                <label className="mb-3 flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-300">
+                                    <input
+                                        type="checkbox"
+                                        checked={bulkMapping.apply_kitchen}
+                                        onChange={(event) =>
+                                            setBulkMapping((prev) => ({
+                                                ...prev,
+                                                apply_kitchen: event.target.checked,
+                                            }))
+                                        }
+                                        className="h-4 w-4 rounded border-slate-300 text-primary-500 focus:ring-primary-500"
+                                    />
+                                    Update station dapur
+                                </label>
+                                <select
+                                    value={bulkMapping.kitchen_station_id}
+                                    onChange={(event) =>
+                                        setBulkMapping((prev) => ({
+                                            ...prev,
+                                            kitchen_station_id: event.target.value,
+                                        }))
+                                    }
+                                    disabled={!bulkMapping.apply_kitchen}
+                                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-700 outline-none transition focus:border-primary-300 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                                >
+                                    <option value="">Kosongkan mapping kitchen</option>
+                                    {kitchenStations.map((station) => (
+                                        <option key={station.id} value={String(station.id)}>
+                                            {(station.outlet?.code || "OUT")} - {station.name}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                        </div>
+
+                        <div className="mt-4 flex flex-wrap items-center gap-2">
+                            <button
+                                type="button"
+                                onClick={submitBulkMapping}
+                                className="rounded-xl bg-primary-500 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-primary-600"
+                            >
+                                Terapkan Bulk Mapping
+                            </button>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                                Centang hanya bagian yang ingin diubah. Opsi kosong akan menghapus tenant atau kitchen mapping jika bagian itu diterapkan.
+                            </p>
+                        </div>
+                    </div>
+                ) : null}
+
                 {rows.length > 0 ? (
                     viewMode === "grid" ? (
                         <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
@@ -794,6 +976,7 @@ export default function Index({ products, filters = {}, setupStatus = {}, meta =
                                     onToggle={toggleProductSelection}
                                     canUpdate={canEditProducts}
                                     canDelete={canDeleteProducts}
+                                    activeOutletName={activeOutletName}
                                 />
                             ))}
                         </div>
@@ -810,6 +993,7 @@ export default function Index({ products, filters = {}, setupStatus = {}, meta =
                                         <Table.Th>Harga Beli</Table.Th>
                                         <Table.Th>Harga Jual</Table.Th>
                                         <Table.Th>Stok</Table.Th>
+                                        <Table.Th>Stok Outlet</Table.Th>
                                         <Table.Th></Table.Th>
                                     </tr>
                                 </Table.Thead>
@@ -899,6 +1083,12 @@ export default function Index({ products, filters = {}, setupStatus = {}, meta =
                                                 >
                                                     {product.stock}
                                                 </span>
+                                            </Table.Td>
+                                            <Table.Td>
+                                                <OutletStockSummary
+                                                    product={product}
+                                                    activeOutletName={activeOutletName}
+                                                />
                                             </Table.Td>
                                             <Table.Td>
                                                 <div className="flex gap-2">

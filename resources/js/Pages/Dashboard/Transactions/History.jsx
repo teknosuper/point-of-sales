@@ -24,6 +24,7 @@ const defaultFilters = {
     invoice: "",
     start_date: "",
     end_date: "",
+    customer_scope: "",
 };
 
 const formatCurrency = (value = 0) =>
@@ -89,7 +90,10 @@ const History = ({ transactions, filters }) => {
         : rows.length || 1;
 
     const hasActiveFilters =
-        filterData.invoice || filterData.start_date || filterData.end_date;
+        filterData.invoice ||
+        filterData.start_date ||
+        filterData.end_date ||
+        filterData.customer_scope;
 
     return (
         <>
@@ -139,7 +143,7 @@ const History = ({ transactions, filters }) => {
                 {showFilters && (
                     <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 animate-slide-up">
                         <form onSubmit={applyFilters}>
-                            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
                                 <div>
                                     <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
                                         Nomor Invoice
@@ -175,6 +179,31 @@ const History = ({ transactions, filters }) => {
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                                        Tipe Pelanggan
+                                    </label>
+                                    <select
+                                        value={filterData.customer_scope}
+                                        onChange={(e) =>
+                                            handleChange(
+                                                "customer_scope",
+                                                e.target.value
+                                            )
+                                        }
+                                        className="w-full h-11 px-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all"
+                                    >
+                                        <option value="">
+                                            Semua pelanggan
+                                        </option>
+                                        <option value="walk_in">
+                                            Umum / Walk-in
+                                        </option>
+                                        <option value="registered">
+                                            Customer Terdaftar
+                                        </option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
                                         Tanggal Akhir
                                     </label>
                                     <input
@@ -189,7 +218,7 @@ const History = ({ transactions, filters }) => {
                                         className="w-full h-11 px-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all"
                                     />
                                 </div>
-                                <div className="flex items-end gap-2">
+                                <div className="flex items-end gap-2 lg:col-span-1">
                                     <button
                                         type="submit"
                                         className="flex-1 h-11 inline-flex items-center justify-center gap-2 rounded-xl bg-primary-500 hover:bg-primary-600 text-white font-medium transition-colors"
@@ -300,10 +329,26 @@ const History = ({ transactions, filters }) => {
                                                     "-"}
                                             </td>
                                             <td className="px-4 py-4">
-                                                <span className="px-2 py-1 text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-md">
-                                                    {transaction.customer
-                                                        ?.name ?? "Umum"}
-                                                </span>
+                                                <div className="space-y-2">
+                                                    <span className="px-2 py-1 text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-md">
+                                                        {transaction.customer
+                                                            ?.name ??
+                                                            "Umum / Walk-in"}
+                                                    </span>
+                                                    <div>
+                                                        <span
+                                                            className={`inline-flex items-center rounded-full px-2 py-1 text-[11px] font-medium ${
+                                                                transaction.customer_id
+                                                                    ? "bg-primary-50 text-primary-700 dark:bg-primary-950/40 dark:text-primary-300"
+                                                                    : "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
+                                                            }`}
+                                                        >
+                                                            {transaction.customer_id
+                                                                ? "Customer"
+                                                                : "Walk-in"}
+                                                        </span>
+                                                    </div>
+                                                </div>
                                             </td>
                                             <td className="px-4 py-4 text-center">
                                                 <span className="px-2 py-1 text-xs font-medium bg-primary-100 dark:bg-primary-900/50 text-primary-700 dark:text-primary-400 rounded-full">
@@ -388,7 +433,8 @@ const History = ({ transactions, filters }) => {
                                                             size={18}
                                                         />
                                                     </a>
-                                                    {canCreateCrmCampaign && (
+                                                    {canCreateCrmCampaign &&
+                                                    transaction.can_create_share_campaign ? (
                                                         <Link
                                                             href={route(
                                                                 "transactions.share-campaign",
@@ -403,7 +449,7 @@ const History = ({ transactions, filters }) => {
                                                                 size={18}
                                                             />
                                                         </Link>
-                                                    )}
+                                                    ) : null}
                                                     <Link
                                                         href={route(
                                                             "transactions.print",
@@ -524,8 +570,19 @@ const History = ({ transactions, filters }) => {
                                             </p>
                                             <p className="font-medium">
                                                 {transaction.customer?.name ??
-                                                    "Umum"}
+                                                    "Umum / Walk-in"}
                                             </p>
+                                            <span
+                                                className={`mt-1 inline-flex items-center rounded-full px-2 py-1 text-[11px] font-medium ${
+                                                    transaction.customer_id
+                                                        ? "bg-primary-50 text-primary-700 dark:bg-primary-950/40 dark:text-primary-300"
+                                                        : "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
+                                                }`}
+                                            >
+                                                {transaction.customer_id
+                                                    ? "Customer"
+                                                    : "Walk-in"}
+                                            </span>
                                         </div>
                                         <div>
                                             <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -584,7 +641,8 @@ const History = ({ transactions, filters }) => {
                                         >
                                             Invoice
                                         </a>
-                                        {canCreateCrmCampaign && (
+                                        {canCreateCrmCampaign &&
+                                        transaction.can_create_share_campaign ? (
                                             <Link
                                                 href={route(
                                                     "transactions.share-campaign",
@@ -596,7 +654,7 @@ const History = ({ transactions, filters }) => {
                                             >
                                                 Campaign WA
                                             </Link>
-                                        )}
+                                        ) : null}
                                         <a
                                             href={route(
                                                 "pdf.transactions.shipping",
@@ -686,7 +744,7 @@ const History = ({ transactions, filters }) => {
                                     </span>
                                     <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
                                         {confirmModal.transaction.customer
-                                            ?.name ?? "Umum"}
+                                            ?.name ?? "Umum / Walk-in"}
                                     </span>
                                 </div>
                                 <div className="flex justify-between items-center">

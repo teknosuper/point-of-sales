@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\UserRequest;
+use App\Models\Outlet;
 use App\Models\User;
 use App\Services\AuditLogService;
 use Illuminate\Http\Request;
@@ -23,7 +24,7 @@ class UserController extends Controller
     {
         // get all users data
         $users = User::query()
-            ->with('roles')
+            ->with(['roles', 'outlets' => fn ($query) => $query->select('outlets.id', 'name', 'code')])
             ->when(request()->search, fn ($query) => $query->where('name', 'like', '%'.request()->search.'%'))
             ->select('id', 'name', 'avatar', 'email')
             ->latest()
@@ -47,9 +48,15 @@ class UserController extends Controller
             ->orderBy('name')
             ->get();
 
+        $outlets = Outlet::query()
+            ->active()
+            ->ordered()
+            ->get(['id', 'name', 'code', 'outlet_type']);
+
         // render view
         return Inertia::render('Dashboard/Users/Create', [
             'roles' => $roles,
+            'outlets' => $outlets,
         ]);
     }
 
@@ -74,6 +81,7 @@ class UserController extends Controller
 
         // assign role to user
         $user->assignRole($request->selectedRoles);
+        $this->syncUserOutlets($user, $request->input('selectedOutlets', []), $request->input('primary_outlet_id'));
 
         $this->auditLogService->log(
             event: 'user.created',
@@ -81,7 +89,7 @@ class UserController extends Controller
             auditable: $user,
             description: 'Pengguna baru dibuat.',
             after: $this->userPayload(
-                $user,
+                $user->fresh(['outlets:id,name,code']),
                 $this->auditLogService->roleNames($request->selectedRoles),
                 $avatarPath !== null
             ),
@@ -101,14 +109,23 @@ class UserController extends Controller
             ->select('id', 'name')
             ->orderBy('name')
             ->get();
+        $outlets = Outlet::query()
+            ->active()
+            ->ordered()
+            ->get(['id', 'name', 'code', 'outlet_type']);
 
         // load relationship
-        $user->load(['roles' => fn ($query) => $query->select('id', 'name'), 'roles.permissions' => fn ($query) => $query->select('id', 'name')]);
+        $user->load([
+            'roles' => fn ($query) => $query->select('id', 'name'),
+            'roles.permissions' => fn ($query) => $query->select('id', 'name'),
+            'outlets' => fn ($query) => $query->select('outlets.id', 'name', 'code'),
+        ]);
 
         // render view
         return Inertia::render('Dashboard/Users/Edit', [
             'roles' => $roles,
             'user' => $user,
+            'outlets' => $outlets,
         ]);
     }
 
@@ -148,9 +165,10 @@ class UserController extends Controller
 
         // assign role to user
         $user->syncRoles($request->selectedRoles);
+        $this->syncUserOutlets($user, $request->input('selectedOutlets', []), $request->input('primary_outlet_id'));
 
         $afterRoles = $this->auditLogService->roleNames($request->selectedRoles);
-        $after = $this->userPayload($user->fresh(), $afterRoles, $avatarChanged);
+        $after = $this->userPayload($user->fresh(['outlets:id,name,code']), $afterRoles, $avatarChanged);
 
         $this->auditLogService->log(
             event: 'user.updated',
@@ -207,6 +225,36 @@ class UserController extends Controller
             'email' => $user->email,
             'avatar_changed' => $avatarChanged,
             'roles' => array_values($roles),
+            'outlets' => $user->relationLoaded('outlets')
+                ? $user->outlets->map(fn ($outlet) => [
+                    'id' => $outlet->id,
+                    'name' => $outlet->name,
+                    'code' => $outlet->code,
+                ])->values()->all()
+                : [],
         ];
+    }
+
+    private function syncUserOutlets(User $user, array $selectedOutlets = [], mixed $primaryOutletId = null): void
+    {
+        $selectedOutletIds = collect($selectedOutlets)
+            ->filter()
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values();
+
+        $primaryOutletId = $primaryOutletId ? (int) $primaryOutletId : null;
+
+        if ($primaryOutletId && ! $selectedOutletIds->contains($primaryOutletId)) {
+            $selectedOutletIds->push($primaryOutletId);
+        }
+
+        $syncPayload = $selectedOutletIds
+            ->mapWithKeys(fn (int $outletId) => [
+                $outletId => ['is_primary' => $primaryOutletId === $outletId],
+            ])
+            ->all();
+
+        $user->outlets()->sync($syncPayload);
     }
 }
