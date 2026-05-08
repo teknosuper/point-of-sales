@@ -30,6 +30,7 @@ class SupplierReturnService
     {
         return DB::transaction(function () use ($data, $items, $userId) {
             $return = SupplierReturn::create([
+                'outlet_id' => $data['outlet_id'] ?? null,
                 'supplier_id' => $data['supplier_id'] ?? null,
                 'goods_receiving_id' => $data['goods_receiving_id'] ?? null,
                 'payable_id' => $data['payable_id'] ?? null,
@@ -76,15 +77,15 @@ class SupplierReturnService
 
             foreach ($return->items as $item) {
                 $product = $item->product;
-                $stockBefore = (int) $product->stock;
-                $product->decrement('stock', $item->qty_returned);
+                $stockBefore = $this->stockMutationService->stockForOutlet($product, (int) $return->outlet_id);
+                $stockAfter = $stockBefore - (int) $item->qty_returned;
 
                 $this->stockMutationService->recordSupplierReturnOut(
                     product: $product,
                     supplierReturn: $return,
-                    qty: $item->qty_returned,
+                    qty: (int) $item->qty_returned,
                     stockBefore: $stockBefore,
-                    stockAfter: (int) $product->stock,
+                    stockAfter: $stockAfter,
                     notes: $item->reason ?? 'Retur barang ke supplier',
                     userId: $return->created_by,
                 );

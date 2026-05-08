@@ -13,6 +13,7 @@ const formatCurrency = (value = 0) =>
     }).format(value);
 
 export default function Target({ settings }) {
+    const { activeOutlet } = usePage().props;
     const { data, setData, post, processing, errors } = useForm({
         monthly_sales_target: settings?.monthly_sales_target || "",
     });
@@ -39,6 +40,11 @@ export default function Target({ settings }) {
                     <p className="text-sm text-slate-500 dark:text-slate-400">
                         Atur target penjualan bulanan untuk bisnis Anda
                     </p>
+                    {activeOutlet?.name && (
+                        <p className="mt-2 text-xs font-medium uppercase tracking-[0.16em] text-primary-600 dark:text-primary-300">
+                            Outlet aktif: {activeOutlet.name}
+                        </p>
+                    )}
                 </div>
 
                 {/* Form Card */}

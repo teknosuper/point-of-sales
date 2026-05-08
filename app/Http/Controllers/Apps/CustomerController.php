@@ -6,8 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Models\Customer;
 use App\Models\CustomerVoucher;
 use App\Models\Transaction;
+use App\Services\CustomerOutletMetricService;
 use App\Services\CustomerSegmentationService;
 use App\Services\LoyaltyService;
+use App\Services\OutletResolver;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
@@ -20,7 +22,9 @@ class CustomerController extends Controller
 {
     public function __construct(
         private readonly LoyaltyService $loyaltyService,
-        private readonly CustomerSegmentationService $segmentationService
+        private readonly CustomerSegmentationService $segmentationService,
+        private readonly CustomerOutletMetricService $customerOutletMetricService,
+        private readonly OutletResolver $outletResolver
     ) {}
 
     /**
@@ -28,21 +32,73 @@ class CustomerController extends Controller
      *
      * @return \Illuminate\Http\Response
      */
-    public function index()
+    public function index(Request $request)
     {
-        // get customers
-        $customers = Customer::when(request()->search, function ($customers) {
-            $search = request()->search;
-            $customers = $customers->where(function ($query) use ($search) {
-                $query
-                    ->where('name', 'like', '%'.$search.'%')
-                    ->orWhere('member_code', 'like', '%'.$search.'%');
-            });
-        })->latest()->paginate(5);
+        $outletId = $this->activeOutletId($request);
+        $filters = [
+            'search' => trim((string) $request->input('search', '')),
+            'member_status' => $request->input('member_status', ''),
+            'loyalty_tier' => $request->input('loyalty_tier', ''),
+            'sort' => $request->input('sort', 'latest'),
+            'per_page' => (int) $request->input('per_page', 10),
+        ];
 
-        // return inertia
+        $allowedPerPage = [10, 25, 50, 100];
+        if (! in_array($filters['per_page'], $allowedPerPage, true)) {
+            $filters['per_page'] = 10;
+        }
+
+        $customers = Customer::query()
+            ->with(['outletMetrics' => fn ($query) => $query->when($outletId, fn ($metricQuery) => $metricQuery->where('outlet_id', $outletId))])
+            ->when($filters['search'] !== '', function ($customers) use ($filters) {
+                $search = $filters['search'];
+                $customers->where(function ($query) use ($search) {
+                    $query
+                        ->where('name', 'like', '%'.$search.'%')
+                        ->orWhere('member_code', 'like', '%'.$search.'%')
+                        ->orWhere('no_telp', 'like', '%'.$search.'%')
+                        ->orWhere('address', 'like', '%'.$search.'%');
+                });
+            })
+            ->when($filters['member_status'] !== '', function ($query) use ($filters) {
+                return match ($filters['member_status']) {
+                    'member' => $query->where('is_loyalty_member', true),
+                    'non_member' => $query->where('is_loyalty_member', false),
+                    default => $query,
+                };
+            })
+            ->when($filters['loyalty_tier'] !== '', function ($query) use ($filters, $outletId) {
+                if ($outletId) {
+                    return $query->whereHas('outletMetrics', function ($metricQuery) use ($outletId, $filters) {
+                        $metricQuery
+                            ->where('outlet_id', $outletId)
+                            ->where('loyalty_tier', $filters['loyalty_tier']);
+                    });
+                }
+
+                return $query->where('loyalty_tier', $filters['loyalty_tier']);
+            });
+
+        $customers = match ($filters['sort']) {
+            'name_asc' => $customers->orderBy('name'),
+            'name_desc' => $customers->orderByDesc('name'),
+            'points_high' => $customers->orderByDesc('loyalty_points'),
+            'points_low' => $customers->orderBy('loyalty_points'),
+            'oldest' => $customers->oldest(),
+            default => $customers->latest(),
+        };
+
+        $customers = $customers->paginate($filters['per_page'])
+            ->withQueryString()
+            ->through(fn (Customer $customer) => $this->customerListPayload($customer, $outletId));
+
         return Inertia::render('Dashboard/Customers/Index', [
             'customers' => $customers,
+            'filters' => $filters,
+            'meta' => [
+                'per_page_options' => $allowedPerPage,
+                'tier_options' => $this->loyaltyService->tierOptions(),
+            ],
         ]);
     }
 
@@ -89,7 +145,7 @@ class CustomerController extends Controller
         $village = Village::where('code', $request->village_id)->first();
 
         // create customer
-        Customer::create([
+        $customer = Customer::create([
             ...$this->resolveLoyaltyPayload($request),
             'name' => $request->name,
             'no_telp' => $request->no_telp,
@@ -103,6 +159,8 @@ class CustomerController extends Controller
             'village_id' => $request->village_id,
             'village_name' => $village?->name,
         ]);
+
+        $this->syncOutletTierFromRequest($request, $customer);
 
         // redirect
         return to_route('customers.index');
@@ -153,6 +211,8 @@ class CustomerController extends Controller
                 'village_name' => $village?->name,
             ]);
 
+            $this->syncOutletTierFromRequest($request, $customer);
+
             return response()->json([
                 'success' => true,
                 'message' => 'Pelanggan berhasil ditambahkan',
@@ -163,7 +223,7 @@ class CustomerController extends Controller
                     'address' => $customer->address,
                     'is_loyalty_member' => (bool) $customer->is_loyalty_member,
                     'member_code' => $customer->member_code,
-                    'loyalty_tier' => $customer->loyalty_tier,
+                    'loyalty_tier' => $this->loyaltyService->resolvedTier($customer, $this->activeOutletId($request)),
                     'loyalty_points' => (int) $customer->loyalty_points,
                 ],
             ]);
@@ -196,7 +256,7 @@ class CustomerController extends Controller
             : [];
 
         return Inertia::render('Dashboard/Customers/Edit', [
-            'customer' => $customer,
+            'customer' => $this->customerListPayload($customer, $this->activeOutletId(request())),
             'tierOptions' => $this->loyaltyService->tierOptions(),
             'provinces' => $provinces,
             'regencies' => $regencies,
@@ -249,16 +309,19 @@ class CustomerController extends Controller
             'village_name' => $village?->name,
         ]);
 
+        $this->syncOutletTierFromRequest($request, $customer->fresh());
+
         // redirect
         return to_route('customers.index');
     }
 
     public function show(Customer $customer)
     {
+        $outletId = $this->activeOutletId(request());
         $customer->load('segments');
         $stats = $this->buildStats($customer);
-        $recentTransactions = $this->recentTransactions($customer);
-        $frequentProducts = $this->frequentProducts($customer);
+        $recentTransactions = $this->recentTransactions($customer, $outletId);
+        $frequentProducts = $this->frequentProducts($customer, $outletId);
         $rewardHistory = $customer->loyaltyPointHistories()
             ->latest()
             ->limit(15)
@@ -283,10 +346,11 @@ class CustomerController extends Controller
             ]);
 
         return Inertia::render('Dashboard/Customers/Show', [
-            'customer' => $customer,
-            'segments' => $this->segmentationService->serializeCustomerSegments($customer),
+            'customer' => $this->customerListPayload($customer, $outletId),
+            'segments' => $this->segmentationService->serializeCustomerSegments($customer, $outletId),
             'manualSegmentIds' => $customer->segmentMemberships()
                 ->where('source', 'manual')
+                ->when($outletId, fn ($query) => $query->where('outlet_id', $outletId))
                 ->pluck('customer_segment_id')
                 ->values()
                 ->all(),
@@ -306,7 +370,7 @@ class CustomerController extends Controller
             'segment_ids.*' => ['integer', 'exists:customer_segments,id'],
         ]);
 
-        $this->segmentationService->syncManualSegments($customer, $validated['segment_ids'] ?? []);
+        $this->segmentationService->syncManualSegments($customer, $validated['segment_ids'] ?? [], $this->activeOutletId($request));
 
         return back()->with('success', 'Segment manual customer berhasil diperbarui.');
     }
@@ -336,10 +400,11 @@ class CustomerController extends Controller
      */
     public function getHistory(Customer $customer)
     {
+        $outletId = $this->activeOutletId(request());
         // Get transaction statistics
         $stats = $this->buildStats($customer);
-        $recentTransactions = $this->recentTransactions($customer);
-        $frequentProducts = $this->frequentProducts($customer);
+        $recentTransactions = $this->recentTransactions($customer, $outletId);
+        $frequentProducts = $this->frequentProducts($customer, $outletId);
         $loyaltyHistory = $customer->loyaltyPointHistories()
             ->latest()
             ->limit(5)
@@ -376,7 +441,7 @@ class CustomerController extends Controller
             'loyalty' => [
                 'is_member' => (bool) $customer->is_loyalty_member,
                 'member_code' => $customer->member_code,
-                'tier' => $customer->loyalty_tier,
+                'tier' => $this->loyaltyService->resolvedTier($customer, $outletId),
                 'points' => (int) $customer->loyalty_points,
                 'member_since' => optional($customer->loyalty_member_since)?->format('d M Y'),
             ],
@@ -400,6 +465,15 @@ class CustomerController extends Controller
             'loyalty_member_since' => $customer->loyalty_member_since ?? now(),
         ]);
 
+        $outletId = $this->activeOutletId($request);
+        if ($outletId) {
+            $this->customerOutletMetricService->setTier(
+                $customer->fresh(),
+                $outletId,
+                (string) ($validated['loyalty_tier'] ?? $customer->loyalty_tier ?? LoyaltyService::TIER_REGULAR)
+            );
+        }
+
         if ($request->expectsJson()) {
             return response()->json([
                 'success' => true,
@@ -411,7 +485,7 @@ class CustomerController extends Controller
                     'address' => $customer->address,
                     'is_loyalty_member' => (bool) $customer->is_loyalty_member,
                     'member_code' => $customer->member_code,
-                    'loyalty_tier' => $customer->loyalty_tier,
+                    'loyalty_tier' => $this->loyaltyService->resolvedTier($customer->fresh(), $outletId),
                     'loyalty_points' => (int) $customer->loyalty_points,
                 ],
             ]);
@@ -423,7 +497,9 @@ class CustomerController extends Controller
     private function resolveLoyaltyPayload(Request $request, ?Customer $customer = null): array
     {
         $isMember = $request->boolean('is_loyalty_member');
-        $existingTier = $customer?->loyalty_tier ?? LoyaltyService::TIER_REGULAR;
+        $existingTier = $customer
+            ? $this->loyaltyService->resolvedTier($customer, $this->activeOutletId($request))
+            : LoyaltyService::TIER_REGULAR;
         $requestedTier = $request->input('loyalty_tier', $existingTier);
 
         return [
@@ -433,7 +509,7 @@ class CustomerController extends Controller
                 : $customer?->member_code,
             'loyalty_tier' => $isMember
                 ? $requestedTier
-                : ($customer?->loyalty_tier ?? LoyaltyService::TIER_REGULAR),
+                : ($customer ? $this->loyaltyService->resolvedTier($customer, $this->activeOutletId($request)) : LoyaltyService::TIER_REGULAR),
             'loyalty_member_since' => $isMember
                 ? ($customer?->loyalty_member_since ?? now())
                 : $customer?->loyalty_member_since,
@@ -442,7 +518,9 @@ class CustomerController extends Controller
 
     private function buildStats(Customer $customer)
     {
-        return Transaction::where('customer_id', $customer->id)
+        $outletId = $this->activeOutletId(request());
+
+        return $this->transactionQuery($customer, $outletId)
             ->selectRaw('
                 COUNT(*) as total_transactions,
                 SUM(grand_total) as total_spent,
@@ -451,9 +529,9 @@ class CustomerController extends Controller
             ->first();
     }
 
-    private function recentTransactions(Customer $customer)
+    private function recentTransactions(Customer $customer, ?int $outletId = null)
     {
-        return Transaction::where('customer_id', $customer->id)
+        return $this->transactionQuery($customer, $outletId)
             ->select('id', 'invoice', 'grand_total', 'payment_method', 'created_at')
             ->orderByDesc('created_at')
             ->limit(5)
@@ -467,9 +545,9 @@ class CustomerController extends Controller
             ]);
     }
 
-    private function frequentProducts(Customer $customer)
+    private function frequentProducts(Customer $customer, ?int $outletId = null)
     {
-        return Transaction::where('customer_id', $customer->id)
+        return $this->transactionQuery($customer, $outletId)
             ->join('transaction_details', 'transactions.id', '=', 'transaction_details.transaction_id')
             ->join('products', 'transaction_details.product_id', '=', 'products.id')
             ->selectRaw('products.id, products.title, SUM(transaction_details.qty) as total_qty')
@@ -477,5 +555,49 @@ class CustomerController extends Controller
             ->orderByDesc('total_qty')
             ->limit(3)
             ->get();
+    }
+
+    private function transactionQuery(Customer $customer, ?int $outletId = null)
+    {
+        return Transaction::query()
+            ->where('customer_id', $customer->id)
+            ->when($outletId, fn ($query) => $query->where('outlet_id', $outletId));
+    }
+
+    private function activeOutletId(Request $request): ?int
+    {
+        return $this->outletResolver->resolve($request)?->id;
+    }
+
+    private function customerListPayload(Customer $customer, ?int $outletId = null): array
+    {
+        $metrics = $this->customerOutletMetricService->metricsForCustomer($customer, $outletId);
+
+        return [
+            ...$customer->toArray(),
+            'loyalty_tier' => (string) ($metrics['loyalty_tier'] ?? $customer->loyalty_tier ?? LoyaltyService::TIER_REGULAR),
+            'loyalty_total_spent' => (int) ($metrics['total_spent'] ?? 0),
+            'loyalty_transaction_count' => (int) ($metrics['transaction_count'] ?? 0),
+            'last_purchase_at' => optional($metrics['last_purchase_at'] ?? null)?->toIso8601String(),
+        ];
+    }
+
+    private function syncOutletTierFromRequest(Request $request, ?Customer $customer): void
+    {
+        if (! $customer || ! $request->boolean('is_loyalty_member')) {
+            return;
+        }
+
+        $outletId = $this->activeOutletId($request);
+
+        if (! $outletId) {
+            return;
+        }
+
+        $this->customerOutletMetricService->setTier(
+            $customer,
+            $outletId,
+            (string) $request->input('loyalty_tier', $customer->loyalty_tier ?: LoyaltyService::TIER_REGULAR)
+        );
     }
 }

@@ -7,10 +7,11 @@ use Illuminate\Support\Collection;
 
 class PayableAgingService
 {
-    public function getAgingSummary(): Collection
+    public function getAgingSummary(?int $outletId = null): Collection
     {
         $payables = Payable::where('status', '!=', 'paid')
             ->whereNotNull('due_date')
+            ->when($outletId, fn ($query) => $query->where('outlet_id', $outletId))
             ->get();
 
         $buckets = ['current', '0-30', '31-60', '61-90', '90+'];
@@ -28,14 +29,17 @@ class PayableAgingService
         });
     }
 
-    public function getTopSuppliersByPayable(int $limit = 10): Collection
+    public function getTopSuppliersByPayable(int $limit = 10, ?int $outletId = null): Collection
     {
         return \App\Models\Supplier::withSum([
-            'payables as total_payable' => fn ($q) => $q->where('status', '!=', 'paid'),
+            'payables as total_payable' => fn ($q) => $q
+                ->where('status', '!=', 'paid')
+                ->when($outletId, fn ($query) => $query->where('outlet_id', $outletId)),
         ], 'total')
-            ->withSum([
-                'payables as total_paid' => fn ($q) => $q,
-            ], 'paid')
+        ->withSum([
+            'payables as total_paid' => fn ($q) => $q
+                ->when($outletId, fn ($query) => $query->where('outlet_id', $outletId)),
+        ], 'paid')
             ->orderByRaw('COALESCE(total_payable, 0) DESC')
             ->limit($limit)
             ->get()
@@ -50,10 +54,11 @@ class PayableAgingService
             ->values();
     }
 
-    public function getDueSoonPayables(int $days = 7): Collection
+    public function getDueSoonPayables(int $days = 7, ?int $outletId = null): Collection
     {
         return Payable::where('status', '!=', 'paid')
             ->whereNotNull('due_date')
+            ->when($outletId, fn ($query) => $query->where('outlet_id', $outletId))
             ->whereBetween('due_date', [now()->format('Y-m-d'), now()->addDays($days)->format('Y-m-d')])
             ->with('supplier:id,name')
             ->orderBy('due_date')

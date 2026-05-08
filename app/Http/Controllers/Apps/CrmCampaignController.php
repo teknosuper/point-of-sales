@@ -8,6 +8,7 @@ use App\Models\CustomerCampaignLog;
 use App\Models\Receivable;
 use App\Models\Transaction;
 use App\Services\CrmAutomationService;
+use App\Services\OutletResolver;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
@@ -15,11 +16,13 @@ use Inertia\Inertia;
 class CrmCampaignController extends Controller
 {
     public function __construct(
-        private readonly CrmAutomationService $crmAutomationService
+        private readonly CrmAutomationService $crmAutomationService,
+        private readonly OutletResolver $outletResolver
     ) {}
 
     public function index(Request $request)
     {
+        $outletId = $this->outletResolver->resolve($request, $request->user())?->id;
         $filters = [
             'type' => $request->input('type'),
             'status' => $request->input('status'),
@@ -28,6 +31,7 @@ class CrmCampaignController extends Controller
         $campaigns = CustomerCampaign::query()
             ->with(['creator:id,name'])
             ->withCount('logs')
+            ->when($outletId, fn ($query) => $query->where('outlet_id', $outletId))
             ->when($filters['type'], fn ($query, $type) => $query->where('type', $type))
             ->when($filters['status'], fn ($query, $status) => $query->where('status', $status))
             ->orderByDesc('created_at')
@@ -51,7 +55,11 @@ class CrmCampaignController extends Controller
     public function store(Request $request)
     {
         $validated = $this->validateCampaign($request);
-        $campaign = $this->crmAutomationService->createCampaign($validated, $request->user()->id);
+        $campaign = $this->crmAutomationService->createCampaign(
+            $validated,
+            $request->user()->id,
+            $this->outletResolver->resolve($request, $request->user())?->id
+        );
 
         if (! $request->boolean('save_as_draft')) {
             $campaign = $this->crmAutomationService->processCampaign($campaign);
@@ -62,8 +70,9 @@ class CrmCampaignController extends Controller
             ->with('success', 'Campaign CRM berhasil dibuat.');
     }
 
-    public function show(CustomerCampaign $crmCampaign)
+    public function show(Request $request, CustomerCampaign $crmCampaign)
     {
+        $this->ensureOutletAccess($request, $crmCampaign->outlet_id);
         $crmCampaign->load([
             'creator:id,name',
             'logs.customer:id,name,no_telp',
@@ -76,8 +85,9 @@ class CrmCampaignController extends Controller
         ]);
     }
 
-    public function edit(CustomerCampaign $crmCampaign)
+    public function edit(Request $request, CustomerCampaign $crmCampaign)
     {
+        $this->ensureOutletAccess($request, $crmCampaign->outlet_id);
         return Inertia::render('Dashboard/CrmCampaigns/Edit', [
             'campaign' => $crmCampaign,
             'audienceOptions' => $this->crmAutomationService->audienceOptions(),
@@ -86,6 +96,7 @@ class CrmCampaignController extends Controller
 
     public function update(Request $request, CustomerCampaign $crmCampaign)
     {
+        $this->ensureOutletAccess($request, $crmCampaign->outlet_id);
         $validated = $this->validateCampaign($request);
         $crmCampaign = $this->crmAutomationService->updateCampaign($crmCampaign, $validated);
 
@@ -94,8 +105,9 @@ class CrmCampaignController extends Controller
             ->with('success', 'Campaign CRM berhasil diperbarui.');
     }
 
-    public function destroy(CustomerCampaign $crmCampaign)
+    public function destroy(Request $request, CustomerCampaign $crmCampaign)
     {
+        $this->ensureOutletAccess($request, $crmCampaign->outlet_id);
         $crmCampaign->delete();
 
         return redirect()
@@ -103,8 +115,9 @@ class CrmCampaignController extends Controller
             ->with('success', 'Campaign CRM berhasil dihapus.');
     }
 
-    public function process(CustomerCampaign $crmCampaign)
+    public function process(Request $request, CustomerCampaign $crmCampaign)
     {
+        $this->ensureOutletAccess($request, $crmCampaign->outlet_id);
         $crmCampaign = $this->crmAutomationService->processCampaign($crmCampaign);
 
         return redirect()
@@ -112,8 +125,9 @@ class CrmCampaignController extends Controller
             ->with('success', 'Campaign berhasil diproses ke audience.');
     }
 
-    public function cancel(CustomerCampaign $crmCampaign)
+    public function cancel(Request $request, CustomerCampaign $crmCampaign)
     {
+        $this->ensureOutletAccess($request, $crmCampaign->outlet_id);
         $crmCampaign = $this->crmAutomationService->cancelCampaign($crmCampaign);
 
         return redirect()
@@ -121,15 +135,17 @@ class CrmCampaignController extends Controller
             ->with('success', 'Campaign dibatalkan.');
     }
 
-    public function markLogSent(CustomerCampaignLog $log)
+    public function markLogSent(Request $request, CustomerCampaignLog $log)
     {
+        $this->ensureOutletAccess($request, $log->outlet_id);
         $this->crmAutomationService->markLog($log, CustomerCampaignLog::STATUS_SENT);
 
         return back()->with('success', 'Log campaign ditandai sebagai terkirim.');
     }
 
-    public function markLogSkipped(CustomerCampaignLog $log)
+    public function markLogSkipped(Request $request, CustomerCampaignLog $log)
     {
+        $this->ensureOutletAccess($request, $log->outlet_id);
         $this->crmAutomationService->markLog($log, CustomerCampaignLog::STATUS_SKIPPED);
 
         return back()->with('success', 'Log campaign dilewati.');
@@ -137,6 +153,7 @@ class CrmCampaignController extends Controller
 
     public function shareTransaction(Transaction $transaction, Request $request)
     {
+        $this->ensureOutletAccess($request, $transaction->outlet_id);
         $campaign = $this->crmAutomationService->createInvoiceShareCampaignForTransaction($transaction, $request->user()->id);
 
         return redirect()
@@ -146,6 +163,7 @@ class CrmCampaignController extends Controller
 
     public function shareReceivable(Receivable $receivable, Request $request)
     {
+        $this->ensureOutletAccess($request, $receivable->outlet_id);
         $campaign = $this->crmAutomationService->createInvoiceShareCampaignForReceivable($receivable, $request->user()->id);
 
         return redirect()
@@ -175,5 +193,14 @@ class CrmCampaignController extends Controller
             'audience_filters.receivable_status' => ['nullable', Rule::in(['all', 'has_receivable', 'overdue', 'due_soon'])],
             'audience_filters.voucher_filter' => ['nullable', Rule::in(['all', 'has_active_voucher', 'no_active_voucher'])],
         ]);
+    }
+
+    private function ensureOutletAccess(Request $request, ?int $outletId): void
+    {
+        $activeOutletId = $this->outletResolver->resolve($request, $request->user())?->id;
+
+        if ($activeOutletId && $outletId && (int) $activeOutletId !== (int) $outletId) {
+            abort(404);
+        }
     }
 }

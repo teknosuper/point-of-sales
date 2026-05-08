@@ -12,9 +12,16 @@ import {
     IconWorld,
     IconMail,
     IconPhoto,
+    IconPercentage,
 } from "@tabler/icons-react";
 
-export default function Store({ settings }) {
+export default function Store({ settings, tenantOutlets = [] }) {
+    const initialTenantCommissions = tenantOutlets.reduce((acc, outlet) => {
+        acc[outlet.id] = outlet.commission_rate_percent ?? 0;
+
+        return acc;
+    }, {});
+
     const { data, setData, post, processing, errors, reset } = useForm({
         store_name: settings.store_name || "",
         store_logo: null,
@@ -23,6 +30,7 @@ export default function Store({ settings }) {
         store_email: settings.store_email || "",
         store_website: settings.store_website || "",
         store_city: settings.store_city || "",
+        tenant_commissions: initialTenantCommissions,
     });
 
     const [logoPreview, setLogoPreview] = useState(settings.store_logo || null);
@@ -155,6 +163,71 @@ export default function Store({ settings }) {
                             </div>
                         </div>
                     </div>
+
+                    {tenantOutlets.length > 0 && (
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-6 dark:border-slate-800 dark:bg-slate-950/40">
+                        <div className="mb-5">
+                            <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+                                Komisi Tenant Foodcourt
+                            </h2>
+                            <p className="text-sm text-slate-500 dark:text-slate-400">
+                                Atur persentase komisi pengelola untuk tiap tenant outlet.
+                            </p>
+                        </div>
+
+                        <div className="space-y-3">
+                            {tenantOutlets.map((outlet) => (
+                                <div
+                                    key={outlet.id}
+                                    className="grid gap-3 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900 md:grid-cols-[1.5fr,0.8fr]"
+                                >
+                                    <div>
+                                        <p className="font-semibold text-slate-900 dark:text-white">
+                                            {outlet.name}
+                                        </p>
+                                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                                            {outlet.code || `Outlet #${outlet.id}`}
+                                        </p>
+                                    </div>
+
+                                    <div>
+                                        <label className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                            <IconPercentage size={14} />
+                                            Komisi Pengelola
+                                        </label>
+                                        <div className="relative">
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                max="100"
+                                                step="0.01"
+                                                value={
+                                                    data.tenant_commissions[
+                                                        outlet.id
+                                                    ] ?? 0
+                                                }
+                                                onChange={(e) =>
+                                                    setData(
+                                                        "tenant_commissions",
+                                                        {
+                                                            ...data.tenant_commissions,
+                                                            [outlet.id]:
+                                                                e.target.value,
+                                                        }
+                                                    )
+                                                }
+                                                className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 pr-10 text-slate-800 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                            />
+                                            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm font-medium text-slate-400">
+                                                %
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                        </div>
+                    )}
 
                     <div className="flex justify-end pt-4 border-t border-slate-100 dark:border-slate-800">
                         <button

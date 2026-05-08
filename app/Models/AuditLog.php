@@ -2,17 +2,19 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToOutlet;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class AuditLog extends Model
 {
-    use HasFactory;
+    use BelongsToOutlet, HasFactory;
 
     public $timestamps = false;
 
     protected $fillable = [
         'user_id',
+        'outlet_id',
         'event',
         'module',
         'auditable_type',
@@ -29,6 +31,7 @@ class AuditLog extends Model
 
     protected $casts = [
         'user_id' => 'integer',
+        'outlet_id' => 'integer',
         'auditable_id' => 'integer',
         'before' => 'array',
         'after' => 'array',

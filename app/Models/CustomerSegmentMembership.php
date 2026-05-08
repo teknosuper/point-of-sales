@@ -2,12 +2,13 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToOutlet;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class CustomerSegmentMembership extends Model
 {
-    use HasFactory;
+    use BelongsToOutlet, HasFactory;
 
     public const SOURCE_MANUAL = 'manual';
 
@@ -16,6 +17,7 @@ class CustomerSegmentMembership extends Model
     protected $fillable = [
         'customer_id',
         'customer_segment_id',
+        'outlet_id',
         'source',
         'matched_at',
     ];
@@ -23,6 +25,7 @@ class CustomerSegmentMembership extends Model
     protected $casts = [
         'customer_id' => 'integer',
         'customer_segment_id' => 'integer',
+        'outlet_id' => 'integer',
         'matched_at' => 'datetime',
     ];
 

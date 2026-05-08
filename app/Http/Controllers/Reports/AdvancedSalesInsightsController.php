@@ -15,6 +15,9 @@ use App\Models\PricingRule;
 use App\Models\Product;
 use App\Models\Transaction;
 use App\Models\User;
+use App\Services\CustomerOutletMetricService;
+use App\Services\LoyaltyService;
+use App\Services\OutletResolver;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -23,14 +26,22 @@ use Inertia\Inertia;
 
 class AdvancedSalesInsightsController extends Controller
 {
+    public function __construct(
+        private readonly CustomerOutletMetricService $customerOutletMetricService,
+        private readonly LoyaltyService $loyaltyService,
+        private readonly OutletResolver $outletResolver
+    ) {}
+
     public function index(Request $request)
     {
+        $outletId = $this->outletResolver->resolve($request, $request->user())?->id;
         $filters = [
             'start_date' => $request->input('start_date'),
             'end_date' => $request->input('end_date'),
             'cashier_id' => $request->input('cashier_id'),
             'customer_id' => $request->input('customer_id'),
             'category_id' => $request->input('category_id'),
+            'outlet_id' => $outletId,
         ];
 
         $transactionQuery = $this->applyTransactionFilters(
@@ -103,6 +114,7 @@ class AdvancedSalesInsightsController extends Controller
     protected function applyTransactionFilters(Builder $query, array $filters): Builder
     {
         return $query
+            ->when($filters['outlet_id'] ?? null, fn (Builder $q, $outletId) => $q->where('transactions.outlet_id', $outletId))
             ->when($filters['cashier_id'] ?? null, fn (Builder $q, $cashierId) => $q->where('transactions.cashier_id', $cashierId))
             ->when($filters['customer_id'] ?? null, fn (Builder $q, $customerId) => $q->where('transactions.customer_id', $customerId))
             ->when($filters['start_date'] ?? null, fn (Builder $q, $startDate) => $q->whereDate('transactions.created_at', '>=', $startDate))
@@ -118,6 +130,7 @@ class AdvancedSalesInsightsController extends Controller
             ->join('transactions as t', 't.id', '=', 'td.transaction_id')
             ->join('products as p', 'p.id', '=', 'td.product_id')
             ->leftJoin('categories as c', 'c.id', '=', 'p.category_id')
+            ->when($filters['outlet_id'] ?? null, fn ($q, $outletId) => $q->where('t.outlet_id', $outletId))
             ->when($filters['cashier_id'] ?? null, fn ($q, $cashierId) => $q->where('t.cashier_id', $cashierId))
             ->when($filters['customer_id'] ?? null, fn ($q, $customerId) => $q->where('t.customer_id', $customerId))
             ->when($filters['start_date'] ?? null, fn ($q, $startDate) => $q->whereDate('t.created_at', '>=', $startDate))
@@ -383,7 +396,6 @@ class AdvancedSalesInsightsController extends Controller
                 transactions.customer_id,
                 customers.name as customer_name,
                 customers.is_loyalty_member as is_loyalty_member,
-                customers.loyalty_tier as loyalty_tier,
                 COUNT(transactions.id) as orders_count,
                 COALESCE(SUM(transactions.grand_total), 0) as revenue_total,
                 MAX(transactions.created_at) as last_purchase_at
@@ -391,15 +403,25 @@ class AdvancedSalesInsightsController extends Controller
             ->groupBy(
                 'transactions.customer_id',
                 'customers.name',
-                'customers.is_loyalty_member',
-                'customers.loyalty_tier'
+                'customers.is_loyalty_member'
             )
+            ->get();
+
+        $customers = Customer::query()
+            ->with(['outletMetrics' => fn ($query) => $query
+                ->when($filters['outlet_id'] ?? null, fn ($metricQuery, $outletId) => $metricQuery->where('outlet_id', $outletId))])
+            ->whereIn('id', $rows->pluck('customer_id')->filter()->all())
             ->get()
-            ->map(fn ($row) => [
+            ->keyBy('id');
+
+        $rows = $rows->map(function ($row) use ($customers, $filters) {
+            $customer = $customers->get((int) $row->customer_id);
+
+            return [
                 'customer_id' => (int) $row->customer_id,
                 'customer_name' => $row->customer_name,
                 'is_loyalty_member' => (bool) $row->is_loyalty_member,
-                'loyalty_tier' => $row->loyalty_tier,
+                'loyalty_tier' => $customer ? $this->loyaltyService->resolvedTier($customer, $filters['outlet_id'] ?? null) : null,
                 'orders_count' => (int) $row->orders_count,
                 'revenue_total' => (int) round($row->revenue_total),
                 'average_basket' => (int) ($row->orders_count > 0
@@ -408,7 +430,8 @@ class AdvancedSalesInsightsController extends Controller
                 'last_purchase_at' => $row->last_purchase_at
                     ? Carbon::parse($row->last_purchase_at)->toIso8601String()
                     : null,
-            ]);
+            ];
+        });
 
         $activeCustomers = $rows->count();
         $repeatCustomers = $rows->filter(fn (array $row) => $row['orders_count'] > 1)->values();
@@ -626,7 +649,11 @@ class AdvancedSalesInsightsController extends Controller
 
     protected function loyaltyPerformance(array $filters): array
     {
+        $outletId = $filters['outlet_id'] ?? null;
+
         $members = Customer::query()
+            ->with(['outletMetrics' => fn ($query) => $query
+                ->when($outletId, fn ($metricQuery) => $metricQuery->where('outlet_id', $outletId))])
             ->where('is_loyalty_member', true)
             ->get();
 
@@ -649,10 +676,10 @@ class AdvancedSalesInsightsController extends Controller
                     ->where('type', LoyaltyPointHistory::TYPE_VOUCHER)
                     ->sum('amount_delta'),
                 'tier_distribution' => [
-                    'regular' => $members->where('loyalty_tier', 'regular')->count(),
-                    'silver' => $members->where('loyalty_tier', 'silver')->count(),
-                    'gold' => $members->where('loyalty_tier', 'gold')->count(),
-                    'platinum' => $members->where('loyalty_tier', 'platinum')->count(),
+                    'regular' => $members->filter(fn (Customer $customer) => $this->loyaltyService->resolvedTier($customer, $outletId) === 'regular')->count(),
+                    'silver' => $members->filter(fn (Customer $customer) => $this->loyaltyService->resolvedTier($customer, $outletId) === 'silver')->count(),
+                    'gold' => $members->filter(fn (Customer $customer) => $this->loyaltyService->resolvedTier($customer, $outletId) === 'gold')->count(),
+                    'platinum' => $members->filter(fn (Customer $customer) => $this->loyaltyService->resolvedTier($customer, $outletId) === 'platinum')->count(),
                 ],
                 'voucher_summary' => [
                     'active' => $vouchers->filter(fn (CustomerVoucher $voucher) => $voucher->currentStatusLabel() === 'active')->count(),
@@ -662,20 +689,28 @@ class AdvancedSalesInsightsController extends Controller
                     'inactive' => $vouchers->filter(fn (CustomerVoucher $voucher) => $voucher->currentStatusLabel() === 'inactive')->count(),
                 ],
             ],
-            'top_members' => Customer::query()
-                ->where('is_loyalty_member', true)
-                ->orderByDesc('loyalty_total_spent')
-                ->orderByDesc('loyalty_points')
-                ->limit(5)
-                ->get()
-                ->map(fn (Customer $customer) => [
-                    'id' => $customer->id,
-                    'name' => $customer->name,
-                    'loyalty_tier' => $customer->loyalty_tier,
-                    'loyalty_points' => (int) $customer->loyalty_points,
-                    'loyalty_total_spent' => (int) $customer->loyalty_total_spent,
-                    'loyalty_transaction_count' => (int) $customer->loyalty_transaction_count,
-                ])
+            'top_members' => $this->customerOutletMetricService
+                ->topMembers($outletId, 5)
+                ->map(function ($entry) use ($outletId) {
+                    $customer = $entry instanceof Customer ? $entry : $entry->customer;
+
+                    if (! $customer) {
+                        return null;
+                    }
+
+                    $metrics = $this->customerOutletMetricService->metricsForCustomer($customer, $outletId);
+
+                    return [
+                        'id' => $customer->id,
+                        'name' => $customer->name,
+                        'loyalty_tier' => $this->loyaltyService->resolvedTier($customer, $outletId),
+                        'loyalty_points' => (int) $customer->loyalty_points,
+                        'loyalty_total_spent' => (int) ($metrics['total_spent'] ?? $customer->loyalty_total_spent),
+                        'loyalty_transaction_count' => (int) ($metrics['transaction_count'] ?? $customer->loyalty_transaction_count),
+                    ];
+                })
+                ->filter()
+                ->values()
                 ->all(),
         ];
     }

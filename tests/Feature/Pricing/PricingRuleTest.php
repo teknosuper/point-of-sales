@@ -5,10 +5,13 @@ namespace Tests\Feature\Pricing;
 use App\Models\Cart;
 use App\Models\Category;
 use App\Models\Customer;
+use App\Models\CustomerOutletMetric;
+use App\Models\Outlet;
 use App\Models\PricingRule;
 use App\Models\Product;
 use App\Models\Transaction;
 use App\Models\User;
+use App\Services\LoyaltyService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
 use Spatie\Permission\Models\Permission;
@@ -132,6 +135,80 @@ class PricingRuleTest extends TestCase
         $this->assertSame(
             10000,
             data_get($registeredResponse->json(), 'data.summary.promo_discount_total')
+        );
+    }
+
+    public function test_pricing_preview_uses_outlet_specific_member_tier_for_member_scope_rules(): void
+    {
+        $cashier = $this->createUserWithPermissions([
+            'transactions-access',
+            'cashier-shifts-access',
+            'cashier-shifts-open',
+            'cashier-shifts-close',
+        ]);
+        $outletA = $this->createOutlet('OUTLET-PA', 'Outlet Promo A', true);
+        $outletB = $this->createOutlet('OUTLET-PB', 'Outlet Promo B');
+        $cashier->outlets()->attach([
+            $outletA->id => ['is_primary' => true],
+            $outletB->id => ['is_primary' => false],
+        ]);
+
+        $this->openShiftFor($cashier, $outletB->id);
+        $product = $this->createProduct();
+        $customer = Customer::create([
+            'name' => 'Member Outlet Pricing',
+            'no_telp' => '62819999991',
+            'address' => 'Jl. Tier Promo',
+            'is_loyalty_member' => true,
+            'member_code' => 'MEM-OUTLET-PRICE',
+            'loyalty_tier' => LoyaltyService::TIER_GOLD,
+        ]);
+
+        CustomerOutletMetric::create([
+            'customer_id' => $customer->id,
+            'outlet_id' => $outletB->id,
+            'total_spent' => 350000,
+            'transaction_count' => 2,
+            'loyalty_points_earned' => 12,
+            'loyalty_points_redeemed' => 0,
+            'loyalty_tier' => LoyaltyService::TIER_SILVER,
+        ]);
+
+        Cart::create([
+            'cashier_id' => $cashier->id,
+            'outlet_id' => $outletB->id,
+            'product_id' => $product->id,
+            'qty' => 1,
+            'price' => $product->sell_price,
+        ]);
+
+        PricingRule::create([
+            'name' => 'Harga Khusus Silver',
+            'is_active' => true,
+            'priority' => 250,
+            'target_type' => 'product',
+            'product_id' => $product->id,
+            'customer_scope' => PricingRule::SCOPE_MEMBER,
+            'eligible_loyalty_tiers' => [LoyaltyService::TIER_SILVER],
+            'discount_type' => 'fixed_amount',
+            'discount_value' => 10000,
+        ]);
+
+        $response = $this
+            ->withSession(['active_outlet_id' => $outletB->id])
+            ->actingAs($cashier)
+            ->postJson(route('transactions.pricing-preview'), [
+                'customer_id' => $customer->id,
+            ]);
+
+        $response->assertOk();
+        $this->assertSame(
+            10000,
+            data_get($response->json(), 'data.summary.promo_discount_total')
+        );
+        $this->assertSame(
+            LoyaltyService::TIER_SILVER,
+            data_get($response->json(), 'data.customer.loyalty_tier')
         );
     }
 
@@ -371,15 +448,28 @@ class PricingRuleTest extends TestCase
         return $user;
     }
 
-    private function openShiftFor(User $cashier)
+    private function openShiftFor(User $cashier, ?int $outletId = null)
     {
         return \App\Models\CashierShift::create([
             'user_id' => $cashier->id,
+            'outlet_id' => $outletId,
             'opened_by' => $cashier->id,
             'opened_at' => now(),
             'opening_cash' => 100000,
             'expected_cash' => 100000,
             'status' => 'open',
+        ]);
+    }
+
+    private function createOutlet(string $code, string $name, bool $isDefault = false): Outlet
+    {
+        return Outlet::create([
+            'code' => $code,
+            'slug' => strtolower($code),
+            'name' => $name,
+            'is_active' => true,
+            'is_default' => $isDefault,
+            'sort_order' => 0,
         ]);
     }
 

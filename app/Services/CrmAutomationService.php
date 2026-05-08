@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Customer;
 use App\Models\CustomerCampaign;
 use App\Models\CustomerCampaignLog;
+use App\Models\Outlet;
 use App\Models\Receivable;
 use App\Models\Transaction;
 use Carbon\CarbonInterface;
@@ -39,12 +40,16 @@ class CrmAutomationService
         ];
     }
 
-    public function buildAudience(array $filters, ?CarbonInterface $at = null): Collection
+    public function buildAudience(array $filters, ?CarbonInterface $at = null, ?int $outletId = null): Collection
     {
         $at = $at ?? now();
 
         $query = Customer::query()
-            ->with(['segments', 'receivables', 'vouchers'])
+            ->with([
+                'segments',
+                'receivables' => fn ($builder) => $builder->when($outletId, fn ($q) => $q->where('outlet_id', $outletId)),
+                'vouchers',
+            ])
             ->orderBy('name');
 
         $segmentIds = collect($filters['segment_ids'] ?? [])
@@ -100,9 +105,10 @@ class CrmAutomationService
         })->values();
     }
 
-    public function createCampaign(array $payload, int $userId): CustomerCampaign
+    public function createCampaign(array $payload, int $userId, ?int $outletId = null): CustomerCampaign
     {
         return CustomerCampaign::query()->create([
+            'outlet_id' => $outletId,
             'name' => $payload['name'],
             'type' => $payload['type'],
             'status' => CustomerCampaign::STATUS_DRAFT,
@@ -130,7 +136,7 @@ class CrmAutomationService
         $at = $at ?? now();
         $campaign->logs()->delete();
 
-        $audience = $this->buildAudience($campaign->audience_filters ?? [], $at);
+        $audience = $this->buildAudience($campaign->audience_filters ?? [], $at, $campaign->outlet_id);
         $snapshot = $audience->map(fn (Customer $customer) => [
             'customer_id' => $customer->id,
             'name' => $customer->name,
@@ -143,6 +149,7 @@ class CrmAutomationService
             $payload = $this->buildCustomerPayload($campaign, $customer);
 
             $campaign->logs()->create([
+                'outlet_id' => $campaign->outlet_id,
                 'customer_id' => $customer->id,
                 'channel' => CustomerCampaign::CHANNEL_WHATSAPP_LINK,
                 'status' => CustomerCampaignLog::STATUS_READY_TO_SEND,
@@ -185,8 +192,9 @@ class CrmAutomationService
     public function createInvoiceShareCampaignForTransaction(Transaction $transaction, int $userId): CustomerCampaign
     {
         $campaign = CustomerCampaign::query()->firstOrCreate(
-            ['context_key' => 'invoice-share-transaction-'.$transaction->id],
+            ['context_key' => 'invoice-share-transaction-'.$transaction->outlet_id.'-'.$transaction->id],
             [
+                'outlet_id' => $transaction->outlet_id,
                 'name' => 'Share Invoice '.$transaction->invoice,
                 'type' => CustomerCampaign::TYPE_INVOICE_SHARE,
                 'status' => CustomerCampaign::STATUS_READY,
@@ -205,6 +213,7 @@ class CrmAutomationService
 
         $campaign->logs()->updateOrCreate(
             [
+                'outlet_id' => $transaction->outlet_id,
                 'transaction_id' => $transaction->id,
                 'customer_id' => $transaction->customer_id,
             ],
@@ -225,8 +234,9 @@ class CrmAutomationService
     public function createInvoiceShareCampaignForReceivable(Receivable $receivable, int $userId): CustomerCampaign
     {
         $campaign = CustomerCampaign::query()->firstOrCreate(
-            ['context_key' => 'invoice-share-receivable-'.$receivable->id],
+            ['context_key' => 'invoice-share-receivable-'.$receivable->outlet_id.'-'.$receivable->id],
             [
+                'outlet_id' => $receivable->outlet_id,
                 'name' => 'Share Piutang '.$receivable->invoice,
                 'type' => CustomerCampaign::TYPE_INVOICE_SHARE,
                 'status' => CustomerCampaign::STATUS_READY,
@@ -252,6 +262,7 @@ class CrmAutomationService
 
         $campaign->logs()->updateOrCreate(
             [
+                'outlet_id' => $receivable->outlet_id,
                 'receivable_id' => $receivable->id,
                 'customer_id' => $receivable->customer_id,
             ],
@@ -269,20 +280,33 @@ class CrmAutomationService
         return $campaign->fresh(['logs.customer', 'logs.receivable']);
     }
 
-    public function generateScheduledReminders(?CarbonInterface $at = null): void
+    public function generateScheduledReminders(?CarbonInterface $at = null, ?int $outletId = null): void
     {
         $at = $at ?? now();
-        $this->segmentationService->syncAutoSegments($at);
+        $this->segmentationService->syncAutoSegments($at, $outletId);
 
-        $this->generateDueSoonCampaign($at);
-        $this->generateOverdueCampaign($at);
-        $this->generateRepeatOrderCampaign($at);
+        if ($outletId) {
+            $this->generateDueSoonCampaign($at, $outletId);
+            $this->generateOverdueCampaign($at, $outletId);
+            $this->generateRepeatOrderCampaign($at, $outletId);
+
+            return;
+        }
+
+        $outletIds = Outlet::query()->active()->pluck('id');
+
+        foreach ($outletIds as $resolvedOutletId) {
+            $this->generateDueSoonCampaign($at, (int) $resolvedOutletId);
+            $this->generateOverdueCampaign($at, (int) $resolvedOutletId);
+            $this->generateRepeatOrderCampaign($at, (int) $resolvedOutletId);
+        }
     }
 
-    public function reminderCampaignsQuery()
+    public function reminderCampaignsQuery(?int $outletId = null)
     {
         return CustomerCampaign::query()
             ->with(['creator:id,name', 'logs.customer:id,name,no_telp', 'logs.transaction:id,invoice', 'logs.receivable:id,invoice,due_date'])
+            ->when($outletId, fn ($query) => $query->where('outlet_id', $outletId))
             ->whereIn('type', [
                 CustomerCampaign::TYPE_DUE_DATE_REMINDER,
                 CustomerCampaign::TYPE_REPEAT_ORDER_REMINDER,
@@ -293,12 +317,13 @@ class CrmAutomationService
             ->orderByDesc('created_at');
     }
 
-    private function generateDueSoonCampaign(CarbonInterface $at): void
+    private function generateDueSoonCampaign(CarbonInterface $at, int $outletId): void
     {
-        $contextKey = 'due-soon-'.$at->toDateString();
+        $contextKey = 'due-soon-'.$outletId.'-'.$at->toDateString();
         $campaign = CustomerCampaign::query()->firstOrCreate(
             ['context_key' => $contextKey],
             [
+                'outlet_id' => $outletId,
                 'name' => 'Reminder Jatuh Tempo H-3 '.$at->format('d M Y'),
                 'type' => CustomerCampaign::TYPE_DUE_DATE_REMINDER,
                 'status' => CustomerCampaign::STATUS_READY,
@@ -312,6 +337,7 @@ class CrmAutomationService
         if ($campaign->wasRecentlyCreated) {
             $receivables = Receivable::query()
                 ->with('customer:id,name,no_telp')
+                ->where('outlet_id', $outletId)
                 ->where('status', '!=', 'paid')
                 ->whereBetween('due_date', [$at->copy()->startOfDay(), $at->copy()->addDays(3)->endOfDay()])
                 ->get();
@@ -320,12 +346,13 @@ class CrmAutomationService
         }
     }
 
-    private function generateOverdueCampaign(CarbonInterface $at): void
+    private function generateOverdueCampaign(CarbonInterface $at, int $outletId): void
     {
-        $contextKey = 'overdue-'.$at->toDateString();
+        $contextKey = 'overdue-'.$outletId.'-'.$at->toDateString();
         $campaign = CustomerCampaign::query()->firstOrCreate(
             ['context_key' => $contextKey],
             [
+                'outlet_id' => $outletId,
                 'name' => 'Reminder Piutang Overdue '.$at->format('d M Y'),
                 'type' => CustomerCampaign::TYPE_DUE_DATE_REMINDER,
                 'status' => CustomerCampaign::STATUS_READY,
@@ -339,6 +366,7 @@ class CrmAutomationService
         if ($campaign->wasRecentlyCreated) {
             $receivables = Receivable::query()
                 ->with('customer:id,name,no_telp')
+                ->where('outlet_id', $outletId)
                 ->where('status', '!=', 'paid')
                 ->whereDate('due_date', '<', $at->toDateString())
                 ->get();
@@ -347,12 +375,13 @@ class CrmAutomationService
         }
     }
 
-    private function generateRepeatOrderCampaign(CarbonInterface $at): void
+    private function generateRepeatOrderCampaign(CarbonInterface $at, int $outletId): void
     {
-        $contextKey = 'repeat-order-'.$at->toDateString();
+        $contextKey = 'repeat-order-'.$outletId.'-'.$at->toDateString();
         $campaign = CustomerCampaign::query()->firstOrCreate(
             ['context_key' => $contextKey],
             [
+                'outlet_id' => $outletId,
                 'name' => 'Repeat Order Reminder '.$at->format('d M Y'),
                 'type' => CustomerCampaign::TYPE_REPEAT_ORDER_REMINDER,
                 'status' => CustomerCampaign::STATUS_READY,
@@ -366,17 +395,17 @@ class CrmAutomationService
         if ($campaign->wasRecentlyCreated) {
             $customers = Customer::query()
                 ->with('segments')
-                ->where('loyalty_transaction_count', '>', 0)
-                ->where(function ($query) use ($at) {
-                    $query->whereNull('last_purchase_at')
-                        ->orWhere('last_purchase_at', '<', $at->copy()->subDays(30));
-                })
+                ->whereHas('transactions', fn ($query) => $query->where('outlet_id', $outletId))
+                ->whereDoesntHave('transactions', fn ($query) => $query
+                    ->where('outlet_id', $outletId)
+                    ->where('created_at', '>=', $at->copy()->subDays(30)))
                 ->get();
 
             foreach ($customers as $customer) {
                 $message = 'Halo '.$customer->name.', kami merindukan kunjungan Anda. Yuk belanja lagi hari ini.';
 
                 $campaign->logs()->create([
+                    'outlet_id' => $campaign->outlet_id,
                     'customer_id' => $customer->id,
                     'channel' => CustomerCampaign::CHANNEL_WHATSAPP_LINK,
                     'status' => CustomerCampaignLog::STATUS_READY_TO_SEND,
@@ -410,6 +439,7 @@ class CrmAutomationService
             );
 
             $campaign->logs()->create([
+                'outlet_id' => $campaign->outlet_id,
                 'customer_id' => $receivable->customer_id,
                 'receivable_id' => $receivable->id,
                 'channel' => CustomerCampaign::CHANNEL_WHATSAPP_LINK,

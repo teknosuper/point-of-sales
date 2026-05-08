@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Head, router } from "@inertiajs/react";
+import { Head, Link, router } from "@inertiajs/react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import InputSelect from "@/Components/Dashboard/InputSelect";
 import Button from "@/Components/Dashboard/Button";
@@ -9,6 +9,7 @@ import {
     IconCoin,
     IconDatabaseOff,
     IconDiscount2,
+    IconBuildingStore,
     IconReceipt2,
     IconShoppingBag,
     IconTrendingUp,
@@ -16,6 +17,9 @@ import {
     IconX,
     IconSearch,
     IconCalendar,
+    IconCheck,
+    IconClock,
+    IconFileDownload,
 } from "@tabler/icons-react";
 
 // Summary Card Component
@@ -49,6 +53,8 @@ const defaultFilterState = {
     invoice: "",
     cashier_id: "",
     customer_id: "",
+    tenant_outlet_id: "",
+    settlement_status: "",
 };
 
 const formatCurrency = (value = 0) =>
@@ -61,7 +67,15 @@ const formatCurrency = (value = 0) =>
 const castFilterString = (value) =>
     typeof value === "number" ? String(value) : value ?? "";
 
-const Sales = ({ transactions, summary, filters, cashiers, customers }) => {
+const Sales = ({
+    transactions,
+    summary,
+    tenantSettlement,
+    filters,
+    cashiers,
+    customers,
+    tenantOutlets = [],
+}) => {
     const [showFilters, setShowFilters] = useState(false);
     const [filterData, setFilterData] = useState({
         ...defaultFilterState,
@@ -70,6 +84,8 @@ const Sales = ({ transactions, summary, filters, cashiers, customers }) => {
         invoice: castFilterString(filters?.invoice),
         cashier_id: castFilterString(filters?.cashier_id),
         customer_id: castFilterString(filters?.customer_id),
+        tenant_outlet_id: castFilterString(filters?.tenant_outlet_id),
+        settlement_status: castFilterString(filters?.settlement_status),
     });
 
     const cashierFromFilters = useMemo(
@@ -108,6 +124,8 @@ const Sales = ({ transactions, summary, filters, cashiers, customers }) => {
             invoice: castFilterString(filters?.invoice),
             cashier_id: castFilterString(filters?.cashier_id),
             customer_id: castFilterString(filters?.customer_id),
+            tenant_outlet_id: castFilterString(filters?.tenant_outlet_id),
+            settlement_status: castFilterString(filters?.settlement_status),
         });
     }, [filters]);
 
@@ -120,6 +138,40 @@ const Sales = ({ transactions, summary, filters, cashiers, customers }) => {
     const handleSelectCustomer = (value) => {
         setSelectedCustomer(value);
         handleChange("customer_id", value ? String(value.id) : "");
+    };
+    const exportQuery = new URLSearchParams(
+        Object.entries(filterData).filter(([, value]) => value !== "")
+    ).toString();
+
+    const settleAllocation = (allocation) => {
+        const payoutReference = window.prompt(
+            `Referensi payout untuk ${allocation.allocation_number} (opsional):`,
+            allocation.payout_reference ?? ""
+        );
+
+        if (payoutReference === null) {
+            return;
+        }
+
+        const payoutNotes = window.prompt(
+            `Catatan payout untuk ${allocation.allocation_number} (opsional):`,
+            allocation.payout_notes ?? ""
+        );
+
+        if (payoutNotes === null) {
+            return;
+        }
+
+        router.patch(
+            route("reports.sales.tenant-allocations.settle", allocation.id),
+            {
+                payout_reference: payoutReference,
+                payout_notes: payoutNotes,
+            },
+            {
+                preserveScroll: true,
+            }
+        );
     };
 
     const applyFilters = (e) => {
@@ -154,7 +206,9 @@ const Sales = ({ transactions, summary, filters, cashiers, customers }) => {
         filterData.start_date ||
         filterData.end_date ||
         filterData.cashier_id ||
-        filterData.customer_id;
+        filterData.customer_id ||
+        filterData.tenant_outlet_id ||
+        filterData.settlement_status;
 
     const safeSummary = {
         orders_count: summary?.orders_count ?? 0,
@@ -164,6 +218,22 @@ const Sales = ({ transactions, summary, filters, cashiers, customers }) => {
         profit_total: summary?.profit_total ?? 0,
         average_order: summary?.average_order ?? 0,
     };
+    const tenantSummary = {
+        allocation_count: tenantSettlement?.summary?.allocation_count ?? 0,
+        tenant_count: tenantSettlement?.summary?.tenant_count ?? 0,
+        revenue_total: tenantSettlement?.summary?.revenue_total ?? 0,
+        settled_total: tenantSettlement?.summary?.settled_total ?? 0,
+        outstanding_total: tenantSettlement?.summary?.outstanding_total ?? 0,
+        cost_total: tenantSettlement?.summary?.cost_total ?? 0,
+        profit_total: tenantSettlement?.summary?.profit_total ?? 0,
+        management_fee_total:
+            tenantSettlement?.summary?.management_fee_total ?? 0,
+        tenant_payout_total:
+            tenantSettlement?.summary?.tenant_payout_total ?? 0,
+        margin_percentage: tenantSettlement?.summary?.margin_percentage ?? 0,
+    };
+    const topTenants = tenantSettlement?.top_tenants ?? [];
+    const tenantAllocations = tenantSettlement?.allocations ?? [];
 
     const summaryCards = [
         {
@@ -231,6 +301,13 @@ const Sales = ({ transactions, summary, filters, cashiers, customers }) => {
                             <span className="w-2 h-2 rounded-full bg-primary-500"></span>
                         )}
                     </button>
+                    <a
+                        href={`${route("reports.sales.tenant-settlement.export")}${exportQuery ? `?${exportQuery}` : ""}`}
+                        className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200"
+                    >
+                        <IconFileDownload size={18} />
+                        Export Settlement CSV
+                    </a>
                 </div>
 
                 {/* Summary Cards */}
@@ -240,11 +317,198 @@ const Sales = ({ transactions, summary, filters, cashiers, customers }) => {
                     ))}
                 </div>
 
+                <div className="grid gap-4 xl:grid-cols-[1.15fr,0.85fr]">
+                    <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+                        <div className="mb-4 flex items-center justify-between gap-3">
+                            <div>
+                                <h2 className="text-base font-semibold text-slate-900 dark:text-white">
+                                    Settlement Tenant Foodcourt
+                                </h2>
+                                <p className="text-sm text-slate-500 dark:text-slate-400">
+                                    Rekap pendapatan tenant dari nota gabungan.
+                                </p>
+                            </div>
+                            <div className="rounded-xl bg-primary-50 p-3 text-primary-600 dark:bg-primary-950/40 dark:text-primary-300">
+                                <IconBuildingStore size={20} />
+                            </div>
+                        </div>
+
+                        <div className="grid gap-3 sm:grid-cols-3">
+                            <div className="rounded-xl bg-slate-50 p-4 dark:bg-slate-800/60">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                                    Total Tenant
+                                </p>
+                                <p className="mt-2 text-2xl font-bold text-slate-900 dark:text-white">
+                                    {tenantSummary.tenant_count}
+                                </p>
+                            </div>
+                            <div className="rounded-xl bg-slate-50 p-4 dark:bg-slate-800/60">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                                    Allocation
+                                </p>
+                                <p className="mt-2 text-2xl font-bold text-slate-900 dark:text-white">
+                                    {tenantSummary.allocation_count}
+                                </p>
+                            </div>
+                            <div className="rounded-xl bg-slate-50 p-4 dark:bg-slate-800/60">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                                    Revenue Tenant
+                                </p>
+                                <p className="mt-2 text-lg font-bold text-slate-900 dark:text-white">
+                                    {formatCurrency(tenantSummary.revenue_total)}
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                            <div className="rounded-xl bg-emerald-50 p-4 dark:bg-emerald-950/20">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
+                                    Sudah Settled
+                                </p>
+                                <p className="mt-2 text-lg font-bold text-emerald-700 dark:text-emerald-300">
+                                    {formatCurrency(tenantSummary.settled_total)}
+                                </p>
+                            </div>
+                            <div className="rounded-xl bg-amber-50 p-4 dark:bg-amber-950/20">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
+                                    Outstanding
+                                </p>
+                                <p className="mt-2 text-lg font-bold text-amber-700 dark:text-amber-300">
+                                    {formatCurrency(
+                                        tenantSummary.outstanding_total
+                                    )}
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                            <div className="rounded-xl bg-slate-50 p-4 dark:bg-slate-800/60">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                                    Cost Tenant
+                                </p>
+                                <p className="mt-2 text-base font-bold text-slate-900 dark:text-white">
+                                    {formatCurrency(tenantSummary.cost_total)}
+                                </p>
+                            </div>
+                            <div className="rounded-xl bg-cyan-50 p-4 dark:bg-cyan-950/20">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-cyan-600 dark:text-cyan-400">
+                                    Profit Tenant
+                                </p>
+                                <p className="mt-2 text-base font-bold text-cyan-700 dark:text-cyan-300">
+                                    {formatCurrency(
+                                        tenantSummary.profit_total
+                                    )}
+                                </p>
+                            </div>
+                            <div className="rounded-xl bg-violet-50 p-4 dark:bg-violet-950/20">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-violet-600 dark:text-violet-400">
+                                    Margin Tenant
+                                </p>
+                                <p className="mt-2 text-base font-bold text-violet-700 dark:text-violet-300">
+                                    {tenantSummary.margin_percentage}%
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                            <div className="rounded-xl bg-rose-50 p-4 dark:bg-rose-950/20">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-rose-600 dark:text-rose-400">
+                                    Management Fee
+                                </p>
+                                <p className="mt-2 text-base font-bold text-rose-700 dark:text-rose-300">
+                                    {formatCurrency(
+                                        tenantSummary.management_fee_total
+                                    )}
+                                </p>
+                            </div>
+                            <div className="rounded-xl bg-teal-50 p-4 dark:bg-teal-950/20">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-teal-600 dark:text-teal-400">
+                                    Net Payout Tenant
+                                </p>
+                                <p className="mt-2 text-base font-bold text-teal-700 dark:text-teal-300">
+                                    {formatCurrency(
+                                        tenantSummary.tenant_payout_total
+                                    )}
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+                        <div className="mb-4">
+                            <h2 className="text-base font-semibold text-slate-900 dark:text-white">
+                                Top Tenant
+                            </h2>
+                            <p className="text-sm text-slate-500 dark:text-slate-400">
+                                Tenant dengan omzet tertinggi pada filter aktif.
+                            </p>
+                        </div>
+
+                        {topTenants.length > 0 ? (
+                            <div className="space-y-3">
+                                {topTenants.map((tenant, index) => (
+                                    <div
+                                        key={tenant.tenant_outlet_id}
+                                        className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3 dark:bg-slate-800/60"
+                                    >
+                                        <div>
+                                            <Link
+                                                href={route(
+                                                    "reports.sales.tenant-statement",
+                                                    tenant.tenant_outlet_id
+                                                )}
+                                                className="text-sm font-semibold text-slate-900 hover:text-primary-600 dark:text-white dark:hover:text-primary-300"
+                                            >
+                                                {index + 1}.{" "}
+                                                {tenant.tenant_outlet?.name ||
+                                                    tenant.tenant_outlet?.code ||
+                                                    `Tenant ${tenant.tenant_outlet_id}`}
+                                            </Link>
+                                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                                                {tenant.orders_count ?? 0} nota tenant
+                                            </p>
+                                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                                                Profit{" "}
+                                                {formatCurrency(
+                                                    tenant.profit_total ?? 0
+                                                )}{" "}
+                                                • Margin{" "}
+                                                {tenant.margin_percentage ?? 0}%
+                                            </p>
+                                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                                                Fee{" "}
+                                                {formatCurrency(
+                                                    tenant.management_fee_total ??
+                                                        0
+                                                )}{" "}
+                                                • Payout{" "}
+                                                {formatCurrency(
+                                                    tenant.tenant_payout_total ??
+                                                        0
+                                                )}
+                                            </p>
+                                        </div>
+                                        <p className="text-sm font-bold text-primary-600 dark:text-primary-400">
+                                            {formatCurrency(
+                                                tenant.revenue_total ?? 0
+                                            )}
+                                        </p>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="rounded-xl bg-slate-50 px-4 py-6 text-sm text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">
+                                Belum ada data tenant pada filter ini.
+                            </div>
+                        )}
+                    </div>
+                </div>
+
                 {/* Filters Panel */}
                 {showFilters && (
                     <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 animate-slide-up">
                         <form onSubmit={applyFilters}>
-                            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+                            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-6">
                                 <div>
                                     <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
                                         Tanggal Mulai
@@ -310,6 +574,57 @@ const Sales = ({ transactions, summary, filters, cashiers, customers }) => {
                                     placeholder="Semua pelanggan"
                                     searchable
                                 />
+                                <div>
+                                    <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                        Tenant
+                                    </label>
+                                    <select
+                                        value={filterData.tenant_outlet_id}
+                                        onChange={(e) =>
+                                            handleChange(
+                                                "tenant_outlet_id",
+                                                e.target.value
+                                            )
+                                        }
+                                        className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-slate-800 transition-all focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                                    >
+                                        <option value="">Semua tenant</option>
+                                        {tenantOutlets.map((tenant) => (
+                                            <option
+                                                key={tenant.id}
+                                                value={tenant.id}
+                                            >
+                                                {tenant.name}
+                                                {tenant.code
+                                                    ? ` (${tenant.code})`
+                                                    : ""}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                        Status Settlement
+                                    </label>
+                                    <select
+                                        value={filterData.settlement_status}
+                                        onChange={(e) =>
+                                            handleChange(
+                                                "settlement_status",
+                                                e.target.value
+                                            )
+                                        }
+                                        className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-slate-800 transition-all focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                                    >
+                                        <option value="">Semua status</option>
+                                        <option value="outstanding">
+                                            Outstanding
+                                        </option>
+                                        <option value="settled">
+                                            Settled
+                                        </option>
+                                    </select>
+                                </div>
                             </div>
                             <div className="flex justify-end gap-2 mt-4">
                                 {hasActiveFilters && (
@@ -430,6 +745,230 @@ const Sales = ({ transactions, summary, filters, cashiers, customers }) => {
                 {paginationLinks.length > 3 && (
                     <Pagination links={paginationLinks} />
                 )}
+
+                <div className="rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 overflow-hidden">
+                    <div className="border-b border-slate-100 px-5 py-4 dark:border-slate-800">
+                        <h2 className="text-base font-semibold text-slate-900 dark:text-white">
+                            Detail Allocation Tenant
+                        </h2>
+                        <p className="text-sm text-slate-500 dark:text-slate-400">
+                            Breakdown pendapatan per tenant untuk nota yang masuk filter.
+                        </p>
+                    </div>
+
+                    {tenantAllocations.length > 0 ? (
+                        <div className="overflow-x-auto">
+                            <table className="w-full">
+                                <thead>
+                                    <tr className="border-b border-slate-100 dark:border-slate-800">
+                                        <th className="px-4 py-4 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
+                                            Nota
+                                        </th>
+                                        <th className="px-4 py-4 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
+                                            Tenant
+                                        </th>
+                                        <th className="px-4 py-4 text-center text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
+                                            Item
+                                        </th>
+                                        <th className="px-4 py-4 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
+                                            Subtotal
+                                        </th>
+                                        <th className="px-4 py-4 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
+                                            Discount
+                                        </th>
+                                        <th className="px-4 py-4 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
+                                            Cost
+                                        </th>
+                                        <th className="px-4 py-4 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
+                                            Profit
+                                        </th>
+                                        <th className="px-4 py-4 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
+                                            Fee
+                                        </th>
+                                        <th className="px-4 py-4 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
+                                            Payout
+                                        </th>
+                                        <th className="px-4 py-4 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
+                                            Margin
+                                        </th>
+                                        <th className="px-4 py-4 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
+                                            Grand Total
+                                        </th>
+                                        <th className="px-4 py-4 text-center text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
+                                            Settlement
+                                        </th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                    {tenantAllocations.map((allocation) => {
+                                        const totalDiscount =
+                                            Number(
+                                                allocation.voucher_discount_total ??
+                                                    0
+                                            ) +
+                                            Number(
+                                                allocation.loyalty_discount_total ??
+                                                    0
+                                            ) +
+                                            Number(
+                                                allocation.manual_discount_total ??
+                                                    0
+                                            );
+
+                                        const isSettled = Boolean(
+                                            allocation.settled_at
+                                        );
+
+                                        return (
+                                            <tr
+                                                key={allocation.id}
+                                                className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+                                            >
+                                                <td className="px-4 py-4">
+                                                    <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                                                        {allocation.transaction
+                                                            ?.invoice || "-"}
+                                                    </p>
+                                                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                                                        {allocation.transaction
+                                                            ?.created_at || "-"}
+                                                    </p>
+                                                </td>
+                                                <td className="px-4 py-4 text-sm text-slate-700 dark:text-slate-300">
+                                                    <Link
+                                                        href={route(
+                                                            "reports.sales.tenant-statement",
+                                                            allocation.tenant_outlet_id
+                                                        )}
+                                                        className="font-medium hover:text-primary-600 dark:hover:text-primary-300"
+                                                    >
+                                                        {allocation.tenant_outlet
+                                                            ?.name ||
+                                                            allocation.tenant_outlet
+                                                                ?.code ||
+                                                            `Tenant ${allocation.tenant_outlet_id}`}
+                                                    </Link>
+                                                </td>
+                                                <td className="px-4 py-4 text-center">
+                                                    <span className="rounded-full bg-primary-100 px-2 py-0.5 text-xs font-medium text-primary-700 dark:bg-primary-900/50 dark:text-primary-300">
+                                                        {allocation.total_items ??
+                                                            0}
+                                                    </span>
+                                                </td>
+                                                <td className="px-4 py-4 text-right text-sm font-medium text-slate-900 dark:text-white">
+                                                    {formatCurrency(
+                                                        allocation.subtotal ?? 0
+                                                    )}
+                                                </td>
+                                                <td className="px-4 py-4 text-right text-sm font-medium text-rose-600 dark:text-rose-400">
+                                                    -{" "}
+                                                    {formatCurrency(
+                                                        totalDiscount
+                                                    )}
+                                                </td>
+                                                <td className="px-4 py-4 text-right text-sm font-medium text-slate-900 dark:text-white">
+                                                    {formatCurrency(
+                                                        allocation.cost_total ??
+                                                            0
+                                                    )}
+                                                </td>
+                                                <td className="px-4 py-4 text-right text-sm font-medium text-cyan-600 dark:text-cyan-400">
+                                                    {formatCurrency(
+                                                        allocation.profit_total ??
+                                                            0
+                                                    )}
+                                                </td>
+                                                <td className="px-4 py-4 text-right text-sm font-medium text-rose-600 dark:text-rose-400">
+                                                    {formatCurrency(
+                                                        allocation.management_fee_total ??
+                                                            0
+                                                    )}
+                                                </td>
+                                                <td className="px-4 py-4 text-right text-sm font-medium text-teal-600 dark:text-teal-400">
+                                                    {formatCurrency(
+                                                        allocation.tenant_payout_total ??
+                                                            0
+                                                    )}
+                                                </td>
+                                                <td className="px-4 py-4 text-right text-sm font-medium text-violet-600 dark:text-violet-400">
+                                                    {allocation.margin_percentage ??
+                                                        0}
+                                                    %
+                                                </td>
+                                                <td className="px-4 py-4 text-right text-sm font-bold text-primary-600 dark:text-primary-400">
+                                                    {formatCurrency(
+                                                        allocation.grand_total ??
+                                                            0
+                                                    )}
+                                                </td>
+                                                <td className="px-4 py-4">
+                                                    <div className="flex flex-col items-center gap-2">
+                                                        <span
+                                                            className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${
+                                                                isSettled
+                                                                    ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
+                                                                    : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+                                                            }`}
+                                                        >
+                                                            {isSettled ? (
+                                                                <IconCheck
+                                                                    size={12}
+                                                                />
+                                                            ) : (
+                                                                <IconClock
+                                                                    size={12}
+                                                                />
+                                                            )}
+                                                            {isSettled
+                                                                ? "Settled"
+                                                                : "Outstanding"}
+                                                        </span>
+                                                        <button
+                                                            onClick={() =>
+                                                                isSettled
+                                                                    ? router.patch(
+                                                                          route(
+                                                                              "reports.sales.tenant-allocations.unsettle",
+                                                                              allocation.id
+                                                                          ),
+                                                                          {},
+                                                                          {
+                                                                              preserveScroll: true,
+                                                                          }
+                                                                      )
+                                                                    : settleAllocation(
+                                                                          allocation
+                                                                      )
+                                                            }
+                                                            className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
+                                                                isSettled
+                                                                    ? "bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                                                                    : "bg-primary-50 text-primary-700 hover:bg-primary-100 dark:bg-primary-950/40 dark:text-primary-300 dark:hover:bg-primary-950/60"
+                                                            }`}
+                                                        >
+                                                            {isSettled
+                                                                ? "Buka Lagi"
+                                                                : "Tandai Settled"}
+                                                        </button>
+                                                        {allocation.payout_reference ? (
+                                                            <p className="max-w-[140px] text-center text-[11px] text-slate-500 dark:text-slate-400">
+                                                                Ref: {allocation.payout_reference}
+                                                            </p>
+                                                        ) : null}
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+                    ) : (
+                        <div className="px-5 py-8 text-sm text-slate-500 dark:text-slate-400">
+                            Belum ada allocation tenant pada filter ini.
+                        </div>
+                    )}
+                </div>
             </div>
         </>
     );

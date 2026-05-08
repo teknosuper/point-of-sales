@@ -2,12 +2,13 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToOutlet;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class Cart extends Model
 {
-    use HasFactory;
+    use BelongsToOutlet, HasFactory;
 
     /**
      * fillable
@@ -15,7 +16,7 @@ class Cart extends Model
      * @var array
      */
     protected $fillable = [
-        'cashier_id', 'product_id', 'qty', 'price', 'hold_id', 'hold_label', 'held_at',
+        'cashier_id', 'outlet_id', 'tenant_outlet_id', 'product_id', 'qty', 'price', 'hold_id', 'hold_label', 'held_at',
     ];
 
     /**
@@ -24,6 +25,8 @@ class Cart extends Model
      * @var array
      */
     protected $casts = [
+        'outlet_id' => 'integer',
+        'tenant_outlet_id' => 'integer',
         'held_at' => 'datetime',
     ];
 
@@ -35,6 +38,11 @@ class Cart extends Model
     public function product()
     {
         return $this->belongsTo(Product::class);
+    }
+
+    public function tenantOutlet()
+    {
+        return $this->belongsTo(Outlet::class, 'tenant_outlet_id');
     }
 
     /**

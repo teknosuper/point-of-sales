@@ -4,7 +4,9 @@ namespace App\Http\Controllers\Apps;
 
 use App\Http\Controllers\Controller;
 use App\Models\Category;
+use App\Models\Outlet;
 use App\Models\Product;
+use App\Models\ProductKitchenStationMapping;
 use App\Services\AuditLogService;
 use App\Services\StockMutationService;
 use Illuminate\Http\Request;
@@ -23,16 +25,112 @@ class ProductController extends Controller
      *
      * @return \Illuminate\Http\Response
      */
-    public function index()
+    public function index(Request $request)
     {
-        // get products
-        $products = Product::when(request()->search, function ($products) {
-            $products = $products->where('title', 'like', '%'.request()->search.'%');
-        })->with('category')->latest()->paginate(5);
+        $filters = [
+            'search' => trim((string) $request->input('search', '')),
+            'category_id' => $request->input('category_id', ''),
+            'tenant_outlet_id' => $request->input('tenant_outlet_id', ''),
+            'mapping_status' => $request->input('mapping_status', ''),
+            'stock_status' => $request->input('stock_status', ''),
+            'sort' => $request->input('sort', 'latest'),
+            'per_page' => (int) $request->input('per_page', 10),
+        ];
 
-        // return inertia
+        $allowedPerPage = [10, 25, 50, 100];
+        if (! in_array($filters['per_page'], $allowedPerPage, true)) {
+            $filters['per_page'] = 10;
+        }
+
+        $products = Product::query()
+            ->with(['category:id,name', 'tenantOutlet:id,name,code'])
+            ->withCount([
+                'kitchenStationMappings as active_kitchen_station_mappings_count' => fn ($query) => $query->where('is_active', true),
+            ])
+            ->when($filters['search'] !== '', function ($query) use ($filters) {
+                $search = $filters['search'];
+
+                $query->where(function ($innerQuery) use ($search) {
+                    $innerQuery
+                        ->where('title', 'like', '%'.$search.'%')
+                        ->orWhere('barcode', 'like', '%'.$search.'%')
+                        ->orWhere('sku', 'like', '%'.$search.'%')
+                        ->orWhere('description', 'like', '%'.$search.'%');
+                });
+            })
+            ->when($filters['category_id'] !== '', fn ($query) => $query->where('category_id', $filters['category_id']))
+            ->when($filters['tenant_outlet_id'] !== '', function ($query) use ($filters) {
+                if ($filters['tenant_outlet_id'] === 'unassigned') {
+                    return $query->whereNull('tenant_outlet_id');
+                }
+
+                return $query->where('tenant_outlet_id', $filters['tenant_outlet_id']);
+            })
+            ->when($filters['mapping_status'] !== '', function ($query) use ($filters) {
+                return match ($filters['mapping_status']) {
+                    'tenant_missing' => $query->whereNull('tenant_outlet_id'),
+                    'kitchen_missing' => $query->whereDoesntHave('kitchenStationMappings', fn ($mappingQuery) => $mappingQuery->where('is_active', true)),
+                    'ready' => $query
+                        ->whereNotNull('tenant_outlet_id')
+                        ->whereHas('kitchenStationMappings', fn ($mappingQuery) => $mappingQuery->where('is_active', true)),
+                    default => $query,
+                };
+            })
+            ->when($filters['stock_status'] !== '', function ($query) use ($filters) {
+                return match ($filters['stock_status']) {
+                    'out' => $query->where('stock', '<=', 0),
+                    'low' => $query->where('stock', '>', 0)->where('stock', '<=', 5),
+                    'ready' => $query->where('stock', '>', 5),
+                    default => $query,
+                };
+            });
+
+        $products = match ($filters['sort']) {
+            'title_asc' => $products->orderBy('title'),
+            'title_desc' => $products->orderByDesc('title'),
+            'price_low' => $products->orderBy('sell_price'),
+            'price_high' => $products->orderByDesc('sell_price'),
+            'stock_low' => $products->orderBy('stock'),
+            'stock_high' => $products->orderByDesc('stock'),
+            'oldest' => $products->oldest(),
+            default => $products->latest(),
+        };
+
+        $products = $products
+            ->paginate($filters['per_page'])
+            ->withQueryString();
+
+        $tenantOutlets = Outlet::active()->ordered()->get(['id', 'name', 'code', 'outlet_type']);
+        $tenantOutletIds = $tenantOutlets
+            ->where('outlet_type', 'tenant')
+            ->pluck('id');
+
+        $setupStatus = [
+            'tenant_outlets_count' => $tenantOutletIds->count(),
+            'products_with_tenant_count' => Product::query()->whereNotNull('tenant_outlet_id')->count(),
+            'products_without_tenant_count' => Product::query()->whereNull('tenant_outlet_id')->count(),
+            'products_with_station_mapping_count' => ProductKitchenStationMapping::query()
+                ->where('is_active', true)
+                ->distinct('product_id')
+                ->count('product_id'),
+            'products_without_station_mapping_count' => Product::query()
+                ->whereDoesntHave('kitchenStationMappings', fn ($query) => $query->where('is_active', true))
+                ->count(),
+        ];
+
+        $setupStatus['needs_tenant_mapping'] = $setupStatus['tenant_outlets_count'] > 0
+            && $setupStatus['products_without_tenant_count'] > 0;
+        $setupStatus['needs_station_mapping'] = $setupStatus['products_without_station_mapping_count'] > 0;
+
         return Inertia::render('Dashboard/Products/Index', [
             'products' => $products,
+            'filters' => $filters,
+            'setupStatus' => $setupStatus,
+            'meta' => [
+                'per_page_options' => $allowedPerPage,
+                'categories' => Category::query()->orderBy('name')->get(['id', 'name']),
+                'tenantOutlets' => $tenantOutlets,
+            ],
         ]);
     }
 
@@ -49,6 +147,7 @@ class ProductController extends Controller
         // return inertia
         return Inertia::render('Dashboard/Products/Create', [
             'categories' => $categories,
+            'tenantOutlets' => Outlet::active()->ordered()->get(['id', 'name', 'code']),
         ]);
     }
 
@@ -68,6 +167,7 @@ class ProductController extends Controller
             'title' => 'required',
             'description' => 'required',
             'category_id' => 'required',
+            'tenant_outlet_id' => 'nullable|exists:outlets,id',
             'buy_price' => 'required',
             'sell_price' => 'required',
             'stock' => 'required|integer|min:0',
@@ -84,6 +184,7 @@ class ProductController extends Controller
             'title' => $request->title,
             'description' => $request->description,
             'category_id' => $request->category_id,
+            'tenant_outlet_id' => $request->integer('tenant_outlet_id') ?: null,
             'buy_price' => $request->buy_price,
             'sell_price' => $request->sell_price,
             'stock' => $request->stock,
@@ -116,6 +217,7 @@ class ProductController extends Controller
         return Inertia::render('Dashboard/Products/Edit', [
             'product' => $product,
             'categories' => $categories,
+            'tenantOutlets' => Outlet::active()->ordered()->get(['id', 'name', 'code']),
         ]);
     }
 
@@ -138,6 +240,7 @@ class ProductController extends Controller
             'title' => 'required',
             'description' => 'required',
             'category_id' => 'required',
+            'tenant_outlet_id' => 'nullable|exists:outlets,id',
             'buy_price' => 'required',
             'sell_price' => 'required',
         ]);
@@ -160,6 +263,7 @@ class ProductController extends Controller
                 'title' => $request->title,
                 'description' => $request->description,
                 'category_id' => $request->category_id,
+                'tenant_outlet_id' => $request->integer('tenant_outlet_id') ?: null,
                 'buy_price' => $request->buy_price,
                 'sell_price' => $request->sell_price,
             ]);
@@ -176,6 +280,7 @@ class ProductController extends Controller
             'title' => $request->title,
             'description' => $request->description,
             'category_id' => $request->category_id,
+            'tenant_outlet_id' => $request->integer('tenant_outlet_id') ?: null,
             'buy_price' => $request->buy_price,
             'sell_price' => $request->sell_price,
         ]);
@@ -260,6 +365,7 @@ class ProductController extends Controller
             'sell_price',
             'stock',
             'category_id',
+            'tenant_outlet_id',
         ]);
     }
 }

@@ -19,7 +19,7 @@ export default function Payment({
     webhookUrls = {},
     webhookWarnings = [],
 }) {
-    const { flash } = usePage().props;
+    const { flash, activeOutlet } = usePage().props;
     const { can } = useAuthorization();
     const canUpdatePaymentSettings = can("payment-settings-update");
 
@@ -92,6 +92,11 @@ export default function Payment({
                 <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
                     Konfigurasi metode pembayaran dan gateway
                 </p>
+                {activeOutlet?.name && (
+                    <p className="mt-2 text-xs font-medium uppercase tracking-[0.16em] text-primary-600 dark:text-primary-300">
+                        Outlet aktif: {activeOutlet.name}
+                    </p>
+                )}
             </div>
 
             <form onSubmit={handleSubmit} className="max-w-3xl space-y-6">

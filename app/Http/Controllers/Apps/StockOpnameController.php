@@ -11,6 +11,7 @@ use App\Models\Product;
 use App\Models\StockOpname;
 use App\Models\StockOpnameItem;
 use App\Services\AuditLogService;
+use App\Services\OutletResolver;
 use App\Services\StockMutationService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -24,11 +25,13 @@ class StockOpnameController extends Controller
 {
     public function __construct(
         private readonly StockMutationService $stockMutationService,
-        private readonly AuditLogService $auditLogService
+        private readonly AuditLogService $auditLogService,
+        private readonly OutletResolver $outletResolver
     ) {}
 
     public function index(Request $request): Response
     {
+        $outlet = $this->outletResolver->resolve($request, $request->user());
         $filters = [
             'search' => $request->input('search'),
             'status' => $request->input('status'),
@@ -38,6 +41,7 @@ class StockOpnameController extends Controller
 
         $stockOpnames = StockOpname::query()
             ->with(['creator:id,name', 'finalizer:id,name'])
+            ->when($outlet, fn ($query) => $query->where('outlet_id', $outlet->id))
             ->when($filters['search'], function ($query, $search) {
                 $query->where(function ($builder) use ($search) {
                     $builder
@@ -68,6 +72,7 @@ class StockOpnameController extends Controller
     {
         $stockOpname = StockOpname::create([
             'code' => $this->generateCode(),
+            'outlet_id' => $this->outletResolver->resolve($request, $request->user())?->id,
             'notes' => $request->validated('notes'),
             'status' => 'draft',
             'created_by' => $request->user()?->id,
@@ -78,6 +83,7 @@ class StockOpnameController extends Controller
 
     public function show(Request $request, StockOpname $stockOpname): Response
     {
+        $this->ensureAccessibleOutlet($request, $stockOpname->outlet_id);
         $stockOpname->load([
             'creator:id,name',
             'finalizer:id,name',
@@ -103,7 +109,15 @@ class StockOpnameController extends Controller
                 ->whereNotIn('id', $selectedProductIds)
                 ->orderBy('title')
                 ->limit(20)
-                ->get();
+                ->get()
+                ->map(function (Product $product) use ($stockOpname) {
+                    $product->setAttribute(
+                        'stock',
+                        $this->stockMutationService->stockForOutlet($product, (int) $stockOpname->outlet_id)
+                    );
+
+                    return $product;
+                });
 
         return Inertia::render('Dashboard/StockOpnames/Show', [
             'stockOpname' => $stockOpname,
@@ -114,6 +128,7 @@ class StockOpnameController extends Controller
 
     public function update(UpdateStockOpnameRequest $request, StockOpname $stockOpname): RedirectResponse
     {
+        $this->ensureAccessibleOutlet($request, $stockOpname->outlet_id);
         $this->ensureDraft($stockOpname);
 
         $stockOpname->update($request->validated());
@@ -123,6 +138,7 @@ class StockOpnameController extends Controller
 
     public function storeItem(StoreStockOpnameItemRequest $request, StockOpname $stockOpname): RedirectResponse
     {
+        $this->ensureAccessibleOutlet($request, $stockOpname->outlet_id);
         $this->ensureDraft($stockOpname);
 
         $product = Product::findOrFail($request->validated('product_id'));
@@ -135,7 +151,7 @@ class StockOpnameController extends Controller
 
         $stockOpname->items()->create([
             'product_id' => $product->id,
-            'system_stock' => $product->stock,
+            'system_stock' => $this->stockMutationService->stockForOutlet($product, (int) $stockOpname->outlet_id),
         ]);
 
         return back()->with('success', 'Produk berhasil ditambahkan ke stock opname.');
@@ -146,6 +162,7 @@ class StockOpnameController extends Controller
         StockOpname $stockOpname,
         StockOpnameItem $item
     ): RedirectResponse {
+        $this->ensureAccessibleOutlet($request, $stockOpname->outlet_id);
         $this->ensureDraft($stockOpname);
         $this->ensureItemBelongsToOpname($stockOpname, $item);
 
@@ -178,6 +195,7 @@ class StockOpnameController extends Controller
 
     public function finalize(Request $request, StockOpname $stockOpname): RedirectResponse
     {
+        $this->ensureAccessibleOutlet($request, $stockOpname->outlet_id);
         $this->ensureDraft($stockOpname);
 
         $stockOpname->load('items.product');
@@ -203,17 +221,12 @@ class StockOpnameController extends Controller
                     continue;
                 }
 
-                $stockBefore = (int) $product->stock;
                 $stockAfter = (int) $item->physical_stock;
-
-                $product->update([
-                    'stock' => $stockAfter,
-                ]);
 
                 $this->stockMutationService->recordStockOpnameAdjustment(
                     product: $product,
                     stockOpname: $stockOpname,
-                    stockBefore: $stockBefore,
+                    stockBefore: (int) $item->system_stock,
                     stockAfter: $stockAfter,
                     reason: $item->adjustment_reason,
                     userId: $request->user()?->id,
@@ -278,5 +291,14 @@ class StockOpnameController extends Controller
         } while (StockOpname::where('code', $code)->exists());
 
         return $code;
+    }
+
+    private function ensureAccessibleOutlet(Request $request, ?int $outletId): void
+    {
+        $activeOutletId = $this->outletResolver->resolve($request, $request->user())?->id;
+
+        if ($activeOutletId && $outletId && (int) $activeOutletId !== (int) $outletId) {
+            abort(404);
+        }
     }
 }

@@ -3,12 +3,19 @@
 namespace App\Services;
 
 use App\Models\Customer;
+use App\Models\CustomerOutletMetric;
+use App\Models\Outlet;
 use App\Models\CustomerSegment;
 use App\Models\CustomerSegmentMembership;
 use Carbon\CarbonInterface;
+use Illuminate\Support\Facades\Schema;
 
 class CustomerSegmentationService
 {
+    public function __construct(
+        private readonly CustomerOutletMetricService $customerOutletMetricService
+    ) {}
+
     public function defaultAutoSegments(): array
     {
         return [
@@ -80,10 +87,19 @@ class CustomerSegmentationService
         }
     }
 
-    public function syncAutoSegments(?CarbonInterface $at = null): void
+    public function syncAutoSegments(?CarbonInterface $at = null, ?int $outletId = null): void
     {
         $at = $at ?? now();
         $this->ensureDefaultAutoSegments();
+
+        if ($outletId === null && Schema::hasTable('outlets')) {
+            Outlet::query()
+                ->active()
+                ->pluck('id')
+                ->each(fn ($resolvedOutletId) => $this->syncAutoSegments($at, (int) $resolvedOutletId));
+
+            return;
+        }
 
         $segments = CustomerSegment::query()
             ->where('type', CustomerSegment::TYPE_AUTO)
@@ -91,17 +107,21 @@ class CustomerSegmentationService
             ->get();
 
         Customer::query()
-            ->with(['receivables'])
+            ->with([
+                'receivables' => fn ($query) => $query->when($outletId, fn ($receivableQuery) => $receivableQuery->where('outlet_id', $outletId)),
+                'outletMetrics' => fn ($query) => $query->when($outletId, fn ($metricQuery) => $metricQuery->where('outlet_id', $outletId)),
+            ])
             ->orderBy('id')
-            ->chunkById(100, function ($customers) use ($segments, $at) {
+            ->chunkById(100, function ($customers) use ($segments, $at, $outletId) {
                 foreach ($customers as $customer) {
                     foreach ($segments as $segment) {
-                        $matches = $this->matchesAutoSegment($customer, $segment, $at);
+                        $matches = $this->matchesAutoSegment($customer, $segment, $at, $outletId);
 
                         if ($matches) {
                             CustomerSegmentMembership::query()->updateOrCreate([
                                 'customer_id' => $customer->id,
                                 'customer_segment_id' => $segment->id,
+                                'outlet_id' => $outletId,
                             ], [
                                 'source' => CustomerSegmentMembership::SOURCE_AUTO,
                                 'matched_at' => $at,
@@ -110,6 +130,7 @@ class CustomerSegmentationService
                             CustomerSegmentMembership::query()
                                 ->where('customer_id', $customer->id)
                                 ->where('customer_segment_id', $segment->id)
+                                ->when($outletId, fn ($query) => $query->where('outlet_id', $outletId))
                                 ->delete();
                         }
                     }
@@ -117,7 +138,7 @@ class CustomerSegmentationService
             });
     }
 
-    public function syncManualSegments(Customer $customer, array $segmentIds): void
+    public function syncManualSegments(Customer $customer, array $segmentIds, ?int $outletId = null): void
     {
         $segments = CustomerSegment::query()
             ->where('type', CustomerSegment::TYPE_MANUAL)
@@ -127,6 +148,7 @@ class CustomerSegmentationService
 
         $customer->segmentMemberships()
             ->where('source', CustomerSegmentMembership::SOURCE_MANUAL)
+            ->when($outletId, fn ($query) => $query->where('outlet_id', $outletId))
             ->whereNotIn('customer_segment_id', $segments)
             ->delete();
 
@@ -135,6 +157,7 @@ class CustomerSegmentationService
                 [
                     'customer_id' => $customer->id,
                     'customer_segment_id' => $segmentId,
+                    'outlet_id' => $outletId,
                 ],
                 [
                     'source' => CustomerSegmentMembership::SOURCE_MANUAL,
@@ -144,9 +167,11 @@ class CustomerSegmentationService
         }
     }
 
-    public function serializeCustomerSegments(Customer $customer): array
+    public function serializeCustomerSegments(Customer $customer, ?int $outletId = null): array
     {
-        return $customer->segments
+        return $customer->segments()
+            ->when($outletId, fn ($query) => $query->wherePivot('outlet_id', $outletId))
+            ->get()
             ->sortBy('name')
             ->values()
             ->map(fn (CustomerSegment $segment) => [
@@ -155,6 +180,7 @@ class CustomerSegmentationService
                 'slug' => $segment->slug,
                 'type' => $segment->type,
                 'source' => $segment->pivot?->source,
+                'outlet_id' => $segment->pivot?->outlet_id,
                 'matched_at' => optional($segment->pivot?->matched_at)->toIso8601String(),
             ])
             ->all();
@@ -175,9 +201,12 @@ class CustomerSegmentationService
             ->all();
     }
 
-    public function segmentStats(CustomerSegment $segment): array
+    public function segmentStats(CustomerSegment $segment, ?int $outletId = null): array
     {
-        $memberships = $segment->memberships()->with('customer:id')->get();
+        $memberships = $segment->memberships()
+            ->when($outletId, fn ($query) => $query->where('outlet_id', $outletId))
+            ->with('customer:id')
+            ->get();
 
         return [
             'total_members' => $memberships->count(),
@@ -189,63 +218,88 @@ class CustomerSegmentationService
     private function matchesAutoSegment(
         Customer $customer,
         CustomerSegment $segment,
-        CarbonInterface $at
+        CarbonInterface $at,
+        ?int $outletId = null
     ): bool {
         $config = $segment->rule_config ?? [];
+        $metrics = $this->customerMetrics($customer, $outletId);
 
         return match ($segment->slug) {
-            'high_spender' => (int) $customer->loyalty_total_spent >= (int) ($config['min_total_spent'] ?? 1500000),
-            'frequent_buyer' => $this->matchesFrequentBuyer($customer, $config, $at),
-            'inactive_customer' => $this->matchesInactiveCustomer($customer, $config, $at),
-            'credit_customer' => $this->matchesCreditCustomer($customer),
-            'overdue_customer' => $this->matchesOverdueCustomer($customer),
+            'high_spender' => (int) $metrics['total_spent'] >= (int) ($config['min_total_spent'] ?? 1500000),
+            'frequent_buyer' => $this->matchesFrequentBuyer($metrics, $config, $at),
+            'inactive_customer' => $this->matchesInactiveCustomer($metrics, $config, $at),
+            'credit_customer' => $this->matchesCreditCustomer($customer, $outletId),
+            'overdue_customer' => $this->matchesOverdueCustomer($customer, $outletId),
             default => false,
         };
     }
 
-    private function matchesFrequentBuyer(Customer $customer, array $config, CarbonInterface $at): bool
+    private function matchesFrequentBuyer(array $metrics, array $config, CarbonInterface $at): bool
     {
         $recentDays = (int) ($config['recent_days'] ?? 45);
         $minTransactionCount = (int) ($config['min_transaction_count'] ?? 5);
 
-        if ((int) $customer->loyalty_transaction_count < $minTransactionCount) {
+        if ((int) ($metrics['transaction_count'] ?? 0) < $minTransactionCount) {
             return false;
         }
 
-        if (! $customer->last_purchase_at) {
+        $lastPurchaseAt = $metrics['last_purchase_at'] ?? null;
+        if (! $lastPurchaseAt) {
             return false;
         }
 
-        return $customer->last_purchase_at->gte($at->copy()->subDays($recentDays));
+        return $lastPurchaseAt->gte($at->copy()->subDays($recentDays));
     }
 
-    private function matchesInactiveCustomer(Customer $customer, array $config, CarbonInterface $at): bool
+    private function matchesInactiveCustomer(array $metrics, array $config, CarbonInterface $at): bool
     {
         $minTransactionCount = (int) ($config['min_transaction_count'] ?? 1);
         $inactivityDays = (int) ($config['inactivity_days_min'] ?? 30);
 
-        if ((int) $customer->loyalty_transaction_count < $minTransactionCount) {
+        if ((int) ($metrics['transaction_count'] ?? 0) < $minTransactionCount) {
             return false;
         }
 
-        if (! $customer->last_purchase_at) {
+        $lastPurchaseAt = $metrics['last_purchase_at'] ?? null;
+        if (! $lastPurchaseAt) {
             return true;
         }
 
-        return $customer->last_purchase_at->lt($at->copy()->subDays($inactivityDays));
+        return $lastPurchaseAt->lt($at->copy()->subDays($inactivityDays));
     }
 
-    private function matchesCreditCustomer(Customer $customer): bool
+    private function matchesCreditCustomer(Customer $customer, ?int $outletId = null): bool
     {
         return $customer->receivables
+            ->when($outletId, fn ($receivables) => $receivables->where('outlet_id', $outletId))
             ->filter(fn ($receivable) => $receivable->status !== 'paid' && $receivable->remaining > 0)
             ->isNotEmpty();
     }
 
-    private function matchesOverdueCustomer(Customer $customer): bool
+    private function matchesOverdueCustomer(Customer $customer, ?int $outletId = null): bool
     {
         return $customer->receivables
+            ->when($outletId, fn ($receivables) => $receivables->where('outlet_id', $outletId))
             ->filter(fn ($receivable) => $receivable->status !== 'paid' && $receivable->due_date && now()->gt($receivable->due_date))
             ->isNotEmpty();
+    }
+
+    private function customerMetrics(Customer $customer, ?int $outletId = null): array
+    {
+        if (! $outletId) {
+            return $this->customerOutletMetricService->metricsForCustomer($customer);
+        }
+
+        $metric = $customer->outletMetrics->firstWhere('outlet_id', $outletId);
+
+        if ($metric instanceof CustomerOutletMetric) {
+            return [
+                'total_spent' => (int) $metric->total_spent,
+                'transaction_count' => (int) $metric->transaction_count,
+                'last_purchase_at' => $metric->last_purchase_at,
+            ];
+        }
+
+        return $this->customerOutletMetricService->metricsForCustomer($customer, $outletId);
     }
 }

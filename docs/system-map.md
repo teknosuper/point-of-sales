@@ -37,6 +37,23 @@ Repo ini sudah berkembang dari POS dasar menjadi sistem operasional retail yang 
 
 Artinya, keputusan engineering tidak boleh lagi dibuat seolah sistem ini hanya punya modul transaksi dan master data.
 
+### Fondasi Baru: Multi Outlet dan Kitchen Routing
+
+Per tanggal 7 Mei 2026, repo Laravel ini sudah memiliki fondasi schema untuk:
+
+- `outlets` sebagai store profile dan konteks operasional,
+- `outlet_user` untuk membership user ke outlet,
+- `product_outlet_stocks` untuk stok per outlet,
+- `kitchen_stations`, `kitchen_station_devices`, `product_kitchen_station_mappings`,
+- `kitchen_tickets`, `kitchen_ticket_items`, `kitchen_ticket_events`,
+- `outlet_id` di tabel operasional utama untuk isolasi data lintas outlet.
+
+Catatan penting:
+
+- implementasi ini mempertahankan `products.stock` sebagai backward-compatible field transisi,
+- source of truth stok multi outlet ke depan adalah `product_outlet_stocks`,
+- store profile tidak lagi diasumsikan global dari `settings`, tetapi di-resolve dari outlet aktif dengan fallback aman ke setting lama.
+
 ## Sumber Kebenaran Utama
 
 Jika ada perbedaan antara dokumen lama dan implementasi aktual, prioritaskan sumber berikut:
@@ -80,11 +97,11 @@ Catatan: roadmap di `planning/` sudah tidak sepenuhnya merepresentasikan status 
 
 | Concern | Implementasi saat ini |
 | --- | --- |
-| Shared props | `HandleInertiaRequests` membagikan auth, permissions, store profile, notifications, security warnings, active shift |
+| Shared props | `HandleInertiaRequests` membagikan auth, permissions, `activeOutlet`, store profile, notifications, security warnings, active shift |
 | Route authorization | Mayoritas route dashboard dijaga `permission:*` |
 | Step-up auth | Middleware `step_up` untuk aksi sensitif seperti update payment settings, bank account mutation, role/user mutation, confirm payment |
 | Active shift guard | Middleware `active_shift` untuk operasi POS yang mengubah cart atau checkout |
-| Email verification | Dashboard utama dijaga `auth` + `verified` |
+| Outlet context | `OutletResolver` memilih outlet dari session/user membership/default outlet |
 | Auditability | `AuditLogService` dipakai untuk event sensitif dan perubahan operasional |
 | Payment integration | API webhook terpisah di `routes/api.php` |
 
@@ -108,11 +125,18 @@ Catatan penting:
 | Area | Route/Page | Komponen inti |
 | --- | --- | --- |
 | Dashboard | `/dashboard` | `DashboardController`, `Pages/Dashboard/Index.jsx` |
-| Store profile | `/dashboard/settings/store` | `SettingController` |
+| Store profile | `/dashboard/settings/store` | `SettingController`, `OutletResolver`, `Outlet` |
 | Sales target | `/dashboard/settings/target` | `SettingController` |
 | Loyalty settings | `/dashboard/settings/loyalty` | `SettingController`, `LoyaltyService` |
 | Payment settings | `/dashboard/settings/payments` | `PaymentSettingController`, `PaymentGatewayManager` |
 | Bank accounts | `/dashboard/settings/bank-accounts` | `BankAccountController` |
+
+Catatan penting:
+
+- target penjualan dan loyalty masih global di `settings`,
+- profil outlet sudah mulai dibaca dari `outlets` dan hanya fallback ke `settings` bila migrasi belum ada,
+- UI selector outlet belum final, jadi outlet aktif saat ini masih mengikuti resolver server-side.
+- shift kasir sekarang dibuka per outlet aktif, bukan lagi diasumsikan global per user.
 
 ### 3. Master Data
 
@@ -139,6 +163,58 @@ Boundary penting:
 
 - operasi POS mutasi data dijaga `active_shift`
 - transaksi adalah pusat relasi ke profit, receivable, loyalty, sales return, campaign share, dan payment reference
+- transaksi sekarang juga harus dipandang sebagai parent untuk `outlet_id` dan kitchen ticket routing
+
+Status implementasi saat ini:
+
+- cart aktif dan held cart sudah di-scope per `cashier_id + outlet_id`,
+- pencarian barcode dan grid produk POS sudah membaca stok outlet,
+- checkout Laravel sudah menulis `outlet_id` ke transaksi dan receivable,
+- checkout Laravel sudah membentuk `kitchen_tickets` per station yang relevan,
+- pengurangan stok penjualan sudah mulai diarahkan ke `product_outlet_stocks`,
+- stock opname, goods receiving, supplier return, dan sales return mulai memperbarui stok outlet,
+- receivable, payable, purchase order, dan laporan utama mulai default ke outlet aktif.
+
+### 4A. Multi Outlet and Kitchen Dispatch
+
+| Area | Route/Page | Komponen inti |
+| --- | --- | --- |
+| Outlet master | schema + model foundation | `Outlet`, `outlet_user`, `OutletResolver` |
+| Outlet stock ledger | schema foundation | `ProductOutletStock` |
+| Kitchen station | schema + model foundation | `KitchenStation`, `KitchenStationDevice`, `ProductKitchenStationMapping` |
+| Kitchen dispatch | schema + model foundation | `KitchenTicket`, `KitchenTicketItem`, `KitchenTicketEvent` |
+
+Boundary penting:
+
+- satu transaksi boleh menghasilkan banyak kitchen ticket,
+- satu kitchen ticket hanya untuk satu station dan satu outlet,
+- station yang tidak punya item dalam transaksi tidak boleh menerima notifikasi,
+- printer atau layar dapur harus diikat ke `kitchen_station_devices`, bukan langsung ke transaksi.
+
+### 4B. Foodcourt Multi-Tenant Foundation
+
+| Area | Route/Page | Komponen inti |
+| --- | --- | --- |
+| Master transaction | `/dashboard/transactions` | `Transaction`, `TransactionDetail` |
+| Tenant allocation | schema + service foundation | `TransactionTenantAllocation`, `TransactionTenantAllocationItem`, `FoodcourtTenantAllocationService` |
+| Tenant revenue split | domain foundation | `transaction_details.tenant_outlet_id` |
+
+Boundary penting:
+
+- satu `Transaction` tetap menjadi nota dan pembayaran utama di kasir,
+- setiap `TransactionDetail` sekarang bisa menunjuk `tenant_outlet_id` yang berbeda dari outlet kasir,
+- revenue tenant dipisah melalui `transaction_tenant_allocations`,
+- satu nota bisa menghasilkan banyak alokasi tenant untuk settlement foodcourt,
+- kitchen ticket tetap bisa dipecah lebih lanjut per tenant dan per station.
+
+Status implementasi saat ini:
+
+- fondasi schema dan model tenant allocation sudah ditambahkan,
+- produk sekarang mulai bisa punya `tenant_outlet_id` default,
+- cart POS sekarang mulai membawa `tenant_outlet_id` dari produk,
+- checkout lama masih menulis satu tenant yang sama dengan outlet aktif sebagai fallback kompatibilitas,
+- service `FoodcourtTenantAllocationService` sudah membentuk alokasi tenant dari detail transaksi,
+- flow kasir lintas tenant dalam satu nota belum selesai di UI dan belum mengganti mapping produk ke tenant secara penuh.
 
 ### 5. Pricing, Loyalty, and Commercial Engine
 
@@ -167,6 +243,14 @@ Boundary penting:
 
 - stock opname finalize harus transactional dan menghasilkan mutation trail
 - perubahan stok bukan hanya concern `Product`, tetapi harus punya histori asal mutasi
+
+Status implementasi saat ini:
+
+- stock opname list dan finalize sudah di-scope ke outlet aktif,
+- `system_stock` pada stock opname item sudah membaca stok outlet,
+- receiving procurement sudah menambah stok outlet,
+- supplier return dan sales return restock sudah menyesuaikan stok outlet,
+- fallback ke `products.stock` masih dipertahankan untuk kompatibilitas transisi.
 
 ### 7. Returns, Procurement, and Supplier Flow
 
@@ -225,12 +309,27 @@ Boundary penting:
 ### Penjualan Reguler
 
 1. Kasir membuka shift.
-2. POS membangun cart aktif.
-3. `PricingService` menghasilkan promo preview.
-4. `LoyaltyService` menghitung voucher, redeem point, dan grand total final.
-5. Checkout membentuk `Transaction`, `TransactionDetail`, profit, serta mutasi stok.
-6. Jika metode bayar kredit, sistem membentuk `Receivable`.
-7. Invoice dapat dicetak, dibagikan publik, atau dijadikan campaign CRM.
+2. Resolver memilih outlet aktif.
+3. POS membangun cart aktif untuk kombinasi kasir + outlet.
+4. `PricingService` menghasilkan promo preview.
+5. `LoyaltyService` menghitung voucher, redeem point, dan grand total final.
+6. Checkout membentuk `Transaction`, `TransactionDetail`, profit, serta mutasi stok.
+7. Jika item punya mapping station, sistem memecah item menjadi kitchen ticket per station.
+8. Jika metode bayar kredit, sistem membentuk `Receivable`.
+9. Invoice dapat dicetak, dibagikan publik, atau dijadikan campaign CRM.
+
+Catatan implementasi:
+
+- fallback backward compatibility ke `products.stock` masih dipertahankan,
+- source of truth stok penjualan multi outlet diarahkan ke `product_outlet_stocks`.
+
+### Dispatch Dapur
+
+1. Produk dipetakan ke station seperti `minuman`, `ayam`, `salad`, `mie`, `ramen`, `steak`, `es-duren`, `sate`.
+2. Saat checkout, item dipisah berdasarkan station di outlet aktif.
+3. Sistem membuat satu ticket per station yang relevan.
+4. Dapur yang tidak memiliki item di nota tersebut tidak menerima ticket.
+5. Layar dapur atau printer station membaca ticket berdasarkan `kitchen_station_id` miliknya sendiri.
 
 ### Procurement Dasar
 
@@ -255,9 +354,17 @@ Boundary penting:
 ### Security dan Privileged Action
 
 1. User masuk lewat auth flow yang sudah ditambah throttle/bot guard.
-2. Dashboard wajib `verified`.
-3. Route sensitif wajib permission spesifik.
-4. Aksi yang sangat sensitif wajib `step_up`.
+2. Route sensitif wajib permission spesifik.
+3. Aksi yang sangat sensitif wajib `step_up`.
+4. Akses data operasional ke depan harus selalu dibatasi oleh outlet aktif, bukan hanya role.
+
+## Coding Standard Tambahan
+
+- Semua query domain operasional baru wajib memikirkan `outlet_id` sejak awal.
+- Stok baru tidak boleh menambah asumsi bahwa `products.stock` adalah satu-satunya source of truth.
+- Workflow dapur tidak boleh broadcast ke semua station. Routing harus berbasis mapping produk ke station.
+- Satu service transaksi bertanggung jawab atas split item per station; logic ini tidak boleh tercecer di controller atau komponen React.
+- Dokumen cetak harus memakai profil outlet dari transaksi atau domain induknya, bukan setting global buta.
 5. Event penting direkam ke audit log.
 
 ## Peta Kode untuk Developer

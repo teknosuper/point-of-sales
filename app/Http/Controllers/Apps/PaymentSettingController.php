@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Apps;
 use App\Http\Controllers\Controller;
 use App\Models\PaymentSetting;
 use App\Services\AuditLogService;
+use App\Services\OutletResolver;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
@@ -12,12 +13,14 @@ use Inertia\Inertia;
 class PaymentSettingController extends Controller
 {
     public function __construct(
-        private readonly AuditLogService $auditLogService
+        private readonly AuditLogService $auditLogService,
+        private readonly OutletResolver $outletResolver
     ) {}
 
-    public function edit()
+    public function edit(Request $request)
     {
-        $setting = PaymentSetting::firstOrCreate([], [
+        $outletId = $this->outletResolver->resolve($request, $request->user())?->id;
+        $setting = PaymentSetting::firstOrCreateForOutlet($outletId, [
             'default_gateway' => 'cash',
         ]);
 
@@ -81,7 +84,8 @@ class PaymentSettingController extends Controller
 
     public function update(Request $request)
     {
-        $setting = PaymentSetting::firstOrCreate([], [
+        $outletId = $this->outletResolver->resolve($request, $request->user())?->id;
+        $setting = PaymentSetting::firstOrCreateForOutlet($outletId, [
             'default_gateway' => 'cash',
         ]);
         $beforeState = $setting->replicate();

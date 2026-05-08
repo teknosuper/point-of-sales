@@ -2,12 +2,13 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToOutlet;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class CustomerCampaignLog extends Model
 {
-    use HasFactory;
+    use BelongsToOutlet, HasFactory;
 
     public const STATUS_PENDING = 'pending';
 
@@ -18,6 +19,7 @@ class CustomerCampaignLog extends Model
     public const STATUS_SKIPPED = 'skipped';
 
     protected $fillable = [
+        'outlet_id',
         'customer_campaign_id',
         'customer_id',
         'transaction_id',
@@ -29,6 +31,7 @@ class CustomerCampaignLog extends Model
     ];
 
     protected $casts = [
+        'outlet_id' => 'integer',
         'customer_campaign_id' => 'integer',
         'customer_id' => 'integer',
         'transaction_id' => 'integer',

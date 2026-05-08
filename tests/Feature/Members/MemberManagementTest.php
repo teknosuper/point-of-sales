@@ -3,6 +3,8 @@
 namespace Tests\Feature\Members;
 
 use App\Models\Customer;
+use App\Models\CustomerOutletMetric;
+use App\Models\Outlet;
 use App\Models\User;
 use App\Services\LoyaltyService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -177,6 +179,43 @@ class MemberManagementTest extends TestCase
         $this->assertTrue($customer->loyalty_member_since?->equalTo($memberSince));
     }
 
+    public function test_member_show_prefers_outlet_specific_tier_payload(): void
+    {
+        $user = $this->createUserWithPermissions(['customers-access']);
+        $outlet = $this->createOutlet('OUTLET-MEMBER', 'Outlet Member', true);
+        $user->outlets()->attach($outlet->id, ['is_primary' => true]);
+
+        $customer = Customer::create([
+            'name' => 'Member Outlet View',
+            'no_telp' => '62815001',
+            'address' => 'Jl. Member Outlet',
+            'is_loyalty_member' => true,
+            'member_code' => 'MEM-OUTLET-VIEW',
+            'loyalty_tier' => LoyaltyService::TIER_GOLD,
+            'loyalty_member_since' => now()->subMonths(2),
+        ]);
+
+        CustomerOutletMetric::create([
+            'customer_id' => $customer->id,
+            'outlet_id' => $outlet->id,
+            'total_spent' => 350000,
+            'transaction_count' => 2,
+            'loyalty_points_earned' => 10,
+            'loyalty_points_redeemed' => 0,
+            'loyalty_tier' => LoyaltyService::TIER_SILVER,
+        ]);
+
+        $this->withSession(['active_outlet_id' => $outlet->id])
+            ->actingAs($user)
+            ->get(route('members.show', $customer))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Dashboard/Members/Show')
+                ->where('member.id', $customer->id)
+                ->where('member.loyalty_tier', LoyaltyService::TIER_SILVER)
+            );
+    }
+
     private function createUserWithPermissions(array $permissions): User
     {
         $user = User::factory()->create();
@@ -243,6 +282,18 @@ class MemberManagementTest extends TestCase
             'code' => '11.01.01.1001',
             'name' => 'Kelurahan Test',
             'district_code' => '11.01.01',
+        ]);
+    }
+
+    private function createOutlet(string $code, string $name, bool $isDefault = false): Outlet
+    {
+        return Outlet::create([
+            'code' => $code,
+            'slug' => strtolower($code),
+            'name' => $name,
+            'is_active' => true,
+            'is_default' => $isDefault,
+            'sort_order' => 0,
         ]);
     }
 }

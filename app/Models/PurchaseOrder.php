@@ -2,14 +2,16 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToOutlet;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class PurchaseOrder extends Model
 {
-    use HasFactory;
+    use BelongsToOutlet, HasFactory;
 
     protected $fillable = [
+        'outlet_id',
         'supplier_id',
         'document_number',
         'status',
@@ -20,6 +22,7 @@ class PurchaseOrder extends Model
     ];
 
     protected $casts = [
+        'outlet_id' => 'integer',
         'ordered_at' => 'datetime',
         'completed_at' => 'datetime',
     ];

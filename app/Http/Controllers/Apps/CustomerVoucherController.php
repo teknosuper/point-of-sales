@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Models\Customer;
 use App\Models\CustomerVoucher;
 use App\Services\AuditLogService;
+use App\Services\LoyaltyService;
+use App\Services\OutletResolver;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -14,7 +16,9 @@ use Inertia\Inertia;
 class CustomerVoucherController extends Controller
 {
     public function __construct(
-        private readonly AuditLogService $auditLogService
+        private readonly AuditLogService $auditLogService,
+        private readonly LoyaltyService $loyaltyService,
+        private readonly OutletResolver $outletResolver
     ) {}
 
     public function index(Request $request)
@@ -56,8 +60,10 @@ class CustomerVoucherController extends Controller
 
     public function create()
     {
+        $outletId = $this->activeOutletId(request());
+
         return Inertia::render('Dashboard/CustomerVouchers/Create', [
-            'customers' => Customer::orderBy('name')->get(['id', 'name', 'no_telp', 'is_loyalty_member', 'loyalty_tier', 'loyalty_points']),
+            'customers' => $this->customerOptions($outletId),
         ]);
     }
 
@@ -86,9 +92,11 @@ class CustomerVoucherController extends Controller
 
     public function edit(CustomerVoucher $customerVoucher)
     {
+        $outletId = $this->activeOutletId(request());
+
         return Inertia::render('Dashboard/CustomerVouchers/Edit', [
             'voucher' => $customerVoucher->load('customer:id,name,no_telp'),
-            'customers' => Customer::orderBy('name')->get(['id', 'name', 'no_telp', 'is_loyalty_member', 'loyalty_tier', 'loyalty_points']),
+            'customers' => $this->customerOptions($outletId),
         ]);
     }
 
@@ -194,5 +202,21 @@ class CustomerVoucherController extends Controller
         } while (CustomerVoucher::query()->where('code', $code)->exists());
 
         return $code;
+    }
+
+    private function customerOptions(?int $outletId = null)
+    {
+        return Customer::query()
+            ->orderBy('name')
+            ->get(['id', 'name', 'no_telp', 'is_loyalty_member', 'loyalty_tier', 'loyalty_points'])
+            ->map(fn (Customer $customer) => [
+                ...$customer->toArray(),
+                'loyalty_tier' => $this->loyaltyService->resolvedTier($customer, $outletId),
+            ]);
+    }
+
+    private function activeOutletId(Request $request): ?int
+    {
+        return $this->outletResolver->resolve($request)?->id;
     }
 }

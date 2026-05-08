@@ -2,15 +2,17 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToOutlet;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class StockOpname extends Model
 {
-    use HasFactory;
+    use BelongsToOutlet, HasFactory;
 
     protected $fillable = [
         'code',
+        'outlet_id',
         'status',
         'notes',
         'created_by',
@@ -20,6 +22,7 @@ class StockOpname extends Model
 
     protected $casts = [
         'id' => 'integer',
+        'outlet_id' => 'integer',
         'created_by' => 'integer',
         'finalized_by' => 'integer',
         'finalized_at' => 'datetime',

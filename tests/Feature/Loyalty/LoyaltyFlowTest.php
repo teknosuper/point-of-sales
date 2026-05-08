@@ -5,8 +5,10 @@ namespace Tests\Feature\Loyalty;
 use App\Models\Cart;
 use App\Models\Category;
 use App\Models\Customer;
+use App\Models\CustomerOutletMetric;
 use App\Models\CustomerVoucher;
 use App\Models\LoyaltyPointHistory;
+use App\Models\Outlet;
 use App\Models\Product;
 use App\Models\Setting;
 use App\Models\Transaction;
@@ -237,6 +239,62 @@ class LoyaltyFlowTest extends TestCase
         $this->assertSame(LoyaltyService::TIER_GOLD, $customer->loyalty_tier);
     }
 
+    public function test_pricing_preview_returns_outlet_specific_customer_tier(): void
+    {
+        $cashier = $this->createUserWithPermissions([
+            'transactions-access',
+            'cashier-shifts-access',
+            'cashier-shifts-open',
+            'cashier-shifts-close',
+        ]);
+        $outlet = $this->createOutlet('OUTLET-LOYALTY', 'Outlet Loyalty', true);
+        $cashier->outlets()->attach($outlet->id, ['is_primary' => true]);
+        $this->openShiftFor($cashier, $outlet->id);
+
+        $product = $this->createProduct();
+        $customer = Customer::create([
+            'name' => 'Outlet Loyalty Preview',
+            'no_telp' => '628177700033',
+            'address' => 'Jl. Preview Outlet',
+            'is_loyalty_member' => true,
+            'member_code' => 'MEM-OUTLET-PREVIEW',
+            'loyalty_tier' => LoyaltyService::TIER_GOLD,
+            'loyalty_points' => 50,
+            'loyalty_member_since' => now()->subMonth(),
+        ]);
+
+        CustomerOutletMetric::create([
+            'customer_id' => $customer->id,
+            'outlet_id' => $outlet->id,
+            'total_spent' => 250000,
+            'transaction_count' => 2,
+            'loyalty_points_earned' => 15,
+            'loyalty_points_redeemed' => 0,
+            'loyalty_tier' => LoyaltyService::TIER_SILVER,
+        ]);
+
+        Cart::create([
+            'cashier_id' => $cashier->id,
+            'outlet_id' => $outlet->id,
+            'product_id' => $product->id,
+            'qty' => 1,
+            'price' => $product->sell_price,
+        ]);
+
+        $response = $this
+            ->withSession(['active_outlet_id' => $outlet->id])
+            ->actingAs($cashier)
+            ->postJson(route('transactions.pricing-preview'), [
+                'customer_id' => $customer->id,
+            ]);
+
+        $response->assertOk();
+        $this->assertSame(
+            LoyaltyService::TIER_SILVER,
+            data_get($response->json(), 'data.customer.loyalty_tier')
+        );
+    }
+
     private function createUserWithPermissions(array $permissions): User
     {
         $user = User::factory()->create();
@@ -245,10 +303,11 @@ class LoyaltyFlowTest extends TestCase
         return $user;
     }
 
-    private function openShiftFor(User $cashier)
+    private function openShiftFor(User $cashier, ?int $outletId = null)
     {
         return \App\Models\CashierShift::create([
             'user_id' => $cashier->id,
+            'outlet_id' => $outletId,
             'opened_by' => $cashier->id,
             'opened_at' => now(),
             'opening_cash' => 100000,
@@ -275,6 +334,18 @@ class LoyaltyFlowTest extends TestCase
             'buy_price' => 40000,
             'sell_price' => 60000,
             'stock' => 25,
+        ]);
+    }
+
+    private function createOutlet(string $code, string $name, bool $isDefault = false): Outlet
+    {
+        return Outlet::create([
+            'code' => $code,
+            'slug' => strtolower($code),
+            'name' => $name,
+            'is_active' => true,
+            'is_default' => $isDefault,
+            'sort_order' => 0,
         ]);
     }
 }

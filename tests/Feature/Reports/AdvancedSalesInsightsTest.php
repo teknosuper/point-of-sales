@@ -6,13 +6,16 @@ use App\Models\Category;
 use App\Models\Customer;
 use App\Models\CustomerCampaign;
 use App\Models\CustomerCampaignLog;
+use App\Models\CustomerOutletMetric;
 use App\Models\CustomerSegment;
 use App\Models\CustomerVoucher;
 use App\Models\LoyaltyPointHistory;
+use App\Models\Outlet;
 use App\Models\PricingRule;
 use App\Models\Product;
 use App\Models\Transaction;
 use App\Models\User;
+use App\Services\LoyaltyService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Inertia\Testing\AssertableInertia as Assert;
@@ -406,6 +409,44 @@ class AdvancedSalesInsightsTest extends TestCase
         });
     }
 
+    public function test_loyalty_performance_prefers_outlet_metric_tier_distribution(): void
+    {
+        $user = $this->createUser();
+        $outlet = $this->createOutlet('OUTLET-INSIGHT', 'Outlet Insight', true);
+        $user->outlets()->attach($outlet->id, ['is_primary' => true]);
+
+        $member = Customer::create([
+            'name' => 'Outlet Loyalty Member',
+            'no_telp' => '62818888888',
+            'address' => 'Jl. Outlet Insight',
+            'is_loyalty_member' => true,
+            'loyalty_tier' => LoyaltyService::TIER_GOLD,
+            'loyalty_points' => 50,
+        ]);
+
+        CustomerOutletMetric::create([
+            'customer_id' => $member->id,
+            'outlet_id' => $outlet->id,
+            'total_spent' => 300000,
+            'transaction_count' => 2,
+            'loyalty_points_earned' => 10,
+            'loyalty_points_redeemed' => 0,
+            'loyalty_tier' => LoyaltyService::TIER_SILVER,
+        ]);
+
+        $this->withSession(['active_outlet_id' => $outlet->id])
+            ->actingAs($user)
+            ->get(route('reports.insights.index'))
+            ->assertOk()
+            ->assertInertia(function (Assert $page) {
+                $props = $page->toArray()['props'];
+
+                $this->assertSame(0, $props['loyaltyPerformance']['summary']['tier_distribution']['gold']);
+                $this->assertSame(1, $props['loyaltyPerformance']['summary']['tier_distribution']['silver']);
+                $this->assertSame(LoyaltyService::TIER_SILVER, $props['loyaltyPerformance']['top_members'][0]['loyalty_tier']);
+            });
+    }
+
     private function createUser(): User
     {
         $user = User::factory()->create();
@@ -482,5 +523,17 @@ class AdvancedSalesInsightsTest extends TestCase
         }
 
         return $transaction;
+    }
+
+    private function createOutlet(string $code, string $name, bool $isDefault = false): Outlet
+    {
+        return Outlet::create([
+            'code' => $code,
+            'slug' => strtolower($code),
+            'name' => $name,
+            'is_active' => true,
+            'is_default' => $isDefault,
+            'sort_order' => 0,
+        ]);
     }
 }

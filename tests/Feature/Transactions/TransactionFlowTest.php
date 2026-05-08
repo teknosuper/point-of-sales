@@ -5,6 +5,7 @@ namespace Tests\Feature\Transactions;
 use App\Models\Cart;
 use App\Models\Category;
 use App\Models\Customer;
+use App\Models\Outlet;
 use App\Models\PaymentSetting;
 use App\Models\Product;
 use App\Models\Transaction;
@@ -105,6 +106,118 @@ class TransactionFlowTest extends TestCase
 
         $this->assertDatabaseMissing('carts', ['id' => $cart->id]);
         $this->assertSame($product->stock - $quantity, $product->fresh()->stock);
+    }
+
+    public function test_checkout_creates_tenant_allocation_from_cart_tenant_outlet(): void
+    {
+        $cashier = $this->createCashier();
+        $cashierOutlet = $this->createOutlet('OUTLET-KASIR', 'Outlet Kasir', true);
+        $tenantOutlet = $this->createOutlet('OUTLET-TENANT', 'Outlet Tenant');
+        $cashier->outlets()->attach([
+            $cashierOutlet->id => ['is_primary' => true],
+            $tenantOutlet->id => ['is_primary' => false],
+        ]);
+
+        $shift = $this->openShiftFor($cashier, $cashierOutlet->id);
+        $customer = Customer::create([
+            'name' => 'Foodcourt Customer',
+            'no_telp' => 62812345001,
+            'address' => 'Jl. Foodcourt No. 1',
+        ]);
+        $product = $this->createProduct();
+        $product->update(['tenant_outlet_id' => $tenantOutlet->id]);
+
+        $quantity = 1;
+        $cart = Cart::create([
+            'cashier_id' => $cashier->id,
+            'outlet_id' => $cashierOutlet->id,
+            'tenant_outlet_id' => $tenantOutlet->id,
+            'product_id' => $product->id,
+            'qty' => $quantity,
+            'price' => $product->sell_price,
+        ]);
+
+        $response = $this
+            ->withSession(['active_outlet_id' => $cashierOutlet->id])
+            ->actingAs($cashier)
+            ->post(route('transactions.store'), [
+                'customer_id' => $customer->id,
+                'discount' => 0,
+                'grand_total' => $cart->price,
+                'cash' => $cart->price,
+                'change' => 0,
+            ]);
+
+        $transaction = Transaction::with(['details', 'tenantAllocations.items'])->latest('id')->first();
+
+        $response->assertRedirect(route('transactions.print', $transaction->invoice));
+        $this->assertSame($cashierOutlet->id, (int) $transaction->outlet_id);
+        $this->assertSame($shift->id, (int) $transaction->cashier_shift_id);
+        $this->assertCount(1, $transaction->details);
+        $this->assertSame($tenantOutlet->id, (int) $transaction->details->first()->tenant_outlet_id);
+        $this->assertCount(1, $transaction->tenantAllocations);
+        $this->assertSame($tenantOutlet->id, (int) $transaction->tenantAllocations->first()->tenant_outlet_id);
+        $this->assertSame($product->sell_price, (int) $transaction->tenantAllocations->first()->grand_total);
+        $this->assertCount(1, $transaction->tenantAllocations->first()->items);
+        $this->assertSame($tenantOutlet->id, (int) $transaction->tenantAllocations->first()->items->first()->tenant_outlet_id);
+    }
+
+    public function test_cashier_can_override_cart_tenant_before_checkout(): void
+    {
+        $cashier = $this->createCashier();
+        $cashierOutlet = $this->createOutlet('OUTLET-KASIR-2', 'Outlet Kasir 2', true);
+        $tenantA = $this->createOutlet('OUTLET-TENANT-A', 'Tenant A');
+        $tenantB = $this->createOutlet('OUTLET-TENANT-B', 'Tenant B');
+        $cashier->outlets()->attach([
+            $cashierOutlet->id => ['is_primary' => true],
+            $tenantA->id => ['is_primary' => false],
+            $tenantB->id => ['is_primary' => false],
+        ]);
+
+        $this->openShiftFor($cashier, $cashierOutlet->id);
+        $customer = Customer::create([
+            'name' => 'Override Tenant',
+            'no_telp' => 62812345002,
+            'address' => 'Jl. Override No. 2',
+        ]);
+        $product = $this->createProduct();
+        $product->update(['tenant_outlet_id' => $tenantA->id]);
+
+        $cart = Cart::create([
+            'cashier_id' => $cashier->id,
+            'outlet_id' => $cashierOutlet->id,
+            'tenant_outlet_id' => $tenantA->id,
+            'product_id' => $product->id,
+            'qty' => 1,
+            'price' => $product->sell_price,
+        ]);
+
+        $this->withSession(['active_outlet_id' => $cashierOutlet->id])
+            ->actingAs($cashier)
+            ->patchJson(route('transactions.updateCartTenant', $cart->id), [
+                'tenant_outlet_id' => $tenantB->id,
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.tenant_outlet_id', $tenantB->id);
+
+        $this->assertSame($tenantB->id, (int) $cart->fresh()->tenant_outlet_id);
+
+        $response = $this
+            ->withSession(['active_outlet_id' => $cashierOutlet->id])
+            ->actingAs($cashier)
+            ->post(route('transactions.store'), [
+                'customer_id' => $customer->id,
+                'discount' => 0,
+                'grand_total' => $cart->price,
+                'cash' => $cart->price,
+                'change' => 0,
+            ]);
+
+        $transaction = Transaction::with(['details', 'tenantAllocations.items'])->latest('id')->first();
+
+        $response->assertRedirect(route('transactions.print', $transaction->invoice));
+        $this->assertSame($tenantB->id, (int) $transaction->details->first()->tenant_outlet_id);
+        $this->assertSame($tenantB->id, (int) $transaction->tenantAllocations->first()->tenant_outlet_id);
     }
 
     public function test_cashier_can_view_invoice_page_after_transaction(): void
@@ -289,10 +402,11 @@ class TransactionFlowTest extends TestCase
         $this->assertDatabaseCount('transactions', 0);
     }
 
-    protected function openShiftFor(User $cashier)
+    protected function openShiftFor(User $cashier, ?int $outletId = null)
     {
         return \App\Models\CashierShift::create([
             'user_id' => $cashier->id,
+            'outlet_id' => $outletId,
             'opened_by' => $cashier->id,
             'opened_at' => now(),
             'opening_cash' => 100000,
@@ -318,6 +432,18 @@ class TransactionFlowTest extends TestCase
             'buy_price' => 45000,
             'sell_price' => 60000,
             'stock' => 25,
+        ]);
+    }
+
+    protected function createOutlet(string $code, string $name, bool $isDefault = false): Outlet
+    {
+        return Outlet::create([
+            'code' => $code,
+            'slug' => strtolower($code),
+            'name' => $name,
+            'is_active' => true,
+            'is_default' => $isDefault,
+            'sort_order' => 0,
         ]);
     }
 }

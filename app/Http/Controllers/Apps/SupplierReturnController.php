@@ -7,6 +7,8 @@ use App\Models\GoodsReceiving;
 use App\Models\Product;
 use App\Models\Supplier;
 use App\Models\SupplierReturn;
+use App\Services\OutletResolver;
+use App\Services\StockMutationService;
 use App\Services\SupplierReturnService;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -14,11 +16,14 @@ use Inertia\Inertia;
 class SupplierReturnController extends Controller
 {
     public function __construct(
-        private readonly SupplierReturnService $supplierReturnService
+        private readonly SupplierReturnService $supplierReturnService,
+        private readonly OutletResolver $outletResolver,
+        private readonly StockMutationService $stockMutationService
     ) {}
 
     public function index(Request $request)
     {
+        $outlet = $this->outletResolver->resolve($request, $request->user());
         $filters = [
             'status' => $request->input('status'),
             'supplier' => $request->input('supplier'),
@@ -28,7 +33,8 @@ class SupplierReturnController extends Controller
         $query = SupplierReturn::with([
             'supplier:id,name',
             'creator:id,name',
-        ])->withCount('items as items_count')
+        ])->when($outlet, fn ($builder) => $builder->where('outlet_id', $outlet->id))
+            ->withCount('items as items_count')
             ->orderByDesc('created_at');
 
         $query->when($filters['status'], fn ($q, $s) => $q->where('status', $s))
@@ -47,6 +53,7 @@ class SupplierReturnController extends Controller
 
     public function create(Request $request)
     {
+        $outlet = $this->outletResolver->resolve($request, $request->user());
         $suppliers = Supplier::orderBy('name')->get(['id', 'name']);
 
         $goodsReceivings = collect();
@@ -56,12 +63,20 @@ class SupplierReturnController extends Controller
                 'items.product:id,title,sku',
                 'items.purchaseOrderItem:id,unit_price',
             ])->where('supplier_id', $request->input('supplier_id'))
+                ->when($outlet, fn ($query) => $query->where('outlet_id', $outlet->id))
                 ->whereHas('purchaseOrder', fn ($q) => $q->whereIn('status', ['ordered', 'partial_received', 'completed']))
                 ->orderByDesc('received_at')
                 ->get();
         }
 
-        $products = Product::orderBy('title')->get(['id', 'title', 'sku', 'buy_price', 'stock']);
+        $products = Product::orderBy('title')->get(['id', 'title', 'sku', 'buy_price', 'stock'])
+            ->map(function (Product $product) use ($outlet) {
+                if ($outlet) {
+                    $product->setAttribute('stock', $this->stockMutationService->stockForOutlet($product, $outlet->id));
+                }
+
+                return $product;
+            });
 
         return Inertia::render('Dashboard/SupplierReturns/Create', [
             'suppliers' => $suppliers,
@@ -86,7 +101,10 @@ class SupplierReturnController extends Controller
         ]);
 
         $return = $this->supplierReturnService->createReturn(
-            $data,
+            [
+                ...$data,
+                'outlet_id' => $this->outletResolver->resolve($request, $request->user())?->id,
+            ],
             $data['items'],
             $request->user()->id,
         );
@@ -96,8 +114,13 @@ class SupplierReturnController extends Controller
             ->with('success', 'Retur supplier berhasil dibuat.');
     }
 
-    public function show(SupplierReturn $supplierReturn)
+    public function show(Request $request, SupplierReturn $supplierReturn)
     {
+        $outlet = $this->outletResolver->resolve($request, $request->user());
+        if ($outlet && (int) $supplierReturn->outlet_id !== (int) $outlet->id) {
+            abort(404);
+        }
+
         $supplierReturn->load([
             'supplier:id,name,phone,email,address',
             'goodsReceiving:id,document_number',
@@ -114,6 +137,11 @@ class SupplierReturnController extends Controller
 
     public function complete(Request $request, SupplierReturn $supplierReturn)
     {
+        $outlet = $this->outletResolver->resolve($request, $request->user());
+        if ($outlet && (int) $supplierReturn->outlet_id !== (int) $outlet->id) {
+            abort(404);
+        }
+
         if ($supplierReturn->status !== 'draft') {
             return back()->with('error', 'Hanya retur dengan status draft yang bisa diselesaikan.');
         }
@@ -127,6 +155,11 @@ class SupplierReturnController extends Controller
 
     public function cancel(Request $request, SupplierReturn $supplierReturn)
     {
+        $outlet = $this->outletResolver->resolve($request, $request->user());
+        if ($outlet && (int) $supplierReturn->outlet_id !== (int) $outlet->id) {
+            abort(404);
+        }
+
         if (! in_array($supplierReturn->status, ['draft'])) {
             return back()->with('error', 'Retur tidak dapat dibatalkan.');
         }

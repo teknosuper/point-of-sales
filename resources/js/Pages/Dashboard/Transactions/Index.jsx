@@ -53,6 +53,7 @@ export default function Index({
     defaultPaymentGateway = "cash",
     bankAccounts = [],
     loyaltyTierOptions = [],
+    tenantOutlets = [],
 }) {
     const {
         auth,
@@ -328,6 +329,7 @@ export default function Index({
 
     // Handle update cart quantity
     const [updatingCartId, setUpdatingCartId] = useState(null);
+    const [updatingTenantCartId, setUpdatingTenantCartId] = useState(null);
 
     const handleUpdateQty = (cartId, newQty) => {
         if (newQty < 1) return;
@@ -347,6 +349,35 @@ export default function Index({
                 },
             }
         );
+    };
+
+    const handleUpdateTenantOutlet = (cartId, tenantOutletId) => {
+        if (!tenantOutletId) return;
+
+        setUpdatingTenantCartId(cartId);
+
+        axios
+            .patch(route("transactions.updateCartTenant", cartId), {
+                tenant_outlet_id: Number(tenantOutletId),
+            })
+            .then(() => {
+                toast.success("Tenant item diperbarui");
+                router.reload({
+                    only: ["carts", "initialPricingPreview"],
+                    preserveScroll: true,
+                    preserveState: true,
+                });
+            })
+            .catch((error) => {
+                toast.error(
+                    error?.response?.data?.errors?.tenant_outlet_id?.[0] ||
+                        error?.response?.data?.message ||
+                        "Gagal mengubah tenant item"
+                );
+            })
+            .finally(() => {
+                setUpdatingTenantCartId(null);
+            });
     };
 
     // Handle numpad confirm for cash input
@@ -810,6 +841,49 @@ export default function Index({
                                                         </p>
                                                     )}
                                                 </div>
+                                                {tenantOutlets.length > 0 && (
+                                                    <div className="mt-1.5">
+                                                        <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                                                            Tenant outlet
+                                                        </label>
+                                                        <select
+                                                            value={
+                                                                item.tenant_outlet_id ||
+                                                                ""
+                                                            }
+                                                            onChange={(e) =>
+                                                                handleUpdateTenantOutlet(
+                                                                    item.id,
+                                                                    e.target
+                                                                        .value
+                                                                )
+                                                            }
+                                                            disabled={
+                                                                updatingTenantCartId ===
+                                                                item.id
+                                                            }
+                                                            className="h-8 w-full rounded-lg border border-slate-200 bg-white px-2 text-[11px] text-slate-700 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                                        >
+                                                            {tenantOutlets.map(
+                                                                (tenant) => (
+                                                                    <option
+                                                                        key={
+                                                                            tenant.id
+                                                                        }
+                                                                        value={
+                                                                            tenant.id
+                                                                        }
+                                                                    >
+                                                                        {tenant.name}
+                                                                        {tenant.code
+                                                                            ? ` (${tenant.code})`
+                                                                            : ""}
+                                                                    </option>
+                                                                )
+                                                            )}
+                                                        </select>
+                                                    </div>
+                                                )}
                                             </div>
                                             <div className="flex items-center gap-1">
                                                 <button

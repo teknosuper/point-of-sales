@@ -2,15 +2,17 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToOutlet;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Storage;
 
 class BankAccount extends Model
 {
-    use HasFactory;
+    use BelongsToOutlet, HasFactory;
 
     protected $fillable = [
+        'outlet_id',
         'bank_name',
         'account_number',
         'account_name',
@@ -20,6 +22,7 @@ class BankAccount extends Model
     ];
 
     protected $casts = [
+        'outlet_id' => 'integer',
         'is_active' => 'boolean',
         'sort_order' => 'integer',
     ];

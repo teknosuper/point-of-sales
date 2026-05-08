@@ -16,6 +16,7 @@ class Product extends Model
         'buy_price' => 'integer',
         'sell_price' => 'integer',
         'stock' => 'integer',
+        'tenant_outlet_id' => 'integer',
     ];
 
     /**
@@ -32,6 +33,7 @@ class Product extends Model
         'buy_price',
         'sell_price',
         'category_id',
+        'tenant_outlet_id',
         'stock',
     ];
 
@@ -63,6 +65,21 @@ class Product extends Model
     public function pricingRules()
     {
         return $this->hasMany(PricingRule::class);
+    }
+
+    public function outletStocks()
+    {
+        return $this->hasMany(ProductOutletStock::class);
+    }
+
+    public function tenantOutlet()
+    {
+        return $this->belongsTo(Outlet::class, 'tenant_outlet_id');
+    }
+
+    public function kitchenStationMappings()
+    {
+        return $this->hasMany(ProductKitchenStationMapping::class);
     }
 
     /**

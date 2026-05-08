@@ -5,7 +5,10 @@ namespace App\Http\Controllers\Apps;
 use App\Http\Controllers\Controller;
 use App\Models\Customer;
 use App\Models\CustomerSegment;
+use App\Services\CustomerOutletMetricService;
 use App\Services\CustomerSegmentationService;
+use App\Services\LoyaltyService;
+use App\Services\OutletResolver;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -14,11 +17,15 @@ use Inertia\Inertia;
 class CustomerSegmentController extends Controller
 {
     public function __construct(
-        private readonly CustomerSegmentationService $segmentationService
+        private readonly CustomerSegmentationService $segmentationService,
+        private readonly CustomerOutletMetricService $customerOutletMetricService,
+        private readonly LoyaltyService $loyaltyService,
+        private readonly OutletResolver $outletResolver
     ) {}
 
     public function index(Request $request)
     {
+        $outletId = $this->activeOutletId($request);
         $this->segmentationService->ensureDefaultAutoSegments();
 
         $filters = [
@@ -33,6 +40,12 @@ class CustomerSegmentController extends Controller
             ->orderBy('type')
             ->orderBy('name')
             ->paginate(10)
+            ->through(fn (CustomerSegment $segment) => [
+                ...$segment->toArray(),
+                'memberships_count' => $segment->memberships()
+                    ->when($outletId, fn ($query) => $query->where('outlet_id', $outletId))
+                    ->count(),
+            ])
             ->withQueryString();
 
         return Inertia::render('Dashboard/CustomerSegments/Index', [
@@ -54,7 +67,7 @@ class CustomerSegmentController extends Controller
         $segment = CustomerSegment::query()->create($validated);
 
         if ($segment->type === CustomerSegment::TYPE_AUTO) {
-            $this->segmentationService->syncAutoSegments();
+            $this->segmentationService->syncAutoSegments(outletId: $this->activeOutletId($request));
         }
 
         return redirect()
@@ -64,19 +77,28 @@ class CustomerSegmentController extends Controller
 
     public function show(CustomerSegment $customerSegment)
     {
+        $outletId = $this->activeOutletId(request());
         $customerSegment->load([
-            'memberships.customer' => fn ($query) => $query->select('id', 'name', 'no_telp', 'is_loyalty_member', 'loyalty_tier', 'last_purchase_at'),
+            'memberships' => fn ($query) => $query
+                ->when($outletId, fn ($membershipQuery) => $membershipQuery->where('outlet_id', $outletId))
+                ->with('customer:id,name,no_telp,is_loyalty_member,loyalty_tier,last_purchase_at'),
         ]);
 
         return Inertia::render('Dashboard/CustomerSegments/Show', [
             'segment' => [
                 ...$customerSegment->toArray(),
-                'stats' => $this->segmentationService->segmentStats($customerSegment),
+                'stats' => $this->segmentationService->segmentStats($customerSegment, $outletId),
                 'memberships' => $customerSegment->memberships
                     ->sortByDesc('matched_at')
                     ->values()
-                    ->map(fn ($membership) => [
+                    ->map(function ($membership) use ($outletId) {
+                        $metrics = $membership->customer
+                            ? $this->customerOutletMetricService->metricsForCustomer($membership->customer, $outletId)
+                            : null;
+
+                        return [
                         'id' => $membership->id,
+                        'outlet_id' => $membership->outlet_id,
                         'source' => $membership->source,
                         'matched_at' => optional($membership->matched_at)?->toIso8601String(),
                         'customer' => $membership->customer ? [
@@ -84,15 +106,20 @@ class CustomerSegmentController extends Controller
                             'name' => $membership->customer->name,
                             'no_telp' => $membership->customer->no_telp,
                             'is_loyalty_member' => (bool) $membership->customer->is_loyalty_member,
-                            'loyalty_tier' => $membership->customer->loyalty_tier,
-                            'last_purchase_at' => optional($membership->customer->last_purchase_at)?->toIso8601String(),
+                            'loyalty_tier' => $this->loyaltyService->resolvedTier($membership->customer, $outletId),
+                            'last_purchase_at' => optional($metrics['last_purchase_at'] ?? null)?->toIso8601String(),
                         ] : null,
-                    ])
+                    ];
+                    })
                     ->all(),
             ],
             'customers' => Customer::query()
                 ->orderBy('name')
-                ->get(['id', 'name', 'no_telp', 'is_loyalty_member', 'loyalty_tier']),
+                ->get(['id', 'name', 'no_telp', 'is_loyalty_member', 'loyalty_tier'])
+                ->map(fn (Customer $customer) => [
+                    ...$customer->toArray(),
+                    'loyalty_tier' => $this->loyaltyService->resolvedTier($customer, $outletId),
+                ]),
         ]);
     }
 
@@ -109,7 +136,7 @@ class CustomerSegmentController extends Controller
         $customerSegment->update($validated);
 
         if ($customerSegment->type === CustomerSegment::TYPE_AUTO) {
-            $this->segmentationService->syncAutoSegments();
+            $this->segmentationService->syncAutoSegments(outletId: $this->activeOutletId($request));
         }
 
         return redirect()
@@ -137,27 +164,29 @@ class CustomerSegmentController extends Controller
         $customer = Customer::findOrFail($validated['customer_id']);
         $manualIds = $customer->segmentMemberships()
             ->where('source', 'manual')
+            ->where('outlet_id', $this->activeOutletId($request))
             ->pluck('customer_segment_id')
             ->push($customerSegment->id)
             ->unique()
             ->values()
             ->all();
-        $this->segmentationService->syncManualSegments($customer, $manualIds);
+        $this->segmentationService->syncManualSegments($customer, $manualIds, $this->activeOutletId($request));
 
         return back()->with('success', 'Customer ditambahkan ke segment manual.');
     }
 
-    public function destroyMember(CustomerSegment $customerSegment, Customer $customer)
+    public function destroyMember(Request $request, CustomerSegment $customerSegment, Customer $customer)
     {
         abort_if($customerSegment->type !== CustomerSegment::TYPE_MANUAL, 422, 'Segment otomatis tidak dapat diubah manual.');
 
         $manualIds = $customer->segmentMemberships()
             ->where('source', 'manual')
+            ->where('outlet_id', $this->activeOutletId($request))
             ->where('customer_segment_id', '!=', $customerSegment->id)
             ->pluck('customer_segment_id')
             ->values()
             ->all();
-        $this->segmentationService->syncManualSegments($customer, $manualIds);
+        $this->segmentationService->syncManualSegments($customer, $manualIds, $this->activeOutletId($request));
 
         return back()->with('success', 'Customer dihapus dari segment manual.');
     }
@@ -198,5 +227,10 @@ class CustomerSegmentController extends Controller
         $validated['is_active'] = (bool) ($validated['is_active'] ?? false);
 
         return $validated;
+    }
+
+    private function activeOutletId(Request $request): ?int
+    {
+        return $this->outletResolver->resolve($request)?->id;
     }
 }

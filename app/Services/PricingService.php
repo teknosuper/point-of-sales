@@ -41,33 +41,33 @@ class PricingService
             ->get();
     }
 
-    public function previewCart(iterable $carts, ?Customer $customer = null, ?CarbonInterface $at = null): array
+    public function previewCart(iterable $carts, ?Customer $customer = null, ?CarbonInterface $at = null, ?int $outletId = null): array
     {
         $cartCollection = collect($carts)
             ->filter(fn ($cart) => $cart instanceof Cart && $cart->product)
             ->values();
         $rules = $this->getActiveRules($at);
 
-        return $this->buildPreview($cartCollection, $customer, $rules);
+        return $this->buildPreview($cartCollection, $customer, $rules, $outletId);
     }
 
-    public function previewCartWithRules(iterable $carts, ?Customer $customer, Collection $rules): array
+    public function previewCartWithRules(iterable $carts, ?Customer $customer, Collection $rules, ?int $outletId = null): array
     {
         $cartCollection = collect($carts)
             ->filter(fn ($cart) => $cart instanceof Cart && $cart->product)
             ->values();
 
-        return $this->buildPreview($cartCollection, $customer, $rules->values());
+        return $this->buildPreview($cartCollection, $customer, $rules->values(), $outletId);
     }
 
-    public function previewProducts(iterable $products, ?Customer $customer = null, ?CarbonInterface $at = null): Collection
+    public function previewProducts(iterable $products, ?Customer $customer = null, ?CarbonInterface $at = null, ?int $outletId = null): Collection
     {
         $rules = $this->getActiveRules($at);
 
         return collect($products)
             ->filter(fn ($product) => $product instanceof Product)
-            ->mapWithKeys(function (Product $product) use ($customer, $rules) {
-                return [$product->id => $this->calculateProductPrice($product, 1, $customer, $rules)];
+            ->mapWithKeys(function (Product $product) use ($customer, $rules, $outletId) {
+                return [$product->id => $this->calculateProductPrice($product, 1, $customer, $rules, $outletId)];
             });
     }
 
@@ -75,12 +75,13 @@ class PricingService
         Product $product,
         int $qty = 1,
         ?Customer $customer = null,
-        ?Collection $rules = null
+        ?Collection $rules = null,
+        ?int $outletId = null
     ): array {
         $rules = $rules ?? $this->getActiveRules();
         $quantity = max(1, $qty);
         $matchingRules = $rules
-            ->filter(fn (PricingRule $rule) => $this->matchesCustomerScope($rule, $customer))
+            ->filter(fn (PricingRule $rule) => $this->matchesCustomerScope($rule, $customer, $outletId))
             ->filter(fn (PricingRule $rule) => $this->ruleTouchesProduct($rule, $product));
 
         $directCandidates = $matchingRules
@@ -153,7 +154,7 @@ class PricingService
         };
     }
 
-    private function buildPreview(Collection $carts, ?Customer $customer, Collection $rules): array
+    private function buildPreview(Collection $carts, ?Customer $customer, Collection $rules, ?int $outletId = null): array
     {
         $items = $carts->map(function (Cart $cart) {
             $baseUnitPrice = (int) $cart->product->sell_price;
@@ -180,7 +181,7 @@ class PricingService
             ->all();
 
         $eligibleRules = $rules
-            ->filter(fn (PricingRule $rule) => $this->matchesCustomerScope($rule, $customer))
+            ->filter(fn (PricingRule $rule) => $this->matchesCustomerScope($rule, $customer, $outletId))
             ->values();
 
         $appliedGroups = [];
@@ -564,18 +565,18 @@ class PricingService
         ];
     }
 
-    private function matchesCustomerScope(PricingRule $rule, ?Customer $customer): bool
+    private function matchesCustomerScope(PricingRule $rule, ?Customer $customer, ?int $outletId = null): bool
     {
         return match ($rule->customer_scope) {
             PricingRule::SCOPE_ALL => true,
             PricingRule::SCOPE_WALK_IN => $customer === null,
             PricingRule::SCOPE_REGISTERED => $customer !== null,
-            PricingRule::SCOPE_MEMBER => $this->matchesMemberRule($rule, $customer),
+            PricingRule::SCOPE_MEMBER => $this->matchesMemberRule($rule, $customer, $outletId),
             default => false,
         };
     }
 
-    private function matchesMemberRule(PricingRule $rule, ?Customer $customer): bool
+    private function matchesMemberRule(PricingRule $rule, ?Customer $customer, ?int $outletId = null): bool
     {
         if (! $customer || ! $customer->is_loyalty_member) {
             return false;
@@ -589,7 +590,7 @@ class PricingService
             return true;
         }
 
-        return $eligibleTiers->contains($customer->loyalty_tier);
+        return $eligibleTiers->contains($this->loyaltyService->resolvedTier($customer, $outletId));
     }
 
     private function matchesTarget(PricingRule $rule, Product $product): bool

@@ -75,6 +75,24 @@ class Customer extends Model
         return $this->hasMany(Receivable::class);
     }
 
+    public function outletMetrics()
+    {
+        return $this->hasMany(CustomerOutletMetric::class);
+    }
+
+    public function outletMetric(?int $outletId = null): ?CustomerOutletMetric
+    {
+        if (! $outletId) {
+            return null;
+        }
+
+        if ($this->relationLoaded('outletMetrics')) {
+            return $this->outletMetrics->firstWhere('outlet_id', $outletId);
+        }
+
+        return $this->outletMetrics()->where('outlet_id', $outletId)->first();
+    }
+
     public function segmentMemberships()
     {
         return $this->hasMany(CustomerSegmentMembership::class);
@@ -83,7 +101,7 @@ class Customer extends Model
     public function segments()
     {
         return $this->belongsToMany(CustomerSegment::class, 'customer_segment_memberships')
-            ->withPivot(['source', 'matched_at'])
+            ->withPivot(['outlet_id', 'source', 'matched_at'])
             ->withTimestamps();
     }
 }

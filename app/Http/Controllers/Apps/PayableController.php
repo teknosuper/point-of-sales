@@ -7,6 +7,7 @@ use App\Models\BankAccount;
 use App\Models\Payable;
 use App\Models\PayablePayment;
 use App\Models\Supplier;
+use App\Services\OutletResolver;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -14,8 +15,13 @@ use Inertia\Inertia;
 
 class PayableController extends Controller
 {
+    public function __construct(
+        private readonly OutletResolver $outletResolver
+    ) {}
+
     public function index(Request $request)
     {
+        $outlet = $this->outletResolver->resolve($request, $request->user());
         $filters = [
             'status' => $request->input('status'),
             'supplier' => $request->input('supplier'),
@@ -26,6 +32,7 @@ class PayableController extends Controller
 
         $query = Payable::with('supplier:id,name')
             ->withSum('payments as total_paid', 'amount')
+            ->when($outlet, fn ($builder) => $builder->where('outlet_id', $outlet->id))
             ->orderByDesc('created_at');
 
         $query->when($filters['status'], function ($q, $status) {
@@ -60,6 +67,7 @@ class PayableController extends Controller
 
     public function store(Request $request)
     {
+        $outlet = $this->outletResolver->resolve($request, $request->user());
         $data = $request->validate([
             'supplier_id' => ['nullable', 'exists:suppliers,id'],
             'document_number' => ['nullable', 'string', 'max:100'],
@@ -71,6 +79,7 @@ class PayableController extends Controller
         if (! $data['document_number']) {
             $data['document_number'] = 'INV-'.Str::upper(Str::random(8));
         }
+        $data['outlet_id'] = $outlet?->id;
         $data['status'] = 'unpaid';
         $data['paid'] = 0;
 
@@ -81,8 +90,13 @@ class PayableController extends Controller
             ->with('success', 'Hutang supplier berhasil dibuat.');
     }
 
-    public function show(Payable $payable)
+    public function show(Request $request, Payable $payable)
     {
+        $outlet = $this->outletResolver->resolve($request, $request->user());
+        if ($outlet && (int) $payable->outlet_id !== (int) $outlet->id) {
+            abort(404);
+        }
+
         $payable->load([
             'supplier:id,name,phone,email,address',
             'purchaseOrder:id,document_number,status',
@@ -90,7 +104,10 @@ class PayableController extends Controller
                 $query->orderByDesc('paid_at')->with(['bankAccount:id,bank_name,account_number,account_name,logo', 'user:id,name']);
             },
         ]);
-        $bankAccounts = BankAccount::active()->ordered()->get(['id', 'bank_name', 'account_number', 'account_name', 'logo']);
+        $bankAccounts = BankAccount::active()
+            ->ordered()
+            ->when($outlet, fn ($query) => $query->where('outlet_id', $outlet->id))
+            ->get(['id', 'bank_name', 'account_number', 'account_name', 'logo']);
 
         return Inertia::render('Dashboard/Payables/Show', [
             'payable' => $payable,
@@ -100,6 +117,7 @@ class PayableController extends Controller
 
     public function supplierStatement(Request $request)
     {
+        $outlet = $this->outletResolver->resolve($request, $request->user());
         $request->validate([
             'supplier_id' => ['required', 'exists:suppliers,id'],
         ]);
@@ -107,6 +125,7 @@ class PayableController extends Controller
         $supplier = Supplier::findOrFail($request->input('supplier_id'));
 
         $payables = Payable::where('supplier_id', $supplier->id)
+            ->when($outlet, fn ($query) => $query->where('outlet_id', $outlet->id))
             ->withSum('payments as total_paid', 'amount')
             ->orderBy('due_date')
             ->get();
@@ -151,6 +170,11 @@ class PayableController extends Controller
 
     public function pay(Request $request, Payable $payable)
     {
+        $outlet = $this->outletResolver->resolve($request, $request->user());
+        if ($outlet && (int) $payable->outlet_id !== (int) $outlet->id) {
+            abort(404);
+        }
+
         $validated = $request->validate([
             'amount' => ['required', 'numeric', 'min:1'],
             'paid_at' => ['required', 'date'],
@@ -166,6 +190,7 @@ class PayableController extends Controller
 
         DB::transaction(function () use ($validated, $payable, $request) {
             PayablePayment::create([
+                'outlet_id' => $payable->outlet_id,
                 'payable_id' => $payable->id,
                 'paid_at' => $validated['paid_at'],
                 'amount' => $validated['amount'],

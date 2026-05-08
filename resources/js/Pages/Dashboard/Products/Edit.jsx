@@ -15,7 +15,7 @@ import {
 } from "@tabler/icons-react";
 import { getProductImageUrl } from "@/Utils/imageUrl";
 
-export default function Edit({ categories, product }) {
+export default function Edit({ categories, product, tenantOutlets = [] }) {
     const { errors } = usePage().props;
 
     const { data, setData, post, processing } = useForm({
@@ -24,6 +24,7 @@ export default function Edit({ categories, product }) {
         sku: product.sku,
         title: product.title,
         category_id: product.category_id,
+        tenant_outlet_id: product.tenant_outlet_id || "",
         description: product.description,
         buy_price: product.buy_price,
         sell_price: product.sell_price,
@@ -140,6 +141,30 @@ export default function Edit({ categories, product }) {
                                         searchable={true}
                                         displayKey="name"
                                     />
+                                </div>
+                                <div className="md:col-span-2">
+                                    <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                        Tenant Outlet
+                                    </label>
+                                    <select
+                                        value={data.tenant_outlet_id}
+                                        onChange={(e) =>
+                                            setData("tenant_outlet_id", e.target.value)
+                                        }
+                                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                    >
+                                        <option value="">Pilih tenant outlet</option>
+                                        {tenantOutlets.map((outlet) => (
+                                            <option key={outlet.id} value={outlet.id}>
+                                                {outlet.code} - {outlet.name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    {errors.tenant_outlet_id && (
+                                        <p className="mt-1 text-xs text-red-500">
+                                            {errors.tenant_outlet_id}
+                                        </p>
+                                    )}
                                 </div>
                                 <Input
                                     type="text"

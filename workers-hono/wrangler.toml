@@ -1,0 +1,16 @@
+name = "poinza-workers-hono"
+main = "src/index.ts"
+compatibility_date = "2026-05-07"
+
+[observability]
+enabled = true
+
+[vars]
+APP_NAME = "POINZA"
+APP_ENV = "development"
+
+# Example D1 binding
+[[d1_databases]]
+binding = "DB"
+database_name = "poinza-db"
+database_id = "replace-with-your-d1-database-id"

@@ -2,14 +2,16 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToOutlet;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class PayablePayment extends Model
 {
-    use HasFactory;
+    use BelongsToOutlet, HasFactory;
 
     protected $fillable = [
+        'outlet_id',
         'payable_id',
         'paid_at',
         'amount',
@@ -20,6 +22,7 @@ class PayablePayment extends Model
     ];
 
     protected $casts = [
+        'outlet_id' => 'integer',
         'paid_at' => 'date',
         'amount' => 'float',
     ];

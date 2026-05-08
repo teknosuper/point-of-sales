@@ -3,10 +3,11 @@ import { usePage } from "@inertiajs/react";
 import { IconLayoutGrid } from "@tabler/icons-react";
 import LinkItem from "@/Components/Dashboard/LinkItem";
 import LinkItemDropdown from "@/Components/Dashboard/LinkItemDropdown";
+import OutletSwitcher from "@/Components/Dashboard/OutletSwitcher";
 import Menu from "@/Utils/Menu";
 
 export default function Sidebar({ sidebarOpen }) {
-    const { auth, storeProfile } = usePage().props;
+    const { auth, storeProfile, activeOutlet, availableOutlets } = usePage().props;
     const menuNavigation = Menu();
 
     const storeName = storeProfile?.name || "KASIR";
@@ -68,6 +69,15 @@ export default function Sidebar({ sidebarOpen }) {
 
             {/* Navigation */}
             <nav className="dashboard-scrollbar min-h-0 flex-1 overflow-y-auto py-3">
+                {sidebarOpen && (
+                    <div className="px-4 pb-3">
+                        <OutletSwitcher
+                            activeOutlet={activeOutlet}
+                            availableOutlets={availableOutlets}
+                        />
+                    </div>
+                )}
+
                 {menuNavigation.map((section, index) => {
                     const hasPermission = section.details.some(
                         (detail) => detail.permissions === true

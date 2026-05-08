@@ -8,10 +8,11 @@ use Illuminate\Support\Collection;
 
 class ReceivableService
 {
-    public function getAgingSummary(): Collection
+    public function getAgingSummary(?int $outletId = null): Collection
     {
         $receivables = Receivable::where('status', '!=', 'paid')
             ->whereNotNull('due_date')
+            ->when($outletId, fn ($query) => $query->where('outlet_id', $outletId))
             ->get();
 
         $buckets = ['current', '0-30', '31-60', '61-90', '90+'];
@@ -29,11 +30,12 @@ class ReceivableService
         });
     }
 
-    public function getCustomerStatement(int $customerId): array
+    public function getCustomerStatement(int $customerId, ?int $outletId = null): array
     {
         $customer = Customer::findOrFail($customerId);
 
         $receivables = Receivable::where('customer_id', $customerId)
+            ->when($outletId, fn ($query) => $query->where('outlet_id', $outletId))
             ->withSum('payments as total_paid', 'amount')
             ->orderBy('due_date')
             ->get();
@@ -58,13 +60,15 @@ class ReceivableService
         ];
     }
 
-    public function getCollectionRate(): array
+    public function getCollectionRate(?int $outletId = null): array
     {
-        $totalReceivables = Receivable::sum('total');
-        $totalPaid = Receivable::sum('paid');
+        $receivableQuery = Receivable::query()
+            ->when($outletId, fn ($query) => $query->where('outlet_id', $outletId));
 
-        $paidReceivables = Receivable::where('status', 'paid')->count();
-        $totalReceivablesCount = Receivable::count();
+        $totalReceivables = (clone $receivableQuery)->sum('total');
+        $totalPaid = (clone $receivableQuery)->sum('paid');
+        $paidReceivables = (clone $receivableQuery)->where('status', 'paid')->count();
+        $totalReceivablesCount = (clone $receivableQuery)->count();
 
         return [
             'total_receivables_amount' => $totalReceivables,
@@ -77,14 +81,17 @@ class ReceivableService
         ];
     }
 
-    public function getTopCustomersByReceivable(int $limit = 10): Collection
+    public function getTopCustomersByReceivable(int $limit = 10, ?int $outletId = null): Collection
     {
         return Customer::withSum([
-            'receivables as total_receivable' => fn ($q) => $q->where('status', '!=', 'paid'),
+            'receivables as total_receivable' => fn ($q) => $q
+                ->where('status', '!=', 'paid')
+                ->when($outletId, fn ($query) => $query->where('outlet_id', $outletId)),
         ], 'total')
-            ->withSum([
-                'receivables as total_paid' => fn ($q) => $q,
-            ], 'paid')
+        ->withSum([
+            'receivables as total_paid' => fn ($q) => $q
+                ->when($outletId, fn ($query) => $query->where('outlet_id', $outletId)),
+        ], 'paid')
             ->orderByRaw('COALESCE(total_receivable, 0) DESC')
             ->limit($limit)
             ->get()

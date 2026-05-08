@@ -12,21 +12,23 @@ use Illuminate\Validation\ValidationException;
 
 class CashierShiftService
 {
-    public function getActiveShiftForUser(int $userId): ?CashierShift
+    public function getActiveShiftForUser(int $userId, ?int $outletId = null): ?CashierShift
     {
         return CashierShift::query()
             ->with(['user:id,name', 'openedBy:id,name'])
             ->open()
             ->where('user_id', $userId)
+            ->when($outletId, fn ($query) => $query->where('outlet_id', $outletId))
             ->latest('opened_at')
             ->first();
     }
 
-    public function requireActiveShiftForUser(int $userId, bool $lockForUpdate = false): CashierShift
+    public function requireActiveShiftForUser(int $userId, ?int $outletId = null, bool $lockForUpdate = false): CashierShift
     {
         $query = CashierShift::query()
             ->open()
             ->where('user_id', $userId)
+            ->when($outletId, fn ($builder) => $builder->where('outlet_id', $outletId))
             ->latest('opened_at');
 
         if ($lockForUpdate) {
@@ -44,11 +46,12 @@ class CashierShiftService
         return $shift;
     }
 
-    public function openShift(User $cashier, User $actor, int $openingCash, ?string $notes = null): CashierShift
+    public function openShift(User $cashier, User $actor, int $openingCash, ?string $notes = null, ?int $outletId = null): CashierShift
     {
         $existing = CashierShift::query()
             ->open()
             ->where('user_id', $cashier->id)
+            ->when($outletId, fn ($query) => $query->where('outlet_id', $outletId))
             ->exists();
 
         if ($existing) {
@@ -59,6 +62,7 @@ class CashierShiftService
 
         return CashierShift::create([
             'user_id' => $cashier->id,
+            'outlet_id' => $outletId,
             'opened_by' => $actor->id,
             'opened_at' => now(),
             'opening_cash' => $openingCash,
@@ -160,6 +164,7 @@ class CashierShiftService
 
         return [
             'id' => $shift->id,
+            'outlet_id' => $shift->outlet_id,
             'status' => $shift->status,
             'opening_cash' => (int) $shift->opening_cash,
             'opened_at' => optional($shift->opened_at)?->toISOString(),

@@ -32,6 +32,7 @@ class GoodsReceivingService
     {
         return DB::transaction(function () use ($order, $items, $notes, $userId) {
             $receiving = GoodsReceiving::create([
+                'outlet_id' => $order->outlet_id,
                 'purchase_order_id' => $order->id,
                 'supplier_id' => $order->supplier_id,
                 'document_number' => $this->generateDocumentNumber(),
@@ -55,15 +56,15 @@ class GoodsReceivingService
                 $poItem->increment('qty_received', $qtyReceived);
 
                 $product = $poItem->product;
-                $stockBefore = (int) $product->stock;
-                $product->increment('stock', $qtyReceived);
+                $stockBefore = $this->stockMutationService->stockForOutlet($product, (int) $order->outlet_id);
+                $stockAfter = $stockBefore + $qtyReceived;
 
                 $this->stockMutationService->recordPurchaseInbound(
                     product: $product,
-                    goodsReceiving: $receiving,
                     qty: $qtyReceived,
+                    goodsReceiving: $receiving,
                     stockBefore: $stockBefore,
-                    stockAfter: (int) $product->stock,
+                    stockAfter: $stockAfter,
                     notes: 'Penerimaan dari PO '.$order->document_number,
                     userId: $userId,
                 );
@@ -117,6 +118,7 @@ class GoodsReceivingService
         $payable = Payable::updateOrCreate(
             ['purchase_order_id' => $order->id],
             [
+                'outlet_id' => $order->outlet_id,
                 'supplier_id' => $order->supplier_id,
                 'document_number' => $receiving->document_number,
                 'total' => $total,

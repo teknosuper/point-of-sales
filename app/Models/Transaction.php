@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToOutlet;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -9,11 +10,12 @@ use Illuminate\Database\Eloquent\Model;
 
 class Transaction extends Model
 {
-    use HasFactory;
+    use BelongsToOutlet, HasFactory;
 
     protected $casts = [
         'cashier_id' => 'integer',
         'cashier_shift_id' => 'integer',
+        'outlet_id' => 'integer',
         'customer_id' => 'integer',
         'cash' => 'integer',
         'change' => 'integer',
@@ -35,6 +37,7 @@ class Transaction extends Model
     protected $fillable = [
         'cashier_id',
         'cashier_shift_id',
+        'outlet_id',
         'customer_id',
         'invoice',
         'cash',
@@ -88,6 +91,16 @@ class Transaction extends Model
     public function cashierShift()
     {
         return $this->belongsTo(CashierShift::class);
+    }
+
+    public function kitchenTickets()
+    {
+        return $this->hasMany(KitchenTicket::class);
+    }
+
+    public function tenantAllocations()
+    {
+        return $this->hasMany(TransactionTenantAllocation::class);
     }
 
     /**

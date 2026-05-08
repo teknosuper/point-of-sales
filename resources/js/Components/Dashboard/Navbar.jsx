@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from "react";
 import { usePage } from "@inertiajs/react";
-import { IconMenu2, IconMoon, IconSun, IconSearch } from "@tabler/icons-react";
+import { IconMenu2, IconMoon, IconSun } from "@tabler/icons-react";
 import AuthDropdown from "@/Components/Dashboard/AuthDropdown";
 import Menu from "@/Utils/Menu";
 import Notification from "@/Components/Dashboard/Notification";
+import OutletSwitcher from "@/Components/Dashboard/OutletSwitcher";
 
 export default function Navbar({ toggleSidebar, themeSwitcher, darkMode }) {
-    const { auth } = usePage().props;
+    const { auth, activeOutlet, availableOutlets, storeProfile } = usePage().props;
     const menuNavigation = Menu();
 
     // Get current page title
@@ -57,10 +58,12 @@ export default function Navbar({ toggleSidebar, themeSwitcher, darkMode }) {
                 {/* Mobile Logo */}
                 <div className="md:hidden flex items-center gap-2">
                     <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-primary-500 to-primary-700 flex items-center justify-center">
-                        <span className="text-white font-bold text-xs">K</span>
+                        <span className="text-white font-bold text-xs">
+                            {(storeProfile?.name || "P").charAt(0)}
+                        </span>
                     </div>
                     <span className="text-lg font-bold text-slate-800 dark:text-white">
-                        KASIR
+                        {storeProfile?.name || "POINZA"}
                     </span>
                 </div>
 
@@ -75,6 +78,14 @@ export default function Navbar({ toggleSidebar, themeSwitcher, darkMode }) {
 
             {/* Right Section */}
             <div className="flex items-center gap-2">
+                <div className="hidden xl:block">
+                    <OutletSwitcher
+                        activeOutlet={activeOutlet}
+                        availableOutlets={availableOutlets}
+                        compact
+                    />
+                </div>
+
                 {/* Theme Toggle */}
                 <button
                     onClick={themeSwitcher}

@@ -117,6 +117,13 @@ class User extends Authenticatable
         return $this->hasMany(CashierShift::class);
     }
 
+    public function outlets()
+    {
+        return $this->belongsToMany(Outlet::class)
+            ->withPivot('is_primary')
+            ->withTimestamps();
+    }
+
     public function auditLogs()
     {
         return $this->hasMany(AuditLog::class);

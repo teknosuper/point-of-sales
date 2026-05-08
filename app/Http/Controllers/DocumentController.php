@@ -2,14 +2,20 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Outlet;
 use App\Models\Payable;
 use App\Models\Receivable;
 use App\Models\Transaction;
+use App\Services\OutletResolver;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Picqer\Barcode\BarcodeGeneratorPNG;
 
 class DocumentController extends Controller
 {
+    public function __construct(
+        private readonly OutletResolver $outletResolver
+    ) {}
+
     private function ensureFontDirectory(): void
     {
         $fontDir = storage_path('fonts');
@@ -18,12 +24,10 @@ class DocumentController extends Controller
         }
     }
 
-    private function storeProfile(): array
+    private function storeProfile(?Outlet $outlet = null): array
     {
-        $logo = \App\Models\Setting::get('store_logo');
-        if ($logo && ! str_starts_with($logo, 'http') && ! str_starts_with($logo, '/storage')) {
-            $logo = asset('storage/'.ltrim($logo, '/'));
-        }
+        $profile = $outlet?->profilePayload() ?? $this->outletResolver->profilePayload();
+        $logo = $profile['logo'] ?? null;
 
         $logoData = null;
         if ($logo) {
@@ -40,13 +44,13 @@ class DocumentController extends Controller
         }
 
         return [
-            'name' => \App\Models\Setting::get('store_name', 'Toko Anda'),
+            'name' => $profile['name'] ?? 'POINZA',
             'logo' => $logo,
             'logo_data' => $logoData,
-            'address' => \App\Models\Setting::get('store_address', ''),
-            'phone' => \App\Models\Setting::get('store_phone', ''),
-            'email' => \App\Models\Setting::get('store_email', ''),
-            'website' => \App\Models\Setting::get('store_website', ''),
+            'address' => $profile['address'] ?? '',
+            'phone' => $profile['phone'] ?? '',
+            'email' => $profile['email'] ?? '',
+            'website' => $profile['website'] ?? '',
         ];
     }
 
@@ -62,13 +66,13 @@ class DocumentController extends Controller
     {
         $this->ensureFontDirectory();
 
-        $transaction = Transaction::with(['details.product', 'cashier', 'customer'])
+        $transaction = Transaction::with(['details.product', 'cashier', 'customer', 'outlet'])
             ->where('invoice', $invoice)
             ->firstOrFail();
 
         $pdf = Pdf::loadView('pdf.invoice', [
             'transaction' => $transaction,
-            'store' => $this->storeProfile(),
+            'store' => $this->storeProfile($transaction->outlet),
             'barcode' => $this->barcode($transaction->invoice),
         ])->setPaper('a4');
 
@@ -87,7 +91,7 @@ class DocumentController extends Controller
     {
         $this->ensureFontDirectory();
 
-        $transaction = Transaction::with(['details.product', 'cashier', 'customer'])
+        $transaction = Transaction::with(['details.product', 'cashier', 'customer', 'outlet'])
             ->where('invoice', $invoice)
             ->firstOrFail();
 
@@ -95,7 +99,7 @@ class DocumentController extends Controller
         $width = $size === '58' ? 164.4 : 226.8; // points (mm*2.8346)
         $pdf = Pdf::loadView($template, [
             'transaction' => $transaction,
-            'store' => $this->storeProfile(),
+            'store' => $this->storeProfile($transaction->outlet),
             'barcode' => $this->barcode($transaction->invoice),
         ])->setPaper([0, 0, $width, 800], 'portrait');
 
@@ -106,13 +110,13 @@ class DocumentController extends Controller
     {
         $this->ensureFontDirectory();
 
-        $transaction = Transaction::with(['details.product', 'customer', 'cashier'])
+        $transaction = Transaction::with(['details.product', 'customer', 'cashier', 'outlet'])
             ->where('invoice', $invoice)
             ->firstOrFail();
 
         $pdf = Pdf::loadView('pdf.shipping_label', [
             'transaction' => $transaction,
-            'store' => $this->storeProfile(),
+            'store' => $this->storeProfile($transaction->outlet),
             'barcode' => $this->barcode($transaction->invoice),
         ]);
 
@@ -127,11 +131,11 @@ class DocumentController extends Controller
     {
         $this->ensureFontDirectory();
 
-        $receivable->load(['customer', 'payments.bankAccount', 'payments.user']);
+        $receivable->load(['customer', 'payments.bankAccount', 'payments.user', 'outlet']);
 
         $pdf = Pdf::loadView('pdf.receivable', [
             'receivable' => $receivable,
-            'store' => $this->storeProfile(),
+            'store' => $this->storeProfile($receivable->outlet),
             'barcode' => $this->barcode($receivable->invoice),
         ])->setPaper('a5', 'portrait');
 
@@ -142,11 +146,11 @@ class DocumentController extends Controller
     {
         $this->ensureFontDirectory();
 
-        $payable->load(['supplier', 'payments.bankAccount', 'payments.user']);
+        $payable->load(['supplier', 'payments.bankAccount', 'payments.user', 'outlet']);
 
         $pdf = Pdf::loadView('pdf.payable', [
             'payable' => $payable,
-            'store' => $this->storeProfile(),
+            'store' => $this->storeProfile($payable->outlet),
             'barcode' => $this->barcode($payable->document_number),
         ])->setPaper('a5', 'portrait');
 

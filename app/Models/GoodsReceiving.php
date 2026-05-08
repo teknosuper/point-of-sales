@@ -2,14 +2,16 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToOutlet;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class GoodsReceiving extends Model
 {
-    use HasFactory;
+    use BelongsToOutlet, HasFactory;
 
     protected $fillable = [
+        'outlet_id',
         'purchase_order_id',
         'supplier_id',
         'document_number',
@@ -19,6 +21,7 @@ class GoodsReceiving extends Model
     ];
 
     protected $casts = [
+        'outlet_id' => 'integer',
         'received_at' => 'datetime',
     ];
 

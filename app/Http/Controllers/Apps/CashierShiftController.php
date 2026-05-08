@@ -10,6 +10,7 @@ use App\Models\CashierShift;
 use App\Models\User;
 use App\Services\AuditLogService;
 use App\Services\CashierShiftService;
+use App\Services\OutletResolver;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -20,7 +21,8 @@ class CashierShiftController extends Controller
 {
     public function __construct(
         private readonly CashierShiftService $cashierShiftService,
-        private readonly AuditLogService $auditLogService
+        private readonly AuditLogService $auditLogService,
+        private readonly OutletResolver $outletResolver
     ) {}
 
     public function index(Request $request): Response
@@ -45,7 +47,10 @@ class CashierShiftController extends Controller
         $shifts = $query->paginate(10)->withQueryString();
         $shifts->through(fn (CashierShift $shift) => $this->transformShift($shift));
 
-        $activeShift = $this->cashierShiftService->getActiveShiftForUser($request->user()->id);
+        $activeShift = $this->cashierShiftService->getActiveShiftForUser(
+            $request->user()->id,
+            $this->outletResolver->resolve($request, $request->user())?->id
+        );
         $cashiers = $request->user()->isSuperAdmin() || $request->user()->can('cashier-shifts-force-close')
             ? User::query()->orderBy('name')->get(['id', 'name'])
             : collect([$request->user()->only(['id', 'name'])]);
@@ -76,6 +81,7 @@ class CashierShiftController extends Controller
             actor: $request->user(),
             openingCash: (int) $request->validated('opening_cash'),
             notes: $request->validated('notes'),
+            outletId: $this->outletResolver->resolve($request, $request->user())?->id,
         );
 
         $this->auditLogService->log(

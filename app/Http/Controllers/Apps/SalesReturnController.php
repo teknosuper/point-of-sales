@@ -13,6 +13,7 @@ use App\Models\Transaction;
 use App\Models\TransactionDetail;
 use App\Services\AuditLogService;
 use App\Services\CashierShiftService;
+use App\Services\OutletResolver;
 use App\Services\StockMutationService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
@@ -30,12 +31,14 @@ class SalesReturnController extends Controller
     public function __construct(
         private readonly StockMutationService $stockMutationService,
         private readonly CashierShiftService $cashierShiftService,
-        private readonly AuditLogService $auditLogService
+        private readonly AuditLogService $auditLogService,
+        private readonly OutletResolver $outletResolver
     ) {}
 
     public function index(Request $request): Response
     {
         $this->ensureSalesReturnTablesExist();
+        $outlet = $this->outletResolver->resolve($request, $request->user());
 
         $filters = [
             'code' => $request->input('code'),
@@ -47,6 +50,7 @@ class SalesReturnController extends Controller
 
         $salesReturns = SalesReturn::query()
             ->with(['transaction:id,invoice,payment_method,payment_status', 'customer:id,name', 'cashier:id,name'])
+            ->when($outlet, fn (Builder $query) => $query->where('outlet_id', $outlet->id))
             ->when(! $request->user()->isSuperAdmin(), function (Builder $query) use ($request) {
                 $query->whereHas('transaction', function (Builder $builder) use ($request) {
                     $builder->where('cashier_id', $request->user()->id);
@@ -95,6 +99,7 @@ class SalesReturnController extends Controller
         $salesReturn = DB::transaction(function () use ($request, $transaction, $payload) {
             $salesReturn = SalesReturn::create([
                 'code' => $this->generateCode(),
+                'outlet_id' => $transaction->outlet_id,
                 'transaction_id' => $transaction->id,
                 'customer_id' => $transaction->customer_id,
                 'cashier_id' => $request->user()?->id,
@@ -183,6 +188,7 @@ class SalesReturnController extends Controller
         DB::transaction(function () use ($request, $salesReturn) {
             $activeShift = $this->cashierShiftService->requireActiveShiftForUser(
                 $request->user()->id,
+                $salesReturn->outlet_id,
                 lockForUpdate: true
             );
 
@@ -224,18 +230,14 @@ class SalesReturnController extends Controller
 
             foreach ($salesReturn->items as $item) {
                 if ($item->restock_to_inventory && $item->product) {
-                    $product = $item->product()->lockForUpdate()->first();
+                        $product = $item->product()->lockForUpdate()->first();
 
-                    if ($product) {
-                        $stockBefore = (int) $product->stock;
-                        $stockAfter = $stockBefore + (int) $item->qty_return;
+                        if ($product) {
+                            $stockBefore = $this->stockMutationService->stockForOutlet($product, (int) $salesReturn->outlet_id);
+                            $stockAfter = $stockBefore + (int) $item->qty_return;
 
-                        $product->update([
-                            'stock' => $stockAfter,
-                        ]);
-
-                        $this->stockMutationService->recordSalesReturnRestock(
-                            product: $product,
+                            $this->stockMutationService->recordSalesReturnRestock(
+                                product: $product,
                             salesReturn: $salesReturn,
                             stockBefore: $stockBefore,
                             stockAfter: $stockAfter,
@@ -337,6 +339,8 @@ class SalesReturnController extends Controller
 
     private function resolveAccessibleTransaction(Request $request, int $transactionId): Transaction
     {
+        $outlet = $this->outletResolver->resolve($request, $request->user());
+
         return Transaction::query()
             ->with([
                 'cashier:id,name',
@@ -345,12 +349,15 @@ class SalesReturnController extends Controller
                 'details.product:id,title,barcode,sku,buy_price',
                 'details.salesReturnItems.salesReturn:id,status',
             ])
+            ->when($outlet, fn (Builder $query) => $query->where('outlet_id', $outlet->id))
             ->when(! $request->user()->isSuperAdmin(), fn (Builder $query) => $query->where('cashier_id', $request->user()->id))
             ->findOrFail($transactionId);
     }
 
     private function resolveAccessibleSalesReturn(Request $request, int $salesReturnId): SalesReturn
     {
+        $outlet = $this->outletResolver->resolve($request, $request->user());
+
         return SalesReturn::query()
             ->with([
                 'customer:id,name',
@@ -363,6 +370,7 @@ class SalesReturnController extends Controller
                 'items.product:id,title,barcode,sku,buy_price',
                 'items.transactionDetail:id,transaction_id,product_id,qty,price',
             ])
+            ->when($outlet, fn (Builder $query) => $query->where('outlet_id', $outlet->id))
             ->when(! $request->user()->isSuperAdmin(), function (Builder $query) use ($request) {
                 $query->whereHas('transaction', fn (Builder $builder) => $builder->where('cashier_id', $request->user()->id));
             })

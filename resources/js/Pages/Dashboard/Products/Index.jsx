@@ -1,21 +1,22 @@
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
-import { Head, usePage, Link } from "@inertiajs/react";
+import { Head, Link, router } from "@inertiajs/react";
 import Button from "@/Components/Dashboard/Button";
 import {
+    IconAdjustmentsHorizontal,
+    IconBarcode,
     IconCirclePlus,
     IconDatabaseOff,
-    IconPencilCog,
-    IconTrash,
     IconLayoutGrid,
     IconList,
-    IconPhoto,
     IconPackage,
-    IconSearch,
-    IconBarcode,
+    IconPencilCog,
+    IconPhoto,
     IconPrinter,
+    IconSearch,
+    IconTrash,
+    IconX,
 } from "@tabler/icons-react";
-import Search from "@/Components/Dashboard/Search";
 import Table from "@/Components/Dashboard/Table";
 import Pagination from "@/Components/Dashboard/Pagination";
 import { getProductImageUrl } from "@/Utils/imageUrl";
@@ -29,49 +30,59 @@ const formatCurrency = (value = 0) =>
         minimumFractionDigits: 0,
     }).format(value);
 
-// Product Card for Grid View
+const defaultFilters = {
+    search: "",
+    category_id: "",
+    tenant_outlet_id: "",
+    mapping_status: "",
+    stock_status: "",
+    sort: "latest",
+    per_page: "10",
+};
+
+const castFilterValue = (value, fallback = "") =>
+    value === null || value === undefined ? fallback : String(value);
+
 function ProductCard({
     product,
-    index,
-    currentPage,
-    perPage,
     isSelected,
     onToggle,
     canUpdate,
     canDelete,
 }) {
-    const rowNumber = index + 1 + (currentPage - 1) * perPage;
     const lowStock = product.stock > 0 && product.stock <= 5;
     const outOfStock = product.stock === 0;
+    const tenantReady = Boolean(product.tenant_outlet_id);
+    const kitchenReady =
+        Number(product.active_kitchen_station_mappings_count ?? 0) > 0;
 
     return (
         <div
-            className={`group bg-white dark:bg-slate-900 rounded-2xl border overflow-hidden hover:shadow-lg transition-all duration-200 ${
+            className={`group overflow-hidden rounded-2xl border bg-white transition-all duration-200 hover:shadow-lg dark:bg-slate-900 ${
                 isSelected
                     ? "border-primary-500 ring-2 ring-primary-500/20"
-                    : "border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700"
+                    : "border-slate-200 hover:border-slate-300 dark:border-slate-800 dark:hover:border-slate-700"
             }`}
         >
-            {/* Product Image */}
-            <div className="relative aspect-square bg-slate-100 dark:bg-slate-800 overflow-hidden">
-                {/* Checkbox */}
-                <div className="absolute top-2 left-2 z-10">
+            <div className="relative aspect-square overflow-hidden bg-slate-100 dark:bg-slate-800">
+                <div className="absolute left-2 top-2 z-10">
                     <input
                         type="checkbox"
                         checked={isSelected}
                         onChange={() => onToggle(product)}
-                        className="w-5 h-5 rounded border-2 border-white bg-white/80 text-primary-500 focus:ring-primary-500 cursor-pointer shadow-sm"
+                        className="h-5 w-5 cursor-pointer rounded border-2 border-white bg-white/80 text-primary-500 shadow-sm focus:ring-primary-500"
                     />
                 </div>
+
                 {product.image ? (
                     <img
                         src={getProductImageUrl(product.image)}
                         alt={product.title}
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                        className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
                         loading="lazy"
                     />
                 ) : (
-                    <div className="w-full h-full flex items-center justify-center">
+                    <div className="flex h-full w-full items-center justify-center">
                         <IconPhoto
                             size={48}
                             className="text-slate-300 dark:text-slate-600"
@@ -80,41 +91,37 @@ function ProductCard({
                     </div>
                 )}
 
-                {/* Stock Badge */}
-                <div className="absolute top-2 right-2">
+                <div className="absolute right-2 top-2">
                     {outOfStock ? (
-                        <span className="px-2 py-1 text-xs font-semibold bg-danger-500 text-white rounded-full">
+                        <span className="rounded-full bg-danger-500 px-2 py-1 text-xs font-semibold text-white">
                             Habis
                         </span>
                     ) : lowStock ? (
-                        <span className="px-2 py-1 text-xs font-semibold bg-warning-500 text-white rounded-full">
+                        <span className="rounded-full bg-warning-500 px-2 py-1 text-xs font-semibold text-white">
                             Stok: {product.stock}
                         </span>
                     ) : (
-                        <span className="px-2 py-1 text-xs font-medium bg-slate-900/60 text-white rounded-full">
+                        <span className="rounded-full bg-slate-900/60 px-2 py-1 text-xs font-medium text-white">
                             Stok: {product.stock}
                         </span>
                     )}
                 </div>
 
-                {/* Action Buttons Overlay */}
                 {(canUpdate || canDelete) && (
-                    <div className="absolute inset-0 bg-slate-900/0 group-hover:bg-slate-900/40 transition-all flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100">
+                    <div className="absolute inset-0 flex items-center justify-center gap-2 bg-slate-900/0 opacity-0 transition-all group-hover:bg-slate-900/40 group-hover:opacity-100">
                         {canUpdate && (
                             <Link
                                 href={route("products.edit", product.id)}
-                                className="p-2.5 rounded-xl bg-white text-warning-600 hover:bg-warning-50 shadow-lg transition-colors"
+                                className="rounded-xl bg-white p-2.5 text-warning-600 shadow-lg transition-colors hover:bg-warning-50"
                             >
                                 <IconPencilCog size={18} />
                             </Link>
                         )}
                         {canDelete && (
                             <Button
-                                type={"delete"}
+                                type="delete"
                                 icon={<IconTrash size={18} />}
-                                className={
-                                    "p-2.5 rounded-xl bg-white text-danger-600 hover:bg-danger-50 shadow-lg"
-                                }
+                                className="rounded-xl bg-white p-2.5 text-danger-600 shadow-lg hover:bg-danger-50"
                                 url={route("products.destroy", product.id)}
                             />
                         )}
@@ -122,51 +129,69 @@ function ProductCard({
                 )}
             </div>
 
-            {/* Product Info */}
-            <div className="p-3 sm:p-4">
-                <div className="flex items-start justify-between gap-2 mb-2">
-                    <span className="px-2 py-0.5 text-xs font-medium bg-primary-100 dark:bg-primary-900/50 text-primary-700 dark:text-primary-400 rounded-md truncate">
+            <div className="p-4">
+                <div className="mb-2 flex items-start justify-between gap-2">
+                    <span className="truncate rounded-md bg-primary-100 px-2 py-0.5 text-xs font-medium text-primary-700 dark:bg-primary-900/50 dark:text-primary-400">
                         {product.category?.name || "Kategori"}
                     </span>
+                    <span className="truncate rounded-md bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                        {product.tenant_outlet?.code || "Global"}
+                    </span>
                 </div>
-                <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200 line-clamp-2 mb-1">
+
+                <div className="mb-2 flex flex-wrap gap-2">
+                    <span
+                        className={`rounded-md px-2 py-0.5 text-[11px] font-semibold ${
+                            tenantReady
+                                ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
+                                : "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+                        }`}
+                    >
+                        {tenantReady ? "Tenant OK" : "Tenant Belum"}
+                    </span>
+                    <span
+                        className={`rounded-md px-2 py-0.5 text-[11px] font-semibold ${
+                            kitchenReady
+                                ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
+                                : "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+                        }`}
+                    >
+                        {kitchenReady ? "Kitchen OK" : "Kitchen Belum"}
+                    </span>
+                </div>
+
+                <h3 className="mb-1 line-clamp-2 text-sm font-semibold text-slate-800 dark:text-slate-200">
                     {product.title}
                 </h3>
+
                 {(product.barcode || product.sku) && (
-                    <div className="space-y-0.5 mb-2">
-                        {product.barcode && (
-                            <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-1">
+                    <div className="mb-2 space-y-0.5">
+                        {product.barcode ? (
+                            <p className="line-clamp-1 text-xs text-slate-500 dark:text-slate-400">
                                 Barcode: {product.barcode}
                             </p>
-                        )}
-                        {product.sku && (
-                            <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-1">
+                        ) : null}
+                        {product.sku ? (
+                            <p className="line-clamp-1 text-xs text-slate-500 dark:text-slate-400">
                                 SKU: {product.sku}
                             </p>
-                        )}
+                        ) : null}
                     </div>
                 )}
 
-                {/* Price Section - Mobile Friendly */}
-                <div className="mt-2 pt-2 border-t border-slate-100 dark:border-slate-800">
-                    {/* Sell Price - Prominent */}
-                    <p className="text-base sm:text-lg font-bold text-primary-600 dark:text-primary-400">
+                <div className="mt-2 border-t border-slate-100 pt-2 dark:border-slate-800">
+                    <p className="text-base font-bold text-primary-600 dark:text-primary-400">
                         {formatCurrency(product.sell_price)}
                     </p>
-                    {/* Buy Price - Subtle */}
-                    <div className="flex items-center justify-between mt-1">
+                    <div className="mt-1 flex items-center justify-between">
                         <p className="text-xs text-slate-400 dark:text-slate-500">
                             Modal: {formatCurrency(product.buy_price)}
                         </p>
-                        {/* Profit Indicator */}
-                        {product.sell_price > product.buy_price && (
+                        {product.sell_price > product.buy_price ? (
                             <span className="text-xs font-medium text-success-600 dark:text-success-400">
-                                +
-                                {formatCurrency(
-                                    product.sell_price - product.buy_price
-                                )}
+                                +{formatCurrency(product.sell_price - product.buy_price)}
                             </span>
-                        )}
+                        ) : null}
                     </div>
                 </div>
             </div>
@@ -174,15 +199,58 @@ function ProductCard({
     );
 }
 
-export default function Index({ products }) {
+export default function Index({ products, filters = {}, setupStatus = {}, meta = {} }) {
     const { can } = useAuthorization();
-    const [viewMode, setViewMode] = useState("grid"); // 'grid' | 'list'
+    const [viewMode, setViewMode] = useState("grid");
+    const [showFilters, setShowFilters] = useState(false);
     const [showBarcodeModal, setShowBarcodeModal] = useState(false);
     const [singleProductBarcode, setSingleProductBarcode] = useState(null);
     const [selectedProducts, setSelectedProducts] = useState([]);
+    const [filterData, setFilterData] = useState({
+        ...defaultFilters,
+        search: castFilterValue(filters?.search),
+        category_id: castFilterValue(filters?.category_id),
+        tenant_outlet_id: castFilterValue(filters?.tenant_outlet_id),
+        mapping_status: castFilterValue(filters?.mapping_status),
+        stock_status: castFilterValue(filters?.stock_status),
+        sort: castFilterValue(filters?.sort, "latest"),
+        per_page: castFilterValue(filters?.per_page, "10"),
+    });
+
+    useEffect(() => {
+        setFilterData({
+            ...defaultFilters,
+            search: castFilterValue(filters?.search),
+            category_id: castFilterValue(filters?.category_id),
+            tenant_outlet_id: castFilterValue(filters?.tenant_outlet_id),
+            mapping_status: castFilterValue(filters?.mapping_status),
+            stock_status: castFilterValue(filters?.stock_status),
+            sort: castFilterValue(filters?.sort, "latest"),
+            per_page: castFilterValue(filters?.per_page, "10"),
+        });
+    }, [filters]);
+
+    useEffect(() => {
+        setSelectedProducts([]);
+    }, [products?.data]);
+
     const canCreateProducts = can("products-create");
     const canEditProducts = can("products-edit");
     const canDeleteProducts = can("products-delete");
+
+    const hasActiveFilters = useMemo(
+        () =>
+            Boolean(
+                    filterData.search ||
+                    filterData.category_id ||
+                    filterData.tenant_outlet_id ||
+                    filterData.mapping_status ||
+                    filterData.stock_status ||
+                    filterData.sort !== "latest" ||
+                    filterData.per_page !== "10"
+            ),
+        [filterData]
+    );
 
     const handlePrintSingleBarcode = (product) => {
         setSingleProductBarcode(product);
@@ -192,7 +260,7 @@ export default function Index({ products }) {
 
     const handlePrintAllBarcodes = () => {
         setSingleProductBarcode(null);
-        setSelectedProducts(products.data);
+        setSelectedProducts(products.data || []);
         setShowBarcodeModal(true);
     };
 
@@ -204,325 +272,706 @@ export default function Index({ products }) {
 
     const toggleProductSelection = (product) => {
         setSelectedProducts((prev) => {
-            const isSelected = prev.some((p) => p.id === product.id);
-            if (isSelected) {
-                return prev.filter((p) => p.id !== product.id);
-            } else {
-                return [...prev, product];
-            }
+            const isSelected = prev.some((item) => item.id === product.id);
+            return isSelected
+                ? prev.filter((item) => item.id !== product.id)
+                : [...prev, product];
         });
     };
 
     const toggleSelectAll = () => {
-        if (selectedProducts.length === products.data.length) {
+        if (selectedProducts.length === (products.data || []).length) {
             setSelectedProducts([]);
-        } else {
-            setSelectedProducts([...products.data]);
+            return;
         }
+
+        setSelectedProducts([...(products.data || [])]);
     };
 
     const isProductSelected = (productId) =>
-        selectedProducts.some((p) => p.id === productId);
+        selectedProducts.some((item) => item.id === productId);
+
+    const handleChange = (key, value) => {
+        setFilterData((prev) => ({
+            ...prev,
+            [key]: value,
+        }));
+    };
+
+    const applyFilters = (event) => {
+        event.preventDefault();
+        router.get(route("products.index"), filterData, {
+            preserveScroll: true,
+            preserveState: true,
+        });
+        setShowFilters(false);
+    };
+
+    const resetFilters = () => {
+        setFilterData(defaultFilters);
+        router.get(route("products.index"), defaultFilters, {
+            preserveScroll: true,
+            preserveState: true,
+            replace: true,
+        });
+    };
+
+    const applyPerPage = (value) => {
+        const nextFilters = {
+            ...filterData,
+            per_page: value,
+        };
+
+        setFilterData(nextFilters);
+        router.get(route("products.index"), nextFilters, {
+            preserveScroll: true,
+            preserveState: true,
+        });
+    };
+
+    const applyQuickFilter = (mappingStatus) => {
+        const nextFilters = {
+            ...filterData,
+            mapping_status: mappingStatus,
+            per_page: filterData.per_page || "10",
+        };
+
+        setFilterData(nextFilters);
+        router.get(route("products.index"), nextFilters, {
+            preserveScroll: true,
+            preserveState: true,
+        });
+    };
+
+    const rows = products?.data ?? [];
+    const total = Number(products?.total ?? rows.length ?? 0);
+    const from = Number(products?.from ?? 0);
+    const to = Number(products?.to ?? 0);
+    const currentPage = Number(products?.current_page ?? 1);
+    const perPage = Number(products?.per_page ?? 10);
+    const perPageOptions = meta?.per_page_options ?? [10, 25, 50, 100];
+    const categories = meta?.categories ?? [];
+    const tenantOutlets = meta?.tenantOutlets ?? [];
 
     return (
         <>
             <Head title="Produk" />
 
-            {/* Header */}
-            <div className="mb-6">
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div className="space-y-6">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                     <div>
                         <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
                             Produk
                         </h1>
-                        <p className="text-sm text-slate-500 dark:text-slate-400">
-                            {products.total} produk terdaftar
+                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                            Menampilkan {from || 0}-{to || 0} dari {total} produk.
                         </p>
                     </div>
-                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
+
+                    <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
                         <button
                             onClick={handlePrintAllBarcodes}
-                            className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors w-full sm:w-auto"
+                            className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 sm:w-auto"
+                            type="button"
                         >
                             <IconBarcode size={18} />
                             Cetak All Barcode
                         </button>
-                        {canCreateProducts && (
+
+                        <button
+                            type="button"
+                            onClick={() => setShowFilters((value) => !value)}
+                            className={`inline-flex w-full items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-medium transition-colors sm:w-auto ${
+                                showFilters || hasActiveFilters
+                                    ? "border-primary-200 bg-primary-50 text-primary-700 dark:border-primary-800 dark:bg-primary-950/50 dark:text-primary-300"
+                                    : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                            }`}
+                        >
+                            <IconAdjustmentsHorizontal size={18} />
+                            Filter
+                        </button>
+
+                        {canCreateProducts ? (
                             <Button
-                                type={"link"}
-                                icon={
-                                    <IconCirclePlus
-                                        size={18}
-                                        strokeWidth={1.5}
-                                    />
-                                }
-                                className={
-                                    "bg-primary-500 hover:bg-primary-600 text-white shadow-lg shadow-primary-500/30 w-full sm:w-auto justify-center"
-                                }
-                                label={"Tambah Produk"}
+                                type="link"
+                                icon={<IconCirclePlus size={18} strokeWidth={1.5} />}
+                                className="w-full justify-center bg-primary-500 text-white shadow-lg shadow-primary-500/30 hover:bg-primary-600 sm:w-auto"
+                                label="Tambah Produk"
                                 href={route("products.create")}
                             />
-                        )}
+                        ) : null}
                     </div>
                 </div>
-            </div>
 
-            {/* Toolbar */}
-            <div className="mb-4 flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3">
-                <div className="flex items-center gap-3">
-                    <div className="w-full sm:w-80">
-                        <Search
-                            url={route("products.index")}
-                            placeholder="Cari produk..."
-                        />
+                <div className="grid gap-4 lg:grid-cols-2">
+                    <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-100">
+                        <p className="font-semibold">Halaman ini untuk katalog dan mapping produk</p>
+                        <p className="mt-1 text-blue-800 dark:text-blue-200">
+                            Setelah outlet, tenant, dan kitchen siap, halaman produk dipakai untuk memastikan setiap produk terhubung ke tenant yang benar dan siap diarahkan ke station dapur yang tepat.
+                        </p>
                     </div>
-                    {/* Select All Checkbox */}
-                    <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                            type="checkbox"
-                            checked={
-                                selectedProducts.length ===
-                                    products.data.length &&
-                                products.data.length > 0
-                            }
-                            onChange={toggleSelectAll}
-                            className="w-4 h-4 rounded border-slate-300 text-primary-500 focus:ring-primary-500"
-                        />
-                        <span className="text-sm text-slate-600 dark:text-slate-400 hidden sm:inline">
-                            Pilih Semua
-                        </span>
-                    </label>
+                    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100">
+                        <p className="font-semibold">Jika foodcourt aktif, mapping tenant wajib diperhatikan</p>
+                        <p className="mt-1 text-amber-800 dark:text-amber-200">
+                            Produk yang belum dipetakan ke tenant akan terlihat sebagai <span className="font-semibold">Global</span> dan belum cocok untuk settlement tenant foodcourt.
+                        </p>
+                    </div>
                 </div>
-                <div className="flex items-center gap-2">
-                    {/* Show selection count and print selected button */}
-                    {selectedProducts.length > 0 && (
+
+                <div className="flex flex-wrap gap-2">
+                    <Link
+                        href={route("guides.setup-wizard")}
+                        className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                    >
+                        Wizard Setup
+                    </Link>
+                    <Link
+                        href={route("guides.outlet-kitchen")}
+                        className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                    >
+                        Panduan Lengkap
+                    </Link>
+                    <Link
+                        href={route("outlets.index")}
+                        className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                    >
+                        Outlet & Tenant
+                    </Link>
+                    <Link
+                        href={route("settings.kitchen-devices.index")}
+                        className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                    >
+                        Kitchen Ops & Printer
+                    </Link>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                    <button
+                        type="button"
+                        onClick={() => applyQuickFilter("tenant_missing")}
+                        className={`rounded-xl px-3 py-2 text-sm font-medium ${
+                            filterData.mapping_status === "tenant_missing"
+                                ? "bg-amber-500 text-white"
+                                : "border border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300"
+                        }`}
+                    >
+                        Tanpa Tenant ({setupStatus.products_without_tenant_count ?? 0})
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => applyQuickFilter("kitchen_missing")}
+                        className={`rounded-xl px-3 py-2 text-sm font-medium ${
+                            filterData.mapping_status === "kitchen_missing"
+                                ? "bg-amber-500 text-white"
+                                : "border border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300"
+                        }`}
+                    >
+                        Tanpa Kitchen ({setupStatus.products_without_station_mapping_count ?? 0})
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => applyQuickFilter("ready")}
+                        className={`rounded-xl px-3 py-2 text-sm font-medium ${
+                            filterData.mapping_status === "ready"
+                                ? "bg-emerald-500 text-white"
+                                : "border border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-300"
+                        }`}
+                    >
+                        Siap Operasional
+                    </button>
+                    {filterData.mapping_status ? (
                         <button
-                            onClick={handlePrintSelected}
-                            className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-primary-500 hover:bg-primary-600 text-white text-sm font-medium transition-colors"
+                            type="button"
+                            onClick={() => applyQuickFilter("")}
+                            className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
                         >
-                            <IconPrinter size={18} />
-                            Cetak Terpilih ({selectedProducts.length})
+                            Reset Quick Filter
                         </button>
-                    )}
-                    <button
-                        onClick={() => setViewMode("grid")}
-                        className={`p-2.5 rounded-lg transition-colors ${
-                            viewMode === "grid"
-                                ? "bg-primary-100 text-primary-600 dark:bg-primary-900/50 dark:text-primary-400"
-                                : "text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
-                        }`}
-                        title="Grid View"
-                    >
-                        <IconLayoutGrid size={20} />
-                    </button>
-                    <button
-                        onClick={() => setViewMode("list")}
-                        className={`p-2.5 rounded-lg transition-colors ${
-                            viewMode === "list"
-                                ? "bg-primary-100 text-primary-600 dark:bg-primary-900/50 dark:text-primary-400"
-                                : "text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
-                        }`}
-                        title="List View"
-                    >
-                        <IconList size={20} />
-                    </button>
+                    ) : null}
                 </div>
-            </div>
 
-            {/* Content */}
-            {products.data.length > 0 ? (
-                viewMode === "grid" ? (
-                    /* Grid View */
-                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-                        {products.data.map((product, i) => (
-                            <ProductCard
-                                key={product.id}
-                                product={product}
-                                index={i}
-                                currentPage={products.current_page}
-                                perPage={products.per_page}
-                                isSelected={isProductSelected(product.id)}
-                                onToggle={toggleProductSelection}
-                                canUpdate={canEditProducts}
-                                canDelete={canDeleteProducts}
-                            />
-                        ))}
+                <div className="grid gap-4 lg:grid-cols-4">
+                    {[
+                        {
+                            label: "Tenant Foodcourt",
+                            value: setupStatus.tenant_outlets_count ?? 0,
+                            done: true,
+                        },
+                        {
+                            label: "Produk ke Tenant",
+                            value: setupStatus.products_with_tenant_count ?? 0,
+                            done: !setupStatus.needs_tenant_mapping,
+                        },
+                        {
+                            label: "Produk tanpa Tenant",
+                            value: setupStatus.products_without_tenant_count ?? 0,
+                            done: !setupStatus.needs_tenant_mapping,
+                        },
+                        {
+                            label: "Produk ke Station",
+                            value: setupStatus.products_with_station_mapping_count ?? 0,
+                            done: !setupStatus.needs_station_mapping,
+                        },
+                    ].map((item) => (
+                        <div
+                            key={item.label}
+                            className={`rounded-2xl border p-4 ${
+                                item.done
+                                    ? "border-emerald-200 bg-emerald-50 dark:border-emerald-900/40 dark:bg-emerald-950/20"
+                                    : "border-amber-200 bg-amber-50 dark:border-amber-900/40 dark:bg-amber-950/20"
+                            }`}
+                        >
+                            <p className="text-sm text-slate-500 dark:text-slate-400">{item.label}</p>
+                            <p className="mt-2 text-2xl font-bold text-slate-900 dark:text-white">{item.value}</p>
+                            <p className="mt-1 text-xs font-medium text-slate-600 dark:text-slate-300">
+                                {item.done ? "Siap" : "Perlu tindakan"}
+                            </p>
+                        </div>
+                    ))}
+                </div>
+
+                {setupStatus.needs_tenant_mapping || setupStatus.needs_station_mapping ? (
+                    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100">
+                        <p className="font-semibold">Mapping produk masih belum lengkap</p>
+                        <div className="mt-2 space-y-1 text-amber-800 dark:text-amber-200">
+                            {setupStatus.needs_tenant_mapping ? (
+                                <p>• Masih ada produk yang belum dipetakan ke tenant, padahal tenant foodcourt sudah tersedia.</p>
+                            ) : null}
+                            {setupStatus.needs_station_mapping ? (
+                                <p>• Masih ada produk yang belum dipetakan ke station dapur, sehingga ticket kitchen belum akan terpecah otomatis.</p>
+                            ) : null}
+                        </div>
                     </div>
-                ) : (
-                    /* List View */
-                    <Table.Card title={"Data Produk"}>
-                        <Table>
-                            <Table.Thead>
-                                <tr>
-                                    <Table.Th className="w-10">No</Table.Th>
-                                    <Table.Th>Produk</Table.Th>
-                                    <Table.Th>Kategori</Table.Th>
-                                    <Table.Th>Harga Beli</Table.Th>
-                                    <Table.Th>Harga Jual</Table.Th>
-                                    <Table.Th>Stok</Table.Th>
-                                    <Table.Th></Table.Th>
-                                </tr>
-                            </Table.Thead>
-                            <Table.Tbody>
-                                {products.data.map((product, i) => (
-                                    <tr
-                                        className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
-                                        key={product.id}
+                ) : null}
+
+                {showFilters ? (
+                    <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+                        <form onSubmit={applyFilters}>
+                            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                                <div>
+                                    <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                        Cari
+                                    </label>
+                                    <div className="relative">
+                                        <input
+                                            type="text"
+                                            value={filterData.search}
+                                            onChange={(event) =>
+                                                handleChange("search", event.target.value)
+                                            }
+                                            className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 pr-11 text-sm text-slate-700 outline-none transition focus:border-primary-300 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                                            placeholder="Nama, barcode, SKU, deskripsi..."
+                                        />
+                                        <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-4 text-slate-400">
+                                            <IconSearch size={18} />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                        Kategori
+                                    </label>
+                                    <select
+                                        value={filterData.category_id}
+                                        onChange={(event) =>
+                                            handleChange("category_id", event.target.value)
+                                        }
+                                        className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-700 outline-none transition focus:border-primary-300 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
                                     >
-                                        <Table.Td className="text-center">
-                                            {++i +
-                                                (products.current_page - 1) *
-                                                    products.per_page}
-                                        </Table.Td>
-                                        <Table.Td>
-                                            <div className="flex items-center gap-3">
-                                                <div className="w-10 h-10 rounded-lg bg-slate-100 dark:bg-slate-800 overflow-hidden flex-shrink-0">
-                                                    {product.image ? (
-                                                        <img
-                                                            src={getProductImageUrl(product.image)}
-                                                            alt={product.title}
-                                                            className="w-full h-full object-cover"
-                                                        />
-                                                    ) : (
-                                                        <div className="w-full h-full flex items-center justify-center">
+                                        <option value="">Semua kategori</option>
+                                        {categories.map((category) => (
+                                            <option key={category.id} value={String(category.id)}>
+                                                {category.name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                        Tenant Outlet
+                                    </label>
+                                    <select
+                                        value={filterData.tenant_outlet_id}
+                                        onChange={(event) =>
+                                            handleChange("tenant_outlet_id", event.target.value)
+                                        }
+                                        className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-700 outline-none transition focus:border-primary-300 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                                    >
+                                        <option value="">Semua tenant</option>
+                                        <option value="unassigned">Global / belum diassign</option>
+                                        {tenantOutlets.map((outlet) => (
+                                            <option key={outlet.id} value={String(outlet.id)}>
+                                                {outlet.name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                        Status Stok
+                                    </label>
+                                    <select
+                                        value={filterData.stock_status}
+                                        onChange={(event) =>
+                                            handleChange("stock_status", event.target.value)
+                                        }
+                                        className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-700 outline-none transition focus:border-primary-300 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                                    >
+                                        <option value="">Semua stok</option>
+                                        <option value="out">Habis</option>
+                                        <option value="low">Stok menipis</option>
+                                        <option value="ready">Stok aman</option>
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                        Status Mapping
+                                    </label>
+                                    <select
+                                        value={filterData.mapping_status}
+                                        onChange={(event) =>
+                                            handleChange("mapping_status", event.target.value)
+                                        }
+                                        className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-700 outline-none transition focus:border-primary-300 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                                    >
+                                        <option value="">Semua mapping</option>
+                                        <option value="tenant_missing">Tenant belum</option>
+                                        <option value="kitchen_missing">Kitchen belum</option>
+                                        <option value="ready">Siap operasional</option>
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                        Urutkan
+                                    </label>
+                                    <select
+                                        value={filterData.sort}
+                                        onChange={(event) =>
+                                            handleChange("sort", event.target.value)
+                                        }
+                                        className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-700 outline-none transition focus:border-primary-300 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                                    >
+                                        <option value="latest">Terbaru</option>
+                                        <option value="oldest">Terlama</option>
+                                        <option value="title_asc">Nama A-Z</option>
+                                        <option value="title_desc">Nama Z-A</option>
+                                        <option value="price_low">Harga terendah</option>
+                                        <option value="price_high">Harga tertinggi</option>
+                                        <option value="stock_low">Stok terendah</option>
+                                        <option value="stock_high">Stok tertinggi</option>
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                        Tampil per halaman
+                                    </label>
+                                    <select
+                                        value={filterData.per_page}
+                                        onChange={(event) =>
+                                            handleChange("per_page", event.target.value)
+                                        }
+                                        className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-700 outline-none transition focus:border-primary-300 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                                    >
+                                        {perPageOptions.map((option) => (
+                                            <option key={option} value={String(option)}>
+                                                {option} row
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div className="mt-4 flex flex-wrap justify-end gap-2">
+                                {hasActiveFilters ? (
+                                    <button
+                                        type="button"
+                                        onClick={resetFilters}
+                                        className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                                    >
+                                        <IconX size={16} />
+                                        Reset
+                                    </button>
+                                ) : null}
+                                <button
+                                    type="submit"
+                                    className="rounded-xl bg-primary-500 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-primary-600"
+                                >
+                                    Terapkan Filter
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                ) : null}
+
+                <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-900 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex flex-col gap-2 text-sm text-slate-500 dark:text-slate-400 sm:flex-row sm:items-center sm:gap-4">
+                        <span>
+                            Halaman {currentPage} • {rows.length} row tampil • total {total} data
+                        </span>
+                        <label className="flex items-center gap-2">
+                            <input
+                                type="checkbox"
+                                checked={
+                                    selectedProducts.length === rows.length && rows.length > 0
+                                }
+                                onChange={toggleSelectAll}
+                                className="h-4 w-4 rounded border-slate-300 text-primary-500 focus:ring-primary-500"
+                            />
+                            <span>Pilih semua di halaman ini</span>
+                        </label>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                        {selectedProducts.length > 0 ? (
+                            <button
+                                onClick={handlePrintSelected}
+                                className="inline-flex items-center gap-2 rounded-xl bg-primary-500 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-primary-600"
+                                type="button"
+                            >
+                                <IconPrinter size={18} />
+                                Cetak Terpilih ({selectedProducts.length})
+                            </button>
+                        ) : null}
+
+                        <div className="flex items-center gap-2">
+                            <label className="text-sm text-slate-500 dark:text-slate-400">
+                                Rows:
+                            </label>
+                            <select
+                                value={String(perPage)}
+                                onChange={(event) => applyPerPage(event.target.value)}
+                                className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-primary-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                            >
+                                {perPageOptions.map((option) => (
+                                    <option key={option} value={String(option)}>
+                                        {option}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <button
+                            onClick={() => setViewMode("grid")}
+                            className={`rounded-lg p-2.5 transition-colors ${
+                                viewMode === "grid"
+                                    ? "bg-primary-100 text-primary-600 dark:bg-primary-900/50 dark:text-primary-400"
+                                    : "text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                            }`}
+                            title="Grid View"
+                            type="button"
+                        >
+                            <IconLayoutGrid size={20} />
+                        </button>
+                        <button
+                            onClick={() => setViewMode("list")}
+                            className={`rounded-lg p-2.5 transition-colors ${
+                                viewMode === "list"
+                                    ? "bg-primary-100 text-primary-600 dark:bg-primary-900/50 dark:text-primary-400"
+                                    : "text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                            }`}
+                            title="List View"
+                            type="button"
+                        >
+                            <IconList size={20} />
+                        </button>
+                    </div>
+                </div>
+
+                {rows.length > 0 ? (
+                    viewMode === "grid" ? (
+                        <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+                            {rows.map((product) => (
+                                <ProductCard
+                                    key={product.id}
+                                    product={product}
+                                    isSelected={isProductSelected(product.id)}
+                                    onToggle={toggleProductSelection}
+                                    canUpdate={canEditProducts}
+                                    canDelete={canDeleteProducts}
+                                />
+                            ))}
+                        </div>
+                    ) : (
+                        <Table.Card title="Data Produk">
+                            <Table>
+                                <Table.Thead>
+                                    <tr>
+                                        <Table.Th className="w-10">No</Table.Th>
+                                        <Table.Th>Produk</Table.Th>
+                                        <Table.Th>Kategori</Table.Th>
+                                        <Table.Th>Tenant</Table.Th>
+                                        <Table.Th>Mapping</Table.Th>
+                                        <Table.Th>Harga Beli</Table.Th>
+                                        <Table.Th>Harga Jual</Table.Th>
+                                        <Table.Th>Stok</Table.Th>
+                                        <Table.Th></Table.Th>
+                                    </tr>
+                                </Table.Thead>
+                                <Table.Tbody>
+                                    {rows.map((product, i) => (
+                                        <tr
+                                            className="transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/50"
+                                            key={product.id}
+                                        >
+                                            <Table.Td className="text-center">
+                                                {i + 1 + (currentPage - 1) * perPage}
+                                            </Table.Td>
+                                            <Table.Td>
+                                                <div className="flex items-center gap-3">
+                                                    <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg bg-slate-100 dark:bg-slate-800">
+                                                        {product.image ? (
+                                                            <img
+                                                                src={getProductImageUrl(product.image)}
+                                                                alt={product.title}
+                                                                className="h-full w-full object-cover"
+                                                            />
+                                                        ) : (
                                                             <IconPackage
                                                                 size={16}
                                                                 className="text-slate-400"
                                                             />
-                                                        </div>
-                                                    )}
-                                                </div>
-                                                <div>
-                                                    <p className="text-sm font-medium text-slate-800 dark:text-slate-200">
-                                                        {product.title}
-                                                    </p>
-                                                    <div className="text-xs text-slate-500 dark:text-slate-400 space-y-0.5">
-                                                        {product.barcode && (
-                                                            <p>
-                                                                Barcode: {product.barcode}
-                                                            </p>
                                                         )}
-                                                        {product.sku && <p>SKU: {product.sku}</p>}
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-sm font-medium text-slate-800 dark:text-slate-200">
+                                                            {product.title}
+                                                        </p>
+                                                        <div className="space-y-0.5 text-xs text-slate-500 dark:text-slate-400">
+                                                            {product.barcode ? <p>Barcode: {product.barcode}</p> : null}
+                                                            {product.sku ? <p>SKU: {product.sku}</p> : null}
+                                                        </div>
                                                     </div>
                                                 </div>
-                                            </div>
-                                        </Table.Td>
-                                        <Table.Td>
-                                            <span className="px-2 py-0.5 text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded">
-                                                {product.category?.name}
-                                            </span>
-                                        </Table.Td>
-                                        <Table.Td>
-                                            {formatCurrency(product.buy_price)}
-                                        </Table.Td>
-                                        <Table.Td className="font-semibold text-primary-600 dark:text-primary-400">
-                                            {formatCurrency(product.sell_price)}
-                                        </Table.Td>
-                                        <Table.Td>
-                                            <span
-                                                className={`px-2 py-0.5 text-xs font-medium rounded ${
-                                                    product.stock === 0
-                                                        ? "bg-danger-100 text-danger-700 dark:bg-danger-900/50 dark:text-danger-400"
-                                                        : product.stock <= 5
-                                                        ? "bg-warning-100 text-warning-700 dark:bg-warning-900/50 dark:text-warning-400"
-                                                        : "bg-success-100 text-success-700 dark:bg-success-900/50 dark:text-success-400"
-                                                }`}
-                                            >
-                                                {product.stock}
-                                            </span>
-                                        </Table.Td>
-                                        <Table.Td>
-                                            <div className="flex gap-2">
-                                                {canEditProducts && (
-                                                    <Button
-                                                        type={"edit"}
-                                                        icon={
-                                                            <IconPencilCog
-                                                                size={16}
-                                                                strokeWidth={
-                                                                    1.5
-                                                                }
-                                                            />
-                                                        }
-                                                        className={
-                                                            "border bg-warning-100 border-warning-200 text-warning-600 hover:bg-warning-200 dark:bg-warning-900/50 dark:border-warning-800 dark:text-warning-400"
-                                                        }
-                                                        href={route(
-                                                            "products.edit",
-                                                            product.id
-                                                        )}
-                                                    />
-                                                )}
-                                                {canDeleteProducts && (
-                                                    <Button
-                                                        type={"delete"}
-                                                        icon={
-                                                            <IconTrash
-                                                                size={16}
-                                                                strokeWidth={
-                                                                    1.5
-                                                                }
-                                                            />
-                                                        }
-                                                        className={
-                                                            "border bg-danger-100 border-danger-200 text-danger-600 hover:bg-danger-200 dark:bg-danger-900/50 dark:border-danger-800 dark:text-danger-400"
-                                                        }
-                                                        url={route(
-                                                            "products.destroy",
-                                                            product.id
-                                                        )}
-                                                    />
-                                                )}
-                                            </div>
-                                        </Table.Td>
-                                    </tr>
-                                ))}
-                            </Table.Tbody>
-                        </Table>
-                    </Table.Card>
-                )
-            ) : (
-                /* Empty State */
-                <div className="flex flex-col items-center justify-center py-16 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
-                    <div className="w-16 h-16 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center mb-4">
-                        <IconDatabaseOff
-                            size={32}
-                            className="text-slate-400"
-                            strokeWidth={1.5}
-                        />
+                                            </Table.Td>
+                                            <Table.Td>
+                                                <span className="rounded bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-400">
+                                                    {product.category?.name || "-"}
+                                                </span>
+                                            </Table.Td>
+                                            <Table.Td>
+                                                <span className="rounded bg-primary-100 px-2 py-0.5 text-xs font-medium text-primary-700 dark:bg-primary-950/40 dark:text-primary-300">
+                                                    {product.tenant_outlet?.code || "Global"}
+                                                </span>
+                                            </Table.Td>
+                                            <Table.Td>
+                                                <div className="flex flex-wrap gap-1.5">
+                                                    <span
+                                                        className={`rounded px-2 py-0.5 text-[11px] font-semibold ${
+                                                            product.tenant_outlet_id
+                                                                ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
+                                                                : "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+                                                        }`}
+                                                    >
+                                                        {product.tenant_outlet_id ? "Tenant OK" : "Tenant Belum"}
+                                                    </span>
+                                                    <span
+                                                        className={`rounded px-2 py-0.5 text-[11px] font-semibold ${
+                                                            Number(product.active_kitchen_station_mappings_count ?? 0) > 0
+                                                                ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
+                                                                : "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+                                                        }`}
+                                                    >
+                                                        {Number(product.active_kitchen_station_mappings_count ?? 0) > 0
+                                                            ? "Kitchen OK"
+                                                            : "Kitchen Belum"}
+                                                    </span>
+                                                </div>
+                                            </Table.Td>
+                                            <Table.Td>{formatCurrency(product.buy_price)}</Table.Td>
+                                            <Table.Td className="font-semibold text-primary-600 dark:text-primary-400">
+                                                {formatCurrency(product.sell_price)}
+                                            </Table.Td>
+                                            <Table.Td>
+                                                <span
+                                                    className={`rounded px-2 py-0.5 text-xs font-medium ${
+                                                        product.stock === 0
+                                                            ? "bg-danger-100 text-danger-700 dark:bg-danger-900/50 dark:text-danger-400"
+                                                            : product.stock <= 5
+                                                              ? "bg-warning-100 text-warning-700 dark:bg-warning-900/50 dark:text-warning-400"
+                                                              : "bg-success-100 text-success-700 dark:bg-success-900/50 dark:text-success-400"
+                                                    }`}
+                                                >
+                                                    {product.stock}
+                                                </span>
+                                            </Table.Td>
+                                            <Table.Td>
+                                                <div className="flex gap-2">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handlePrintSingleBarcode(product)}
+                                                        className="rounded-lg border border-slate-200 bg-slate-50 p-2 text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                                                    >
+                                                        <IconPrinter size={16} />
+                                                    </button>
+                                                    {canEditProducts ? (
+                                                        <Button
+                                                            type="edit"
+                                                            icon={<IconPencilCog size={16} strokeWidth={1.5} />}
+                                                            className="border border-warning-200 bg-warning-100 text-warning-600 hover:bg-warning-200 dark:border-warning-800 dark:bg-warning-900/50 dark:text-warning-400"
+                                                            href={route("products.edit", product.id)}
+                                                        />
+                                                    ) : null}
+                                                    {canDeleteProducts ? (
+                                                        <Button
+                                                            type="delete"
+                                                            icon={<IconTrash size={16} strokeWidth={1.5} />}
+                                                            className="border border-danger-200 bg-danger-100 text-danger-600 hover:bg-danger-200 dark:border-danger-800 dark:bg-danger-900/50 dark:text-danger-400"
+                                                            url={route("products.destroy", product.id)}
+                                                        />
+                                                    ) : null}
+                                                </div>
+                                            </Table.Td>
+                                        </tr>
+                                    ))}
+                                </Table.Tbody>
+                            </Table>
+                        </Table.Card>
+                    )
+                ) : (
+                    <div className="flex flex-col items-center justify-center rounded-2xl border border-slate-200 bg-white py-16 dark:border-slate-800 dark:bg-slate-900">
+                        <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-slate-100 dark:bg-slate-800">
+                            <IconDatabaseOff
+                                size={32}
+                                className="text-slate-400"
+                                strokeWidth={1.5}
+                            />
+                        </div>
+                        <h3 className="mb-1 text-lg font-medium text-slate-800 dark:text-slate-200">
+                            Belum Ada Produk
+                        </h3>
+                        <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">
+                            Tambahkan produk pertama Anda untuk memulai.
+                        </p>
+                        {canCreateProducts ? (
+                            <Button
+                                type="link"
+                                icon={<IconCirclePlus size={18} />}
+                                className="bg-primary-500 text-white hover:bg-primary-600"
+                                label="Tambah Produk"
+                                href={route("products.create")}
+                            />
+                        ) : null}
                     </div>
-                    <h3 className="text-lg font-medium text-slate-800 dark:text-slate-200 mb-1">
-                        Belum Ada Produk
-                    </h3>
-                    <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
-                        Tambahkan produk pertama Anda untuk memulai.
-                    </p>
-                    {canCreateProducts && (
-                        <Button
-                            type={"link"}
-                            icon={<IconCirclePlus size={18} />}
-                            className={
-                                "bg-primary-500 hover:bg-primary-600 text-white"
-                            }
-                            label={"Tambah Produk"}
-                            href={route("products.create")}
-                        />
-                    )}
-                </div>
-            )}
+                )}
 
-            {products.last_page !== 1 && <Pagination links={products.links} />}
+                {products.last_page !== 1 ? <Pagination links={products.links} /> : null}
 
-            {/* Barcode Print Modal */}
-            <BarcodePrintModal
-                isOpen={showBarcodeModal}
-                onClose={() => {
-                    setShowBarcodeModal(false);
-                    setSingleProductBarcode(null);
-                }}
-                products={selectedProducts}
-                singleProduct={singleProductBarcode}
-            />
+                <BarcodePrintModal
+                    isOpen={showBarcodeModal}
+                    onClose={() => {
+                        setShowBarcodeModal(false);
+                        setSingleProductBarcode(null);
+                    }}
+                    products={selectedProducts}
+                    singleProduct={singleProductBarcode}
+                />
+            </div>
         </>
     );
 }

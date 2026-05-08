@@ -8,19 +8,26 @@ use App\Models\Profit;
 use App\Models\Transaction;
 use App\Models\TransactionDetail;
 use App\Models\User;
+use App\Services\OutletResolver;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 
 class ProfitReportController extends Controller
 {
+    public function __construct(
+        private readonly OutletResolver $outletResolver
+    ) {}
+
     public function index(Request $request)
     {
+        $outletId = $this->outletResolver->resolve($request, $request->user())?->id;
         $filters = [
             'start_date' => $request->input('start_date'),
             'end_date' => $request->input('end_date'),
             'invoice' => $request->input('invoice'),
             'cashier_id' => $request->input('cashier_id'),
             'customer_id' => $request->input('customer_id'),
+            'outlet_id' => $outletId,
         ];
 
         $baseQuery = $this->applyFilters(
@@ -74,6 +81,7 @@ class ProfitReportController extends Controller
     protected function applyFilters($query, array $filters)
     {
         return $query
+            ->when($filters['outlet_id'] ?? null, fn ($q, $outletId) => $q->where('outlet_id', $outletId))
             ->when($filters['invoice'] ?? null, fn ($q, $invoice) => $q->where('invoice', 'like', '%'.$invoice.'%'))
             ->when($filters['cashier_id'] ?? null, fn ($q, $cashier) => $q->where('cashier_id', $cashier))
             ->when($filters['customer_id'] ?? null, fn ($q, $customer) => $q->where('customer_id', $customer))

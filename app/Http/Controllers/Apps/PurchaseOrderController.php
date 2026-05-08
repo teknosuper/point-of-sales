@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Models\Product;
 use App\Models\PurchaseOrder;
 use App\Models\Supplier;
+use App\Services\OutletResolver;
+use App\Services\StockMutationService;
 use App\Services\PurchaseOrderService;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -13,11 +15,14 @@ use Inertia\Inertia;
 class PurchaseOrderController extends Controller
 {
     public function __construct(
-        private readonly PurchaseOrderService $purchaseOrderService
+        private readonly PurchaseOrderService $purchaseOrderService,
+        private readonly OutletResolver $outletResolver,
+        private readonly StockMutationService $stockMutationService
     ) {}
 
     public function index(Request $request)
     {
+        $outlet = $this->outletResolver->resolve($request, $request->user());
         $filters = [
             'status' => $request->input('status'),
             'supplier' => $request->input('supplier'),
@@ -28,7 +33,8 @@ class PurchaseOrderController extends Controller
             'supplier:id,name',
             'items',
             'creator:id,name',
-        ])->withCount('items as items_count')
+        ])->when($outlet, fn ($builder) => $builder->where('outlet_id', $outlet->id))
+            ->withCount('items as items_count')
             ->orderByDesc('created_at');
 
         $query->when($filters['status'], fn ($q, $s) => $q->where('status', $s))
@@ -45,10 +51,18 @@ class PurchaseOrderController extends Controller
         ]);
     }
 
-    public function create()
+    public function create(Request $request)
     {
+        $outlet = $this->outletResolver->resolve($request, $request->user());
         $suppliers = Supplier::orderBy('name')->get(['id', 'name']);
-        $products = Product::orderBy('title')->get(['id', 'title', 'sku', 'buy_price', 'stock']);
+        $products = Product::orderBy('title')->get(['id', 'title', 'sku', 'buy_price', 'stock'])
+            ->map(function (Product $product) use ($outlet) {
+                if ($outlet) {
+                    $product->setAttribute('stock', $this->stockMutationService->stockForOutlet($product, $outlet->id));
+                }
+
+                return $product;
+            });
 
         return Inertia::render('Dashboard/PurchaseOrders/Create', [
             'suppliers' => $suppliers,
@@ -58,6 +72,7 @@ class PurchaseOrderController extends Controller
 
     public function store(Request $request)
     {
+        $outlet = $this->outletResolver->resolve($request, $request->user());
         $data = $request->validate([
             'supplier_id' => ['nullable', 'exists:suppliers,id'],
             'document_number' => ['nullable', 'string', 'max:100'],
@@ -68,15 +83,23 @@ class PurchaseOrderController extends Controller
             'items.*.unit_price' => ['required', 'numeric', 'min:0'],
         ]);
 
-        $order = $this->purchaseOrderService->createOrder($data, $data['items'], $request->user()->id);
+        $order = $this->purchaseOrderService->createOrder([
+            ...$data,
+            'outlet_id' => $outlet?->id,
+        ], $data['items'], $request->user()->id);
 
         return redirect()
             ->route('purchase-orders.show', $order)
             ->with('success', 'Purchase order berhasil dibuat.');
     }
 
-    public function show(PurchaseOrder $purchaseOrder)
+    public function show(Request $request, PurchaseOrder $purchaseOrder)
     {
+        $outlet = $this->outletResolver->resolve($request, $request->user());
+        if ($outlet && (int) $purchaseOrder->outlet_id !== (int) $outlet->id) {
+            abort(404);
+        }
+
         $purchaseOrder->load([
             'supplier:id,name,phone,email,address',
             'items.product:id,title,sku,image',
@@ -94,6 +117,11 @@ class PurchaseOrderController extends Controller
 
     public function placeOrder(Request $request, PurchaseOrder $purchaseOrder)
     {
+        $outlet = $this->outletResolver->resolve($request, $request->user());
+        if ($outlet && (int) $purchaseOrder->outlet_id !== (int) $outlet->id) {
+            abort(404);
+        }
+
         if ($purchaseOrder->status !== 'draft') {
             return back()->with('error', 'Hanya PO dengan status draft yang bisa dipesan.');
         }
@@ -107,6 +135,11 @@ class PurchaseOrderController extends Controller
 
     public function cancel(Request $request, PurchaseOrder $purchaseOrder)
     {
+        $outlet = $this->outletResolver->resolve($request, $request->user());
+        if ($outlet && (int) $purchaseOrder->outlet_id !== (int) $outlet->id) {
+            abort(404);
+        }
+
         if (! in_array($purchaseOrder->status, ['draft', 'ordered', 'partial_received'])) {
             return back()->with('error', 'PO tidak dapat dibatalkan.');
         }

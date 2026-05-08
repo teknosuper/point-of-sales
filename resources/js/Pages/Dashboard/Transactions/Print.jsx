@@ -42,6 +42,7 @@ export default function Print({ transaction }) {
         });
 
     const items = transaction?.details ?? [];
+    const tenantAllocations = transaction?.tenant_allocations ?? [];
     const promoDiscountTotal = useMemo(
         () =>
             items.reduce(
@@ -587,6 +588,108 @@ export default function Print({ transaction }) {
 
                             {/* Summary */}
                             <div className="bg-slate-50 dark:bg-slate-800/50 px-6 py-6">
+                                {tenantAllocations.length > 0 && (
+                                    <div className="mb-6 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-900/50 p-4">
+                                        <div className="flex items-center justify-between gap-3 mb-3">
+                                            <div>
+                                                <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                                                    Breakdown Tenant Foodcourt
+                                                </p>
+                                                <p className="text-xs text-slate-500 dark:text-slate-400">
+                                                    Satu nota ini dibagi ke beberapa tenant.
+                                                </p>
+                                            </div>
+                                            <span className="inline-flex items-center rounded-full bg-primary-100 px-3 py-1 text-xs font-semibold text-primary-700 dark:bg-primary-900/40 dark:text-primary-300">
+                                                {tenantAllocations.length} tenant
+                                            </span>
+                                        </div>
+
+                                        <div className="space-y-3">
+                                            {tenantAllocations.map((allocation) => {
+                                                const tenantName =
+                                                    allocation.tenant_outlet?.name ||
+                                                    allocation.tenant_outlet?.code ||
+                                                    `Tenant #${allocation.tenant_outlet_id}`;
+                                                const shippingShare = Math.max(
+                                                    0,
+                                                    Number(
+                                                        allocation.grand_total || 0
+                                                    ) -
+                                                        Number(
+                                                            allocation.subtotal || 0
+                                                        ) +
+                                                        Number(
+                                                            allocation.voucher_discount_total ||
+                                                                0
+                                                        ) +
+                                                        Number(
+                                                            allocation.loyalty_discount_total ||
+                                                                0
+                                                        ) +
+                                                        Number(
+                                                            allocation.manual_discount_total ||
+                                                                0
+                                                        )
+                                                );
+
+                                                return (
+                                                    <div
+                                                        key={allocation.id}
+                                                        className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/40 p-3"
+                                                    >
+                                                        <div className="flex items-start justify-between gap-3">
+                                                            <div>
+                                                                <p className="font-semibold text-slate-900 dark:text-white">
+                                                                    {tenantName}
+                                                                </p>
+                                                                <p className="text-xs text-slate-500 dark:text-slate-400">
+                                                                    {allocation.items?.length || 0} item tenant
+                                                                </p>
+                                                            </div>
+                                                            <p className="text-sm font-bold text-slate-900 dark:text-white">
+                                                                {formatPrice(allocation.grand_total)}
+                                                            </p>
+                                                        </div>
+
+                                                        <div className="mt-3 grid gap-2 sm:grid-cols-2 text-xs text-slate-600 dark:text-slate-400">
+                                                            <div className="flex justify-between gap-3">
+                                                                <span>Subtotal</span>
+                                                                <span>{formatPrice(allocation.subtotal)}</span>
+                                                            </div>
+                                                            <div className="flex justify-between gap-3">
+                                                                <span>Promo item</span>
+                                                                <span>- {formatPrice(allocation.promo_discount_total)}</span>
+                                                            </div>
+                                                            <div className="flex justify-between gap-3">
+                                                                <span>Voucher</span>
+                                                                <span>- {formatPrice(allocation.voucher_discount_total)}</span>
+                                                            </div>
+                                                            <div className="flex justify-between gap-3">
+                                                                <span>Loyalty</span>
+                                                                <span>- {formatPrice(allocation.loyalty_discount_total)}</span>
+                                                            </div>
+                                                            <div className="flex justify-between gap-3">
+                                                                <span>Diskon manual</span>
+                                                                <span>- {formatPrice(allocation.manual_discount_total)}</span>
+                                                            </div>
+                                                            {shippingShare > 0 && (
+                                                                <div className="flex justify-between gap-3">
+                                                                    <span>Alokasi ongkir/biaya</span>
+                                                                    <span>+ {formatPrice(shippingShare)}</span>
+                                                                </div>
+                                                            )}
+                                                            <div className="flex justify-between gap-3 font-semibold text-slate-800 dark:text-slate-200">
+                                                                <span>Grand total tenant</span>
+                                                                <span>{formatPrice(allocation.grand_total)}</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                )}
+
                                 <div className="max-w-xs ml-auto space-y-2 text-sm">
                                     <div className="flex justify-between text-slate-600 dark:text-slate-400">
                                         <span>Subtotal</span>

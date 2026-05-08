@@ -2,12 +2,14 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToOutlet;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Schema;
 
 class PaymentSetting extends Model
 {
-    use HasFactory;
+    use BelongsToOutlet, HasFactory;
 
     public const GATEWAY_MIDTRANS = 'midtrans';
 
@@ -22,6 +24,7 @@ class PaymentSetting extends Model
     ];
 
     protected $fillable = [
+        'outlet_id',
         'default_gateway',
         'bank_transfer_enabled',
         'midtrans_enabled',
@@ -36,6 +39,7 @@ class PaymentSetting extends Model
     ];
 
     protected $casts = [
+        'outlet_id' => 'integer',
         'bank_transfer_enabled' => 'boolean',
         'midtrans_enabled' => 'boolean',
         'midtrans_production' => 'boolean',
@@ -46,12 +50,65 @@ class PaymentSetting extends Model
         'xendit_callback_token' => 'encrypted',
     ];
 
-    public function enabledGateways(): array
+    public static function resolveForOutlet(?int $outletId = null): ?self
+    {
+        $query = static::query();
+
+        if (! static::usesOutletScope()) {
+            return $query->first();
+        }
+
+        if ($outletId !== null) {
+            return $query
+                ->where(function ($builder) use ($outletId) {
+                    $builder->where('outlet_id', $outletId)->orWhereNull('outlet_id');
+                })
+                ->orderByRaw('CASE WHEN outlet_id = ? THEN 0 ELSE 1 END', [$outletId])
+                ->first();
+        }
+
+        return $query->whereNull('outlet_id')->first();
+    }
+
+    public static function firstOrCreateForOutlet(?int $outletId = null, array $defaults = []): self
+    {
+        if (! static::usesOutletScope() || $outletId === null) {
+            return static::firstOrCreate([], $defaults);
+        }
+
+        $existing = static::query()->where('outlet_id', $outletId)->first();
+        if ($existing) {
+            return $existing;
+        }
+
+        $fallback = static::resolveForOutlet($outletId);
+        $payload = [
+            'outlet_id' => $outletId,
+            ...$defaults,
+        ];
+
+        if ($fallback) {
+            $fallbackAttributes = collect($fallback->getFillable())
+                ->reject(fn ($field) => in_array($field, ['outlet_id'], true))
+                ->mapWithKeys(fn ($field) => [$field => $fallback->getAttributeValue($field)])
+                ->all();
+
+            $payload = [
+                'outlet_id' => $outletId,
+                ...$fallbackAttributes,
+                ...$defaults,
+            ];
+        }
+
+        return static::create($payload);
+    }
+
+    public function enabledGateways(?int $outletId = null): array
     {
         $gateways = [];
 
         // Bank Transfer
-        if ($this->isBankTransferReady()) {
+        if ($this->isBankTransferReady($outletId)) {
             $gateways[] = [
                 'value' => self::GATEWAY_BANK_TRANSFER,
                 'label' => 'Transfer Bank',
@@ -81,15 +138,18 @@ class PaymentSetting extends Model
     /**
      * Check if bank transfer is ready (enabled and has active bank accounts)
      */
-    public function isBankTransferReady(): bool
+    public function isBankTransferReady(?int $outletId = null): bool
     {
-        return $this->bank_transfer_enabled && BankAccount::active()->exists();
+        return $this->bank_transfer_enabled
+            && BankAccount::active()
+                ->when($outletId, fn ($query) => $query->where('outlet_id', $outletId))
+                ->exists();
     }
 
-    public function isGatewayReady(string $gateway): bool
+    public function isGatewayReady(string $gateway, ?int $outletId = null): bool
     {
         return match ($gateway) {
-            self::GATEWAY_BANK_TRANSFER => $this->isBankTransferReady(),
+            self::GATEWAY_BANK_TRANSFER => $this->isBankTransferReady($outletId),
             self::GATEWAY_MIDTRANS => $this->midtrans_enabled
             && filled($this->resolvedSecret('midtrans_server_key'))
             && filled($this->midtrans_client_key),
@@ -199,5 +259,10 @@ class PaymentSetting extends Model
             'xendit_callback_token' => config('services.xendit.callback_token'),
             default => null,
         };
+    }
+
+    private static function usesOutletScope(): bool
+    {
+        return Schema::hasColumn('payment_settings', 'outlet_id');
     }
 }

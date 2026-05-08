@@ -3,10 +3,13 @@
 namespace App\Http\Controllers\Apps;
 
 use App\Http\Controllers\Controller;
+use App\Models\Outlet;
 use App\Models\Setting;
 use App\Services\AuditLogService;
 use App\Services\LoyaltyService;
+use App\Services\OutletResolver;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 
@@ -14,7 +17,8 @@ class SettingController extends Controller
 {
     public function __construct(
         private readonly AuditLogService $auditLogService,
-        private readonly LoyaltyService $loyaltyService
+        private readonly LoyaltyService $loyaltyService,
+        private readonly OutletResolver $outletResolver
     ) {}
 
     /**
@@ -22,8 +26,10 @@ class SettingController extends Controller
      */
     public function target()
     {
+        $outletId = $this->resolvedOutlet(request())?->id;
+
         $settings = [
-            'monthly_sales_target' => Setting::get('monthly_sales_target', 0),
+            'monthly_sales_target' => Setting::get('monthly_sales_target', 0, $outletId),
         ];
 
         return Inertia::render('Dashboard/Settings/Target', [
@@ -43,7 +49,8 @@ class SettingController extends Controller
         Setting::set(
             'monthly_sales_target',
             $request->monthly_sales_target,
-            'Target penjualan bulanan'
+            'Target penjualan bulanan',
+            $this->resolvedOutlet($request)?->id
         );
 
         return back()->with('success', 'Target berhasil disimpan');
@@ -54,18 +61,33 @@ class SettingController extends Controller
      */
     public function storeProfile()
     {
+        $outlet = $this->resolvedOutlet(request());
+
         $settings = [
-            'store_name' => Setting::get('store_name', ''),
-            'store_logo' => Setting::get('store_logo', ''),
-            'store_address' => Setting::get('store_address', ''),
-            'store_phone' => Setting::get('store_phone', ''),
-            'store_email' => Setting::get('store_email', ''),
-            'store_website' => Setting::get('store_website', ''),
-            'store_city' => Setting::get('store_city', ''),
+            'store_name' => $outlet?->name ?? Setting::get('store_name', ''),
+            'store_logo' => $outlet?->logo ?? Setting::get('store_logo', ''),
+            'store_address' => $outlet?->address ?? Setting::get('store_address', ''),
+            'store_phone' => $outlet?->phone ?? Setting::get('store_phone', ''),
+            'store_email' => $outlet?->email ?? Setting::get('store_email', ''),
+            'store_website' => $outlet?->website ?? Setting::get('store_website', ''),
+            'store_city' => $outlet?->city ?? Setting::get('store_city', ''),
         ];
+
+        $tenantOutlets = Outlet::query()
+            ->active()
+            ->ordered()
+            ->get(['id', 'name', 'code', 'commission_rate_percent'])
+            ->map(fn (Outlet $tenantOutlet) => [
+                'id' => $tenantOutlet->id,
+                'name' => $tenantOutlet->name,
+                'code' => $tenantOutlet->code,
+                'commission_rate_percent' => (float) ($tenantOutlet->commission_rate_percent ?? 0),
+            ])
+            ->values();
 
         return Inertia::render('Dashboard/Settings/Store', [
             'settings' => $settings,
+            'tenantOutlets' => $tenantOutlets,
         ]);
     }
 
@@ -82,19 +104,31 @@ class SettingController extends Controller
             'store_website' => 'nullable|string|max:255',
             'store_city' => 'nullable|string|max:255',
             'store_logo' => 'nullable|image|max:2048',
+            'tenant_commissions' => 'nullable|array',
+            'tenant_commissions.*' => 'nullable|numeric|min:0|max:100',
         ]);
 
+        $outlet = $this->resolvedOutlet($request);
+
         $before = [
-            'store_name' => Setting::get('store_name', ''),
-            'store_address' => Setting::get('store_address', ''),
-            'store_phone' => Setting::get('store_phone', ''),
-            'store_email' => Setting::get('store_email', ''),
-            'store_website' => Setting::get('store_website', ''),
-            'store_city' => Setting::get('store_city', ''),
+            'store_name' => $outlet?->name ?? Setting::get('store_name', ''),
+            'store_address' => $outlet?->address ?? Setting::get('store_address', ''),
+            'store_phone' => $outlet?->phone ?? Setting::get('store_phone', ''),
+            'store_email' => $outlet?->email ?? Setting::get('store_email', ''),
+            'store_website' => $outlet?->website ?? Setting::get('store_website', ''),
+            'store_city' => $outlet?->city ?? Setting::get('store_city', ''),
             'store_logo_changed' => false,
+            'tenant_commissions' => Outlet::query()
+                ->active()
+                ->ordered()
+                ->get(['id', 'commission_rate_percent'])
+                ->mapWithKeys(fn (Outlet $tenantOutlet) => [
+                    (string) $tenantOutlet->id => (float) ($tenantOutlet->commission_rate_percent ?? 0),
+                ])
+                ->all(),
         ];
 
-        $logoPath = Setting::get('store_logo');
+        $logoPath = $outlet?->logo ?? Setting::get('store_logo');
         $logoChanged = false;
 
         if ($request->file('store_logo')) {
@@ -105,13 +139,35 @@ class SettingController extends Controller
             $logoChanged = true;
         }
 
-        Setting::set('store_name', $request->store_name, 'Nama toko');
-        Setting::set('store_address', $request->store_address, 'Alamat toko');
-        Setting::set('store_phone', $request->store_phone, 'Telepon toko');
-        Setting::set('store_email', $request->store_email, 'Email toko');
-        Setting::set('store_website', $request->store_website, 'Website toko');
-        Setting::set('store_city', $request->store_city, 'Kota/Kabupaten toko');
-        Setting::set('store_logo', $logoPath, 'Logo toko');
+        if ($outlet) {
+            $outlet->update([
+                'name' => $request->store_name,
+                'legal_name' => $request->store_name,
+                'address' => $request->store_address,
+                'phone' => $request->store_phone,
+                'email' => $request->store_email,
+                'website' => $request->store_website,
+                'city' => $request->store_city,
+                'logo' => $logoPath,
+            ]);
+        } else {
+            Setting::set('store_name', $request->store_name, 'Nama toko');
+            Setting::set('store_address', $request->store_address, 'Alamat toko');
+            Setting::set('store_phone', $request->store_phone, 'Telepon toko');
+            Setting::set('store_email', $request->store_email, 'Email toko');
+            Setting::set('store_website', $request->store_website, 'Website toko');
+            Setting::set('store_city', $request->store_city, 'Kota/Kabupaten toko');
+            Setting::set('store_logo', $logoPath, 'Logo toko');
+        }
+
+        collect($request->input('tenant_commissions', []))
+            ->each(function ($rate, $tenantOutletId) {
+                Outlet::query()
+                    ->whereKey((int) $tenantOutletId)
+                    ->update([
+                        'commission_rate_percent' => round((float) $rate, 2),
+                    ]);
+            });
 
         $this->auditLogService->log(
             event: 'store.setting.updated',
@@ -127,16 +183,35 @@ class SettingController extends Controller
                 'store_website' => $request->store_website,
                 'store_city' => $request->store_city,
                 'store_logo_changed' => $logoChanged,
+                'tenant_commissions' => Outlet::query()
+                    ->active()
+                    ->ordered()
+                    ->get(['id', 'commission_rate_percent'])
+                    ->mapWithKeys(fn (Outlet $tenantOutlet) => [
+                        (string) $tenantOutlet->id => (float) ($tenantOutlet->commission_rate_percent ?? 0),
+                    ])
+                    ->all(),
             ],
         );
 
         return back()->with('success', 'Profil toko berhasil diperbarui');
     }
 
+    private function resolvedOutlet(Request $request): ?Outlet
+    {
+        if (! Schema::hasTable('outlets')) {
+            return null;
+        }
+
+        return $this->outletResolver->resolve($request, $request->user());
+    }
+
     public function loyalty()
     {
+        $outletId = $this->resolvedOutlet(request())?->id;
+
         return Inertia::render('Dashboard/Settings/Loyalty', [
-            'settings' => $this->loyaltyService->settingsPayload(),
+            'settings' => $this->loyaltyService->settingsPayload($outletId),
         ]);
     }
 
@@ -173,12 +248,13 @@ class SettingController extends Controller
                 ->withInput();
         }
 
-        $before = $this->loyaltyService->settingsPayload();
+        $outletId = $this->resolvedOutlet($request)?->id;
+        $before = $this->loyaltyService->settingsPayload($outletId);
         $this->loyaltyService->updateSettings([
             ...$validated,
             'tiers' => $orderedThresholds,
-        ]);
-        $this->loyaltyService->syncAllMemberTiers();
+        ], $outletId);
+        $this->loyaltyService->syncAllMemberTiers($outletId);
 
         $this->auditLogService->log(
             event: 'loyalty.setting.updated',
@@ -186,7 +262,7 @@ class SettingController extends Controller
             auditable: ['target_label' => 'Loyalty Settings'],
             description: 'Pengaturan loyalty diperbarui.',
             before: $before,
-            after: $this->loyaltyService->settingsPayload()
+            after: $this->loyaltyService->settingsPayload($outletId)
         );
 
         return back()->with('success', 'Pengaturan loyalty berhasil disimpan');

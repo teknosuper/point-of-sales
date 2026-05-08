@@ -2,14 +2,16 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToOutlet;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class Receivable extends Model
 {
-    use HasFactory;
+    use BelongsToOutlet, HasFactory;
 
     protected $fillable = [
+        'outlet_id',
         'customer_id',
         'transaction_id',
         'invoice',
@@ -22,6 +24,7 @@ class Receivable extends Model
     ];
 
     protected $casts = [
+        'outlet_id' => 'integer',
         'total' => 'float',
         'paid' => 'float',
         'due_date' => 'date',

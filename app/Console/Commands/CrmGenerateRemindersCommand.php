@@ -15,7 +15,7 @@ class CrmGenerateRemindersCommand extends Command
     {
         $crmAutomationService->generateScheduledReminders();
 
-        $this->info('CRM reminders generated.');
+        $this->info('CRM reminders generated per outlet.');
 
         return self::SUCCESS;
     }

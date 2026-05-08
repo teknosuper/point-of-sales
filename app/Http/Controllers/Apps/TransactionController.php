@@ -7,15 +7,21 @@ use App\Http\Controllers\Controller;
 use App\Models\Cart;
 use App\Models\Customer;
 use App\Models\CustomerVoucher;
+use App\Models\Outlet;
 use App\Models\PaymentSetting;
 use App\Models\Product;
+use App\Models\ProductOutletStock;
 use App\Models\Receivable;
 use App\Models\Transaction;
 use App\Services\AuditLogService;
 use App\Services\CashierShiftService;
+use App\Services\FoodcourtTenantAllocationService;
+use App\Services\KitchenTicketService;
 use App\Services\LoyaltyService;
+use App\Services\OutletResolver;
 use App\Services\Payments\PaymentGatewayManager;
 use App\Services\PricingService;
+use App\Services\StockMutationService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -30,7 +36,11 @@ class TransactionController extends Controller
         private readonly CashierShiftService $cashierShiftService,
         private readonly AuditLogService $auditLogService,
         private readonly PricingService $pricingService,
-        private readonly LoyaltyService $loyaltyService
+        private readonly LoyaltyService $loyaltyService,
+        private readonly OutletResolver $outletResolver,
+        private readonly StockMutationService $stockMutationService,
+        private readonly KitchenTicketService $kitchenTicketService,
+        private readonly FoodcourtTenantAllocationService $foodcourtTenantAllocationService
     ) {}
 
     /**
@@ -41,22 +51,26 @@ class TransactionController extends Controller
     public function index()
     {
         $userId = auth()->user()->id;
-        $activeShift = $this->cashierShiftService->getActiveShiftForUser($userId);
+        $outlet = $this->resolveActiveOutlet();
+        $activeShift = $this->cashierShiftService->getActiveShiftForUser($userId, $outlet?->id);
 
         // Get active cart items (not held)
-        $carts = Cart::with('product')
+        $carts = Cart::with('product', 'tenantOutlet:id,name,code')
             ->where('cashier_id', $userId)
+            ->when($outlet, fn ($query) => $query->where('outlet_id', $outlet->id))
             ->active()
             ->latest()
             ->get();
 
         $initialPricingPreview = $this->loyaltyService->previewCheckout(
-            $this->pricingService->previewCart($carts, null)
+            $this->pricingService->previewCart($carts, null, outletId: $outlet?->id),
+            outletId: $outlet?->id
         );
 
         // Get held carts grouped by hold_id
         $heldCarts = Cart::with('product:id,title,sell_price,image')
             ->where('cashier_id', $userId)
+            ->when($outlet, fn ($query) => $query->where('outlet_id', $outlet->id))
             ->held()
             ->get()
             ->groupBy('hold_id')
@@ -74,15 +88,31 @@ class TransactionController extends Controller
             ->values();
 
         // get all customers
-        $customers = Customer::latest()->get();
+        $customers = Customer::latest()->get()->map(fn (Customer $customer) => [
+            ...$customer->toArray(),
+            'loyalty_tier' => $this->loyaltyService->resolvedTier($customer, $outlet?->id),
+        ]);
 
         // get all products with categories for product grid
-        $products = Product::with('category:id,name')
-            ->select('id', 'barcode', 'title', 'description', 'image', 'buy_price', 'sell_price', 'stock', 'category_id')
-            ->where('stock', '>', 0)
+        $productsQuery = Product::with('category:id,name')
+            ->select('id', 'barcode', 'title', 'description', 'image', 'buy_price', 'sell_price', 'stock', 'category_id', 'tenant_outlet_id')
             ->orderBy('title')
-            ->get();
-        $pricingBadges = $this->pricingService->previewProducts($products, null);
+            ->when($outlet && Schema::hasTable('product_outlet_stocks'), function ($query) use ($outlet) {
+                $query->whereHas('outletStocks', fn ($stockQuery) => $stockQuery
+                    ->where('outlet_id', $outlet->id)
+                    ->where('stock', '>', 0));
+            }, fn ($query) => $query->where('stock', '>', 0));
+
+        $products = $productsQuery->get()->map(function (Product $product) use ($outlet) {
+            $stock = $outlet && Schema::hasTable('product_outlet_stocks')
+                ? $product->outletStocks()->where('outlet_id', $outlet->id)->value('stock')
+                : $product->stock;
+
+            $product->setAttribute('stock', (int) ($stock ?? 0));
+
+            return $product;
+        });
+        $pricingBadges = $this->pricingService->previewProducts($products, null, outletId: $outlet?->id);
         $products = $products->map(function (Product $product) use ($pricingBadges) {
             $pricing = $pricingBadges->get($product->id);
 
@@ -104,7 +134,7 @@ class TransactionController extends Controller
             ->orderBy('name')
             ->get();
 
-        $paymentSetting = PaymentSetting::first();
+        $paymentSetting = PaymentSetting::resolveForOutlet($outlet?->id);
 
         $carts_total = 0;
         foreach ($carts as $cart) {
@@ -114,13 +144,16 @@ class TransactionController extends Controller
         $defaultGateway = $paymentSetting?->default_gateway ?? 'cash';
         if (
             $defaultGateway !== 'cash'
-            && (! $paymentSetting || ! $paymentSetting->isGatewayReady($defaultGateway))
+            && (! $paymentSetting || ! $paymentSetting->isGatewayReady($defaultGateway, $outlet?->id))
         ) {
             $defaultGateway = 'cash';
         }
 
         // Get active bank accounts for bank transfer
-        $bankAccounts = \App\Models\BankAccount::active()->ordered()->get();
+        $bankAccounts = \App\Models\BankAccount::active()
+            ->ordered()
+            ->when($outlet && Schema::hasColumn('bank_accounts', 'outlet_id'), fn ($query) => $query->where('outlet_id', $outlet->id))
+            ->get();
 
         return Inertia::render('Dashboard/Transactions/Index', [
             'carts' => $carts,
@@ -130,11 +163,21 @@ class TransactionController extends Controller
             'products' => $products,
             'categories' => $categories,
             'initialPricingPreview' => $initialPricingPreview,
-            'paymentGateways' => $paymentSetting?->enabledGateways() ?? [],
+            'paymentGateways' => $paymentSetting?->enabledGateways($outlet?->id) ?? [],
             'defaultPaymentGateway' => $defaultGateway,
             'bankAccounts' => $bankAccounts,
             'shiftSummary' => $this->cashierShiftService->summarizeForDisplay($activeShift),
             'loyaltyTierOptions' => $this->loyaltyService->tierOptions(),
+            'tenantOutlets' => Outlet::query()
+                ->active()
+                ->ordered()
+                ->get(['id', 'name', 'code'])
+                ->map(fn (Outlet $tenantOutlet) => [
+                    'id' => $tenantOutlet->id,
+                    'name' => $tenantOutlet->name,
+                    'code' => $tenantOutlet->code,
+                ])
+                ->values(),
         ]);
     }
 
@@ -146,10 +189,19 @@ class TransactionController extends Controller
      */
     public function searchProduct(Request $request)
     {
+        $outlet = $this->resolveActiveOutlet($request);
+
         // find product by barcode
         $product = Product::where('barcode', $request->barcode)->first();
 
         if ($product) {
+            if ($outlet && Schema::hasTable('product_outlet_stocks')) {
+                $product->setAttribute(
+                    'stock',
+                    $this->stockMutationService->stockForOutlet($product, $outlet->id)
+                );
+            }
+
             return response()->json([
                 'success' => true,
                 'data' => $product,
@@ -181,11 +233,12 @@ class TransactionController extends Controller
 
         $carts = Cart::with('product.category')
             ->where('cashier_id', $request->user()->id)
+            ->when($this->resolveActiveOutlet($request), fn ($query, $outlet) => $query->where('outlet_id', $outlet->id))
             ->active()
             ->latest()
             ->get();
 
-        $pricingPreview = $this->pricingService->previewCart($carts, $customer);
+        $pricingPreview = $this->pricingService->previewCart($carts, $customer, outletId: $this->resolveActiveOutlet($request)?->id);
 
         return response()->json([
             'success' => true,
@@ -194,7 +247,7 @@ class TransactionController extends Controller
                 'shipping_cost' => (int) ($validated['shipping_cost'] ?? 0),
                 'redeem_points' => (int) ($validated['redeem_points'] ?? 0),
                 'voucher' => $voucher,
-            ]),
+            ], outletId: $this->resolveActiveOutlet($request)?->id),
         ]);
     }
 
@@ -206,6 +259,8 @@ class TransactionController extends Controller
      */
     public function addToCart(Request $request)
     {
+        $outlet = $this->resolveActiveOutlet($request);
+
         // Cari produk berdasarkan ID yang diberikan
         $product = Product::whereId($request->product_id)->first();
 
@@ -215,7 +270,11 @@ class TransactionController extends Controller
         }
 
         // Cek stok produk
-        if ($product->stock < $request->qty) {
+        $availableStock = $outlet
+            ? $this->stockMutationService->stockForOutlet($product, $outlet->id)
+            : (int) $product->stock;
+
+        if ($availableStock < $request->qty) {
             return redirect()->back()->with('error', 'Out of Stock Product!.');
         }
 
@@ -223,6 +282,8 @@ class TransactionController extends Controller
         $cart = Cart::with('product')
             ->where('product_id', $request->product_id)
             ->where('cashier_id', auth()->user()->id)
+            ->when($outlet, fn ($query) => $query->where('outlet_id', $outlet->id))
+            ->active()
             ->first();
 
         if ($cart) {
@@ -237,6 +298,8 @@ class TransactionController extends Controller
             // Insert ke keranjang
             Cart::create([
                 'cashier_id' => auth()->user()->id,
+                'outlet_id' => $outlet?->id,
+                'tenant_outlet_id' => $product->tenant_outlet_id ?: $outlet?->id,
                 'product_id' => $request->product_id,
                 'qty' => $request->qty,
                 'price' => $request->sell_price * $request->qty,
@@ -254,7 +317,11 @@ class TransactionController extends Controller
      */
     public function destroyCart($cart_id)
     {
-        $cart = Cart::with('product')->whereId($cart_id)->first();
+        $cart = Cart::with('product')
+            ->whereId($cart_id)
+            ->where('cashier_id', auth()->id())
+            ->when($this->resolveActiveOutlet(), fn ($query, $outlet) => $query->where('outlet_id', $outlet->id))
+            ->first();
 
         if ($cart) {
             $cart->delete();
@@ -282,6 +349,7 @@ class TransactionController extends Controller
 
         $cart = Cart::with('product')->whereId($cart_id)
             ->where('cashier_id', auth()->user()->id)
+            ->when($this->resolveActiveOutlet($request), fn ($query, $outlet) => $query->where('outlet_id', $outlet->id))
             ->first();
 
         if (! $cart) {
@@ -292,10 +360,14 @@ class TransactionController extends Controller
         }
 
         // Check stock availability
-        if ($cart->product->stock < $request->qty) {
+        $availableStock = $this->resolveActiveOutlet($request)
+            ? $this->stockMutationService->stockForOutlet($cart->product, $this->resolveActiveOutlet($request)->id)
+            : (int) $cart->product->stock;
+
+        if ($availableStock < $request->qty) {
             return response()->json([
                 'success' => false,
-                'message' => 'Stok tidak mencukupi. Tersedia: '.$cart->product->stock,
+                'message' => 'Stok tidak mencukupi. Tersedia: '.$availableStock,
             ], 422);
         }
 
@@ -305,6 +377,53 @@ class TransactionController extends Controller
         $cart->save();
 
         return back()->with('success', 'Quantity updated successfully');
+    }
+
+    public function updateCartTenant(Request $request, $cart_id): JsonResponse
+    {
+        $validated = $request->validate([
+            'tenant_outlet_id' => ['required', 'integer', 'exists:outlets,id'],
+        ]);
+
+        $cart = Cart::query()
+            ->whereKey($cart_id)
+            ->where('cashier_id', auth()->id())
+            ->when($this->resolveActiveOutlet($request), fn ($query, $outlet) => $query->where('outlet_id', $outlet->id))
+            ->active()
+            ->first();
+
+        if (! $cart) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Cart item not found',
+            ], 404);
+        }
+
+        $tenantOutlet = Outlet::query()
+            ->active()
+            ->whereKey($validated['tenant_outlet_id'])
+            ->first();
+
+        if (! $tenantOutlet) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Tenant outlet tidak tersedia',
+            ], 422);
+        }
+
+        $cart->forceFill([
+            'tenant_outlet_id' => $tenantOutlet->id,
+        ])->save();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Tenant item berhasil diubah',
+            'data' => [
+                'cart_id' => $cart->id,
+                'tenant_outlet_id' => $tenantOutlet->id,
+                'tenant_outlet_name' => $tenantOutlet->name,
+            ],
+        ]);
     }
 
     /**
@@ -319,9 +438,11 @@ class TransactionController extends Controller
         ]);
 
         $userId = auth()->user()->id;
+        $outlet = $this->resolveActiveOutlet($request);
 
         // Get active cart items
         $activeCarts = Cart::where('cashier_id', $userId)
+            ->when($outlet, fn ($query) => $query->where('outlet_id', $outlet->id))
             ->active()
             ->get();
 
@@ -338,6 +459,7 @@ class TransactionController extends Controller
 
         // Mark all active cart items as held
         Cart::where('cashier_id', $userId)
+            ->when($outlet, fn ($query) => $query->where('outlet_id', $outlet->id))
             ->active()
             ->update([
                 'hold_id' => $holdId,
@@ -357,9 +479,11 @@ class TransactionController extends Controller
     public function resumeCart($holdId)
     {
         $userId = auth()->user()->id;
+        $outlet = $this->resolveActiveOutlet();
 
         // Check if there are any active carts (not held)
         $activeCarts = Cart::where('cashier_id', $userId)
+            ->when($outlet, fn ($query) => $query->where('outlet_id', $outlet->id))
             ->active()
             ->count();
 
@@ -372,6 +496,7 @@ class TransactionController extends Controller
 
         // Get held carts
         $heldCarts = Cart::where('cashier_id', $userId)
+            ->when($outlet, fn ($query) => $query->where('outlet_id', $outlet->id))
             ->forHold($holdId)
             ->get();
 
@@ -384,6 +509,7 @@ class TransactionController extends Controller
 
         // Resume by clearing hold info
         Cart::where('cashier_id', $userId)
+            ->when($outlet, fn ($query) => $query->where('outlet_id', $outlet->id))
             ->forHold($holdId)
             ->update([
                 'hold_id' => null,
@@ -403,8 +529,10 @@ class TransactionController extends Controller
     public function clearHold($holdId)
     {
         $userId = auth()->user()->id;
+        $outlet = $this->resolveActiveOutlet();
 
         $deleted = Cart::where('cashier_id', $userId)
+            ->when($outlet, fn ($query) => $query->where('outlet_id', $outlet->id))
             ->forHold($holdId)
             ->delete();
 
@@ -435,9 +563,11 @@ class TransactionController extends Controller
     public function getHeldCarts()
     {
         $userId = auth()->user()->id;
+        $outlet = $this->resolveActiveOutlet();
 
         $heldCarts = Cart::with('product:id,title,sell_price,image')
             ->where('cashier_id', $userId)
+            ->when($outlet, fn ($query) => $query->where('outlet_id', $outlet->id))
             ->held()
             ->get()
             ->groupBy('hold_id')
@@ -480,6 +610,7 @@ class TransactionController extends Controller
             $paymentGateway = strtolower($paymentGateway);
         }
         $paymentSetting = null;
+        $outlet = $this->resolveActiveOutlet($request);
 
         if ($isPayLater && ! $request->filled('due_date')) {
             return redirect()
@@ -488,9 +619,9 @@ class TransactionController extends Controller
         }
 
         if ($paymentGateway) {
-            $paymentSetting = PaymentSetting::first();
+            $paymentSetting = PaymentSetting::resolveForOutlet($outlet?->id);
 
-            if (! $paymentSetting || ! $paymentSetting->isGatewayReady($paymentGateway)) {
+            if (! $paymentSetting || ! $paymentSetting->isGatewayReady($paymentGateway, $outlet?->id)) {
                 return redirect()
                     ->route('transactions.index')
                     ->with('error', 'Gateway pembayaran belum dikonfigurasi.');
@@ -527,15 +658,18 @@ class TransactionController extends Controller
             $shippingCost,
             $requestedRedeemPoints,
             $customer,
-            $voucher
+            $voucher,
+            $outlet
         ) {
             $activeShift = $this->cashierShiftService->requireActiveShiftForUser(
                 auth()->user()->id,
+                $outlet?->id,
                 lockForUpdate: true
             );
 
             $carts = Cart::with('product')
                 ->where('cashier_id', auth()->user()->id)
+                ->when($outlet, fn ($query) => $query->where('outlet_id', $outlet->id))
                 ->active()
                 ->get();
 
@@ -543,13 +677,13 @@ class TransactionController extends Controller
                 abort(422, 'Keranjang kosong.');
             }
 
-            $pricingPreview = $this->pricingService->previewCart($carts, $customer);
+            $pricingPreview = $this->pricingService->previewCart($carts, $customer, outletId: $outlet?->id);
             $checkoutPreview = $this->loyaltyService->previewCheckout($pricingPreview, $customer, [
                 'manual_discount' => $manualDiscount,
                 'shipping_cost' => $shippingCost,
                 'redeem_points' => $requestedRedeemPoints,
                 'voucher' => $voucher,
-            ]);
+            ], outletId: $outlet?->id);
             $pricingItems = collect($pricingPreview['items']);
             $subtotalAfterPromo = (int) data_get($pricingPreview, 'summary.subtotal_after_promo', 0);
             $voucherDiscount = (int) data_get($checkoutPreview, 'summary.voucher_discount_total', 0);
@@ -561,6 +695,7 @@ class TransactionController extends Controller
             $transaction = Transaction::create([
                 'cashier_id' => auth()->user()->id,
                 'cashier_shift_id' => $activeShift->id,
+                'outlet_id' => $outlet?->id,
                 'customer_id' => $request->customer_id,
                 'invoice' => $invoice,
                 'cash' => $cashAmount,
@@ -585,8 +720,10 @@ class TransactionController extends Controller
                 $baseUnitPrice = (int) data_get($pricingItem, 'base_unit_price', $cart->product->sell_price);
                 $unitPrice = (int) data_get($pricingItem, 'effective_unit_price', $cart->product->sell_price);
 
-                $transaction->details()->create([
+                $detail = $transaction->details()->create([
                     'transaction_id' => $transaction->id,
+                    'outlet_id' => $outlet?->id,
+                    'tenant_outlet_id' => $cart->tenant_outlet_id ?: $outlet?->id,
                     'product_id' => $cart->product_id,
                     'qty' => $cart->qty,
                     'base_unit_price' => $baseUnitPrice,
@@ -612,16 +749,27 @@ class TransactionController extends Controller
                 ]);
 
                 $product = Product::find($cart->product_id);
-                $product->stock = $product->stock - $cart->qty;
-                $product->save();
+                $this->stockMutationService->decrementForTransactionDetail(
+                    $product,
+                    $transaction,
+                    $detail,
+                    (int) $cart->qty,
+                    auth()->id()
+                );
             }
 
-            Cart::where('cashier_id', auth()->user()->id)->active()->delete();
+            Cart::where('cashier_id', auth()->user()->id)
+                ->when($outlet, fn ($query) => $query->where('outlet_id', $outlet->id))
+                ->active()
+                ->delete();
 
             $this->loyaltyService->finalizeTransaction($transaction, $customer, $checkoutPreview);
+            $this->foodcourtTenantAllocationService->rebuildForTransaction($transaction->fresh(['details']));
+            $this->kitchenTicketService->createForTransaction($transaction->fresh(['details.product.kitchenStationMappings']));
 
             if ($isPayLater) {
                 Receivable::create([
+                    'outlet_id' => $outlet?->id,
                     'customer_id' => $request->customer_id,
                     'transaction_id' => $transaction->id,
                     'invoice' => $invoice,
@@ -656,8 +804,19 @@ class TransactionController extends Controller
     public function print($invoice)
     {
         // get transaction
-        $transaction = Transaction::with('details.product', 'details.pricingRule', 'cashier', 'customer', 'receivable', 'bankAccount')
+        $transaction = Transaction::with(
+            'details.product',
+            'details.pricingRule',
+            'cashier',
+            'customer',
+            'receivable',
+            'bankAccount',
+            'kitchenTickets.kitchenStation',
+            'tenantAllocations.tenantOutlet:id,name,code',
+            'tenantAllocations.items.product:id,title'
+        )
             ->where('invoice', $invoice)
+            ->when($this->resolveActiveOutlet(), fn ($query, $outlet) => $query->where('outlet_id', $outlet->id))
             ->firstOrFail();
 
         return Inertia::render('Dashboard/Transactions/Print', [
@@ -684,7 +843,9 @@ class TransactionController extends Controller
                 'cashierShift:id,opened_at,status',
                 'customer:id,name',
                 'receivable',
+                'tenantAllocations.tenantOutlet:id,name,code',
             ])
+            ->when($this->resolveActiveOutlet($request), fn ($builder, $outlet) => $builder->where('outlet_id', $outlet->id))
             ->withSum('details as total_items', 'qty')
             ->withSum('profits as total_profit', 'total')
             ->orderByDesc('created_at');
@@ -747,6 +908,11 @@ class TransactionController extends Controller
      */
     public function confirmPayment(Transaction $transaction)
     {
+        $outlet = $this->resolveActiveOutlet(request());
+        if ($outlet && (int) $transaction->outlet_id !== (int) $outlet->id) {
+            abort(404);
+        }
+
         if ($transaction->payment_status === 'paid') {
             return redirect()
                 ->back()
@@ -784,5 +950,12 @@ class TransactionController extends Controller
         return redirect()
             ->back()
             ->with('success', "Pembayaran untuk invoice {$transaction->invoice} berhasil dikonfirmasi.");
+    }
+
+    private function resolveActiveOutlet(?Request $request = null)
+    {
+        $request ??= request();
+
+        return $this->outletResolver->resolve($request, $request->user());
     }
 }

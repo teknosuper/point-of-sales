@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\BankAccount;
 use App\Models\Receivable;
 use App\Models\ReceivablePayment;
+use App\Services\OutletResolver;
 use App\Services\ReceivableService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -14,11 +15,13 @@ use Inertia\Inertia;
 class ReceivableController extends Controller
 {
     public function __construct(
-        private readonly ReceivableService $receivableService
+        private readonly ReceivableService $receivableService,
+        private readonly OutletResolver $outletResolver
     ) {}
 
     public function index(Request $request)
     {
+        $outlet = $this->outletResolver->resolve($request, $request->user());
         $filters = [
             'status' => $request->input('status'),
             'customer' => $request->input('customer'),
@@ -29,6 +32,7 @@ class ReceivableController extends Controller
 
         $query = Receivable::with('customer:id,name')
             ->withSum('payments as total_paid', 'amount')
+            ->when($outlet, fn ($builder) => $builder->where('outlet_id', $outlet->id))
             ->orderByDesc('created_at');
 
         $query->when($filters['status'], function ($q, $status) {
@@ -58,8 +62,13 @@ class ReceivableController extends Controller
         ]);
     }
 
-    public function show(Receivable $receivable)
+    public function show(Request $request, Receivable $receivable)
     {
+        $outlet = $this->outletResolver->resolve($request, $request->user());
+        if ($outlet && (int) $receivable->outlet_id !== (int) $outlet->id) {
+            abort(404);
+        }
+
         $receivable->load([
             'customer:id,name,no_telp',
             'transaction',
@@ -68,7 +77,10 @@ class ReceivableController extends Controller
             },
         ]);
 
-        $bankAccounts = BankAccount::active()->ordered()->get(['id', 'bank_name', 'account_number', 'account_name', 'logo']);
+        $bankAccounts = BankAccount::active()
+            ->ordered()
+            ->when($outlet, fn ($query) => $query->where('outlet_id', $outlet->id))
+            ->get(['id', 'bank_name', 'account_number', 'account_name', 'logo']);
 
         return Inertia::render('Dashboard/Receivables/Show', [
             'receivable' => $receivable,
@@ -78,6 +90,11 @@ class ReceivableController extends Controller
 
     public function pay(Request $request, Receivable $receivable)
     {
+        $outlet = $this->outletResolver->resolve($request, $request->user());
+        if ($outlet && (int) $receivable->outlet_id !== (int) $outlet->id) {
+            abort(404);
+        }
+
         $validated = $request->validate([
             'amount' => ['required', 'numeric', 'min:1'],
             'paid_at' => ['required', 'date'],
@@ -93,6 +110,7 @@ class ReceivableController extends Controller
 
         DB::transaction(function () use ($validated, $receivable, $request) {
             ReceivablePayment::create([
+                'outlet_id' => $receivable->outlet_id,
                 'receivable_id' => $receivable->id,
                 'paid_at' => $validated['paid_at'],
                 'amount' => $validated['amount'],
@@ -122,11 +140,12 @@ class ReceivableController extends Controller
             ->with('success', 'Pembayaran piutang berhasil dicatat.');
     }
 
-    public function aging()
+    public function aging(Request $request)
     {
-        $summary = $this->receivableService->getAgingSummary();
-        $topCustomers = $this->receivableService->getTopCustomersByReceivable(10);
-        $collectionRate = $this->receivableService->getCollectionRate();
+        $outletId = $this->outletResolver->resolve($request, $request->user())?->id;
+        $summary = $this->receivableService->getAgingSummary($outletId);
+        $topCustomers = $this->receivableService->getTopCustomersByReceivable(10, $outletId);
+        $collectionRate = $this->receivableService->getCollectionRate($outletId);
 
         return response()->json([
             'aging_summary' => $summary,
@@ -137,17 +156,23 @@ class ReceivableController extends Controller
 
     public function customerStatement(Request $request)
     {
+        $outletId = $this->outletResolver->resolve($request, $request->user())?->id;
         $validated = $request->validate([
             'customer_id' => ['required', 'exists:customers,id'],
         ]);
 
-        $data = $this->receivableService->getCustomerStatement($validated['customer_id']);
+        $data = $this->receivableService->getCustomerStatement($validated['customer_id'], $outletId);
 
         return response()->json($data);
     }
 
     public function updateCollectionNotes(Request $request, Receivable $receivable)
     {
+        $outlet = $this->outletResolver->resolve($request, $request->user());
+        if ($outlet && (int) $receivable->outlet_id !== (int) $outlet->id) {
+            abort(404);
+        }
+
         $validated = $request->validate([
             'collection_notes' => ['nullable', 'string', 'max:2000'],
         ]);

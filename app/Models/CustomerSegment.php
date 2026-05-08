@@ -42,7 +42,7 @@ class CustomerSegment extends Model
     public function customers()
     {
         return $this->belongsToMany(Customer::class, 'customer_segment_memberships')
-            ->withPivot(['source', 'matched_at'])
+            ->withPivot(['outlet_id', 'source', 'matched_at'])
             ->withTimestamps();
     }
 }

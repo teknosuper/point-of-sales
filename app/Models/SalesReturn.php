@@ -2,15 +2,17 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToOutlet;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class SalesReturn extends Model
 {
-    use HasFactory;
+    use BelongsToOutlet, HasFactory;
 
     protected $fillable = [
         'code',
+        'outlet_id',
         'transaction_id',
         'customer_id',
         'cashier_id',
@@ -25,6 +27,7 @@ class SalesReturn extends Model
     ];
 
     protected $casts = [
+        'outlet_id' => 'integer',
         'transaction_id' => 'integer',
         'customer_id' => 'integer',
         'cashier_id' => 'integer',

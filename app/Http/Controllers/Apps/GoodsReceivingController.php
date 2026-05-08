@@ -6,17 +6,20 @@ use App\Http\Controllers\Controller;
 use App\Models\GoodsReceiving;
 use App\Models\PurchaseOrder;
 use App\Services\GoodsReceivingService;
+use App\Services\OutletResolver;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 
 class GoodsReceivingController extends Controller
 {
     public function __construct(
-        private readonly GoodsReceivingService $goodsReceivingService
+        private readonly GoodsReceivingService $goodsReceivingService,
+        private readonly OutletResolver $outletResolver
     ) {}
 
     public function index(Request $request)
     {
+        $outlet = $this->outletResolver->resolve($request, $request->user());
         $filters = [
             'search' => $request->input('search'),
             'purchase_order_id' => $request->input('purchase_order_id'),
@@ -26,7 +29,8 @@ class GoodsReceivingController extends Controller
             'purchaseOrder:id,document_number,status',
             'supplier:id,name',
             'receiver:id,name',
-        ])->orderByDesc('received_at');
+        ])->when($outlet, fn ($builder) => $builder->where('outlet_id', $outlet->id))
+            ->orderByDesc('received_at');
 
         $query->when($filters['search'], fn ($q, $s) => $q->where('document_number', 'like', "%{$s}%"))
             ->when($filters['purchase_order_id'], fn ($q, $id) => $q->where('purchase_order_id', $id));
@@ -42,11 +46,13 @@ class GoodsReceivingController extends Controller
     public function create(Request $request)
     {
         $purchaseOrderId = $request->input('purchase_order_id');
+        $outlet = $this->outletResolver->resolve($request, $request->user());
 
         $orders = PurchaseOrder::with([
             'supplier:id,name',
             'items.product:id,title,sku',
         ])->whereIn('status', ['ordered', 'partial_received'])
+            ->when($outlet, fn ($query) => $query->where('outlet_id', $outlet->id))
             ->orderByDesc('created_at')
             ->get();
 
@@ -61,6 +67,7 @@ class GoodsReceivingController extends Controller
 
     public function store(Request $request)
     {
+        $outlet = $this->outletResolver->resolve($request, $request->user());
         $data = $request->validate([
             'purchase_order_id' => ['required', 'exists:purchase_orders,id'],
             'notes' => ['nullable', 'string', 'max:1000'],
@@ -70,7 +77,9 @@ class GoodsReceivingController extends Controller
             'items.*.notes' => ['nullable', 'string', 'max:500'],
         ]);
 
-        $order = PurchaseOrder::with('items')->findOrFail($data['purchase_order_id']);
+        $order = PurchaseOrder::with('items')
+            ->when($outlet, fn ($query) => $query->where('outlet_id', $outlet->id))
+            ->findOrFail($data['purchase_order_id']);
 
         foreach ($data['items'] as $item) {
             $poItem = $order->items->firstWhere('id', $item['purchase_order_item_id']);
@@ -95,8 +104,13 @@ class GoodsReceivingController extends Controller
             ->with('success', 'Penerimaan barang berhasil dicatat.');
     }
 
-    public function show(GoodsReceiving $goodsReceiving)
+    public function show(Request $request, GoodsReceiving $goodsReceiving)
     {
+        $outlet = $this->outletResolver->resolve($request, $request->user());
+        if ($outlet && (int) $goodsReceiving->outlet_id !== (int) $outlet->id) {
+            abort(404);
+        }
+
         $goodsReceiving->load([
             'purchaseOrder:id,document_number,status',
             'supplier:id,name',

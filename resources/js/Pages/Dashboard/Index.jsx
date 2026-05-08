@@ -3,8 +3,11 @@ import { Head, Link } from "@inertiajs/react";
 import { useEffect, useMemo, useRef } from "react";
 import Chart from "chart.js/auto";
 import {
+    IconBooks,
     IconBox,
+    IconChecklist,
     IconCategory,
+    IconCircleCheck,
     IconMoneybag,
     IconUsers,
     IconCoin,
@@ -205,6 +208,8 @@ export default function Dashboard({
     topLocations = [],
     lowStockProducts = [],
     activeShifts = [],
+    onboardingChecklist = [],
+    onboardingSummary = {},
 }) {
     const chartRef = useRef(null);
     const chartInstance = useRef(null);
@@ -323,6 +328,98 @@ export default function Dashboard({
                         <IconShoppingCart size={18} />
                         <span>Transaksi Baru</span>
                     </Link>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                        <div>
+                            <div className="flex items-center gap-2">
+                                <div className="rounded-xl bg-primary-100 p-2 text-primary-600 dark:bg-primary-900/30 dark:text-primary-300">
+                                    <IconChecklist size={18} />
+                                </div>
+                                <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+                                    Checklist Setup Outlet, Tenant & Kitchen
+                                </h2>
+                            </div>
+                            <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+                                Ikuti urutan ini sampai operasional outlet, tenant foodcourt, kitchen, dan settlement siap dipakai.
+                            </p>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                            <Link
+                                href={route("guides.setup-wizard")}
+                                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                            >
+                                <IconChecklist size={16} />
+                                Buka Wizard Setup
+                            </Link>
+                            <Link
+                                href={route("guides.outlet-kitchen")}
+                                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                            >
+                                <IconBooks size={16} />
+                                Buka Panduan Lengkap
+                            </Link>
+                            <div className="rounded-xl bg-slate-100 px-3 py-2 text-sm font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                                {onboardingSummary.completed ?? 0} / {onboardingSummary.total ?? 0} selesai
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                        {onboardingChecklist.map((item, index) => (
+                            <div
+                                key={item.key}
+                                className={`rounded-xl border p-4 ${
+                                    item.done
+                                        ? "border-emerald-200 bg-emerald-50 dark:border-emerald-900/40 dark:bg-emerald-950/20"
+                                        : "border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950/30"
+                                }`}
+                            >
+                                <div className="flex items-start justify-between gap-3">
+                                    <div className="flex items-start gap-3">
+                                        <div
+                                            className={`mt-0.5 inline-flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold ${
+                                                item.done
+                                                    ? "bg-emerald-500 text-white"
+                                                    : "bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200"
+                                            }`}
+                                        >
+                                            {item.done ? <IconCircleCheck size={16} /> : index + 1}
+                                        </div>
+                                        <div>
+                                            <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                                                {item.title}
+                                            </p>
+                                            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                                {item.description}
+                                            </p>
+                                            <p className="mt-2 text-xs font-medium text-slate-500 dark:text-slate-400">
+                                                Jumlah saat ini: {item.count ?? 0}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <span
+                                        className={`rounded-full px-2 py-1 text-xs font-semibold ${
+                                            item.done
+                                                ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300"
+                                                : "bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300"
+                                        }`}
+                                    >
+                                        {item.done ? "Selesai" : "Belum"}
+                                    </span>
+                                </div>
+                                <div className="mt-3">
+                                    <Link
+                                        href={item.href}
+                                        className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                                    >
+                                        {item.action_label}
+                                    </Link>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
                 </div>
 
                 {/* Main Stat Cards - Reorganized */}

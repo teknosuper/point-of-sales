@@ -54,6 +54,13 @@ export default function Menu() {
                     icon: <IconLayout2 size={20} strokeWidth={1.5} />,
                     permissions: hasAnyPermission(["dashboard-access"]),
                 },
+                {
+                    title: "Panduan Outlet & Kitchen",
+                    href: route("guides.outlet-kitchen"),
+                    active: url.startsWith("/dashboard/guides/outlet-kitchen"),
+                    icon: <IconBooks size={20} strokeWidth={1.5} />,
+                    permissions: hasAnyPermission(["dashboard-access"]),
+                },
             ],
         },
         {
@@ -87,6 +94,13 @@ export default function Menu() {
                     icon: <IconBuildingWarehouse size={20} strokeWidth={1.5} />,
                     permissions: hasAnyPermission(["suppliers-access"]),
                 },
+                {
+                    title: "Outlet & Tenant",
+                    href: route("outlets.index"),
+                    active: url.startsWith("/dashboard/outlets"),
+                    icon: <IconBuildingStore size={20} strokeWidth={1.5} />,
+                    permissions: hasAnyPermission(["dashboard-access"]),
+                },
             ],
         },
         {
@@ -108,6 +122,13 @@ export default function Menu() {
                             : false,
                     icon: <IconClockHour6 size={20} strokeWidth={1.5} />,
                     permissions: hasAnyPermission(["transactions-access"]),
+                },
+                {
+                    title: "Kitchen Queue",
+                    href: route("kitchen.index"),
+                    active: url.startsWith("/dashboard/kitchen"),
+                    icon: <IconClipboardCheck size={20} strokeWidth={1.5} />,
+                    permissions: hasAnyPermission(["dashboard-access"]),
                 },
                 {
                     title: "Retur Penjualan",
@@ -259,6 +280,20 @@ export default function Menu() {
                     icon: <IconChartBar size={20} strokeWidth={1.5} />,
                     permissions: hasAnyPermission(["reports-access"]),
                 },
+                {
+                    title: "Statistik Outlet & Tenant",
+                    href: route("reports.outlet-analytics.index"),
+                    active: url.startsWith("/dashboard/reports/outlet-analytics"),
+                    icon: <IconChartBarPopular size={20} strokeWidth={1.5} />,
+                    permissions: hasAnyPermission(["reports-access"]),
+                },
+                {
+                    title: "Audit Setup",
+                    href: route("reports.setup-audit.index"),
+                    active: url.startsWith("/dashboard/reports/setup-audit"),
+                    icon: <IconFileSearch size={20} strokeWidth={1.5} />,
+                    permissions: hasAnyPermission(["reports-access"]),
+                },
             ],
         },
         {
@@ -354,6 +389,13 @@ export default function Menu() {
                     href: route("settings.loyalty"),
                     active: url === "/dashboard/settings/loyalty",
                     icon: <IconGift size={20} strokeWidth={1.5} />,
+                    permissions: hasAnyPermission(["dashboard-access"]),
+                },
+                {
+                    title: "Kitchen Ops & Printer",
+                    href: route("settings.kitchen-devices.index"),
+                    active: url === "/dashboard/settings/kitchen-devices",
+                    icon: <IconSpeakerphone size={20} strokeWidth={1.5} />,
                     permissions: hasAnyPermission(["dashboard-access"]),
                 },
                 {

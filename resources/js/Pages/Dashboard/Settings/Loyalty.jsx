@@ -1,11 +1,12 @@
 import DashboardLayout from "@/Layouts/DashboardLayout";
-import { Head, useForm } from "@inertiajs/react";
+import { Head, useForm, usePage } from "@inertiajs/react";
 import { IconDeviceFloppy, IconGift, IconMedal } from "@tabler/icons-react";
 import toast from "react-hot-toast";
 
 const formatNumber = (value) => String(value ?? 0);
 
 export default function Loyalty({ settings }) {
+    const { activeOutlet } = usePage().props;
     const { data, setData, post, processing, errors } = useForm({
         enable_earn: Boolean(settings.enable_earn),
         enable_redeem: Boolean(settings.enable_redeem),
@@ -38,6 +39,11 @@ export default function Loyalty({ settings }) {
                     <p className="text-sm text-slate-500 dark:text-slate-400">
                         Atur earn rate, redeem value, dan threshold tier member.
                     </p>
+                    {activeOutlet?.name && (
+                        <p className="mt-2 text-xs font-medium uppercase tracking-[0.16em] text-primary-600 dark:text-primary-300">
+                            Outlet aktif: {activeOutlet.name}
+                        </p>
+                    )}
                 </div>
 
                 <form

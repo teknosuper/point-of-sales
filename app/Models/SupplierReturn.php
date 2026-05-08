@@ -2,14 +2,16 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToOutlet;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class SupplierReturn extends Model
 {
-    use HasFactory;
+    use BelongsToOutlet, HasFactory;
 
     protected $fillable = [
+        'outlet_id',
         'supplier_id',
         'goods_receiving_id',
         'payable_id',
@@ -21,6 +23,7 @@ class SupplierReturn extends Model
     ];
 
     protected $casts = [
+        'outlet_id' => 'integer',
         'returned_at' => 'datetime',
     ];
 

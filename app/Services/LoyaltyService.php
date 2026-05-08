@@ -13,6 +13,10 @@ use Illuminate\Support\Str;
 
 class LoyaltyService
 {
+    public function __construct(
+        private readonly CustomerOutletMetricService $customerOutletMetricService
+    ) {}
+
     public const TIER_REGULAR = 'regular';
 
     public const TIER_SILVER = 'silver';
@@ -21,35 +25,35 @@ class LoyaltyService
 
     public const TIER_PLATINUM = 'platinum';
 
-    public function settings(): array
+    public function settings(?int $outletId = null): array
     {
         return [
-            'enable_earn' => Setting::getBool('loyalty_enable_earn', true),
-            'enable_redeem' => Setting::getBool('loyalty_enable_redeem', true),
-            'earn_rate_amount' => max(1, Setting::getInt('loyalty_earn_rate_amount', 10000)),
-            'redeem_point_value' => max(1, Setting::getInt('loyalty_redeem_point_value', 100)),
-            'tiers' => $this->tiers(),
+            'enable_earn' => Setting::getBool('loyalty_enable_earn', true, $outletId),
+            'enable_redeem' => Setting::getBool('loyalty_enable_redeem', true, $outletId),
+            'earn_rate_amount' => max(1, Setting::getInt('loyalty_earn_rate_amount', 10000, $outletId)),
+            'redeem_point_value' => max(1, Setting::getInt('loyalty_redeem_point_value', 100, $outletId)),
+            'tiers' => $this->tiers($outletId),
         ];
     }
 
-    public function tiers(): array
+    public function tiers(?int $outletId = null): array
     {
         return [
             self::TIER_REGULAR => [
                 'label' => 'Regular',
-                'minimum_total_spent' => Setting::getInt('loyalty_tier_regular_threshold', 0),
+                'minimum_total_spent' => Setting::getInt('loyalty_tier_regular_threshold', 0, $outletId),
             ],
             self::TIER_SILVER => [
                 'label' => 'Silver',
-                'minimum_total_spent' => Setting::getInt('loyalty_tier_silver_threshold', 500000),
+                'minimum_total_spent' => Setting::getInt('loyalty_tier_silver_threshold', 500000, $outletId),
             ],
             self::TIER_GOLD => [
                 'label' => 'Gold',
-                'minimum_total_spent' => Setting::getInt('loyalty_tier_gold_threshold', 1500000),
+                'minimum_total_spent' => Setting::getInt('loyalty_tier_gold_threshold', 1500000, $outletId),
             ],
             self::TIER_PLATINUM => [
                 'label' => 'Platinum',
-                'minimum_total_spent' => Setting::getInt('loyalty_tier_platinum_threshold', 3000000),
+                'minimum_total_spent' => Setting::getInt('loyalty_tier_platinum_threshold', 3000000, $outletId),
             ],
         ];
     }
@@ -65,9 +69,39 @@ class LoyaltyService
             ->all();
     }
 
-    public function settingsPayload(): array
+    public function tierForTotalSpent(int $totalSpent, ?int $outletId = null): string
     {
-        $settings = $this->settings();
+        $tier = self::TIER_REGULAR;
+
+        foreach ($this->tiers($outletId) as $key => $config) {
+            if ($totalSpent >= (int) $config['minimum_total_spent']) {
+                $tier = $key;
+            }
+        }
+
+        return $tier;
+    }
+
+    public function resolvedTier(Customer $customer, ?int $outletId = null): string
+    {
+        if (! $outletId) {
+            return (string) ($customer->loyalty_tier ?: self::TIER_REGULAR);
+        }
+
+        $metric = $customer->outletMetric($outletId);
+
+        if ($metric?->loyalty_tier) {
+            return (string) $metric->loyalty_tier;
+        }
+
+        $metrics = $this->customerOutletMetricService->metricsForCustomer($customer, $outletId);
+
+        return (string) ($metrics['loyalty_tier'] ?? $customer->loyalty_tier ?? self::TIER_REGULAR);
+    }
+
+    public function settingsPayload(?int $outletId = null): array
+    {
+        $settings = $this->settings($outletId);
 
         return [
             'enable_earn' => $settings['enable_earn'],
@@ -84,7 +118,7 @@ class LoyaltyService
         ];
     }
 
-    public function updateSettings(array $payload): void
+    public function updateSettings(array $payload, ?int $outletId = null): void
     {
         Setting::setMany([
             'loyalty_enable_earn' => [
@@ -119,7 +153,7 @@ class LoyaltyService
                 'value' => (string) $payload['tiers'][self::TIER_PLATINUM],
                 'description' => 'Ambang total belanja tier Platinum',
             ],
-        ]);
+        ], $outletId);
     }
 
     public function ensureMembership(Customer $customer, bool $force = false): Customer
@@ -148,17 +182,17 @@ class LoyaltyService
         return $this->generateMemberCode();
     }
 
-    public function syncTier(Customer $customer): Customer
+    public function syncTier(Customer $customer, ?int $outletId = null): Customer
     {
-        $tiers = $this->tiers();
-        $tier = self::TIER_REGULAR;
-        $totalSpent = (int) $customer->loyalty_total_spent;
+        if ($outletId) {
+            $metrics = $this->customerOutletMetricService->metricsForCustomer($customer, $outletId);
+            $tier = $this->tierForTotalSpent((int) ($metrics['total_spent'] ?? 0), $outletId);
+            $this->customerOutletMetricService->setTier($customer, $outletId, $tier);
 
-        foreach ($tiers as $key => $config) {
-            if ($totalSpent >= (int) $config['minimum_total_spent']) {
-                $tier = $key;
-            }
+            return $customer->refresh();
         }
+
+        $tier = $this->tierForTotalSpent((int) $customer->loyalty_total_spent);
 
         if ($customer->loyalty_tier !== $tier) {
             $customer->forceFill(['loyalty_tier' => $tier])->save();
@@ -171,10 +205,11 @@ class LoyaltyService
         array $pricingPreview,
         ?Customer $customer = null,
         array $options = [],
-        ?CarbonInterface $at = null
+        ?CarbonInterface $at = null,
+        ?int $outletId = null
     ): array {
         $at = $at ?? now();
-        $settings = $this->settings();
+        $settings = $this->settings($outletId);
         $subtotalAfterPromo = max(0, (int) data_get($pricingPreview, 'summary.subtotal_after_promo', 0));
         $manualDiscountRequested = max(0, (int) ($options['manual_discount'] ?? 0));
         $shippingCost = max(0, (int) ($options['shipping_cost'] ?? 0));
@@ -230,7 +265,7 @@ class LoyaltyService
                 'id' => $customer->id,
                 'is_loyalty_member' => (bool) $customer->is_loyalty_member,
                 'member_code' => $customer->member_code,
-                'loyalty_tier' => $customer->loyalty_tier,
+                'loyalty_tier' => $this->resolvedTier($customer, $outletId),
                 'loyalty_points' => $availablePoints,
             ] : null,
             'voucher' => $validatedVoucher ? $this->serializeVoucher($validatedVoucher) : null,
@@ -240,7 +275,7 @@ class LoyaltyService
                     ->values()
                     ->all()
                 : [],
-            'settings' => $this->settingsPayload(),
+            'settings' => $this->settingsPayload($outletId),
         ];
     }
 
@@ -275,7 +310,7 @@ class LoyaltyService
             return null;
         }
 
-        $settings = $this->settings();
+        $settings = $this->settings($transaction->outlet_id);
         $customer = $customer->fresh();
 
         if ($customer->is_loyalty_member) {
@@ -338,6 +373,10 @@ class LoyaltyService
             'last_purchase_at' => now(),
         ])->save();
 
+        if ($transaction->outlet_id) {
+            $this->customerOutletMetricService->syncForCustomer($customer->fresh(), (int) $transaction->outlet_id);
+        }
+
         if ($earnedPoints > 0) {
             $this->recordHistory(
                 $customer->fresh(),
@@ -349,7 +388,9 @@ class LoyaltyService
             );
         }
 
-        return $this->syncTier($customer->fresh());
+        $customer = $this->syncTier($customer->fresh(), null);
+
+        return $this->syncTier($customer->fresh(), $transaction->outlet_id);
     }
 
     public function validateVoucher(
@@ -414,14 +455,18 @@ class LoyaltyService
         ];
     }
 
-    public function syncAllMemberTiers(): void
+    public function syncAllMemberTiers(?int $outletId = null): void
     {
         Customer::query()
             ->where('is_loyalty_member', true)
             ->orderBy('id')
-            ->chunkById(100, function ($customers) {
+            ->chunkById(100, function ($customers) use ($outletId) {
                 foreach ($customers as $customer) {
-                    $this->syncTier($customer);
+                    if ($outletId) {
+                        $this->customerOutletMetricService->syncForCustomer($customer, $outletId);
+                    }
+
+                    $this->syncTier($customer, $outletId);
                 }
             });
     }

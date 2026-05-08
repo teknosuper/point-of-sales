@@ -261,9 +261,36 @@ const History = ({ transactions, filters }) => {
                                                     (currentPage - 1) * perPage}
                                             </td>
                                             <td className="px-4 py-4">
-                                                <span className="text-sm font-semibold text-slate-900 dark:text-white">
-                                                    {transaction.invoice}
-                                                </span>
+                                                <div className="space-y-2">
+                                                    <span className="text-sm font-semibold text-slate-900 dark:text-white">
+                                                        {transaction.invoice}
+                                                    </span>
+                                                    {transaction.tenant_allocations
+                                                        ?.length > 0 && (
+                                                        <div className="flex flex-wrap gap-1">
+                                                            {transaction.tenant_allocations.map(
+                                                                (
+                                                                    allocation
+                                                                ) => (
+                                                                    <span
+                                                                        key={
+                                                                            allocation.id
+                                                                        }
+                                                                        className="inline-flex items-center rounded-full bg-primary-50 px-2 py-1 text-[11px] font-medium text-primary-700 dark:bg-primary-950/40 dark:text-primary-300"
+                                                                    >
+                                                                        {allocation
+                                                                            .tenant_outlet
+                                                                            ?.name ||
+                                                                            allocation
+                                                                                .tenant_outlet
+                                                                                ?.code ||
+                                                                            `Tenant ${allocation.tenant_outlet_id}`}
+                                                                    </span>
+                                                                )
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                </div>
                                             </td>
                                             <td className="px-4 py-4 text-sm text-slate-600 dark:text-slate-400">
                                                 {transaction.created_at}
@@ -410,6 +437,29 @@ const History = ({ transactions, filters }) => {
                                             <p className="text-base font-semibold text-slate-900 dark:text-white">
                                                 {transaction.invoice}
                                             </p>
+                                            {transaction.tenant_allocations
+                                                ?.length > 0 && (
+                                                <div className="flex flex-wrap gap-1">
+                                                    {transaction.tenant_allocations.map(
+                                                        (allocation) => (
+                                                            <span
+                                                                key={
+                                                                    allocation.id
+                                                                }
+                                                                className="inline-flex items-center rounded-full bg-primary-50 px-2 py-1 text-[11px] font-medium text-primary-700 dark:bg-primary-950/40 dark:text-primary-300"
+                                                            >
+                                                                {allocation
+                                                                    .tenant_outlet
+                                                                    ?.name ||
+                                                                    allocation
+                                                                        .tenant_outlet
+                                                                        ?.code ||
+                                                                    `Tenant ${allocation.tenant_outlet_id}`}
+                                                            </span>
+                                                        )
+                                                    )}
+                                                </div>
+                                            )}
                                             <p className="text-xs text-slate-500 dark:text-slate-400">
                                                 {transaction.created_at}
                                             </p>

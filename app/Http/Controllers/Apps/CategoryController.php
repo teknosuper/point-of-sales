@@ -15,16 +15,59 @@ class CategoryController extends Controller
      *
      * @return \Illuminate\Http\Response
      */
-    public function index()
+    public function index(Request $request)
     {
-        // get categories
-        $categories = Category::when(request()->search, function ($categories) {
-            $categories = $categories->where('name', 'like', '%'.request()->search.'%');
-        })->latest()->paginate(2);
+        $filters = [
+            'search' => trim((string) $request->input('search', '')),
+            'has_image' => $request->input('has_image', ''),
+            'sort' => $request->input('sort', 'latest'),
+            'per_page' => (int) $request->input('per_page', 10),
+        ];
 
-        // return inertia
+        $allowedPerPage = [10, 25, 50, 100];
+        if (! in_array($filters['per_page'], $allowedPerPage, true)) {
+            $filters['per_page'] = 10;
+        }
+
+        $categories = Category::query()
+            ->when($filters['search'] !== '', function ($query) use ($filters) {
+                $search = $filters['search'];
+
+                $query->where(function ($innerQuery) use ($search) {
+                    $innerQuery
+                        ->where('name', 'like', '%'.$search.'%')
+                        ->orWhere('description', 'like', '%'.$search.'%');
+                });
+            })
+            ->when($filters['has_image'] !== '', function ($query) use ($filters) {
+                if ($filters['has_image'] === 'yes') {
+                    $query->whereNotNull('image')->where('image', '!=', '');
+                }
+
+                if ($filters['has_image'] === 'no') {
+                    $query->where(function ($innerQuery) {
+                        $innerQuery->whereNull('image')->orWhere('image', '');
+                    });
+                }
+            });
+
+        $categories = match ($filters['sort']) {
+            'name_asc' => $categories->orderBy('name'),
+            'name_desc' => $categories->orderByDesc('name'),
+            'oldest' => $categories->oldest(),
+            default => $categories->latest(),
+        };
+
+        $categories = $categories
+            ->paginate($filters['per_page'])
+            ->withQueryString();
+
         return Inertia::render('Dashboard/Categories/Index', [
             'categories' => $categories,
+            'filters' => $filters,
+            'meta' => [
+                'per_page_options' => $allowedPerPage,
+            ],
         ]);
     }
 

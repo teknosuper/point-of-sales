@@ -4,10 +4,14 @@ namespace App\Services;
 
 use App\Models\GoodsReceiving;
 use App\Models\Product;
+use App\Models\ProductOutletStock;
 use App\Models\SalesReturn;
 use App\Models\StockMutation;
 use App\Models\StockOpname;
 use App\Models\SupplierReturn;
+use App\Models\Transaction;
+use App\Models\TransactionDetail;
+use Illuminate\Validation\ValidationException;
 
 class StockMutationService
 {
@@ -24,6 +28,7 @@ class StockMutationService
         }
 
         $mutation = StockMutation::create([
+            'outlet_id' => null,
             'product_id' => $product->id,
             'reference_type' => 'product_create',
             'reference_id' => $product->id,
@@ -80,7 +85,26 @@ class StockMutationService
             return null;
         }
 
+        if ($stockOpname->outlet_id) {
+            ProductOutletStock::query()->updateOrCreate(
+                [
+                    'outlet_id' => $stockOpname->outlet_id,
+                    'product_id' => $product->id,
+                ],
+                [
+                    'stock' => $stockAfter,
+                    'reorder_level' => 0,
+                    'last_counted_at' => now(),
+                ]
+            );
+        }
+
+        $product->forceFill([
+            'stock' => $stockAfter,
+        ])->save();
+
         $mutation = StockMutation::create([
+            'outlet_id' => $stockOpname->outlet_id,
             'product_id' => $product->id,
             'reference_type' => 'stock_opname',
             'reference_id' => $stockOpname->id,
@@ -137,7 +161,26 @@ class StockMutationService
             return null;
         }
 
+        if ($salesReturn->outlet_id) {
+            ProductOutletStock::query()->updateOrCreate(
+                [
+                    'outlet_id' => $salesReturn->outlet_id,
+                    'product_id' => $product->id,
+                ],
+                [
+                    'stock' => $stockAfter,
+                    'reorder_level' => 0,
+                    'last_counted_at' => now(),
+                ]
+            );
+        }
+
+        $product->forceFill([
+            'stock' => max((int) $product->stock, $stockAfter),
+        ])->save();
+
         $mutation = StockMutation::create([
+            'outlet_id' => $salesReturn->outlet_id,
             'product_id' => $product->id,
             'reference_type' => 'sales_return',
             'reference_id' => $salesReturn->id,
@@ -191,7 +234,26 @@ class StockMutationService
         ?string $notes = null,
         ?int $userId = null
     ): StockMutation {
+        if ($goodsReceiving->outlet_id) {
+            ProductOutletStock::query()->updateOrCreate(
+                [
+                    'outlet_id' => $goodsReceiving->outlet_id,
+                    'product_id' => $product->id,
+                ],
+                [
+                    'stock' => $stockAfter,
+                    'reorder_level' => 0,
+                    'last_counted_at' => now(),
+                ]
+            );
+        }
+
+        $product->forceFill([
+            'stock' => max((int) $product->stock, $stockAfter),
+        ])->save();
+
         $mutation = StockMutation::create([
+            'outlet_id' => $goodsReceiving->outlet_id,
             'product_id' => $product->id,
             'reference_type' => 'goods_receiving',
             'reference_id' => $goodsReceiving->id,
@@ -243,7 +305,32 @@ class StockMutationService
         ?string $notes = null,
         ?int $userId = null
     ): StockMutation {
+        if ($stockAfter < 0) {
+            throw ValidationException::withMessages([
+                'stock' => "Stok outlet tidak mencukupi untuk retur supplier produk {$product->title}.",
+            ]);
+        }
+
+        if ($supplierReturn->outlet_id) {
+            ProductOutletStock::query()->updateOrCreate(
+                [
+                    'outlet_id' => $supplierReturn->outlet_id,
+                    'product_id' => $product->id,
+                ],
+                [
+                    'stock' => $stockAfter,
+                    'reorder_level' => 0,
+                    'last_counted_at' => now(),
+                ]
+            );
+        }
+
+        $product->forceFill([
+            'stock' => max(0, min((int) $product->stock, $stockAfter)),
+        ])->save();
+
         $mutation = StockMutation::create([
+            'outlet_id' => $supplierReturn->outlet_id,
             'product_id' => $product->id,
             'reference_type' => 'supplier_return',
             'reference_id' => $supplierReturn->id,
@@ -284,5 +371,212 @@ class StockMutationService
         );
 
         return $mutation;
+    }
+
+    public function stockForOutlet(Product $product, int $outletId): int
+    {
+        $stock = ProductOutletStock::query()
+            ->where('outlet_id', $outletId)
+            ->where('product_id', $product->id)
+            ->value('stock');
+
+        return $stock !== null ? (int) $stock : (int) $product->stock;
+    }
+
+    public function decrementForTransactionDetail(
+        Product $product,
+        Transaction $transaction,
+        TransactionDetail $detail,
+        int $qty,
+        ?int $userId = null
+    ): StockMutation {
+        $outletId = (int) $transaction->outlet_id;
+        $outletStock = ProductOutletStock::query()->firstOrCreate(
+            [
+                'outlet_id' => $outletId,
+                'product_id' => $product->id,
+            ],
+            [
+                'stock' => (int) $product->stock,
+                'reorder_level' => 0,
+            ]
+        );
+
+        $stockBefore = (int) $outletStock->stock;
+        $stockAfter = $stockBefore - $qty;
+
+        if ($stockAfter < 0) {
+            throw ValidationException::withMessages([
+                'stock' => "Stok outlet tidak mencukupi untuk produk {$product->title}.",
+            ]);
+        }
+
+        $outletStock->forceFill([
+            'stock' => $stockAfter,
+        ])->save();
+
+        $product->forceFill([
+            'stock' => max(0, (int) $product->stock - $qty),
+        ])->save();
+
+        return StockMutation::create([
+            'outlet_id' => $outletId,
+            'product_id' => $product->id,
+            'reference_type' => 'transaction',
+            'reference_id' => $transaction->id,
+            'mutation_type' => 'out',
+            'qty' => $qty,
+            'stock_before' => $stockBefore,
+            'stock_after' => $stockAfter,
+            'notes' => 'Stok keluar dari transaksi '.$transaction->invoice.'.',
+            'created_by' => $userId,
+        ]);
+    }
+
+    public function incrementForOutlet(
+        Product $product,
+        int $outletId,
+        int $qty,
+        string $referenceType,
+        int $referenceId,
+        string $notes,
+        ?int $userId = null
+    ): StockMutation {
+        $outletStock = ProductOutletStock::query()->firstOrCreate(
+            [
+                'outlet_id' => $outletId,
+                'product_id' => $product->id,
+            ],
+            [
+                'stock' => (int) $product->stock,
+                'reorder_level' => 0,
+            ]
+        );
+
+        $stockBefore = (int) $outletStock->stock;
+        $stockAfter = $stockBefore + $qty;
+
+        $outletStock->forceFill([
+            'stock' => $stockAfter,
+            'last_counted_at' => now(),
+        ])->save();
+
+        $product->forceFill([
+            'stock' => max((int) $product->stock, $stockAfter),
+        ])->save();
+
+        return StockMutation::create([
+            'outlet_id' => $outletId,
+            'product_id' => $product->id,
+            'reference_type' => $referenceType,
+            'reference_id' => $referenceId,
+            'mutation_type' => 'in',
+            'qty' => $qty,
+            'stock_before' => $stockBefore,
+            'stock_after' => $stockAfter,
+            'notes' => $notes,
+            'created_by' => $userId,
+        ]);
+    }
+
+    public function decrementForOutlet(
+        Product $product,
+        int $outletId,
+        int $qty,
+        string $referenceType,
+        int $referenceId,
+        string $notes,
+        ?int $userId = null
+    ): StockMutation {
+        $outletStock = ProductOutletStock::query()->firstOrCreate(
+            [
+                'outlet_id' => $outletId,
+                'product_id' => $product->id,
+            ],
+            [
+                'stock' => (int) $product->stock,
+                'reorder_level' => 0,
+            ]
+        );
+
+        $stockBefore = (int) $outletStock->stock;
+        $stockAfter = $stockBefore - $qty;
+
+        if ($stockAfter < 0) {
+            throw ValidationException::withMessages([
+                'stock' => "Stok outlet tidak mencukupi untuk produk {$product->title}.",
+            ]);
+        }
+
+        $outletStock->forceFill([
+            'stock' => $stockAfter,
+            'last_counted_at' => now(),
+        ])->save();
+
+        $product->forceFill([
+            'stock' => max(0, min((int) $product->stock, $stockAfter)),
+        ])->save();
+
+        return StockMutation::create([
+            'outlet_id' => $outletId,
+            'product_id' => $product->id,
+            'reference_type' => $referenceType,
+            'reference_id' => $referenceId,
+            'mutation_type' => 'out',
+            'qty' => $qty,
+            'stock_before' => $stockBefore,
+            'stock_after' => $stockAfter,
+            'notes' => $notes,
+            'created_by' => $userId,
+        ]);
+    }
+
+    public function setPhysicalStockForOutlet(
+        Product $product,
+        int $outletId,
+        int $stockAfter,
+        string $referenceType,
+        int $referenceId,
+        ?string $notes = null,
+        ?int $userId = null
+    ): ?StockMutation {
+        $outletStock = ProductOutletStock::query()->firstOrCreate(
+            [
+                'outlet_id' => $outletId,
+                'product_id' => $product->id,
+            ],
+            [
+                'stock' => (int) $product->stock,
+                'reorder_level' => 0,
+            ]
+        );
+
+        $stockBefore = (int) $outletStock->stock;
+
+        if ($stockBefore === $stockAfter) {
+            return null;
+        }
+
+        $outletStock->forceFill([
+            'stock' => $stockAfter,
+            'last_counted_at' => now(),
+        ])->save();
+
+        $product->forceFill([
+            'stock' => $stockAfter,
+        ])->save();
+
+        return StockMutation::create([
+            'outlet_id' => $outletId,
+            'product_id' => $product->id,
+            'reference_type' => $referenceType,
+            'reference_id' => $referenceId,
+            'mutation_type' => 'adjustment',
+            'qty' => abs($stockAfter - $stockBefore),
+            'stock_before' => $stockBefore,
+            'stock_after' => $stockAfter,
+            'notes' => $notes ?: 'Adjustment stok outlet.',
+            'created_by' => $userId,
+        ]);
     }
 }

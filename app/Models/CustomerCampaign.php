@@ -2,12 +2,13 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToOutlet;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class CustomerCampaign extends Model
 {
-    use HasFactory;
+    use BelongsToOutlet, HasFactory;
 
     public const TYPE_PROMO_BROADCAST = 'promo_broadcast';
 
@@ -30,6 +31,7 @@ class CustomerCampaign extends Model
     public const CHANNEL_WHATSAPP_LINK = 'whatsapp_link';
 
     protected $fillable = [
+        'outlet_id',
         'name',
         'type',
         'status',
@@ -43,6 +45,7 @@ class CustomerCampaign extends Model
     ];
 
     protected $casts = [
+        'outlet_id' => 'integer',
         'audience_filters' => 'array',
         'audience_snapshot' => 'array',
         'processed_at' => 'datetime',
