@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#4f46e5">
+  <title>Offline • POINZA</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f8fafc;
+      --panel: #ffffff;
+      --text: #0f172a;
+      --muted: #64748b;
+      --primary: #4f46e5;
+      --border: #e2e8f0;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #020617;
+        --panel: #0f172a;
+        --text: #f8fafc;
+        --muted: #94a3b8;
+        --border: #1e293b;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background: radial-gradient(circle at top, rgba(79,70,229,.15), transparent 40%), var(--bg);
+      color: var(--text);
+      font-family: Inter, system-ui, sans-serif;
+      padding: 24px;
+    }
+    .card {
+      width: min(100%, 460px);
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 28px;
+      padding: 28px;
+      box-shadow: 0 24px 60px rgba(15, 23, 42, 0.12);
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border-radius: 999px;
+      padding: 8px 12px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      color: var(--primary);
+      background: rgba(79, 70, 229, 0.08);
+    }
+    h1 {
+      margin: 18px 0 10px;
+      font-size: 34px;
+      line-height: 1.05;
+    }
+    p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.7;
+    }
+    .actions {
+      display: flex;
+      gap: 12px;
+      margin-top: 24px;
+      flex-wrap: wrap;
+    }
+    button, a {
+      border: 0;
+      cursor: pointer;
+      text-decoration: none;
+      border-radius: 16px;
+      padding: 12px 18px;
+      font-weight: 600;
+      font-size: 14px;
+    }
+    .primary {
+      background: var(--primary);
+      color: #fff;
+    }
+    .secondary {
+      background: transparent;
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="badge">PWA Offline</div>
+    <h1>Koneksi sedang tidak tersedia</h1>
+    <p>POINZA masih bisa dibuka sebagai aplikasi terpasang, tetapi halaman ini belum tersedia tanpa jaringan. Periksa koneksi lalu coba muat ulang.</p>
+    <div class="actions">
+      <button class="primary" onclick="window.location.reload()">Coba Lagi</button>
+      <a class="secondary" href="/dashboard">Kembali ke Dashboard</a>
+    </div>
+  </div>
+</body>
+</html>

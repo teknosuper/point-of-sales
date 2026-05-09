@@ -213,7 +213,7 @@ export default function Index({
 
         axios
             .post(route("transactions.pricing-preview"), {
-                customer_id: isWalkInCustomer ? null : selectedCustomer?.id ?? null,
+                customer_id: selectedCustomer?.is_walk_in ? null : selectedCustomer?.id ?? null,
                 discount,
                 shipping_cost: shipping,
                 redeem_points: Number(redeemPointsInput || 0),
@@ -240,7 +240,7 @@ export default function Index({
         };
     }, [
         selectedCustomer?.id,
-        isWalkInCustomer,
+        selectedCustomer?.is_walk_in,
         pricingDependency,
         discount,
         shipping,
@@ -506,7 +506,7 @@ export default function Index({
         router.post(
             route("transactions.store"),
             {
-                customer_id: isWalkInCustomer ? null : selectedCustomer?.id ?? null,
+                customer_id: selectedCustomer?.is_walk_in ? null : selectedCustomer?.id ?? null,
                 discount,
                 redeem_points: Number(redeemPointsInput || 0),
                 customer_voucher_id: selectedVoucherId || null,
@@ -794,10 +794,22 @@ export default function Index({
                                                 {item.product?.image ? (
                                                     <img
                                                         src={getProductImageUrl(
-                                                            item.product.image
+                                                            item.product.image,
+                                                            item.product.title
                                                         )}
                                                         alt={item.product.title}
                                                         className="w-full h-full object-cover"
+                                                        onError={(event) => {
+                                                            event.currentTarget.onerror =
+                                                                null;
+                                                            event.currentTarget.src =
+                                                                getProductImageUrl(
+                                                                    null,
+                                                                    item.product
+                                                                        ?.title ||
+                                                                        "Produk"
+                                                                );
+                                                        }}
                                                     />
                                                 ) : (
                                                     <div className="w-full h-full flex items-center justify-center">
@@ -1179,7 +1191,7 @@ export default function Index({
                                 </div>
                             )}
 
-                            {isWalkInCustomer && (
+                            {selectedCustomer?.is_walk_in && (
                                 <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/40 dark:bg-amber-950/20">
                                     <div className="flex items-start justify-between gap-3">
                                         <div>
@@ -1195,7 +1207,7 @@ export default function Index({
                             )}
 
                             {selectedCustomer &&
-                                !isWalkInCustomer &&
+                                !selectedCustomer?.is_walk_in &&
                                 !selectedCustomer?.is_loyalty_member && (
                                     <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/50">
                                         <div className="flex items-start justify-between gap-3">
@@ -1594,4 +1606,3 @@ export default function Index({
 }
 
 Index.layout = (page) => <POSLayout children={page} />;
-    const isWalkInCustomer = selectedCustomer?.is_walk_in === true;

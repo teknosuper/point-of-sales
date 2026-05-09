@@ -10,6 +10,10 @@ import {
     IconArrowLeft,
     IconPhoto,
 } from "@tabler/icons-react";
+import {
+    categoryPlaceholderDataUri,
+    resolveCategoryImageSrc,
+} from "@/Utils/imagePlaceholder";
 
 export default function Edit({ category }) {
     const { errors } = usePage().props;
@@ -23,7 +27,7 @@ export default function Edit({ category }) {
     });
 
     const [imagePreview, setImagePreview] = useState(
-        category.image ? `/storage/categories/${category.image}` : null
+        resolveCategoryImageSrc(category.image, category.name)
     );
 
     const handleImageChange = (e) => {
@@ -76,6 +80,13 @@ export default function Edit({ category }) {
                                             src={imagePreview}
                                             alt="Preview"
                                             className="w-full h-full object-cover"
+                                            onError={() =>
+                                                setImagePreview(
+                                                    categoryPlaceholderDataUri(
+                                                        data.name || category.name
+                                                    )
+                                                )
+                                            }
                                         />
                                     ) : (
                                         <IconPhoto

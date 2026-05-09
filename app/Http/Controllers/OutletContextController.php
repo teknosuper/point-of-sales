@@ -26,6 +26,18 @@ class OutletContextController extends Controller
         $user = $request->user();
         $selectedOutletId = $validated['outlet_id'] ?? null;
 
+        if ($user?->isKitchenWorkspace() && $user->preferredKitchenStation?->outlet_id) {
+            $lockedOutletId = (int) $user->preferredKitchenStation->outlet_id;
+
+            if ($selectedOutletId && (int) $selectedOutletId !== $lockedOutletId) {
+                return back()->with('warning', 'User dapur dikunci ke outlet station dapur default.');
+            }
+
+            $request->session()->put('active_outlet_id', $lockedOutletId);
+
+            return back();
+        }
+
         if ($selectedOutletId) {
             $accessibleOutlet = $user?->outlets()
                 ->active()

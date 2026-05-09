@@ -99,4 +99,53 @@ class OperationsGuideController extends Controller
             'tenantOutlets' => $tenantOutlets,
         ]);
     }
+
+    public function pwaSetup()
+    {
+        return Inertia::render('Dashboard/Guides/PWASetup', [
+            'platforms' => [
+                [
+                    'name' => 'Android / Chrome',
+                    'steps' => [
+                        'Buka aplikasi dari browser Chrome.',
+                        'Login lalu tekan tombol Install App jika muncul.',
+                        'Simpan ke home screen dan izinkan mode standalone.',
+                    ],
+                ],
+                [
+                    'name' => 'iPhone / iPad',
+                    'steps' => [
+                        'Buka aplikasi dari Safari.',
+                        'Tekan Share lalu pilih Add to Home Screen.',
+                        'Gunakan shortcut yang terbentuk untuk mode app.',
+                    ],
+                ],
+                [
+                    'name' => 'Windows / Desktop Chrome',
+                    'steps' => [
+                        'Buka aplikasi dari Chrome atau Edge.',
+                        'Gunakan tombol Install App dari aplikasi atau browser.',
+                        'Pin shortcut hasil install ke taskbar bila perlu.',
+                    ],
+                ],
+            ],
+            'recommendedRoutes' => [
+                [
+                    'label' => 'Dashboard Admin',
+                    'href' => route('dashboard'),
+                    'description' => 'Untuk admin dan supervisor yang memantau seluruh sistem.',
+                ],
+                [
+                    'label' => 'POS / Kasir',
+                    'href' => route('transactions.index'),
+                    'description' => 'Untuk perangkat kasir yang fokus ke transaksi.',
+                ],
+                [
+                    'label' => 'Kitchen Queue',
+                    'href' => route('kitchen.index'),
+                    'description' => 'Untuk layar dapur umum sebelum dikunci ke station tertentu.',
+                ],
+            ],
+        ]);
+    }
 }

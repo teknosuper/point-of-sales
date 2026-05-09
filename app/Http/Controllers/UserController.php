@@ -3,11 +3,13 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\UserRequest;
+use App\Models\KitchenStation;
 use App\Models\Outlet;
 use App\Models\User;
 use App\Services\AuditLogService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Spatie\Permission\Models\Role;
 
@@ -52,11 +54,19 @@ class UserController extends Controller
             ->active()
             ->ordered()
             ->get(['id', 'name', 'code', 'outlet_type']);
+        $kitchenStations = KitchenStation::query()
+            ->where('is_active', true)
+            ->with('outlet:id,name,code')
+            ->orderBy('outlet_id')
+            ->orderBy('sort_order')
+            ->orderBy('name')
+            ->get(['id', 'outlet_id', 'name', 'code']);
 
         // render view
         return Inertia::render('Dashboard/Users/Create', [
             'roles' => $roles,
             'outlets' => $outlets,
+            'kitchenStations' => $kitchenStations,
         ]);
     }
 
@@ -71,12 +81,22 @@ class UserController extends Controller
             $avatarPath = $request->file('avatar')->store('avatars', 'public');
         }
 
+        $this->ensurePreferredKitchenStationIsAccessible(
+            $request->input('preferred_workspace', 'standard'),
+            $request->input('preferred_kitchen_station_id'),
+            $request->input('selectedOutlets', [])
+        );
+
         // create new user data
         $user = User::create([
             'name' => $request->name,
             'email' => $request->email,
             'password' => bcrypt($request->password),
             'avatar' => $avatarPath,
+            'preferred_workspace' => $request->input('preferred_workspace', 'standard'),
+            'preferred_kitchen_station_id' => $request->input('preferred_workspace') === 'kitchen'
+                ? ($request->input('preferred_kitchen_station_id') ?: null)
+                : null,
         ]);
 
         // assign role to user
@@ -113,6 +133,13 @@ class UserController extends Controller
             ->active()
             ->ordered()
             ->get(['id', 'name', 'code', 'outlet_type']);
+        $kitchenStations = KitchenStation::query()
+            ->where('is_active', true)
+            ->with('outlet:id,name,code')
+            ->orderBy('outlet_id')
+            ->orderBy('sort_order')
+            ->orderBy('name')
+            ->get(['id', 'outlet_id', 'name', 'code']);
 
         // load relationship
         $user->load([
@@ -126,6 +153,7 @@ class UserController extends Controller
             'roles' => $roles,
             'user' => $user,
             'outlets' => $outlets,
+            'kitchenStations' => $kitchenStations,
         ]);
     }
 
@@ -148,6 +176,12 @@ class UserController extends Controller
             $avatarChanged = true;
         }
 
+        $this->ensurePreferredKitchenStationIsAccessible(
+            $request->input('preferred_workspace', 'standard'),
+            $request->input('preferred_kitchen_station_id'),
+            $request->input('selectedOutlets', [])
+        );
+
         // check if user send request password
         if ($request->password) {
             // update user data password
@@ -161,6 +195,10 @@ class UserController extends Controller
             'name' => $request->name,
             'email' => $request->email,
             'avatar' => $avatarPath,
+            'preferred_workspace' => $request->input('preferred_workspace', 'standard'),
+            'preferred_kitchen_station_id' => $request->input('preferred_workspace') === 'kitchen'
+                ? ($request->input('preferred_kitchen_station_id') ?: null)
+                : null,
         ]);
 
         // assign role to user
@@ -225,6 +263,8 @@ class UserController extends Controller
             'email' => $user->email,
             'avatar_changed' => $avatarChanged,
             'roles' => array_values($roles),
+            'preferred_workspace' => $user->preferred_workspace,
+            'preferred_kitchen_station_id' => $user->preferred_kitchen_station_id,
             'outlets' => $user->relationLoaded('outlets')
                 ? $user->outlets->map(fn ($outlet) => [
                     'id' => $outlet->id,
@@ -256,5 +296,33 @@ class UserController extends Controller
             ->all();
 
         $user->outlets()->sync($syncPayload);
+    }
+
+    private function ensurePreferredKitchenStationIsAccessible(
+        string $preferredWorkspace,
+        mixed $preferredKitchenStationId,
+        array $selectedOutlets = []
+    ): void {
+        if ($preferredWorkspace !== 'kitchen' || ! $preferredKitchenStationId) {
+            return;
+        }
+
+        $station = KitchenStation::query()
+            ->select('id', 'outlet_id')
+            ->find($preferredKitchenStationId);
+
+        if (! $station) {
+            return;
+        }
+
+        $selectedOutletIds = collect($selectedOutlets)
+            ->filter()
+            ->map(fn ($id) => (int) $id);
+
+        if (! $selectedOutletIds->contains((int) $station->outlet_id)) {
+            throw ValidationException::withMessages([
+                'preferred_kitchen_station_id' => 'Station dapur default harus berada di salah satu outlet yang dipilih.',
+            ]);
+        }
     }
 }

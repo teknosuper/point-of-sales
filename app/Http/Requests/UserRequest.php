@@ -35,6 +35,8 @@ class UserRequest extends FormRequest
             'selectedOutlets' => ['nullable', 'array'],
             'selectedOutlets.*' => ['integer', 'exists:outlets,id'],
             'primary_outlet_id' => ['nullable', 'integer', 'exists:outlets,id'],
+            'preferred_workspace' => ['nullable', Rule::in(['standard', 'kitchen'])],
+            'preferred_kitchen_station_id' => ['nullable', 'integer', 'exists:kitchen_stations,id'],
         ];
     }
 }

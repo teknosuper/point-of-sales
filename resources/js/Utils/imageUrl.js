@@ -1,3 +1,8 @@
+import {
+    resolveCategoryImageSrc,
+    resolveProductImageSrc,
+} from "@/Utils/imagePlaceholder";
+
 /**
  * Get proper image URL - handles both full URLs and filenames
  * @param {string} image - Image path (can be filename or full URL)
@@ -23,19 +28,21 @@ export function getImageUrl(image, folder = "products") {
 /**
  * Get product image URL
  * @param {string} image - Product image
+ * @param {string} title - Product title for placeholder label
  * @returns {string|null}
  */
-export function getProductImageUrl(image) {
-    return getImageUrl(image, "products");
+export function getProductImageUrl(image, title = "Produk") {
+    return resolveProductImageSrc(image, title);
 }
 
 /**
  * Get category image URL
  * @param {string} image - Category image
+ * @param {string} name - Category name for placeholder label
  * @returns {string|null}
  */
-export function getCategoryImageUrl(image) {
-    return getImageUrl(image, "categories");
+export function getCategoryImageUrl(image, name = "Kategori") {
+    return resolveCategoryImageSrc(image, name);
 }
 
 export default { getImageUrl, getProductImageUrl, getCategoryImageUrl };

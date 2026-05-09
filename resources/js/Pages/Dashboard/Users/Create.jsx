@@ -14,7 +14,7 @@ import toast from "react-hot-toast";
 import { useState } from "react";
 
 export default function Create() {
-    const { roles, outlets = [] } = usePage().props;
+    const { roles, outlets = [], kitchenStations = [] } = usePage().props;
 
     const { data, setData, post, errors, processing } = useForm({
         name: "",
@@ -24,6 +24,8 @@ export default function Create() {
         selectedRoles: [],
         selectedOutlets: [],
         primary_outlet_id: "",
+        preferred_workspace: "standard",
+        preferred_kitchen_station_id: "",
         avatar: null,
     });
 
@@ -62,6 +64,10 @@ export default function Create() {
             onError: () => toast.error("Gagal menyimpan pengguna"),
         });
     };
+
+    const availableKitchenStations = kitchenStations.filter((station) =>
+        data.selectedOutlets.includes(Number(station.outlet_id))
+    );
 
     return (
         <>
@@ -271,6 +277,65 @@ export default function Create() {
                                 <p className="text-xs text-danger-500 mt-3">
                                     {errors.primary_outlet_id}
                                 </p>
+                            )}
+                        </div>
+                    </div>
+
+                    <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6">
+                        <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-4">
+                            Mode Kerja
+                        </h3>
+                        <div className="space-y-4">
+                            <div>
+                                <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                    Workspace Default
+                                </label>
+                                <select
+                                    value={data.preferred_workspace}
+                                    onChange={(e) =>
+                                        setData(
+                                            "preferred_workspace",
+                                            e.target.value
+                                        )
+                                    }
+                                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                >
+                                    <option value="standard">Standard Dashboard</option>
+                                    <option value="kitchen">Mode Dapur</option>
+                                </select>
+                            </div>
+
+                            {data.preferred_workspace === "kitchen" && (
+                                <div>
+                                    <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                        Station Dapur Default
+                                    </label>
+                                    <select
+                                        value={data.preferred_kitchen_station_id}
+                                        onChange={(e) =>
+                                            setData(
+                                                "preferred_kitchen_station_id",
+                                                e.target.value
+                                            )
+                                        }
+                                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                    >
+                                        <option value="">Pilih station default</option>
+                                        {availableKitchenStations.map((station) => (
+                                            <option key={station.id} value={station.id}>
+                                                {station.outlet?.code || "OUT"} - {station.name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                                        Setelah login, user dapur akan langsung diarahkan ke kitchen queue station ini.
+                                    </p>
+                                    {errors.preferred_kitchen_station_id && (
+                                        <p className="mt-2 text-xs text-danger-500">
+                                            {errors.preferred_kitchen_station_id}
+                                        </p>
+                                    )}
+                                </div>
                             )}
                         </div>
                     </div>

@@ -10,6 +10,10 @@ import {
 } from "@tabler/icons-react";
 import toast from "react-hot-toast";
 import { useAuthorization } from "@/Utils/authorization";
+import {
+    bankPlaceholderDataUri,
+    setFallbackImage,
+} from "@/Utils/imagePlaceholder";
 
 export default function BankAccounts({ bankAccounts = [] }) {
     const { flash } = usePage().props;
@@ -80,6 +84,14 @@ export default function BankAccounts({ bankAccounts = [] }) {
                                                 src={bank.logo_url}
                                                 alt={bank.bank_name}
                                                 className="max-w-full max-h-full object-contain"
+                                                onError={(event) =>
+                                                    setFallbackImage(
+                                                        event,
+                                                        bankPlaceholderDataUri(
+                                                            bank.bank_name
+                                                        )
+                                                    )
+                                                }
                                             />
                                         ) : (
                                             <IconBuildingBank

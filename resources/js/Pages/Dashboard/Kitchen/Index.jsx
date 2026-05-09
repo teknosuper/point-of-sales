@@ -1,4 +1,5 @@
 import DashboardLayout from "@/Layouts/DashboardLayout";
+import KitchenLayout from "@/Layouts/KitchenLayout";
 import { Head, Link, router, usePage } from "@inertiajs/react";
 import { useEffect, useState } from "react";
 import {
@@ -7,6 +8,8 @@ import {
     IconClockHour4,
     IconDeviceDesktop,
     IconDeviceIpad,
+    IconMaximize,
+    IconMinimize,
     IconPrinter,
     IconReceipt2,
     IconRefresh,
@@ -29,8 +32,10 @@ export default function KitchenIndex({
     filters = null,
     selectedDevice = null,
     boardMode = null,
+    kioskMode = false,
 }) {
-    const { flash, activeOutlet } = usePage().props;
+    const { flash, activeOutlet, auth } = usePage().props;
+    const [isFullscreenActive, setIsFullscreenActive] = useState(false);
     const [boardState, setBoardState] = useState({
         activeStation,
         tickets,
@@ -48,6 +53,19 @@ export default function KitchenIndex({
             toast.success(flash.success);
         }
     }, [flash]);
+
+    useEffect(() => {
+        const syncFullscreenState = () => {
+            setIsFullscreenActive(Boolean(document.fullscreenElement));
+        };
+
+        syncFullscreenState();
+        document.addEventListener("fullscreenchange", syncFullscreenState);
+
+        return () => {
+            document.removeEventListener("fullscreenchange", syncFullscreenState);
+        };
+    }, []);
 
     useEffect(() => {
         setBoardState({
@@ -146,6 +164,19 @@ export default function KitchenIndex({
         fetchBoardData(boardState.filters?.status || "active");
     };
 
+    const toggleFullscreen = async () => {
+        try {
+            if (document.fullscreenElement) {
+                await document.exitFullscreen();
+                return;
+            }
+
+            await document.documentElement.requestFullscreen();
+        } catch (error) {
+            toast.error("Browser tidak mengizinkan fullscreen otomatis.");
+        }
+    };
+
     const deviceIcon = (deviceType) => {
         if (deviceType === "printer") {
             return <IconPrinter size={16} />;
@@ -195,6 +226,7 @@ export default function KitchenIndex({
             {
                 status: nextStatus,
                 device_id: boardState.selectedDevice?.id,
+                kiosk: kioskMode ? 1 : undefined,
             },
             {
                 preserveScroll: true,
@@ -214,6 +246,7 @@ export default function KitchenIndex({
             {
                 status: selectedStatus,
                 device_id: deviceId,
+                kiosk: kioskMode ? 1 : undefined,
             },
             {
                 preserveScroll: true,
@@ -231,19 +264,24 @@ export default function KitchenIndex({
         device_type: "screen",
         interactive: true,
     };
+    const isFullscreenSupported =
+        typeof document !== "undefined" &&
+        (document.fullscreenEnabled || document.webkitFullscreenEnabled);
 
     return (
         <>
             <Head title="Kitchen Display" />
 
             <div className="space-y-6">
-                <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
+                <div className={`flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between ${kioskMode ? "rounded-3xl border border-slate-200 bg-white px-4 py-4 shadow-sm dark:border-slate-800 dark:bg-slate-900" : ""}`}>
                     <div>
                         <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
-                            Kitchen Display
+                            {kioskMode ? "Kitchen Queue" : "Kitchen Display"}
                         </h1>
                         <p className="text-sm text-slate-500 dark:text-slate-400">
-                            Antrian dapur per station untuk outlet aktif.
+                            {kioskMode
+                                ? "Mode tablet untuk antrian dapur aktif."
+                                : "Antrian dapur per station untuk outlet aktif."}
                         </p>
                         {activeOutlet?.name && (
                             <p className="mt-2 text-xs font-medium uppercase tracking-[0.16em] text-primary-600 dark:text-primary-300">
@@ -252,6 +290,22 @@ export default function KitchenIndex({
                         )}
                     </div>
                     <div className="flex items-center gap-3">
+                        {kioskMode && isFullscreenSupported ? (
+                            <button
+                                type="button"
+                                onClick={toggleFullscreen}
+                                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                            >
+                                {isFullscreenActive ? (
+                                    <IconMinimize size={16} />
+                                ) : (
+                                    <IconMaximize size={16} />
+                                )}
+                                {isFullscreenActive
+                                    ? "Keluar Fullscreen"
+                                    : "Masuk Fullscreen"}
+                            </button>
+                        ) : null}
                         <p className="text-xs text-slate-500 dark:text-slate-400">
                             Auto refresh {refreshMeta?.interval_seconds || 15} detik
                         </p>
@@ -266,7 +320,16 @@ export default function KitchenIndex({
                     </div>
                 </div>
 
-                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                {kioskMode ? (
+                    <div className="rounded-2xl border border-primary-200 bg-primary-50 px-4 py-3 text-sm text-primary-800 dark:border-primary-900/40 dark:bg-primary-950/30 dark:text-primary-200">
+                        <p className="font-semibold">Mode kiosk aktif</p>
+                        <p className="mt-1 text-primary-700 dark:text-primary-300">
+                            Gunakan link kiosk untuk tablet dapur. Aktifkan fullscreen agar layar tetap fokus ke antrian station ini.
+                        </p>
+                    </div>
+                ) : null}
+
+                <div className={`grid gap-3 ${kioskMode ? "md:grid-cols-3 xl:grid-cols-5" : "md:grid-cols-2 xl:grid-cols-4"}`}>
                     {stations.map((station) => {
                         const isActive = selectedStation?.id === station.id;
 
@@ -277,6 +340,7 @@ export default function KitchenIndex({
                                     stationSlug: station.slug,
                                     status: selectedStatus,
                                     device_id: station.devices?.find((device) => device.is_primary)?.id,
+                                    kiosk: kioskMode ? 1 : undefined,
                                 })}
                                 className={`rounded-2xl border p-4 transition ${
                                     isActive
@@ -543,4 +607,9 @@ export default function KitchenIndex({
     );
 }
 
-KitchenIndex.layout = (page) => <DashboardLayout children={page} />;
+KitchenIndex.layout = (page) =>
+    page.props?.auth?.user?.preferred_workspace === "kitchen" ? (
+        <KitchenLayout children={page} />
+    ) : (
+        <DashboardLayout children={page} />
+    );

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Auth\LoginRequest;
+use App\Models\KitchenStation;
 use App\Services\AuditLogService;
 use App\Support\BotGuard;
 use Illuminate\Http\RedirectResponse;
@@ -23,13 +24,36 @@ class AuthenticatedSessionController extends Controller
     /**
      * Display the login view.
      */
-    public function create(): Response
+    public function create(Request $request): Response
     {
+        $stationHint = null;
+        $kioskMode = $request->boolean('kiosk');
+
+        if ($request->routeIs('kitchen.login') && $request->filled('station')) {
+            $station = KitchenStation::query()
+                ->with('outlet:id,name,code')
+                ->where('slug', (string) $request->query('station'))
+                ->where('is_active', true)
+                ->first();
+
+            if ($station) {
+                $stationHint = [
+                    'slug' => $station->slug,
+                    'name' => $station->name,
+                    'outlet_name' => $station->outlet?->name,
+                    'outlet_code' => $station->outlet?->code,
+                ];
+            }
+        }
+
         return Inertia::render('Auth/Login', [
             'canResetPassword' => Route::has('password.request'),
             'canRegister' => config('security.auth.public_registration'),
             'status' => session('status'),
             'botGuard' => BotGuard::payload(),
+            'workspaceMode' => $request->routeIs('kitchen.login') ? 'kitchen' : 'standard',
+            'stationHint' => $stationHint,
+            'kioskMode' => $kioskMode,
         ]);
     }
 
@@ -57,7 +81,10 @@ class AuthenticatedSessionController extends Controller
             ],
         );
 
-        $routePriority = [
+        if ($user?->preferred_workspace === 'kitchen' && $user->can('dashboard-access')) {
+            $defaultDestination = $this->resolveKitchenDestination($user);
+        } else {
+            $routePriority = [
             'transactions-access' => 'transactions.index',
             'receivables-access' => 'receivables.index',
             'payables-access' => 'payables.index',
@@ -65,14 +92,17 @@ class AuthenticatedSessionController extends Controller
             'suppliers-access' => 'suppliers.index',
             'reports-access' => 'reports.sales.index',
             'dashboard-access' => 'dashboard',
-        ];
+            ];
 
-        $defaultRoute = 'dashboard.access';
-        foreach ($routePriority as $permission => $routeName) {
-            if ($user && $user->can($permission)) {
-                $defaultRoute = $routeName;
-                break;
+            $defaultRoute = 'dashboard.access';
+            foreach ($routePriority as $permission => $routeName) {
+                if ($user && $user->can($permission)) {
+                    $defaultRoute = $routeName;
+                    break;
+                }
             }
+
+            $defaultDestination = route($defaultRoute, absolute: false);
         }
 
         $intendedUrl = (string) $request->session()->get('url.intended', '');
@@ -83,12 +113,33 @@ class AuthenticatedSessionController extends Controller
             && ! Str::contains($intendedUrl, $loginUrl)
             && ! Str::contains($intendedUrl, '/logout')
         ) {
-            return redirect()->intended(route($defaultRoute, absolute: false));
+            return redirect()->intended($defaultDestination);
         }
 
         $request->session()->forget('url.intended');
 
-        return redirect()->route($defaultRoute);
+        return redirect()->to($defaultDestination);
+    }
+
+    private function resolveKitchenDestination($user): string
+    {
+        if (! $user?->preferred_kitchen_station_id) {
+            return route('kitchen.index', absolute: false);
+        }
+
+        $station = KitchenStation::query()
+            ->select('id', 'slug', 'outlet_id')
+            ->find($user->preferred_kitchen_station_id);
+
+        if (! $station || ! $user->hasAccessToOutlet((int) $station->outlet_id)) {
+            return route('kitchen.index', absolute: false);
+        }
+
+        session([
+            'active_outlet_id' => (int) $station->outlet_id,
+        ]);
+
+        return route('kitchen.show', ['stationSlug' => $station->slug], absolute: false);
     }
 
     /**

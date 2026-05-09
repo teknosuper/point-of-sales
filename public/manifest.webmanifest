@@ -1,0 +1,43 @@
+{
+  "name": "POINZA POS",
+  "short_name": "POINZA",
+  "description": "Point of sale, kitchen queue, dan operasional outlet berbasis web yang bisa di-install.",
+  "start_url": "/dashboard",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#f8fafc",
+  "theme_color": "#4f46e5",
+  "categories": ["business", "productivity", "finance"],
+  "icons": [
+    {
+      "src": "/pwa-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-icon-maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Dashboard",
+      "short_name": "Dashboard",
+      "url": "/dashboard"
+    },
+    {
+      "name": "Kasir",
+      "short_name": "Kasir",
+      "url": "/dashboard/transactions"
+    },
+    {
+      "name": "Kitchen Queue",
+      "short_name": "Kitchen",
+      "url": "/dashboard/kitchen"
+    }
+  ]
+}

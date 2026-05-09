@@ -1,7 +1,8 @@
-import { useEffect } from "react";
-import { Head, Link, useForm } from "@inertiajs/react";
+import { useEffect, useRef } from "react";
+import { Head, Link, useForm, usePage } from "@inertiajs/react";
 import AuthBotGuardFields from "@/Components/AuthBotGuardFields";
 import axios from "axios";
+import { Toaster, toast } from "react-hot-toast";
 import {
     IconShoppingCart,
     IconMail,
@@ -12,7 +13,16 @@ import {
 } from "@tabler/icons-react";
 import { useState } from "react";
 
-export default function Login({ status, canResetPassword, canRegister, botGuard }) {
+export default function Login({
+    status,
+    canResetPassword,
+    canRegister,
+    botGuard,
+    workspaceMode = "standard",
+    stationHint = null,
+    kioskMode = false,
+}) {
+    const { flash } = usePage().props;
     const honeypotField = botGuard?.honeypot_field || "company_website";
     const tokenField = botGuard?.token_field || "bot_guard_token";
     const { data, setData, post, processing, errors, reset } = useForm({
@@ -23,6 +33,7 @@ export default function Login({ status, canResetPassword, canRegister, botGuard 
         [tokenField]: botGuard?.token || "",
     });
     const [showPassword, setShowPassword] = useState(false);
+    const lastFlashSignatureRef = useRef(null);
 
     const refreshBotGuard = async () => {
         try {
@@ -66,14 +77,64 @@ export default function Login({ status, canResetPassword, canRegister, botGuard 
         }
     }, [errors.human]);
 
+    useEffect(() => {
+        const entries = [
+            ["success", flash?.success],
+            ["error", flash?.error],
+            ["warning", flash?.warning],
+            ["info", flash?.info],
+            ["status", flash?.status],
+        ].filter(([, message]) => Boolean(message));
+
+        if (!entries.length) {
+            lastFlashSignatureRef.current = null;
+            return;
+        }
+
+        const signature = entries
+            .map(([type, message]) => `${type}:${message}`)
+            .join("|");
+
+        if (lastFlashSignatureRef.current === signature) {
+            return;
+        }
+
+        lastFlashSignatureRef.current = signature;
+
+        entries.forEach(([type, message]) => {
+            if (type === "success" || type === "status") {
+                toast.success(message);
+                return;
+            }
+
+            if (type === "error") {
+                toast.error(message, { duration: 4500 });
+                return;
+            }
+
+            if (type === "warning") {
+                toast(message, {
+                    duration: 4500,
+                    icon: "!",
+                });
+                return;
+            }
+
+            toast(message);
+        });
+    }, [flash]);
+
     const submit = (e) => {
         e.preventDefault();
         post(route("login"));
     };
 
+    const isKitchenMode = workspaceMode === "kitchen";
+
     return (
         <>
             <Head title="Masuk" />
+            <Toaster position="top-right" />
 
             <div className="min-h-screen flex bg-slate-50 dark:bg-slate-950">
                 {/* Left - Form */}
@@ -96,17 +157,49 @@ export default function Login({ status, canResetPassword, canRegister, botGuard 
                                 </span>
                             </Link>
                             <h1 className="text-3xl font-bold text-slate-900 dark:text-white">
-                                Selamat Datang Kembali
+                                {isKitchenMode
+                                    ? "Masuk ke Mode Dapur"
+                                    : "Selamat Datang Kembali"}
                             </h1>
                             <p className="mt-2 text-slate-600 dark:text-slate-400">
-                                Masuk untuk mengakses dashboard Anda
+                                {isKitchenMode
+                                    ? "Login untuk membuka antrian kitchen station Anda"
+                                    : "Masuk untuk mengakses dashboard Anda"}
                             </p>
+                            {isKitchenMode && stationHint ? (
+                                <div className="mt-4 rounded-2xl border border-primary-200 bg-primary-50 px-4 py-3 text-sm text-primary-800 dark:border-primary-900/40 dark:bg-primary-950/30 dark:text-primary-200">
+                                    <p className="font-semibold">
+                                        Station tujuan: {stationHint.name}
+                                    </p>
+                                    <p className="mt-1 text-xs uppercase tracking-[0.14em] text-primary-600 dark:text-primary-300">
+                                        {stationHint.outlet_code || "OUT"} •{" "}
+                                        {stationHint.outlet_name || "Outlet"}
+                                    </p>
+                                </div>
+                            ) : null}
+                            {isKitchenMode && kioskMode ? (
+                                <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
+                                    Mode kiosk aktif. Setelah login, perangkat akan diarahkan ke layar antrian dapur yang lebih sederhana.
+                                </div>
+                            ) : null}
                         </div>
 
                         {/* Status Message */}
                         {status && (
                             <div className="mb-6 p-4 rounded-xl bg-success-50 dark:bg-success-950/50 text-success-700 dark:text-success-400 text-sm">
                                 {status}
+                            </div>
+                        )}
+
+                        {flash?.error && (
+                            <div className="mb-6 rounded-xl bg-danger-50 px-4 py-3 text-sm text-danger-700 dark:bg-danger-950/40 dark:text-danger-300">
+                                {flash.error}
+                            </div>
+                        )}
+
+                        {flash?.warning && (
+                            <div className="mb-6 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                                {flash.warning}
                             </div>
                         )}
 

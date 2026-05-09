@@ -21,6 +21,9 @@ Route::middleware('guest')->group(function () {
     Route::get('login', [AuthenticatedSessionController::class, 'create'])
         ->name('login');
 
+    Route::get('kitchen-login', [AuthenticatedSessionController::class, 'create'])
+        ->name('kitchen.login');
+
     Route::get('bot-guard/payload', function (Request $request) {
         return response()->json([
             'botGuard' => BotGuard::payload(),

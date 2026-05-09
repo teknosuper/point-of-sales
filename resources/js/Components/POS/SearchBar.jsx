@@ -165,10 +165,20 @@ export default function SearchBar({
                                         {product.image ? (
                                             <img
                                                 src={getProductImageUrl(
-                                                    product.image
+                                                    product.image,
+                                                    product.title
                                                 )}
                                                 alt={product.title}
                                                 className="w-full h-full object-cover"
+                                                onError={(event) => {
+                                                    event.currentTarget.onerror =
+                                                        null;
+                                                    event.currentTarget.src =
+                                                        getProductImageUrl(
+                                                            null,
+                                                            product.title
+                                                        );
+                                                }}
                                             />
                                         ) : (
                                             <div className="w-full h-full flex items-center justify-center">

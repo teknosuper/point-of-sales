@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\ImagePlaceholder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -88,7 +89,16 @@ class Product extends Model
     protected function image(): Attribute
     {
         return Attribute::make(
-            get: fn ($value) => asset('/storage/products/'.$value),
+            get: fn ($value, array $attributes) => $this->resolveImageUrl($value, $attributes),
         );
+    }
+
+    protected function resolveImageUrl(mixed $value, array $attributes): string
+    {
+        if (! is_string($value) || blank($value) || in_array(strtolower($value), ['default.jpg', 'default.jpeg', 'default.png'], true)) {
+            return ImagePlaceholder::product($attributes['title'] ?? 'Produk');
+        }
+
+        return asset('storage/products/'.$value);
     }
 }

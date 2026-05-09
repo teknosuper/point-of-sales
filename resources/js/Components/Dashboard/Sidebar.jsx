@@ -5,6 +5,10 @@ import LinkItem from "@/Components/Dashboard/LinkItem";
 import LinkItemDropdown from "@/Components/Dashboard/LinkItemDropdown";
 import OutletSwitcher from "@/Components/Dashboard/OutletSwitcher";
 import Menu from "@/Utils/Menu";
+import {
+    brandPlaceholderDataUri,
+    setFallbackImage,
+} from "@/Utils/imagePlaceholder";
 
 export default function Sidebar({ sidebarOpen }) {
     const { auth, storeProfile, activeOutlet, availableOutlets } = usePage().props;
@@ -38,6 +42,12 @@ export default function Sidebar({ sidebarOpen }) {
                                 src={storeLogo}
                                 alt={storeName}
                                 className="w-10 h-10  object-cover"
+                                onError={(event) =>
+                                    setFallbackImage(
+                                        event,
+                                        brandPlaceholderDataUri(storeName)
+                                    )
+                                }
                             />
                         ) : (
                             <div className="w-10 h-10  bg-gradient-to-br from-primary-500 to-primary-700 flex items-center justify-center">
@@ -56,6 +66,12 @@ export default function Sidebar({ sidebarOpen }) {
                             src={storeLogo}
                             alt={storeName}
                             className="w-9 h-9 rounded-md object-cover"
+                            onError={(event) =>
+                                setFallbackImage(
+                                    event,
+                                    brandPlaceholderDataUri(storeName)
+                                )
+                            }
                         />
                     ) : (
                         <div className="w-9 h-9 rounded-md bg-gradient-to-br from-primary-500 to-primary-700 flex items-center justify-center">

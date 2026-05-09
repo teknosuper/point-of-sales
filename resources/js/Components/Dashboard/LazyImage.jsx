@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { IconPhoto } from "@tabler/icons-react";
+import { resolveProductImageSrc } from "@/Utils/imagePlaceholder";
 
 /**
  * LazyImage - Image component with lazy loading and placeholder
@@ -113,7 +114,7 @@ export function ProductImage({
         full: "w-full aspect-square",
     };
 
-    const src = image ? `/storage/products/${image}` : null;
+    const src = resolveProductImageSrc(image, title);
 
     return (
         <LazyImage

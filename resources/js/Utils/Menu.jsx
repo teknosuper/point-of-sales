@@ -1,6 +1,7 @@
 import { usePage } from "@inertiajs/react";
 import {
     IconBooks,
+    IconDeviceMobile,
     IconBox,
     IconCategory,
     IconChartArrowsVertical,
@@ -59,6 +60,13 @@ export default function Menu() {
                     href: route("guides.outlet-kitchen"),
                     active: url.startsWith("/dashboard/guides/outlet-kitchen"),
                     icon: <IconBooks size={20} strokeWidth={1.5} />,
+                    permissions: hasAnyPermission(["dashboard-access"]),
+                },
+                {
+                    title: "Setup PWA & Device",
+                    href: route("guides.pwa-setup"),
+                    active: url.startsWith("/dashboard/guides/pwa-setup"),
+                    icon: <IconDeviceMobile size={20} strokeWidth={1.5} />,
                     permissions: hasAnyPermission(["dashboard-access"]),
                 },
             ],

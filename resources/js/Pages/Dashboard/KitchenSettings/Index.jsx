@@ -179,6 +179,15 @@ export default function Index({ stations = [], filters = {}, outlets = [], print
         );
     };
 
+    const copyShortcut = async (value, label) => {
+        try {
+            await navigator.clipboard.writeText(value);
+            toast.success(`${label} berhasil disalin.`);
+        } catch {
+            toast.error("Gagal menyalin link.");
+        }
+    };
+
     const toggleDevice = (deviceId) => {
         router.patch(
             route("settings.kitchen-devices.toggle", deviceId),
@@ -419,13 +428,78 @@ export default function Index({ stations = [], filters = {}, outlets = [], print
                                         Device sehat: {station.operational_summary?.healthy_count || 0} • Bermasalah: {station.operational_summary?.issue_count || 0}
                                     </p>
                                 </div>
-                                <button
-                                    type="button"
-                                    onClick={() => startStationEdit(station)}
-                                    className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
-                                >
-                                    Edit Station
-                                </button>
+                                <div className="flex flex-wrap gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => window.open(station.shortcut_urls?.entry_url, "_blank")}
+                                        className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                                    >
+                                        Buka Link Station
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => copyShortcut(station.shortcut_urls?.entry_url, "Link station")}
+                                        className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                                    >
+                                        Salin Link Station
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => copyShortcut(station.shortcut_urls?.kiosk_url, "Link kiosk")}
+                                        className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                                    >
+                                        Salin Link Kiosk
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => window.open(station.shortcut_urls?.access_sheet_url, "_blank")}
+                                        className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                                    >
+                                        Buka Lembar Akses
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => startStationEdit(station)}
+                                        className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                                    >
+                                        Edit Station
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="mb-4 grid gap-2 md:grid-cols-4">
+                                <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs dark:border-slate-700 dark:bg-slate-950/30">
+                                    <p className="font-semibold text-slate-700 dark:text-slate-200">
+                                        Link Masuk Station
+                                    </p>
+                                    <p className="mt-1 break-all text-slate-500 dark:text-slate-400">
+                                        {station.shortcut_urls?.entry_url}
+                                    </p>
+                                </div>
+                                <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs dark:border-slate-700 dark:bg-slate-950/30">
+                                    <p className="font-semibold text-slate-700 dark:text-slate-200">
+                                        Link Queue Langsung
+                                    </p>
+                                    <p className="mt-1 break-all text-slate-500 dark:text-slate-400">
+                                        {station.shortcut_urls?.queue_url}
+                                    </p>
+                                </div>
+                                <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs dark:border-slate-700 dark:bg-slate-950/30">
+                                    <p className="font-semibold text-slate-700 dark:text-slate-200">
+                                        Link Tablet / Kiosk
+                                    </p>
+                                    <p className="mt-1 break-all text-slate-500 dark:text-slate-400">
+                                        {station.shortcut_urls?.kiosk_url}
+                                    </p>
+                                </div>
+                                <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs dark:border-slate-700 dark:bg-slate-950/30">
+                                    <p className="font-semibold text-slate-700 dark:text-slate-200">
+                                        Link Login Dapur
+                                    </p>
+                                    <p className="mt-1 break-all text-slate-500 dark:text-slate-400">
+                                        {station.shortcut_urls?.login_url}
+                                    </p>
+                                </div>
                             </div>
 
                             {showDeviceForm || editingDevice?.stationId === station.id ? (

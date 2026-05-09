@@ -48,6 +48,9 @@ Route::get('/', function () {
     ]);
 });
 
+Route::get('/kitchen-entry/{stationSlug}', [KitchenDisplayController::class, 'entry'])
+    ->name('kitchen.entry');
+
 Route::get('/dashboard/access', function () {
     return Inertia::render('Dashboard/Access');
 })->middleware(['auth'])->name('dashboard.access');
@@ -62,6 +65,7 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
     Route::get('/permissions', [PermissionController::class, 'index'])->middleware('permission:permissions-access')->name('permissions.index');
     Route::get('/guides/outlet-kitchen', [OperationsGuideController::class, 'outletKitchen'])->middleware('permission:dashboard-access')->name('guides.outlet-kitchen');
     Route::get('/guides/setup-wizard', [OperationsGuideController::class, 'setupWizard'])->middleware('permission:dashboard-access')->name('guides.setup-wizard');
+    Route::get('/guides/pwa-setup', [OperationsGuideController::class, 'pwaSetup'])->middleware('permission:dashboard-access')->name('guides.pwa-setup');
     // roles route
     Route::resource('/roles', RoleController::class)
         ->except(['create', 'edit', 'show'])
@@ -287,6 +291,7 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
     Route::get('/settings/store', [\App\Http\Controllers\Apps\SettingController::class, 'storeProfile'])->middleware('permission:dashboard-access')->name('settings.store');
     Route::post('/settings/store', [\App\Http\Controllers\Apps\SettingController::class, 'updateStoreProfile'])->middleware('permission:dashboard-access')->name('settings.store.update');
     Route::get('/settings/kitchen-devices', [KitchenSettingsController::class, 'index'])->middleware(['permission:dashboard-access', 'outlet_access'])->name('settings.kitchen-devices.index');
+    Route::get('/settings/kitchen-stations/{station}/access-sheet', [KitchenSettingsController::class, 'accessSheet'])->middleware(['permission:dashboard-access', 'outlet_access'])->name('settings.kitchen-stations.access-sheet');
     Route::post('/settings/kitchen-stations', [KitchenSettingsController::class, 'storeStation'])->middleware(['permission:dashboard-access', 'step_up', 'outlet_access'])->name('settings.kitchen-stations.store');
     Route::put('/settings/kitchen-stations/{station}', [KitchenSettingsController::class, 'updateStation'])->middleware(['permission:dashboard-access', 'step_up', 'outlet_access'])->name('settings.kitchen-stations.update');
     Route::post('/settings/kitchen-stations/{station}/devices', [KitchenSettingsController::class, 'storeDevice'])->middleware(['permission:dashboard-access', 'step_up', 'outlet_access'])->name('settings.kitchen-devices.store');

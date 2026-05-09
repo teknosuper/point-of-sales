@@ -25,6 +25,8 @@ class User extends Authenticatable
         'email',
         'password',
         'avatar',
+        'preferred_workspace',
+        'preferred_kitchen_station_id',
     ];
 
     /**
@@ -47,6 +49,7 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'preferred_kitchen_station_id' => 'integer',
         ];
     }
 
@@ -139,8 +142,18 @@ class User extends Authenticatable
             ->exists();
     }
 
+    public function isKitchenWorkspace(): bool
+    {
+        return $this->preferred_workspace === 'kitchen';
+    }
+
     public function auditLogs()
     {
         return $this->hasMany(AuditLog::class);
+    }
+
+    public function preferredKitchenStation()
+    {
+        return $this->belongsTo(KitchenStation::class, 'preferred_kitchen_station_id');
     }
 }

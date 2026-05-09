@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { usePage, Link } from "@inertiajs/react";
-import { Toaster } from "react-hot-toast";
+import { Toaster, toast } from "react-hot-toast";
 import { useTheme } from "@/Context/ThemeSwitcherContext";
 import {
     IconHome,
@@ -15,12 +15,26 @@ import {
 } from "@tabler/icons-react";
 import Notification from "@/Components/Dashboard/Notification";
 import OutletSwitcher from "@/Components/Dashboard/OutletSwitcher";
+import PWAConnectionStatus from "@/Components/PWAConnectionStatus";
+import PWAInstallButton from "@/Components/PWAInstallButton";
+import {
+    brandPlaceholderDataUri,
+    setFallbackImage,
+} from "@/Utils/imagePlaceholder";
 
 export default function POSLayout({ children }) {
-    const { auth, storeProfile, activeCashierShift, activeOutlet, availableOutlets } = usePage().props;
+    const {
+        auth,
+        storeProfile,
+        activeCashierShift,
+        activeOutlet,
+        availableOutlets,
+        flash,
+    } = usePage().props;
     const { darkMode, themeSwitcher } = useTheme();
     const [currentTime, setCurrentTime] = useState(new Date());
     const [showMobileMenu, setShowMobileMenu] = useState(false);
+    const lastFlashSignatureRef = useRef(null);
 
     // Update time every minute
     useEffect(() => {
@@ -29,6 +43,53 @@ export default function POSLayout({ children }) {
         }, 60000);
         return () => clearInterval(timer);
     }, []);
+
+    useEffect(() => {
+        const entries = [
+            ["success", flash?.success],
+            ["error", flash?.error],
+            ["warning", flash?.warning],
+            ["info", flash?.info],
+            ["status", flash?.status],
+        ].filter(([, message]) => Boolean(message));
+
+        if (!entries.length) {
+            lastFlashSignatureRef.current = null;
+            return;
+        }
+
+        const signature = entries
+            .map(([type, message]) => `${type}:${message}`)
+            .join("|");
+
+        if (lastFlashSignatureRef.current === signature) {
+            return;
+        }
+
+        lastFlashSignatureRef.current = signature;
+
+        entries.forEach(([type, message]) => {
+            if (type === "success" || type === "status") {
+                toast.success(message);
+                return;
+            }
+
+            if (type === "error") {
+                toast.error(message, { duration: 4500 });
+                return;
+            }
+
+            if (type === "warning") {
+                toast(message, {
+                    duration: 4500,
+                    icon: "!",
+                });
+                return;
+            }
+
+            toast(message);
+        });
+    }, [flash]);
 
     const formatTime = (date) => {
         return date.toLocaleTimeString("id-ID", {
@@ -78,6 +139,14 @@ export default function POSLayout({ children }) {
                                     src={storeProfile.logo}
                                     alt={storeProfile?.name || "Store"}
                                     className="w-full h-full object-contain"
+                                    onError={(event) =>
+                                        setFallbackImage(
+                                            event,
+                                            brandPlaceholderDataUri(
+                                                storeProfile?.name || "Toko"
+                                            )
+                                        )
+                                    }
                                 />
                             ) : (
                                 <div className="w-full h-full flex items-center justify-center bg-primary-600 text-white font-bold text-sm">
@@ -133,6 +202,14 @@ export default function POSLayout({ children }) {
 
                     {/* Divider */}
                     <div className="hidden lg:block w-px h-8 bg-slate-200 dark:bg-slate-700" />
+
+                    <div className="hidden lg:flex">
+                        <PWAConnectionStatus compact />
+                    </div>
+
+                    <div className="hidden lg:flex">
+                        <PWAInstallButton compact />
+                    </div>
 
                     {/* Notifications (desktop) */}
                     <div className="hidden md:flex">
@@ -202,6 +279,12 @@ export default function POSLayout({ children }) {
                         onClick={(e) => e.stopPropagation()}
                     >
                         <nav className="p-4 space-y-2">
+                            <div className="px-1 pb-2">
+                                <PWAConnectionStatus />
+                            </div>
+                            <div className="px-1 pb-2">
+                                <PWAInstallButton />
+                            </div>
                             <div className="px-1 pb-2">
                                 <OutletSwitcher
                                     activeOutlet={activeOutlet}

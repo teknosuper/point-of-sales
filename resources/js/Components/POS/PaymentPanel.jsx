@@ -8,6 +8,10 @@ import {
     IconAlertCircle,
     IconBuildingBank,
 } from "@tabler/icons-react";
+import {
+    bankPlaceholderDataUri,
+    setFallbackImage,
+} from "@/Utils/imagePlaceholder";
 
 const formatPrice = (value = 0) =>
     Number(value || 0).toLocaleString("id-ID", {
@@ -342,6 +346,14 @@ export default function PaymentPanel({
                                                         src={bank.logo_url}
                                                         alt={bank.bank_name}
                                                         className="max-w-full max-h-full object-contain"
+                                                        onError={(event) =>
+                                                            setFallbackImage(
+                                                                event,
+                                                                bankPlaceholderDataUri(
+                                                                    bank.bank_name
+                                                                )
+                                                            )
+                                                        }
                                                     />
                                                 ) : (
                                                     <IconBuildingBank

@@ -79,6 +79,25 @@ return Application::configure(basePath: dirname(__DIR__))
                 ], $status);
             }
 
+            if ($status === Response::HTTP_FORBIDDEN && $request->user()) {
+                $dashboardAccessUrl = route('dashboard.access');
+
+                if ($request->fullUrl() !== $dashboardAccessUrl) {
+                    return redirect()
+                        ->to($dashboardAccessUrl)
+                        ->with('error', __('Anda tidak memiliki izin untuk membuka halaman tersebut.'));
+                }
+            }
+
+            if ($status === 419) {
+                $request->session()->invalidate();
+                $request->session()->regenerateToken();
+
+                return redirect()
+                    ->route('login')
+                    ->with('error', __('Sesi Anda telah berakhir. Silakan masuk kembali.'));
+            }
+
             if (! in_array($status, [
                 Response::HTTP_UNAUTHORIZED,
                 Response::HTTP_FORBIDDEN,

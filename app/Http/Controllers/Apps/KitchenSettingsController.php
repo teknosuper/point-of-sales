@@ -12,6 +12,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
+use Inertia\Response;
 
 class KitchenSettingsController extends Controller
 {
@@ -120,6 +121,44 @@ class KitchenSettingsController extends Controller
                 'show_station_form' => $request->boolean('station_create'),
                 'show_device_form' => $request->boolean('device_create'),
                 'preset_outlet_id' => $request->input('outlet_id'),
+            ],
+        ]);
+    }
+
+    public function accessSheet(Request $request, KitchenStation $station): Response
+    {
+        $station->loadMissing(['outlet:id,name,code', 'devices']);
+
+        return Inertia::render('Dashboard/KitchenSettings/AccessSheet', [
+            'station' => [
+                'id' => $station->id,
+                'name' => $station->name,
+                'slug' => $station->slug,
+                'code' => $station->code,
+                'station_type' => $station->station_type,
+                'display_mode' => $station->display_mode,
+                'outlet' => $station->outlet ? [
+                    'id' => $station->outlet->id,
+                    'name' => $station->outlet->name,
+                    'code' => $station->outlet->code,
+                ] : null,
+                'devices' => $station->devices
+                    ->where('is_active', true)
+                    ->sortByDesc('is_primary')
+                    ->map(fn (KitchenStationDevice $device) => [
+                        'id' => $device->id,
+                        'name' => $device->name,
+                        'device_type' => $device->device_type,
+                        'is_primary' => (bool) $device->is_primary,
+                        'print_profile' => $device->meta['print_profile'] ?? null,
+                    ])
+                    ->values(),
+                'shortcut_urls' => [
+                    'entry_url' => route('kitchen.entry', ['stationSlug' => $station->slug]),
+                    'kiosk_url' => route('kitchen.entry', ['stationSlug' => $station->slug, 'kiosk' => 1]),
+                    'queue_url' => route('kitchen.show', ['stationSlug' => $station->slug]),
+                    'login_url' => route('kitchen.login', ['station' => $station->slug]),
+                ],
             ],
         ]);
     }
@@ -419,6 +458,13 @@ class KitchenSettingsController extends Controller
         return [
             ...$station->toArray(),
             'devices' => $devices,
+            'shortcut_urls' => [
+                'entry_url' => route('kitchen.entry', ['stationSlug' => $station->slug]),
+                'kiosk_url' => route('kitchen.entry', ['stationSlug' => $station->slug, 'kiosk' => 1]),
+                'queue_url' => route('kitchen.show', ['stationSlug' => $station->slug]),
+                'login_url' => route('kitchen.login', ['station' => $station->slug]),
+                'access_sheet_url' => route('settings.kitchen-stations.access-sheet', ['station' => $station->id]),
+            ],
             'operational_summary' => [
                 'devices_count' => $devices->count(),
                 'issue_count' => $issueCount,

@@ -44,10 +44,17 @@ function ProductCard({ product, onAddToCart, isAdding }) {
             <div className="relative aspect-square bg-slate-100 dark:bg-slate-800 overflow-hidden">
                 {product.image ? (
                     <img
-                        src={getProductImageUrl(product.image)}
+                        src={getProductImageUrl(product.image, product.title)}
                         alt={product.title}
                         className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                         loading="lazy"
+                        onError={(event) => {
+                            event.currentTarget.onerror = null;
+                            event.currentTarget.src = getProductImageUrl(
+                                null,
+                                product.title
+                            );
+                        }}
                     />
                 ) : (
                     <div className="w-full h-full flex items-center justify-center">

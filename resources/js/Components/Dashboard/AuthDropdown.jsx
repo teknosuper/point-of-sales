@@ -6,6 +6,10 @@ import { useForm } from "@inertiajs/react";
 import MenuLink from "@/Utils/Menu";
 import LinkItem from "./LinkItem";
 import LinkItemDropdown from "./LinkItemDropdown";
+import {
+    avatarPlaceholderDataUri,
+    setFallbackImage,
+} from "@/Utils/imagePlaceholder";
 export default function AuthDropdown({ auth, isMobile }) {
     // define usefrom
     const { post } = useForm();
@@ -66,6 +70,12 @@ export default function AuthDropdown({ auth, isMobile }) {
                                 src={avatarUrl}
                                 alt={auth.user.name}
                                 className="w-10 h-10 rounded-full object-cover"
+                                onError={(event) =>
+                                    setFallbackImage(
+                                        event,
+                                        avatarPlaceholderDataUri(auth.user.name)
+                                    )
+                                }
                             />
                         ) : (
                             <div className="w-10 h-10 rounded-full bg-primary-100 text-primary-700 flex items-center justify-center font-semibold">
@@ -112,6 +122,12 @@ export default function AuthDropdown({ auth, isMobile }) {
                                 src={avatarUrl}
                                 alt={auth.user.name}
                                 className="w-10 h-10 rounded-full object-cover"
+                                onError={(event) =>
+                                    setFallbackImage(
+                                        event,
+                                        avatarPlaceholderDataUri(auth.user.name)
+                                    )
+                                }
                             />
                         ) : (
                             <div className="w-10 h-10 rounded-full bg-primary-100 text-primary-700 flex items-center justify-center font-semibold">

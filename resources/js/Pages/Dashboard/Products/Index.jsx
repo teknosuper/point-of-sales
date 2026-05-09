@@ -22,6 +22,7 @@ import Pagination from "@/Components/Dashboard/Pagination";
 import { getProductImageUrl } from "@/Utils/imageUrl";
 import BarcodePrintModal from "@/Components/Barcode/BarcodePrintModal";
 import { useAuthorization } from "@/Utils/authorization";
+import { setFallbackImage } from "@/Utils/imagePlaceholder";
 
 const formatCurrency = (value = 0) =>
     new Intl.NumberFormat("id-ID", {
@@ -115,10 +116,16 @@ function ProductCard({
 
                 {product.image ? (
                     <img
-                        src={getProductImageUrl(product.image)}
+                        src={getProductImageUrl(product.image, product.title)}
                         alt={product.title}
                         className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
                         loading="lazy"
+                        onError={(event) =>
+                            setFallbackImage(
+                                event,
+                                getProductImageUrl(null, product.title)
+                            )
+                        }
                     />
                 ) : (
                     <div className="flex h-full w-full items-center justify-center">
@@ -1011,9 +1018,21 @@ export default function Index({ products, filters = {}, setupStatus = {}, meta =
                                                     <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg bg-slate-100 dark:bg-slate-800">
                                                         {product.image ? (
                                                             <img
-                                                                src={getProductImageUrl(product.image)}
+                                                                src={getProductImageUrl(
+                                                                    product.image,
+                                                                    product.title
+                                                                )}
                                                                 alt={product.title}
                                                                 className="h-full w-full object-cover"
+                                                                onError={(event) =>
+                                                                    setFallbackImage(
+                                                                        event,
+                                                                        getProductImageUrl(
+                                                                            null,
+                                                                            product.title
+                                                                        )
+                                                                    )
+                                                                }
                                                             />
                                                         ) : (
                                                             <IconPackage

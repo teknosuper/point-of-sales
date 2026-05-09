@@ -24,6 +24,7 @@ class KitchenDisplayController extends Controller
     {
         $outlet = $this->outletResolver->resolve($request, $request->user());
         abort_if(! $outlet, 404, 'Outlet aktif tidak ditemukan.');
+        $kioskMode = $request->boolean('kiosk');
 
         $stations = KitchenStation::query()
             ->with(['devices' => fn ($query) => $query->where('is_active', true)->orderByDesc('is_primary')->orderBy('name')])
@@ -32,6 +33,8 @@ class KitchenDisplayController extends Controller
             ->orderBy('sort_order')
             ->orderBy('name')
             ->get();
+
+        $stations = $this->filterStationsForKitchenUser($request, $stations);
 
         $activeStation = $stations->first();
         $statusFilter = $this->statusFilter($request);
@@ -42,6 +45,7 @@ class KitchenDisplayController extends Controller
             'activeStation' => $activeStation ? $this->stationPayload($activeStation) : null,
             'tickets' => $activeStation ? $this->ticketPayloads($activeStation, $statusFilter) : [],
             'refreshMeta' => $this->refreshMeta(),
+            'kioskMode' => $kioskMode,
             'filters' => [
                 'status' => $statusFilter,
                 'device_id' => $selectedDevice?->id,
@@ -54,10 +58,42 @@ class KitchenDisplayController extends Controller
         ]);
     }
 
+    public function entry(Request $request, string $stationSlug): RedirectResponse
+    {
+        $station = KitchenStation::query()
+            ->where('slug', $stationSlug)
+            ->where('is_active', true)
+            ->firstOrFail();
+        $kioskMode = $request->boolean('kiosk');
+
+        if (! $request->user()) {
+            $request->session()->put('active_outlet_id', (int) $station->outlet_id);
+            $request->session()->put('url.intended', route('kitchen.show', [
+                'stationSlug' => $station->slug,
+                'kiosk' => $kioskMode ? 1 : null,
+            ], absolute: false));
+
+            return redirect()->guest(route('kitchen.login', [
+                'station' => $station->slug,
+                'kiosk' => $kioskMode ? 1 : null,
+            ]));
+        }
+
+        abort_unless($request->user()->hasAccessToOutlet((int) $station->outlet_id), 403);
+
+        $request->session()->put('active_outlet_id', (int) $station->outlet_id);
+
+        return redirect()->route('kitchen.show', [
+            'stationSlug' => $station->slug,
+            'kiosk' => $kioskMode ? 1 : null,
+        ]);
+    }
+
     public function show(Request $request, string $stationSlug)
     {
         $outlet = $this->outletResolver->resolve($request, $request->user());
         abort_if(! $outlet, 404);
+        $kioskMode = $request->boolean('kiosk');
 
         $stations = KitchenStation::query()
             ->with(['devices' => fn ($query) => $query->where('is_active', true)->orderByDesc('is_primary')->orderBy('name')])
@@ -66,6 +102,7 @@ class KitchenDisplayController extends Controller
             ->orderBy('sort_order')
             ->orderBy('name')
             ->get();
+        $stations = $this->filterStationsForKitchenUser($request, $stations);
         $kitchenStation = $stations->firstWhere('slug', $stationSlug);
         abort_if(! $kitchenStation, 404);
         $statusFilter = $this->statusFilter($request);
@@ -76,6 +113,7 @@ class KitchenDisplayController extends Controller
             'activeStation' => $this->stationPayload($kitchenStation),
             'tickets' => $this->ticketPayloads($kitchenStation, $statusFilter),
             'refreshMeta' => $this->refreshMeta(),
+            'kioskMode' => $kioskMode,
             'filters' => [
                 'status' => $statusFilter,
                 'device_id' => $selectedDevice?->id,
@@ -99,6 +137,15 @@ class KitchenDisplayController extends Controller
             ->where('slug', $stationSlug)
             ->where('is_active', true)
             ->firstOrFail();
+
+        $preferredStationId = $request->user()?->preferred_kitchen_station_id;
+        abort_if(
+            $request->user()?->isKitchenWorkspace()
+            && $preferredStationId
+            && (int) $preferredStationId !== (int) $station->id,
+            404
+        );
+
         $statusFilter = $this->statusFilter($request);
         $selectedDevice = $this->resolveDevice($station, $request->integer('device_id'));
 
@@ -248,6 +295,28 @@ class KitchenDisplayController extends Controller
     {
         $outlet = $this->outletResolver->resolve($request, $request->user());
         abort_if(! $outlet || (int) $kitchenTicket->outlet_id !== (int) $outlet->id, 404);
+
+        $preferredStationId = $request->user()?->preferred_kitchen_station_id;
+        abort_if(
+            $request->user()?->isKitchenWorkspace()
+            && $preferredStationId
+            && (int) $kitchenTicket->kitchen_station_id !== (int) $preferredStationId,
+            404
+        );
+    }
+
+    private function filterStationsForKitchenUser(Request $request, $stations)
+    {
+        $user = $request->user();
+        $preferredStationId = $user?->preferred_kitchen_station_id;
+
+        if (! $user?->isKitchenWorkspace() || ! $preferredStationId) {
+            return $stations;
+        }
+
+        return $stations
+            ->where('id', (int) $preferredStationId)
+            ->values();
     }
 
     private function stationPayload(KitchenStation $station): array

@@ -17,6 +17,7 @@ use App\Models\Transaction;
 use App\Models\TransactionDetail;
 use App\Services\CashierShiftService;
 use App\Services\OutletResolver;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
@@ -27,8 +28,21 @@ class DashboardController extends Controller
         private readonly OutletResolver $outletResolver
     ) {}
 
-    public function index(CashierShiftService $cashierShiftService)
+    public function index(CashierShiftService $cashierShiftService): \Inertia\Response|RedirectResponse
     {
+        $user = request()->user();
+        if ($user?->isKitchenWorkspace()) {
+            $preferredStation = $user->preferredKitchenStation;
+
+            if ($preferredStation && $user->hasAccessToOutlet((int) $preferredStation->outlet_id)) {
+                request()->session()->put('active_outlet_id', (int) $preferredStation->outlet_id);
+
+                return redirect()->route('kitchen.show', ['stationSlug' => $preferredStation->slug]);
+            }
+
+            return redirect()->route('kitchen.index');
+        }
+
         $outletId = $this->outletResolver->resolve(request(), request()->user())?->id;
         $totalCategories = Category::count();
         $totalProducts = $outletId
@@ -287,6 +301,15 @@ class DashboardController extends Controller
                 'count' => $totalTransactions,
                 'href' => route('transactions.index'),
                 'action_label' => 'Mulai Transaksi',
+            ],
+            [
+                'key' => 'pwa_device',
+                'title' => 'Siapkan PWA & perangkat',
+                'description' => 'Install aplikasi ke perangkat admin, kasir, atau tablet dapur agar operasional lebih cepat dan stabil.',
+                'done' => false,
+                'count' => 0,
+                'href' => route('guides.pwa-setup'),
+                'action_label' => 'Buka Setup PWA',
             ],
         ];
 

@@ -18,17 +18,33 @@ import {
 import Table from "@/Components/Dashboard/Table";
 import Pagination from "@/Components/Dashboard/Pagination";
 import { useAuthorization } from "@/Utils/authorization";
+import {
+    categoryPlaceholderDataUri,
+    resolveCategoryImageSrc,
+    setFallbackImage,
+} from "@/Utils/imagePlaceholder";
 
 function CategoryCard({ category, canUpdate, canDelete }) {
+    const [imageSrc, setImageSrc] = useState(
+        resolveCategoryImageSrc(category.image, category.name)
+    );
+
+    useEffect(() => {
+        setImageSrc(resolveCategoryImageSrc(category.image, category.name));
+    }, [category.image, category.name]);
+
     return (
         <div className="group overflow-hidden rounded-2xl border border-slate-200 bg-white transition-all duration-200 hover:border-slate-300 hover:shadow-lg dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-700">
             <div className="relative aspect-[3/2] overflow-hidden bg-slate-100 dark:bg-slate-800">
-                {category.image ? (
+                {imageSrc ? (
                     <img
-                        src={category.image}
+                        src={imageSrc}
                         alt={category.name}
                         className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
                         loading="lazy"
+                        onError={() =>
+                            setImageSrc(categoryPlaceholderDataUri(category.name))
+                        }
                     />
                 ) : (
                     <div className="flex h-full w-full items-center justify-center">
@@ -419,6 +435,14 @@ export default function Index({ categories, filters = {}, meta = {} }) {
                                                                 src={category.image}
                                                                 alt={category.name}
                                                                 className="h-full w-full object-cover"
+                                                                onError={(event) =>
+                                                                    setFallbackImage(
+                                                                        event,
+                                                                        categoryPlaceholderDataUri(
+                                                                            category.name
+                                                                        )
+                                                                    )
+                                                                }
                                                             />
                                                         ) : (
                                                             <IconCategory

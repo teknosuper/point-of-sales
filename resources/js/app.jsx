@@ -6,6 +6,7 @@ import { createInertiaApp } from '@inertiajs/react';
 import { resolvePageComponent } from 'laravel-vite-plugin/inertia-helpers';
 import { ThemeSwitcherProvider } from './Context/ThemeSwitcherContext';
 import GlobalLoadingIndicator from './Components/GlobalLoadingIndicator';
+import PWAInstallPrompt from './Components/PWAInstallPrompt';
 const appName = import.meta.env.VITE_APP_NAME || 'POINZA';
 
 createInertiaApp({
@@ -17,6 +18,7 @@ createInertiaApp({
         root.render(
             <ThemeSwitcherProvider>
                 <GlobalLoadingIndicator />
+                <PWAInstallPrompt />
                 <App {...props} />
             </ThemeSwitcherProvider>
         );
@@ -26,3 +28,11 @@ createInertiaApp({
         showSpinner: false,
     },
 });
+
+if ("serviceWorker" in navigator && window.isSecureContext) {
+    window.addEventListener("load", () => {
+        navigator.serviceWorker.register("/sw.js").catch((error) => {
+            console.error("Service worker registration failed", error);
+        });
+    });
+}

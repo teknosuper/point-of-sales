@@ -36,9 +36,19 @@ function CartItem({ item, onUpdateQty, onRemove, isRemoving }) {
             <div className="w-14 h-14 rounded-lg bg-slate-200 dark:bg-slate-700 overflow-hidden flex-shrink-0">
                 {item.product?.image ? (
                     <img
-                        src={getProductImageUrl(item.product.image)}
+                        src={getProductImageUrl(
+                            item.product.image,
+                            item.product.title
+                        )}
                         alt={item.product.title}
                         className="w-full h-full object-cover"
+                        onError={(event) => {
+                            event.currentTarget.onerror = null;
+                            event.currentTarget.src = getProductImageUrl(
+                                null,
+                                item.product?.title || "Produk"
+                            );
+                        }}
                     />
                 ) : (
                     <div className="w-full h-full flex items-center justify-center">
