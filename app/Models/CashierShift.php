@@ -31,6 +31,8 @@ class CashierShift extends Model
         'cash_refund_total',
         'non_cash_refund_total',
         'transactions_count',
+        'walk_in_transactions_count',
+        'registered_transactions_count',
         'sales_returns_count',
         'cash_difference',
         'notes',
@@ -54,6 +56,8 @@ class CashierShift extends Model
         'cash_refund_total' => 'integer',
         'non_cash_refund_total' => 'integer',
         'transactions_count' => 'integer',
+        'walk_in_transactions_count' => 'integer',
+        'registered_transactions_count' => 'integer',
         'sales_returns_count' => 'integer',
         'cash_difference' => 'integer',
     ];

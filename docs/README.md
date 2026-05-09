@@ -21,6 +21,7 @@ Dokumentasi ini ditujukan untuk developer yang ingin setup, memahami alur modul,
 
 - `docs/features/pos-transactions.md`
 - `docs/features/outlet-tenant-kitchen-guide.md`
+- `docs/features/demo-seed-guide.md`
 - `docs/features/printing-architecture-options.md`
 - `docs/features/print-bridge-api.md`
 - `docs/features/pwa-device-setup.md`

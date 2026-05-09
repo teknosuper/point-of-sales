@@ -24,6 +24,7 @@ class DatabaseSeeder extends Seeder
             SampleDataSeeder::class,
             OperationalCoreSeeder::class,
             FeatureCoverageSeeder::class,
+            DemoInitialSetupSeeder::class,
         ]);
 
         app(PermissionRegistrar::class)->forgetCachedPermissions();
