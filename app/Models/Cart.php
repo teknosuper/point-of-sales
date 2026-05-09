@@ -16,7 +16,7 @@ class Cart extends Model
      * @var array
      */
     protected $fillable = [
-        'cashier_id', 'outlet_id', 'tenant_outlet_id', 'product_id', 'qty', 'price', 'hold_id', 'hold_label', 'held_at',
+        'cashier_id', 'outlet_id', 'tenant_outlet_id', 'product_id', 'qty', 'price', 'notes', 'hold_id', 'hold_label', 'held_at',
     ];
 
     /**
@@ -43,6 +43,11 @@ class Cart extends Model
     public function tenantOutlet()
     {
         return $this->belongsTo(Outlet::class, 'tenant_outlet_id');
+    }
+
+    public function modifiers()
+    {
+        return $this->hasMany(CartModifier::class);
     }
 
     /**

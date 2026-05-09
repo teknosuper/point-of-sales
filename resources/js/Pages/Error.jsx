@@ -48,7 +48,7 @@ const errorContent = {
     },
 };
 
-export default function Error({ status, homeUrl, homeLabel }) {
+export default function Error({ status, homeUrl, homeLabel, errorDetail = null }) {
     const { darkMode, themeSwitcher } = useTheme();
     const content = errorContent[status] ?? errorContent[500];
     const Icon = content.icon;
@@ -102,6 +102,21 @@ export default function Error({ status, homeUrl, homeLabel }) {
                                     <p className="mt-4 max-w-2xl text-base leading-7 text-slate-600 dark:text-slate-400 md:text-lg">
                                         {content.description}
                                     </p>
+
+                                    {errorDetail?.message ? (
+                                        <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50/80 p-4 text-sm text-amber-950 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-100">
+                                            <p className="font-semibold">Detail Error</p>
+                                            <p className="mt-2 break-words">{errorDetail.message}</p>
+                                            <p className="mt-2 break-all text-xs opacity-80">
+                                                {errorDetail.type}
+                                            </p>
+                                            {errorDetail.file ? (
+                                                <p className="mt-1 break-all text-xs opacity-80">
+                                                    {errorDetail.file}:{errorDetail.line}
+                                                </p>
+                                            ) : null}
+                                        </div>
+                                    ) : null}
 
                                     <div className="mt-8 flex flex-col gap-3 sm:flex-row">
                                         <Link

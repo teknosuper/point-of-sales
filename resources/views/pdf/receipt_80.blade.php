@@ -53,7 +53,9 @@
             @php
                 $qty = max(1, $item->qty);
                 $total = $item->price;
-                $unit = $item->unit_price ?: ($qty ? $total / $qty : $total);
+                $modifierTotal = (int) collect($item->modifiers ?? [])->sum('total_price');
+                $baseTotal = $total - $modifierTotal;
+                $unit = $item->unit_price ?: ($qty ? $baseTotal / $qty : $baseTotal);
             @endphp
             <div style="font-weight:600;">{{ $item->product->title ?? 'Produk' }}</div>
             @if($item->discount_total > 0 && ($item->pricing_group_label || $item->pricing_rule_name))
@@ -64,8 +66,17 @@
             @endif
             <div style="display:flex; justify-content:space-between;">
                 <span>{{ $qty }}x @ {{ $formatPrice($unit) }}</span>
-                <span>{{ $formatPrice($total) }}</span>
+                <span>{{ $formatPrice($baseTotal) }}</span>
             </div>
+            @foreach($item->modifiers ?? [] as $modifier)
+                <div style="display:flex; justify-content:space-between; font-size:10px;">
+                    <span>+ {{ $modifier->name }}</span>
+                    <span>{{ $formatPrice($modifier->total_price) }}</span>
+                </div>
+            @endforeach
+            @if($item->notes)
+                <div style="font-size:10px;">* {{ $item->notes }}</div>
+            @endif
         @endforeach
     </div>
 

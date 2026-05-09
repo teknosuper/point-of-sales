@@ -13,6 +13,7 @@ use App\Models\Product;
 use App\Models\ProductOutletStock;
 use App\Models\Receivable;
 use App\Models\Transaction;
+use App\Models\CartModifier;
 use App\Services\AuditLogService;
 use App\Services\CashierShiftService;
 use App\Services\FoodcourtTenantAllocationService;
@@ -55,7 +56,7 @@ class TransactionController extends Controller
         $activeShift = $this->cashierShiftService->getActiveShiftForUser($userId, $outlet?->id);
 
         // Get active cart items (not held)
-        $carts = Cart::with('product', 'tenantOutlet:id,name,code')
+        $carts = Cart::with('product.modifierOptions', 'tenantOutlet:id,name,code', 'modifiers')
             ->where('cashier_id', $userId)
             ->when($outlet, fn ($query) => $query->where('outlet_id', $outlet->id))
             ->active()
@@ -94,8 +95,8 @@ class TransactionController extends Controller
         ]);
 
         // get all products with categories for product grid
-        $productsQuery = Product::with('category:id,name')
-            ->select('id', 'barcode', 'title', 'description', 'image', 'buy_price', 'sell_price', 'stock', 'category_id', 'tenant_outlet_id')
+        $productsQuery = Product::with(['category:id,name', 'modifierOptions'])
+            ->select('id', 'barcode', 'title', 'description', 'image', 'buy_price', 'sell_price', 'stock', 'category_id', 'tenant_outlet_id', 'supports_modifiers')
             ->orderBy('title')
             ->when($outlet && Schema::hasTable('product_outlet_stocks'), function ($query) use ($outlet) {
                 $query->whereHas('outletStocks', fn ($stockQuery) => $stockQuery
@@ -118,6 +119,15 @@ class TransactionController extends Controller
 
             return [
                 ...$product->toArray(),
+                'modifier_options' => $product->modifierOptions
+                    ->where('is_active', true)
+                    ->map(fn ($option) => [
+                        'id' => $option->id,
+                        'name' => $option->name,
+                        'price' => (int) $option->price,
+                    ])
+                    ->values()
+                    ->all(),
                 'pricing_badge' => $pricing && ! empty($pricing['pricing_rule']) ? [
                     'label' => $pricing['pricing_rule']['label'],
                     'promo_price' => $pricing['pricing_rule']['price_context']
@@ -231,7 +241,7 @@ class TransactionController extends Controller
             ? CustomerVoucher::find($validated['customer_voucher_id'])
             : null;
 
-        $carts = Cart::with('product.category')
+        $carts = Cart::with('product.category', 'modifiers')
             ->where('cashier_id', $request->user()->id)
             ->when($this->resolveActiveOutlet($request), fn ($query, $outlet) => $query->where('outlet_id', $outlet->id))
             ->active()
@@ -266,6 +276,13 @@ class TransactionController extends Controller
 
         // Jika produk tidak ditemukan, redirect dengan pesan error
         if (! $product) {
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Product not found.',
+                ], 404);
+            }
+
             return redirect()->back()->with('error', 'Product not found.');
         }
 
@@ -275,14 +292,23 @@ class TransactionController extends Controller
             : (int) $product->stock;
 
         if ($availableStock < $request->qty) {
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Out of Stock Product!.',
+                ], 422);
+            }
+
             return redirect()->back()->with('error', 'Out of Stock Product!.');
         }
 
         // Cek keranjang
-        $cart = Cart::with('product')
+        $cart = Cart::with('product.modifierOptions', 'tenantOutlet:id,name,code', 'modifiers')
             ->where('product_id', $request->product_id)
             ->where('cashier_id', auth()->user()->id)
             ->when($outlet, fn ($query) => $query->where('outlet_id', $outlet->id))
+            ->whereNull('notes')
+            ->whereDoesntHave('modifiers')
             ->active()
             ->first();
 
@@ -303,6 +329,27 @@ class TransactionController extends Controller
                 'product_id' => $request->product_id,
                 'qty' => $request->qty,
                 'price' => $request->sell_price * $request->qty,
+                'notes' => null,
+            ]);
+
+            $cart = Cart::query()
+                ->with('product.modifierOptions', 'tenantOutlet:id,name,code', 'modifiers')
+                ->where('product_id', $request->product_id)
+                ->where('cashier_id', auth()->id())
+                ->when($outlet, fn ($query) => $query->where('outlet_id', $outlet->id))
+                ->active()
+                ->first();
+        }
+
+        $cart = $cart?->fresh(['product.modifierOptions', 'tenantOutlet:id,name,code', 'modifiers']);
+
+        if ($request->expectsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => 'Product Added Successfully!.',
+                'data' => [
+                    'cart' => $this->serializeCart($cart),
+                ],
             ]);
         }
 
@@ -315,19 +362,37 @@ class TransactionController extends Controller
      * @param  mixed  $request
      * @return void
      */
-    public function destroyCart($cart_id)
+    public function destroyCart(Request $request, $cart_id)
     {
-        $cart = Cart::with('product')
+        $cart = Cart::with('product.modifierOptions', 'tenantOutlet:id,name,code', 'modifiers')
             ->whereId($cart_id)
             ->where('cashier_id', auth()->id())
             ->when($this->resolveActiveOutlet(), fn ($query, $outlet) => $query->where('outlet_id', $outlet->id))
             ->first();
 
         if ($cart) {
+            $deletedCartId = $cart->id;
             $cart->delete();
+
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Item dihapus dari keranjang.',
+                    'data' => [
+                        'cart_id' => $deletedCartId,
+                    ],
+                ]);
+            }
 
             return back();
         } else {
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Cart not found',
+                ], 404);
+            }
+
             // Handle case where no cart is found (e.g., redirect with error message)
             return back()->withErrors(['message' => 'Cart not found']);
         }
@@ -347,7 +412,7 @@ class TransactionController extends Controller
             'qty' => 'required|integer|min:1',
         ]);
 
-        $cart = Cart::with('product')->whereId($cart_id)
+        $cart = Cart::with('product.modifierOptions', 'tenantOutlet:id,name,code', 'modifiers')->whereId($cart_id)
             ->where('cashier_id', auth()->user()->id)
             ->when($this->resolveActiveOutlet($request), fn ($query, $outlet) => $query->where('outlet_id', $outlet->id))
             ->first();
@@ -376,7 +441,141 @@ class TransactionController extends Controller
         $cart->price = $cart->product->sell_price * $request->qty;
         $cart->save();
 
+        if ($request->expectsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => 'Quantity updated successfully',
+                'data' => [
+                    'cart' => $this->serializeCart($cart->fresh(['product.modifierOptions', 'tenantOutlet:id,name,code', 'modifiers'])),
+                ],
+            ]);
+        }
+
         return back()->with('success', 'Quantity updated successfully');
+    }
+
+    public function updateCartNotes(Request $request, $cart_id): JsonResponse
+    {
+        $validated = $request->validate([
+            'notes' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $cart = Cart::with('product.modifierOptions', 'tenantOutlet:id,name,code', 'modifiers')
+            ->whereId($cart_id)
+            ->where('cashier_id', auth()->id())
+            ->when($this->resolveActiveOutlet($request), fn ($query, $outlet) => $query->where('outlet_id', $outlet->id))
+            ->active()
+            ->first();
+
+        if (! $cart) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Cart item not found',
+            ], 404);
+        }
+
+        $cart->forceFill([
+            'notes' => filled($validated['notes'] ?? null) ? trim((string) $validated['notes']) : null,
+        ])->save();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Catatan item diperbarui',
+            'data' => [
+                'cart' => $this->serializeCart($cart->fresh(['product.modifierOptions', 'tenantOutlet:id,name,code', 'modifiers'])),
+            ],
+        ]);
+    }
+
+    public function storeCartModifier(Request $request, $cart_id): JsonResponse
+    {
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:120'],
+            'qty' => ['nullable', 'integer', 'min:1', 'max:99'],
+            'unit_price' => ['nullable', 'integer', 'min:0', 'max:100000000'],
+        ]);
+
+        $cart = $this->findEditableCart($request, $cart_id);
+        if (! $cart) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Cart item not found',
+            ], 404);
+        }
+
+        $qty = max(1, (int) ($validated['qty'] ?? 1));
+        $unitPrice = max(0, (int) ($validated['unit_price'] ?? 0));
+
+        $cart->modifiers()->create([
+            'name' => trim((string) $validated['name']),
+            'qty' => $qty,
+            'unit_price' => $unitPrice,
+            'total_price' => $qty * $unitPrice,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Tambahan item berhasil ditambahkan',
+            'data' => [
+                'cart' => $this->serializeCart($cart->fresh(['product.modifierOptions', 'tenantOutlet:id,name,code', 'modifiers'])),
+            ],
+        ]);
+    }
+
+    public function updateCartModifier(Request $request, $cart_id, CartModifier $modifier): JsonResponse
+    {
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:120'],
+            'qty' => ['nullable', 'integer', 'min:1', 'max:99'],
+            'unit_price' => ['nullable', 'integer', 'min:0', 'max:100000000'],
+        ]);
+
+        $cart = $this->findEditableCart($request, $cart_id);
+        if (! $cart || (int) $modifier->cart_id !== (int) $cart->id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Modifier item not found',
+            ], 404);
+        }
+
+        $qty = max(1, (int) ($validated['qty'] ?? 1));
+        $unitPrice = max(0, (int) ($validated['unit_price'] ?? 0));
+
+        $modifier->forceFill([
+            'name' => trim((string) $validated['name']),
+            'qty' => $qty,
+            'unit_price' => $unitPrice,
+            'total_price' => $qty * $unitPrice,
+        ])->save();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Tambahan item diperbarui',
+            'data' => [
+                'cart' => $this->serializeCart($cart->fresh(['product.modifierOptions', 'tenantOutlet:id,name,code', 'modifiers'])),
+            ],
+        ]);
+    }
+
+    public function destroyCartModifier(Request $request, $cart_id, CartModifier $modifier): JsonResponse
+    {
+        $cart = $this->findEditableCart($request, $cart_id);
+        if (! $cart || (int) $modifier->cart_id !== (int) $cart->id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Modifier item not found',
+            ], 404);
+        }
+
+        $modifier->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Tambahan item dihapus',
+            'data' => [
+                'cart' => $this->serializeCart($cart->fresh(['product.modifierOptions', 'tenantOutlet:id,name,code', 'modifiers'])),
+            ],
+        ]);
     }
 
     public function updateCartTenant(Request $request, $cart_id): JsonResponse
@@ -424,6 +623,61 @@ class TransactionController extends Controller
                 'tenant_outlet_name' => $tenantOutlet->name,
             ],
         ]);
+    }
+
+    private function serializeCart(?Cart $cart): ?array
+    {
+        if (! $cart) {
+            return null;
+        }
+
+        return [
+            'id' => $cart->id,
+            'cashier_id' => $cart->cashier_id,
+            'outlet_id' => $cart->outlet_id,
+            'tenant_outlet_id' => $cart->tenant_outlet_id,
+            'product_id' => $cart->product_id,
+            'qty' => (int) $cart->qty,
+            'price' => (int) $cart->price,
+            'notes' => $cart->notes,
+            'product' => $cart->product ? [
+                'id' => $cart->product->id,
+                'barcode' => $cart->product->barcode,
+                'title' => $cart->product->title,
+                'description' => $cart->product->description,
+                'image' => $cart->product->image,
+                'buy_price' => (int) $cart->product->buy_price,
+                'sell_price' => (int) $cart->product->sell_price,
+                'stock' => (int) $cart->product->stock,
+                'category_id' => $cart->product->category_id,
+                'tenant_outlet_id' => $cart->product->tenant_outlet_id,
+                'supports_modifiers' => (bool) $cart->product->supports_modifiers,
+                'modifier_options' => $cart->product->modifierOptions
+                    ->where('is_active', true)
+                    ->map(fn ($option) => [
+                        'id' => $option->id,
+                        'name' => $option->name,
+                        'price' => (int) $option->price,
+                    ])
+                    ->values()
+                    ->all(),
+            ] : null,
+            'tenant_outlet' => $cart->tenantOutlet ? [
+                'id' => $cart->tenantOutlet->id,
+                'name' => $cart->tenantOutlet->name,
+                'code' => $cart->tenantOutlet->code,
+            ] : null,
+            'modifiers' => $cart->modifiers
+                ->map(fn ($modifier) => [
+                    'id' => $modifier->id,
+                    'name' => $modifier->name,
+                    'qty' => (int) $modifier->qty,
+                    'unit_price' => (int) $modifier->unit_price,
+                    'total_price' => (int) $modifier->total_price,
+                ])
+                ->values()
+                ->all(),
+        ];
     }
 
     /**
@@ -667,7 +921,7 @@ class TransactionController extends Controller
                 lockForUpdate: true
             );
 
-            $carts = Cart::with('product')
+            $carts = Cart::with('product', 'modifiers')
                 ->where('cashier_id', auth()->user()->id)
                 ->when($outlet, fn ($query) => $query->where('outlet_id', $outlet->id))
                 ->active()
@@ -729,6 +983,7 @@ class TransactionController extends Controller
                     'base_unit_price' => $baseUnitPrice,
                     'unit_price' => $unitPrice,
                     'price' => $lineTotal,
+                    'notes' => $cart->notes,
                     'discount_total' => $linePromoDiscount,
                     'pricing_rule_id' => data_get($pricingItem, 'pricing_rule.id'),
                     'pricing_rule_name' => data_get($pricingItem, 'pricing_rule.name'),
@@ -736,6 +991,15 @@ class TransactionController extends Controller
                     'pricing_group_key' => data_get($pricingItem, 'pricing_group_key'),
                     'pricing_group_label' => data_get($pricingItem, 'pricing_group_label'),
                 ]);
+
+                foreach ($cart->modifiers as $modifier) {
+                    $detail->modifiers()->create([
+                        'name' => $modifier->name,
+                        'qty' => (int) $modifier->qty,
+                        'unit_price' => (int) $modifier->unit_price,
+                        'total_price' => (int) $modifier->total_price,
+                    ]);
+                }
 
                 $total_buy_price = $cart->product->buy_price * $cart->qty;
                 $lineShare = $subtotalAfterPromo > 0 ? $lineTotal / $subtotalAfterPromo : 0;
@@ -806,6 +1070,7 @@ class TransactionController extends Controller
         // get transaction
         $transaction = Transaction::with(
             'details.product',
+            'details.modifiers',
             'details.pricingRule',
             'cashier',
             'customer',
@@ -965,5 +1230,16 @@ class TransactionController extends Controller
         $request ??= request();
 
         return $this->outletResolver->resolve($request, $request->user());
+    }
+
+    private function findEditableCart(Request $request, int|string $cartId): ?Cart
+    {
+        return Cart::query()
+            ->with('product.modifierOptions', 'tenantOutlet:id,name,code', 'modifiers')
+            ->whereKey($cartId)
+            ->where('cashier_id', auth()->id())
+            ->when($this->resolveActiveOutlet($request), fn ($query, $outlet) => $query->where('outlet_id', $outlet->id))
+            ->active()
+            ->first();
     }
 }

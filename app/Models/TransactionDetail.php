@@ -25,6 +25,7 @@ class TransactionDetail extends Model
         'base_unit_price',
         'unit_price',
         'price',
+        'notes',
         'discount_total',
         'pricing_rule_id',
         'pricing_rule_name',
@@ -89,5 +90,10 @@ class TransactionDetail extends Model
     public function salesReturnItems()
     {
         return $this->hasMany(SalesReturnItem::class);
+    }
+
+    public function modifiers()
+    {
+        return $this->hasMany(TransactionDetailModifier::class);
     }
 }

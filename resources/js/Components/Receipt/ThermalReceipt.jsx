@@ -130,8 +130,16 @@ export default function ThermalReceipt({
                 {items.map((item, index) => {
                     const qty = Number(item.qty) || 1;
                     const itemTotal = Number(item.price) || 0;
+                    const modifierTotal = Number(
+                        item.modifiers?.reduce(
+                            (sum, modifier) =>
+                                sum + Number(modifier.total_price || 0),
+                            0
+                        ) || 0
+                    );
+                    const baseItemTotal = itemTotal - modifierTotal;
                     const unitPrice =
-                        Number(item.unit_price || 0) || itemTotal / qty;
+                        Number(item.unit_price || 0) || baseItemTotal / qty;
                     const baseUnitPrice =
                         Number(item.base_unit_price || 0) || unitPrice;
 
@@ -156,8 +164,24 @@ export default function ThermalReceipt({
                                 <span>
                                     {qty}x @ {formatPrice(unitPrice)}
                                 </span>
-                                <span>{formatPrice(itemTotal)}</span>
+                                <span>{formatPrice(baseItemTotal)}</span>
                             </div>
+                            {item.modifiers?.map((modifier) => (
+                                <div
+                                    key={modifier.id}
+                                    className="flex justify-between text-[10px]"
+                                >
+                                    <span>+ {modifier.name}</span>
+                                    <span>
+                                        {formatPrice(modifier.total_price)}
+                                    </span>
+                                </div>
+                            ))}
+                            {item.notes ? (
+                                <p className="text-[10px] break-words">
+                                    * {item.notes}
+                                </p>
+                            ) : null}
                         </div>
                     );
                 })}
@@ -325,9 +349,17 @@ export function ThermalReceipt58mm({
 
             {items.map((item, i) => {
                 const qty = Number(item.qty) || 1;
+                const modifierTotal = Number(
+                    item.modifiers?.reduce(
+                        (sum, modifier) =>
+                            sum + Number(modifier.total_price || 0),
+                        0
+                    ) || 0
+                );
+                const baseItemTotal = Number(item.price || 0) - modifierTotal;
                 const unitPrice =
                     Number(item.unit_price || 0) ||
-                    Number(item.price || 0) / qty;
+                    baseItemTotal / qty;
                 const baseUnitPrice =
                     Number(item.base_unit_price || 0) || unitPrice;
 
@@ -345,8 +377,24 @@ export function ThermalReceipt58mm({
                             <span>
                                 {item.qty}x @ {formatPrice(unitPrice)}
                             </span>
-                            <span>{formatPrice(item.price)}</span>
+                            <span>{formatPrice(baseItemTotal)}</span>
                         </div>
+                        {item.modifiers?.map((modifier) => (
+                            <div
+                                key={modifier.id}
+                                className="flex justify-between text-[9px]"
+                            >
+                                <span>+ {modifier.name}</span>
+                                <span>
+                                    {formatPrice(modifier.total_price)}
+                                </span>
+                            </div>
+                        ))}
+                        {item.notes ? (
+                            <p className="text-[9px] break-words">
+                                * {item.notes}
+                            </p>
+                        ) : null}
                     </div>
                 );
             })}

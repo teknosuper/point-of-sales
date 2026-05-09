@@ -20,6 +20,7 @@ class KitchenTicketService
     {
         $transaction->loadMissing([
             'details.product.kitchenStationMappings.kitchenStation',
+            'details.modifiers',
             'cashierShift',
         ]);
 
@@ -67,6 +68,7 @@ class KitchenTicketService
                     'product_id' => $detail->product_id,
                     'product_title' => $detail->product?->title ?? 'Produk',
                     'qty' => (int) $detail->qty,
+                    'notes' => $this->buildItemNotes($detail),
                     'status' => 'pending',
                     'fired_at' => now(),
                 ]);
@@ -128,5 +130,31 @@ class KitchenTicketService
             $stationId,
             Str::random(8)
         ));
+    }
+
+    private function buildItemNotes(TransactionDetail $detail): ?string
+    {
+        $parts = [];
+
+        if (filled($detail->notes)) {
+            $parts[] = trim((string) $detail->notes);
+        }
+
+        $modifierSummary = $detail->modifiers
+            ->map(function ($modifier) {
+                $qty = max(1, (int) $modifier->qty);
+
+                return $qty > 1
+                    ? "{$modifier->name} x{$qty}"
+                    : (string) $modifier->name;
+            })
+            ->filter()
+            ->values();
+
+        if ($modifierSummary->isNotEmpty()) {
+            $parts[] = 'Tambahan: '.$modifierSummary->implode(', ');
+        }
+
+        return empty($parts) ? null : implode(' | ', $parts);
     }
 }

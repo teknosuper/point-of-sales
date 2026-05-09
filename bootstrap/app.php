@@ -114,6 +114,12 @@ return Application::configure(basePath: dirname(__DIR__))
                 'status' => $status,
                 'homeUrl' => $request->user() ? route('dashboard') : url('/'),
                 'homeLabel' => $request->user() ? __('Kembali ke Dashboard') : __('Kembali ke Beranda'),
+                'errorDetail' => config('app.debug') ? [
+                    'message' => $exception->getMessage() ?: (Response::$statusTexts[$status] ?? 'Server Error'),
+                    'type' => $exception::class,
+                    'file' => $exception->getFile(),
+                    'line' => $exception->getLine(),
+                ] : null,
             ])->toResponse($request)->setStatusCode($status);
         });
     })->create();

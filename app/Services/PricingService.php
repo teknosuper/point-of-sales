@@ -158,6 +158,8 @@ class PricingService
     {
         $items = $carts->map(function (Cart $cart) {
             $baseUnitPrice = (int) $cart->product->sell_price;
+            $modifierTotal = (int) $cart->modifiers->sum('total_price');
+            $baseProductTotal = $baseUnitPrice * (int) $cart->qty;
 
             return [
                 'cart_id' => $cart->id,
@@ -166,9 +168,11 @@ class PricingService
                 'qty' => (int) $cart->qty,
                 'base_unit_price' => $baseUnitPrice,
                 'effective_unit_price' => $baseUnitPrice,
-                'line_base_total' => $baseUnitPrice * (int) $cart->qty,
-                'line_total' => $baseUnitPrice * (int) $cart->qty,
+                'line_base_total' => $baseProductTotal + $modifierTotal,
+                'line_total' => $baseProductTotal,
                 'line_discount_total' => 0,
+                'modifier_total' => $modifierTotal,
+                'base_product_total' => $baseProductTotal,
                 'pricing_rule' => null,
                 'pricing_group_key' => null,
                 'pricing_group_label' => null,
@@ -243,6 +247,8 @@ class PricingService
 
         $items = $items->map(function (array $item) {
             $lineTotal = max(0, (int) $item['line_total']);
+            $modifierTotal = max(0, (int) ($item['modifier_total'] ?? 0));
+            $lineTotal += $modifierTotal;
             $item['line_total'] = $lineTotal;
             $item['line_discount_total'] = max(0, (int) $item['line_discount_total']);
             $item['effective_unit_price'] = (int) round($lineTotal / max(1, (int) $item['qty']));

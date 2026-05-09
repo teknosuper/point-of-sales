@@ -13,6 +13,8 @@ import {
     IconPhoto,
     IconBarcode,
     IconCurrencyDollar,
+    IconPlus,
+    IconTrash,
 } from "@tabler/icons-react";
 
 export default function Create({ categories, tenantOutlets = [] }) {
@@ -29,6 +31,8 @@ export default function Create({ categories, tenantOutlets = [] }) {
         buy_price: "",
         sell_price: "",
         stock: "",
+        supports_modifiers: false,
+        modifier_options: [],
     });
 
     const [selectedCategory, setSelectedCategory] = useState(null);
@@ -45,6 +49,29 @@ export default function Create({ categories, tenantOutlets = [] }) {
             setData("image", file);
             setImagePreview(URL.createObjectURL(file));
         }
+    };
+
+    const updateModifierOption = (index, field, value) => {
+        setData(
+            "modifier_options",
+            data.modifier_options.map((row, rowIndex) =>
+                rowIndex === index ? { ...row, [field]: value } : row
+            )
+        );
+    };
+
+    const addModifierOption = () => {
+        setData("modifier_options", [
+            ...data.modifier_options,
+            { name: "", price: "" },
+        ]);
+    };
+
+    const removeModifierOption = (index) => {
+        setData(
+            "modifier_options",
+            data.modifier_options.filter((_, rowIndex) => rowIndex !== index)
+        );
     };
 
     const submit = (e) => {
@@ -200,6 +227,29 @@ export default function Create({ categories, tenantOutlets = [] }) {
                                         rows={3}
                                     />
                                 </div>
+                                <div className="md:col-span-2">
+                                    <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                                        <input
+                                            type="checkbox"
+                                            checked={data.supports_modifiers}
+                                            onChange={(e) =>
+                                                setData(
+                                                    "supports_modifiers",
+                                                    e.target.checked
+                                                )
+                                            }
+                                            className="mt-0.5 h-4 w-4 rounded border-slate-300 text-primary-500 focus:ring-primary-500"
+                                        />
+                                        <span>
+                                            <span className="block font-semibold">
+                                                Produk ini mendukung topping / tambahan
+                                            </span>
+                                            <span className="mt-1 block text-xs text-slate-500 dark:text-slate-400">
+                                                Aktifkan jika item ini bisa memiliki extra topping, add-on, atau tambahan harga di POS.
+                                            </span>
+                                        </span>
+                                    </label>
+                                </div>
                             </div>
                         </div>
 
@@ -276,6 +326,81 @@ export default function Create({ categories, tenantOutlets = [] }) {
                                 </div>
                             )}
                         </div>
+
+                        {data.supports_modifiers && (
+                            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">
+                                <div className="mb-4 flex items-center justify-between gap-3">
+                                    <div>
+                                        <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+                                            Preset Topping / Tambahan
+                                        </h3>
+                                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                            Opsi ini akan muncul sebagai pilihan cepat di POS untuk produk ini.
+                                        </p>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={addModifierOption}
+                                        className="inline-flex items-center gap-2 rounded-xl bg-primary-500 px-3 py-2 text-xs font-semibold text-white hover:bg-primary-600"
+                                    >
+                                        <IconPlus size={14} />
+                                        Tambah
+                                    </button>
+                                </div>
+
+                                <div className="space-y-3">
+                                    {data.modifier_options.length === 0 && (
+                                        <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
+                                            Belum ada preset topping.
+                                        </div>
+                                    )}
+                                    {data.modifier_options.map((option, index) => (
+                                        <div
+                                            key={index}
+                                            className="grid grid-cols-[minmax(0,1fr)_120px_auto] gap-3"
+                                        >
+                                            <Input
+                                                type="text"
+                                                label={index === 0 ? "Nama Opsi" : ""}
+                                                value={option.name}
+                                                onChange={(e) =>
+                                                    updateModifierOption(
+                                                        index,
+                                                        "name",
+                                                        e.target.value
+                                                    )
+                                                }
+                                                placeholder="Contoh: Extra cheese"
+                                            />
+                                            <Input
+                                                type="number"
+                                                label={index === 0 ? "Harga" : ""}
+                                                value={option.price}
+                                                onChange={(e) =>
+                                                    updateModifierOption(
+                                                        index,
+                                                        "price",
+                                                        e.target.value
+                                                    )
+                                                }
+                                                placeholder="0"
+                                            />
+                                            <div className="flex items-end">
+                                                <button
+                                                    type="button"
+                                                    onClick={() =>
+                                                        removeModifierOption(index)
+                                                    }
+                                                    className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 text-slate-500 hover:border-danger-200 hover:bg-danger-50 hover:text-danger-500 dark:border-slate-700 dark:text-slate-300 dark:hover:border-danger-900 dark:hover:bg-danger-950/30"
+                                                >
+                                                    <IconTrash size={16} />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
 
                         {/* Submit */}
                         <div className="flex justify-end gap-3">

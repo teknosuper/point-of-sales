@@ -46,6 +46,11 @@ class TransactionTenantAllocationItem extends Model
         return $this->belongsTo(TransactionDetail::class);
     }
 
+    public function product()
+    {
+        return $this->belongsTo(Product::class);
+    }
+
     public function tenantOutlet()
     {
         return $this->belongsTo(Outlet::class, 'tenant_outlet_id');

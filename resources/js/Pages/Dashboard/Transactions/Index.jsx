@@ -41,6 +41,17 @@ const formatPrice = (value = 0) =>
         minimumFractionDigits: 0,
     });
 
+const WALK_IN_CUSTOMER = {
+    id: "walk_in",
+    name: "Pelanggan Umum / Walk-in",
+    no_telp: "",
+    member_code: "",
+    is_loyalty_member: false,
+    is_walk_in: true,
+    loyalty_tier: null,
+    loyalty_points: 0,
+};
+
 export default function Index({
     carts = [],
     carts_total = 0,
@@ -70,13 +81,17 @@ export default function Index({
     const [isSearching, setIsSearching] = useState(false);
     const [addingProductId, setAddingProductId] = useState(null);
     const [removingItemId, setRemovingItemId] = useState(null);
-    const [selectedCustomer, setSelectedCustomer] = useState(null);
+    const [localCarts, setLocalCarts] = useState(carts);
+    const [cartSyncVersion, setCartSyncVersion] = useState(0);
+    const [pendingCartMutations, setPendingCartMutations] = useState(0);
+    const [savingNoteCartId, setSavingNoteCartId] = useState(null);
+    const [modifierDrafts, setModifierDrafts] = useState({});
+    const [savingModifierCartId, setSavingModifierCartId] = useState(null);
+    const [selectedCustomer, setSelectedCustomer] = useState(WALK_IN_CUSTOMER);
     const [pricingPreview, setPricingPreview] = useState(initialPricingPreview);
     const [isLoadingPricing, setIsLoadingPricing] = useState(false);
-    const [discountInput, setDiscountInput] = useState("");
     const [redeemPointsInput, setRedeemPointsInput] = useState("");
     const [cashInput, setCashInput] = useState("");
-    const [shippingInput, setShippingInput] = useState("");
     const [paymentMethod, setPaymentMethod] = useState(
         defaultPaymentGateway ?? "cash"
     );
@@ -114,6 +129,10 @@ export default function Index({
         setPricingPreview(initialPricingPreview);
     }, [initialPricingPreview]);
 
+    useEffect(() => {
+        setLocalCarts(carts);
+    }, [carts]);
+
     // Barcode scanner integration
     const handleBarcodeScan = useCallback(
         (barcode) => {
@@ -143,14 +162,8 @@ export default function Index({
     const LowStockAlerts = () => null;
 
     // Calculations
-    const discount = useMemo(
-        () => Math.max(0, Number(discountInput) || 0),
-        [discountInput]
-    );
-    const shipping = useMemo(
-        () => Math.max(0, Number(shippingInput) || 0),
-        [shippingInput]
-    );
+    const discount = 0;
+    const shipping = 0;
     const baseSubtotal = useMemo(
         () => Number(pricingPreview?.summary?.base_subtotal ?? carts_total ?? 0),
         [pricingPreview, carts_total]
@@ -175,22 +188,41 @@ export default function Index({
         () => Number(pricingPreview?.summary?.grand_total ?? 0),
         [pricingPreview]
     );
+    const quickCashAmounts = useMemo(() => {
+        const normalizedPayable = Math.max(0, Math.ceil(payable));
+        const denominations = [1000, 2000, 5000, 10000, 20000, 50000, 100000];
+
+        if (normalizedPayable <= 0) {
+            return [10000, 20000, 50000, 100000];
+        }
+
+        const amounts = [
+            normalizedPayable,
+            ...denominations.map(
+                (denomination) =>
+                    Math.ceil(normalizedPayable / denomination) * denomination
+            ),
+        ];
+
+        return [...new Set(amounts)].sort((a, b) => a - b).slice(0, 4);
+    }, [payable]);
     const isCashPayment = !payLater && paymentMethod === "cash";
     const cash = useMemo(
         () => (isCashPayment ? Math.max(0, Number(cashInput) || 0) : payable),
         [cashInput, isCashPayment, payable]
     );
     const cartCount = useMemo(
-        () => carts.reduce((total, item) => total + Number(item.qty), 0),
-        [carts]
+        () => localCarts.reduce((total, item) => total + Number(item.qty), 0),
+        [localCarts]
     );
     const pricingDependency = useMemo(
-        () => carts.map((item) => `${item.id}:${item.qty}`).join("|"),
-        [carts]
+        () => localCarts.map((item) => `${item.id}:${item.qty}`).join("|"),
+        [localCarts]
     );
+    const isCartSyncing = pendingCartMutations > 0;
 
     useEffect(() => {
-        if (carts.length === 0) {
+        if (localCarts.length === 0) {
             setPricingPreview({
                 items: [],
                 summary: {
@@ -204,6 +236,12 @@ export default function Index({
                     grand_total: 0,
                 },
             });
+
+            return;
+        }
+
+        if (isCartSyncing) {
+            setIsLoadingPricing(false);
 
             return;
         }
@@ -246,6 +284,8 @@ export default function Index({
         shipping,
         redeemPointsInput,
         selectedVoucherId,
+        cartSyncVersion,
+        isCartSyncing,
     ]);
 
     useEffect(() => {
@@ -306,26 +346,90 @@ export default function Index({
         if (!product?.id) return;
 
         setAddingProductId(product.id);
+        setPendingCartMutations((count) => count + 1);
+        const previousCarts = localCarts;
+        const tempId = `temp-${product.id}-${Date.now()}`;
 
-        router.post(
-            route("transactions.addToCart"),
-            {
+        setLocalCarts((currentCarts) => {
+            const existingCart = currentCarts.find(
+                (item) =>
+                    item.product_id === product.id &&
+                    !(item.notes || "").trim() &&
+                    (!item.modifiers || item.modifiers.length === 0)
+            );
+
+            if (existingCart) {
+                return currentCarts.map((item) =>
+                    item.product_id === product.id
+                        ? {
+                              ...item,
+                              qty: Number(item.qty || 0) + 1,
+                              price:
+                                  Number(item.product?.sell_price || product.sell_price || 0) *
+                                  (Number(item.qty || 0) + 1),
+                          }
+                        : item
+                );
+            }
+
+            return [
+                {
+                    id: tempId,
+                    product_id: product.id,
+                    qty: 1,
+                    price: Number(product.sell_price || 0),
+                    product: {
+                        ...product,
+                    },
+                    tenant_outlet_id: product.tenant_outlet_id || null,
+                    is_optimistic: true,
+                },
+                ...currentCarts,
+            ];
+        });
+
+        axios
+            .post(route("transactions.addToCart"), {
                 product_id: product.id,
                 sell_price: product.sell_price,
                 qty: 1,
-            },
-            {
-                preserveScroll: true,
-                onSuccess: () => {
-                    toast.success(`${product.title} ditambahkan`);
-                    setAddingProductId(null);
-                },
-                onError: () => {
-                    toast.error("Gagal menambahkan produk");
-                    setAddingProductId(null);
-                },
-            }
-        );
+            })
+            .then((response) => {
+                const serverCart = response.data?.data?.cart;
+
+                if (serverCart) {
+                    setLocalCarts((currentCarts) => {
+                        const withoutTemp = currentCarts.filter(
+                            (item) => item.id !== tempId
+                        );
+                        const existingIndex = withoutTemp.findIndex(
+                            (item) => item.id === serverCart.id
+                        );
+
+                        if (existingIndex >= 0) {
+                            const nextCarts = [...withoutTemp];
+                            nextCarts[existingIndex] = serverCart;
+
+                            return nextCarts;
+                        }
+
+                        return [serverCart, ...withoutTemp];
+                    });
+                }
+
+                setCartSyncVersion((version) => version + 1);
+                toast.success(`${product.title} ditambahkan`);
+            })
+            .catch((error) => {
+                setLocalCarts(previousCarts);
+                toast.error(
+                    error?.response?.data?.message || "Gagal menambahkan produk"
+                );
+            })
+            .finally(() => {
+                setPendingCartMutations((count) => Math.max(0, count - 1));
+                setAddingProductId(null);
+            });
     };
 
     // Handle update cart quantity
@@ -335,21 +439,52 @@ export default function Index({
     const handleUpdateQty = (cartId, newQty) => {
         if (newQty < 1) return;
         setUpdatingCartId(cartId);
+        setPendingCartMutations((count) => count + 1);
+        const previousCarts = localCarts;
 
-        router.patch(
-            route("transactions.updateCart", cartId),
-            { qty: newQty },
-            {
-                preserveScroll: true,
-                onSuccess: () => {
-                    setUpdatingCartId(null);
-                },
-                onError: (errors) => {
-                    toast.error(errors?.message || "Gagal update quantity");
-                    setUpdatingCartId(null);
-                },
-            }
+        setLocalCarts((currentCarts) =>
+            currentCarts.map((item) =>
+                item.id === cartId
+                    ? {
+                          ...item,
+                          qty: newQty,
+                          price:
+                              Number(
+                                  item.product?.sell_price ||
+                                      item.product?.pricing_badge
+                                          ?.promo_price ||
+                                      0
+                              ) * newQty,
+                      }
+                    : item
+            )
         );
+
+        axios
+            .patch(route("transactions.updateCart", cartId), { qty: newQty })
+            .then((response) => {
+                const serverCart = response.data?.data?.cart;
+
+                if (serverCart) {
+                    setLocalCarts((currentCarts) =>
+                        currentCarts.map((item) =>
+                            item.id === cartId ? serverCart : item
+                        )
+                    );
+                }
+
+                setCartSyncVersion((version) => version + 1);
+            })
+            .catch((error) => {
+                setLocalCarts(previousCarts);
+                toast.error(
+                    error?.response?.data?.message || "Gagal update quantity"
+                );
+            })
+            .finally(() => {
+                setPendingCartMutations((count) => Math.max(0, count - 1));
+                setUpdatingCartId(null);
+            });
     };
 
     const handleUpdateTenantOutlet = (cartId, tenantOutletId) => {
@@ -381,6 +516,192 @@ export default function Index({
             });
     };
 
+    const handleLocalCartNotesChange = useCallback((cartId, notes) => {
+        setLocalCarts((currentCarts) =>
+            currentCarts.map((item) =>
+                item.id === cartId
+                    ? {
+                          ...item,
+                          notes,
+                      }
+                    : item
+            )
+        );
+    }, []);
+
+    const handleSaveCartNotes = useCallback(
+        (cartId, notes) => {
+            if (!cartId || String(cartId).startsWith("temp-")) {
+                return;
+            }
+
+            const previousCarts = localCarts;
+            const normalizedNotes = notes?.trim() || "";
+
+            setSavingNoteCartId(cartId);
+
+            axios
+                .patch(route("transactions.updateCartNotes", cartId), {
+                    notes: normalizedNotes || null,
+                })
+                .then((response) => {
+                    const serverCart = response.data?.data?.cart;
+
+                    if (serverCart) {
+                        setLocalCarts((currentCarts) =>
+                            currentCarts.map((item) =>
+                                item.id === cartId ? serverCart : item
+                            )
+                        );
+                    }
+                })
+                .catch((error) => {
+                    setLocalCarts(previousCarts);
+                    toast.error(
+                        error?.response?.data?.message ||
+                            "Gagal menyimpan catatan item"
+                    );
+                })
+                .finally(() => {
+                    setSavingNoteCartId(null);
+                });
+        },
+        [localCarts]
+    );
+
+    const handleModifierDraftChange = useCallback((cartId, field, value) => {
+        setModifierDrafts((current) => ({
+            ...current,
+            [cartId]: {
+                name: "",
+                unit_price: "",
+                ...(current[cartId] || {}),
+                [field]: value,
+            },
+        }));
+    }, []);
+
+    const handleAddModifier = useCallback(
+        (cartId) => {
+            const draft = modifierDrafts[cartId] || {
+                name: "",
+                unit_price: "",
+            };
+            const name = (draft.name || "").trim();
+            const unitPrice = Number(draft.unit_price || 0);
+
+            if (!name) {
+                toast.error("Nama tambahan wajib diisi");
+                return;
+            }
+
+            setSavingModifierCartId(cartId);
+
+            axios
+                .post(route("transactions.storeCartModifier", cartId), {
+                    name,
+                    qty: 1,
+                    unit_price: Math.max(0, unitPrice),
+                })
+                .then((response) => {
+                    const serverCart = response.data?.data?.cart;
+
+                    if (serverCart) {
+                        setLocalCarts((currentCarts) =>
+                            currentCarts.map((item) =>
+                                item.id === cartId ? serverCart : item
+                            )
+                        );
+                        setCartSyncVersion((version) => version + 1);
+                    }
+
+                    setModifierDrafts((current) => ({
+                        ...current,
+                        [cartId]: { name: "", unit_price: "" },
+                    }));
+                })
+                .catch((error) => {
+                    toast.error(
+                        error?.response?.data?.message ||
+                            "Gagal menambahkan tambahan item"
+                    );
+                })
+                .finally(() => {
+                    setSavingModifierCartId(null);
+                });
+        },
+        [modifierDrafts]
+    );
+
+    const handleAddModifierPreset = useCallback((cartId, option) => {
+        if (!option?.name) {
+            return;
+        }
+
+        setSavingModifierCartId(cartId);
+
+        axios
+            .post(route("transactions.storeCartModifier", cartId), {
+                name: option.name,
+                qty: 1,
+                unit_price: Math.max(0, Number(option.price || 0)),
+            })
+            .then((response) => {
+                const serverCart = response.data?.data?.cart;
+
+                if (serverCart) {
+                    setLocalCarts((currentCarts) =>
+                        currentCarts.map((item) =>
+                            item.id === cartId ? serverCart : item
+                        )
+                    );
+                    setCartSyncVersion((version) => version + 1);
+                }
+            })
+            .catch((error) => {
+                toast.error(
+                    error?.response?.data?.message ||
+                        "Gagal menambahkan topping preset"
+                );
+            })
+            .finally(() => {
+                setSavingModifierCartId(null);
+            });
+    }, []);
+
+    const handleRemoveModifier = useCallback((cartId, modifierId) => {
+        setSavingModifierCartId(cartId);
+
+        axios
+            .delete(
+                route("transactions.destroyCartModifier", {
+                    cart_id: cartId,
+                    modifier: modifierId,
+                })
+            )
+            .then((response) => {
+                const serverCart = response.data?.data?.cart;
+
+                if (serverCart) {
+                    setLocalCarts((currentCarts) =>
+                        currentCarts.map((item) =>
+                            item.id === cartId ? serverCart : item
+                        )
+                    );
+                    setCartSyncVersion((version) => version + 1);
+                }
+            })
+            .catch((error) => {
+                toast.error(
+                    error?.response?.data?.message ||
+                        "Gagal menghapus tambahan item"
+                );
+            })
+            .finally(() => {
+                setSavingModifierCartId(null);
+            });
+    }, []);
+
     // Handle numpad confirm for cash input
     const handleNumpadConfirm = useCallback((value) => {
         setCashInput(String(value));
@@ -390,7 +711,7 @@ export default function Index({
     const [isHolding, setIsHolding] = useState(false);
 
     const handleHoldCart = async (label = null) => {
-        if (carts.length === 0) {
+        if (localCarts.length === 0) {
             toast.error("Keranjang kosong");
             return;
         }
@@ -436,7 +757,7 @@ export default function Index({
                     break;
                 case "F2":
                     e.preventDefault();
-                    if (carts.length > 0) handleSubmitTransaction();
+                    if (localCarts.length > 0) handleSubmitTransaction();
                     break;
                 case "F3":
                     e.preventDefault();
@@ -458,28 +779,39 @@ export default function Index({
 
         window.addEventListener("keydown", handleKeyDown);
         return () => window.removeEventListener("keydown", handleKeyDown);
-    }, [carts, selectedCustomer, mobileView, showShortcuts]);
+    }, [localCarts.length, selectedCustomer, mobileView, showShortcuts]);
 
     // Handle remove from cart
     const handleRemoveFromCart = (cartId) => {
         setRemovingItemId(cartId);
+        setPendingCartMutations((count) => count + 1);
+        const previousCarts = localCarts;
 
-        router.delete(route("transactions.destroyCart", cartId), {
-            preserveScroll: true,
-            onSuccess: () => {
+        setLocalCarts((currentCarts) =>
+            currentCarts.filter((item) => item.id !== cartId)
+        );
+
+        axios
+            .delete(route("transactions.destroyCart", cartId))
+            .then(() => {
+                setCartSyncVersion((version) => version + 1);
                 toast.success("Item dihapus dari keranjang");
+            })
+            .catch((error) => {
+                setLocalCarts(previousCarts);
+                toast.error(
+                    error?.response?.data?.message || "Gagal menghapus item"
+                );
+            })
+            .finally(() => {
+                setPendingCartMutations((count) => Math.max(0, count - 1));
                 setRemovingItemId(null);
-            },
-            onError: () => {
-                toast.error("Gagal menghapus item");
-                setRemovingItemId(null);
-            },
-        });
+            });
     };
 
     // Handle submit transaction
     const handleSubmitTransaction = () => {
-        if (carts.length === 0) {
+        if (localCarts.length === 0) {
             toast.error("Keranjang masih kosong");
             return;
         }
@@ -523,11 +855,9 @@ export default function Index({
             },
             {
                 onSuccess: () => {
-                    setDiscountInput("");
                     setRedeemPointsInput("");
                     setCashInput("");
-                    setShippingInput("");
-                    setSelectedCustomer(null);
+                    setSelectedCustomer(WALK_IN_CUSTOMER);
                     setSelectedBankAccount(null);
                     setSelectedVoucherId("");
                     setPaymentMethod(defaultPaymentGateway ?? "cash");
@@ -725,7 +1055,7 @@ export default function Index({
                         <div className="p-3 border-b border-slate-200 dark:border-slate-800">
                             <HeldTransactions
                                 heldCarts={heldCarts}
-                                hasActiveCart={carts.length > 0}
+                                hasActiveCart={localCarts.length > 0}
                             />
                         </div>
                     )}
@@ -733,10 +1063,10 @@ export default function Index({
                     {/* Cart Items - Scrollable */}
                     <div className="flex-1 overflow-y-auto min-h-0">
                         {/* Hold Button - at top of cart section */}
-                        {carts.length > 0 && (
+                        {localCarts.length > 0 && (
                             <div className="p-3 border-b border-slate-200 dark:border-slate-800">
                                 <HoldButton
-                                    hasItems={carts.length > 0}
+                                    hasItems={localCarts.length > 0}
                                     onHold={handleHoldCart}
                                     isHolding={isHolding}
                                 />
@@ -749,16 +1079,16 @@ export default function Index({
                                     <IconShoppingCart size={16} />
                                     Keranjang
                                 </h3>
-                                {carts.length > 0 && (
+                                {localCarts.length > 0 && (
                                     <span className="px-2.5 py-0.5 text-xs font-bold bg-primary-100 text-primary-700 dark:bg-primary-900/50 dark:text-primary-300 rounded-full whitespace-nowrap">
                                         {cartCount} item
                                     </span>
                                 )}
                             </div>
 
-                            {carts.length > 0 ? (
+                            {localCarts.length > 0 ? (
                                 <div className="space-y-2 max-h-[200px] overflow-y-auto pr-1">
-                                    {carts.map((item) => (
+                                    {localCarts.map((item) => (
                                         (() => {
                                             const pricingItem =
                                                 pricingItemsByCartId[item.id];
@@ -784,13 +1114,23 @@ export default function Index({
                                             );
                                             const pricingRule =
                                                 pricingItem?.pricing_rule;
+                                            const modifierTotal = (
+                                                item.modifiers || []
+                                            ).reduce(
+                                                (sum, modifier) =>
+                                                    sum +
+                                                    Number(
+                                                        modifier.total_price || 0
+                                                    ),
+                                                0
+                                            );
 
                                             return (
                                         <div
                                             key={item.id}
-                                            className="flex items-center gap-2 p-2 rounded-lg bg-slate-50 dark:bg-slate-800/50 group"
+                                            className="flex items-start gap-2 p-2 rounded-lg bg-slate-50 dark:bg-slate-800/50 group"
                                         >
-                                            <div className="w-10 h-10 rounded-lg bg-slate-200 dark:bg-slate-700 overflow-hidden flex-shrink-0">
+                                            <div className="mt-0.5 w-10 h-10 rounded-lg bg-slate-200 dark:bg-slate-700 overflow-hidden flex-shrink-0 self-start">
                                                 {item.product?.image ? (
                                                     <img
                                                         src={getProductImageUrl(
@@ -848,49 +1188,217 @@ export default function Index({
                                                         </p>
                                                     )}
                                                 </div>
-                                                {tenantOutlets.length > 0 && (
+                                                {item.product
+                                                    ?.supports_modifiers && (
                                                     <div className="mt-1.5">
                                                         <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                                                            Tenant outlet
+                                                            Tambahan / topping
                                                         </label>
-                                                        <select
+                                                        <div className="space-y-1.5">
+                                                            {(item.product
+                                                                ?.modifier_options ||
+                                                                []
+                                                            ).length > 0 && (
+                                                                <div className="flex flex-wrap gap-1.5">
+                                                                    {item.product.modifier_options.map(
+                                                                        (option) => (
+                                                                            <button
+                                                                                key={
+                                                                                    option.id
+                                                                                }
+                                                                                type="button"
+                                                                                onClick={() =>
+                                                                                    handleAddModifierPreset(
+                                                                                        item.id,
+                                                                                        option
+                                                                                    )
+                                                                                }
+                                                                                disabled={
+                                                                                    savingModifierCartId ===
+                                                                                    item.id
+                                                                                }
+                                                                                className="inline-flex items-center gap-1 rounded-full border border-primary-200 bg-primary-50 px-2.5 py-1 text-[10px] font-semibold text-primary-700 hover:border-primary-300 hover:bg-primary-100 disabled:opacity-60 dark:border-primary-900/60 dark:bg-primary-950/30 dark:text-primary-300"
+                                                                            >
+                                                                                <span>
+                                                                                    {
+                                                                                        option.name
+                                                                                    }
+                                                                                </span>
+                                                                                <span className="text-primary-500 dark:text-primary-400">
+                                                                                    {formatPrice(
+                                                                                        option.price
+                                                                                    )}
+                                                                                </span>
+                                                                            </button>
+                                                                        )
+                                                                    )}
+                                                                </div>
+                                                            )}
+                                                            {(item.modifiers ||
+                                                                []
+                                                            ).map(
+                                                                (modifier) => (
+                                                                    <div
+                                                                        key={
+                                                                            modifier.id
+                                                                        }
+                                                                        className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[11px] dark:border-slate-700 dark:bg-slate-900"
+                                                                    >
+                                                                        <div className="min-w-0">
+                                                                            <p className="truncate font-medium text-slate-700 dark:text-slate-200">
+                                                                                {
+                                                                                    modifier.name
+                                                                                }
+                                                                            </p>
+                                                                            <p className="text-slate-500 dark:text-slate-400">
+                                                                                Harga
+                                                                                :
+                                                                                {" "}
+                                                                                {formatPrice(
+                                                                                    modifier.unit_price
+                                                                                )}
+                                                                            </p>
+                                                                        </div>
+                                                                        <div className="flex items-center gap-2">
+                                                                            <span className="font-semibold text-primary-600 dark:text-primary-400">
+                                                                                {formatPrice(
+                                                                                    modifier.total_price
+                                                                                )}
+                                                                            </span>
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() =>
+                                                                                    handleRemoveModifier(
+                                                                                        item.id,
+                                                                                        modifier.id
+                                                                                    )
+                                                                                }
+                                                                                className="rounded p-1 text-slate-400 hover:bg-danger-50 hover:text-danger-500 dark:hover:bg-danger-950/40"
+                                                                            >
+                                                                                <IconTrash
+                                                                                    size={
+                                                                                        12
+                                                                                    }
+                                                                                />
+                                                                            </button>
+                                                                        </div>
+                                                                    </div>
+                                                                )
+                                                            )}
+                                                            <div className="grid grid-cols-[minmax(0,1fr)_88px_auto] gap-1.5">
+                                                                <input
+                                                                    type="text"
+                                                                    value={
+                                                                        modifierDrafts[
+                                                                            item.id
+                                                                        ]
+                                                                            ?.name ||
+                                                                        ""
+                                                                    }
+                                                                    onChange={(e) =>
+                                                                        handleModifierDraftChange(
+                                                                            item.id,
+                                                                            "name",
+                                                                            e
+                                                                                .target
+                                                                                .value
+                                                                        )
+                                                                    }
+                                                                    placeholder="Contoh: Extra cheese"
+                                                                    className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-[11px] text-slate-700 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                                                />
+                                                                <input
+                                                                    type="text"
+                                                                    inputMode="numeric"
+                                                                    value={
+                                                                        modifierDrafts[
+                                                                            item.id
+                                                                        ]
+                                                                            ?.unit_price ||
+                                                                        ""
+                                                                    }
+                                                                    onChange={(e) =>
+                                                                        handleModifierDraftChange(
+                                                                            item.id,
+                                                                            "unit_price",
+                                                                            e.target.value.replace(
+                                                                                /[^\d]/g,
+                                                                                ""
+                                                                            )
+                                                                        )
+                                                                    }
+                                                                    placeholder="Harga"
+                                                                    className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-[11px] text-slate-700 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                                                />
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() =>
+                                                                        handleAddModifier(
+                                                                            item.id
+                                                                        )
+                                                                    }
+                                                                    disabled={
+                                                                        savingModifierCartId ===
+                                                                        item.id
+                                                                    }
+                                                                    className="inline-flex h-8 items-center justify-center rounded-lg bg-primary-500 px-2 text-[11px] font-semibold text-white hover:bg-primary-600 disabled:opacity-60"
+                                                                >
+                                                                    +
+                                                                </button>
+                                                            </div>
+                                                            {modifierTotal >
+                                                            0 ? (
+                                                                <p className="text-[10px] font-medium text-primary-500">
+                                                                    Total
+                                                                    tambahan:{" "}
+                                                                    {formatPrice(
+                                                                        modifierTotal
+                                                                    )}
+                                                                </p>
+                                                            ) : null}
+                                                        </div>
+                                                    </div>
+                                                )}
+                                                <div className="mt-1.5">
+                                                    <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                                                        Catatan item
+                                                    </label>
+                                                    <div>
+                                                        <input
+                                                            type="text"
                                                             value={
-                                                                item.tenant_outlet_id ||
-                                                                ""
+                                                                item.notes || ""
                                                             }
                                                             onChange={(e) =>
-                                                                handleUpdateTenantOutlet(
+                                                                handleLocalCartNotesChange(
                                                                     item.id,
                                                                     e.target
                                                                         .value
                                                                 )
                                                             }
-                                                            disabled={
-                                                                updatingTenantCartId ===
-                                                                item.id
-                                                            }
-                                                            className="h-8 w-full rounded-lg border border-slate-200 bg-white px-2 text-[11px] text-slate-700 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-                                                        >
-                                                            {tenantOutlets.map(
-                                                                (tenant) => (
-                                                                    <option
-                                                                        key={
-                                                                            tenant.id
-                                                                        }
-                                                                        value={
-                                                                            tenant.id
-                                                                        }
-                                                                    >
-                                                                        {tenant.name}
-                                                                        {tenant.code
-                                                                            ? ` (${tenant.code})`
-                                                                            : ""}
-                                                                    </option>
+                                                            onBlur={(e) =>
+                                                                handleSaveCartNotes(
+                                                                    item.id,
+                                                                    e.target
+                                                                        .value
                                                                 )
+                                                            }
+                                                            disabled={String(
+                                                                item.id
+                                                            ).startsWith(
+                                                                "temp-"
                                                             )}
-                                                        </select>
+                                                            placeholder="Contoh: es dipisah"
+                                                            className="h-8 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-[11px] text-slate-700 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                                        />
+                                                        {savingNoteCartId ===
+                                                        item.id ? (
+                                                            <p className="mt-1 text-[10px] text-primary-500">
+                                                                Menyimpan...
+                                                            </p>
+                                                        ) : null}
                                                     </div>
-                                                )}
+                                                </div>
                                             </div>
                                             <div className="flex items-center gap-1">
                                                 <button
@@ -1148,26 +1656,21 @@ export default function Index({
                                         Nominal Cepat
                                     </label>
                                     <div className="grid grid-cols-4 gap-2">
-                                        {[10000, 20000, 50000, 100000].map(
-                                            (amt) => (
-                                                <button
-                                                    key={amt}
-                                                    onClick={() =>
-                                                        setCashInput(
-                                                            String(amt)
-                                                        )
-                                                    }
-                                                    className={`py-2 px-1 rounded-lg text-xs font-semibold transition-all ${
-                                                        Number(cashInput) ===
-                                                        amt
-                                                            ? "bg-primary-500 text-white"
-                                                            : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200"
-                                                    }`}
-                                                >
-                                                    {formatPrice(amt)}
-                                                </button>
-                                            )
-                                        )}
+                                        {quickCashAmounts.map((amt) => (
+                                            <button
+                                                key={amt}
+                                                onClick={() =>
+                                                    setCashInput(String(amt))
+                                                }
+                                                className={`py-2 px-1 rounded-lg text-xs font-semibold transition-all ${
+                                                    Number(cashInput) === amt
+                                                        ? "bg-primary-500 text-white"
+                                                        : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200"
+                                                }`}
+                                            >
+                                                {formatPrice(amt)}
+                                            </button>
+                                        ))}
                                     </div>
                                 </div>
                             )}
@@ -1303,78 +1806,6 @@ export default function Index({
                                     </div>
                                 )}
 
-                            <div>
-                                <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-2">
-                                    Diskon Manual (Rp)
-                                </label>
-                                <div className="relative">
-                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">
-                                        Rp
-                                    </span>
-                                    <input
-                                        type="text"
-                                        inputMode="numeric"
-                                        value={discountInput}
-                                        onChange={(e) =>
-                                            setDiscountInput(
-                                                e.target.value.replace(
-                                                    /[^\d]/g,
-                                                    ""
-                                                )
-                                            )
-                                        }
-                                        placeholder="0"
-                                        className="w-full h-10 pl-10 pr-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
-                                    />
-                                </div>
-                            </div>
-
-                            {/* Shipping Cost Input */}
-                            <div>
-                                <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-2">
-                                    Ongkos Kirim (Rp)
-                                </label>
-                                <div className="relative">
-                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">
-                                        Rp
-                                    </span>
-                                    <input
-                                        type="text"
-                                        inputMode="numeric"
-                                        value={shippingInput}
-                                        onChange={(e) =>
-                                            setShippingInput(
-                                                e.target.value.replace(
-                                                    /[^\d]/g,
-                                                    ""
-                                                )
-                                            )
-                                        }
-                                        placeholder="0"
-                                        className="w-full h-10 pl-10 pr-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
-                                    />
-                                </div>
-                                {/* Quick Shipping Amounts */}
-                                <div className="grid grid-cols-4 gap-2 mt-2">
-                                    {[10000, 15000, 20000, 25000].map((amt) => (
-                                        <button
-                                            key={amt}
-                                            type="button"
-                                            onClick={() =>
-                                                setShippingInput(String(amt))
-                                            }
-                                            className={`py-1.5 px-1 rounded-lg text-xs font-medium transition-all ${
-                                                Number(shippingInput) === amt
-                                                    ? "bg-primary-500 text-white"
-                                                    : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200"
-                                            }`}
-                                        >
-                                            {formatPrice(amt)}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-
                             {/* Cash Input - Only for cash */}
                             {paymentMethod === "cash" && (
                                 <div>
@@ -1467,14 +1898,6 @@ export default function Index({
                                 </span>
                             </div>
                         )}
-                        {discount > 0 && (
-                            <div className="flex justify-between items-center mb-2 text-sm">
-                                <span className="text-slate-500">Diskon Manual</span>
-                                <span className="text-danger-500">
-                                    -{formatPrice(discount)}
-                                </span>
-                            </div>
-                        )}
                         {shipping > 0 && (
                             <div className="flex justify-between items-center mb-2 text-sm">
                                 <span className="text-slate-500">Ongkir</span>
@@ -1510,7 +1933,7 @@ export default function Index({
                         <button
                             onClick={handleSubmitTransaction}
                             disabled={
-                                !carts.length ||
+                                !localCarts.length ||
                                 (!payLater &&
                                     paymentMethod === "cash" &&
                                     cash < payable) ||
@@ -1518,7 +1941,7 @@ export default function Index({
                                 isSubmitting
                             }
                             className={`w-full h-12 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-all ${
-                                carts.length &&
+                                localCarts.length &&
                                 (paymentMethod !== "cash" || cash >= payable)
                                     && !isLoadingPricing
                                     ? "bg-gradient-to-r from-primary-500 to-primary-600 hover:from-primary-600 hover:to-primary-700 text-white shadow-lg shadow-primary-500/30"
@@ -1531,7 +1954,7 @@ export default function Index({
                                 <>
                                     <IconReceipt size={18} />
                                     <span>
-                                        {!carts.length
+                                        {!localCarts.length
                                             ? "Keranjang Kosong"
                                             : paymentMethod === "cash" &&
                                               cash < payable

@@ -18,6 +18,7 @@ class Product extends Model
         'sell_price' => 'integer',
         'stock' => 'integer',
         'tenant_outlet_id' => 'integer',
+        'supports_modifiers' => 'boolean',
     ];
 
     /**
@@ -35,6 +36,7 @@ class Product extends Model
         'sell_price',
         'category_id',
         'tenant_outlet_id',
+        'supports_modifiers',
         'stock',
     ];
 
@@ -81,6 +83,13 @@ class Product extends Model
     public function kitchenStationMappings()
     {
         return $this->hasMany(ProductKitchenStationMapping::class);
+    }
+
+    public function modifierOptions()
+    {
+        return $this->hasMany(ProductModifierOption::class)
+            ->orderBy('sort_order')
+            ->orderBy('name');
     }
 
     /**

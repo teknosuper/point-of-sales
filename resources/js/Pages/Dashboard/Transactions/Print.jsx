@@ -20,7 +20,7 @@ import { useAuthorization } from "@/Utils/authorization";
 export default function Print({ transaction }) {
     const { storeProfile } = usePage().props;
     const { can } = useAuthorization();
-    const [printMode, setPrintMode] = useState("invoice"); // 'invoice' | 'thermal80' | 'thermal58'
+    const [printMode, setPrintMode] = useState("thermal58"); // 'invoice' | 'thermal80' | 'thermal58'
     const [showConfirmModal, setShowConfirmModal] = useState(false);
     const [isConfirming, setIsConfirming] = useState(false);
     const canConfirmPayment = can("transactions-confirm-payment");
@@ -266,18 +266,29 @@ export default function Print({ transaction }) {
                             )}
 
                             {(printMode === "thermal80" || printMode === "thermal58") && (
-                                <a
-                                    href={route("pdf.transactions.receipt", {
-                                        invoice: transaction.invoice,
-                                        size: printMode === "thermal58" ? "58" : "80",
-                                    })}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-900 text-sm font-semibold text-white transition-colors w-full sm:w-auto"
-                                >
-                                    <IconPrinter size={18} />
-                                    PDF Struk {printMode === "thermal58" ? "58mm" : "80mm"}
-                                </a>
+                                <>
+                                    <button
+                                        type="button"
+                                        onClick={handlePrint}
+                                        className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-primary-500 hover:bg-primary-600 text-sm font-semibold text-white shadow-lg shadow-primary-500/30 transition-colors w-full sm:w-auto"
+                                    >
+                                        <IconPrinter size={18} />
+                                        Print Struk {printMode === "thermal58" ? "58mm" : "80mm"}
+                                    </button>
+
+                                    <a
+                                        href={route("pdf.transactions.receipt", {
+                                            invoice: transaction.invoice,
+                                            size: printMode === "thermal58" ? "58" : "80",
+                                        })}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-900 text-sm font-semibold text-white transition-colors w-full sm:w-auto"
+                                    >
+                                        <IconPrinter size={18} />
+                                        PDF Struk {printMode === "thermal58" ? "58mm" : "80mm"}
+                                    </a>
+                                </>
                             )}
 
                             {printMode === "shipping" && (
@@ -507,10 +518,25 @@ export default function Print({ transaction }) {
                                                     Number(item.qty) || 1;
                                                 const subtotal =
                                                     Number(item.price) || 0;
+                                                const modifierTotal =
+                                                    Number(
+                                                        item.modifiers?.reduce(
+                                                            (sum, modifier) =>
+                                                                sum +
+                                                                Number(
+                                                                    modifier.total_price ||
+                                                                        0
+                                                                ),
+                                                            0
+                                                        ) || 0
+                                                    );
+                                                const baseSubtotal =
+                                                    subtotal - modifierTotal;
                                                 const unitPrice =
                                                     Number(
                                                         item.unit_price || 0
-                                                    ) || subtotal / quantity;
+                                                    ) ||
+                                                    baseSubtotal / quantity;
                                                 const baseUnitPrice =
                                                     Number(
                                                         item.base_unit_price || 0
@@ -553,6 +579,40 @@ export default function Print({ transaction }) {
                                                                     }
                                                                 </p>
                                                             )}
+                                                            {item.modifiers
+                                                                ?.length >
+                                                                0 && (
+                                                                <div className="mt-1 space-y-0.5">
+                                                                    {item.modifiers.map(
+                                                                        (
+                                                                            modifier
+                                                                        ) => (
+                                                                            <p
+                                                                                key={
+                                                                                    modifier.id
+                                                                                }
+                                                                                className="text-xs text-primary-600 dark:text-primary-400"
+                                                                            >
+                                                                                +{" "}
+                                                                                {
+                                                                                    modifier.name
+                                                                                }{" "}
+                                                                                (
+                                                                                {formatPrice(
+                                                                                    modifier.total_price
+                                                                                )}
+                                                                                )
+                                                                            </p>
+                                                                        )
+                                                                    )}
+                                                                </div>
+                                                            )}
+                                                            {item.notes && (
+                                                                <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+                                                                    Catatan:{" "}
+                                                                    {item.notes}
+                                                                </p>
+                                                            )}
                                                         </td>
                                                         <td className="py-3 text-right text-slate-600 dark:text-slate-400">
                                                             <div>
@@ -575,7 +635,7 @@ export default function Print({ transaction }) {
                                                         </td>
                                                         <td className="py-3 text-right font-semibold text-slate-900 dark:text-white">
                                                             {formatPrice(
-                                                                subtotal
+                                                                baseSubtotal
                                                             )}
                                                         </td>
                                                     </tr>

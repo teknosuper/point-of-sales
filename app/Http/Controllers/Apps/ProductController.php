@@ -241,6 +241,10 @@ class ProductController extends Controller
             'description' => 'required',
             'category_id' => 'required',
             'tenant_outlet_id' => 'nullable|exists:outlets,id',
+            'supports_modifiers' => 'nullable|boolean',
+            'modifier_options' => 'nullable|array',
+            'modifier_options.*.name' => 'nullable|string|max:120',
+            'modifier_options.*.price' => 'nullable|integer|min:0',
             'buy_price' => 'required',
             'sell_price' => 'required',
             'stock' => 'required|integer|min:0',
@@ -258,12 +262,14 @@ class ProductController extends Controller
             'description' => $request->description,
             'category_id' => $request->category_id,
             'tenant_outlet_id' => $request->integer('tenant_outlet_id') ?: null,
+            'supports_modifiers' => $request->boolean('supports_modifiers'),
             'buy_price' => $request->buy_price,
             'sell_price' => $request->sell_price,
             'stock' => $request->stock,
         ]);
 
         $this->stockMutationService->recordInitialStock($product, $request->user()?->id);
+        $this->syncModifierOptions($product, $request->input('modifier_options', []));
         $this->auditLogService->log(
             event: 'product.created',
             module: 'products',
@@ -286,7 +292,7 @@ class ProductController extends Controller
     {
         // get categories
         $categories = Category::all();
-        $product->load(['outletStocks.outlet']);
+        $product->load(['outletStocks.outlet', 'modifierOptions']);
 
         $outletStocks = Outlet::active()
             ->ordered()
@@ -378,6 +384,10 @@ class ProductController extends Controller
             'description' => 'required',
             'category_id' => 'required',
             'tenant_outlet_id' => 'nullable|exists:outlets,id',
+            'supports_modifiers' => 'nullable|boolean',
+            'modifier_options' => 'nullable|array',
+            'modifier_options.*.name' => 'nullable|string|max:120',
+            'modifier_options.*.price' => 'nullable|integer|min:0',
             'buy_price' => 'required',
             'sell_price' => 'required',
         ]);
@@ -401,11 +411,13 @@ class ProductController extends Controller
                 'description' => $request->description,
                 'category_id' => $request->category_id,
                 'tenant_outlet_id' => $request->integer('tenant_outlet_id') ?: null,
+                'supports_modifiers' => $request->boolean('supports_modifiers'),
                 'buy_price' => $request->buy_price,
                 'sell_price' => $request->sell_price,
             ]);
 
             $this->logProductUpdate($product, $before);
+            $this->syncModifierOptions($product, $request->input('modifier_options', []));
 
             return to_route('products.index');
         }
@@ -418,10 +430,12 @@ class ProductController extends Controller
             'description' => $request->description,
             'category_id' => $request->category_id,
             'tenant_outlet_id' => $request->integer('tenant_outlet_id') ?: null,
+            'supports_modifiers' => $request->boolean('supports_modifiers'),
             'buy_price' => $request->buy_price,
             'sell_price' => $request->sell_price,
         ]);
 
+        $this->syncModifierOptions($product, $request->input('modifier_options', []));
         $this->logProductUpdate($product, $before);
 
         // redirect
@@ -503,7 +517,36 @@ class ProductController extends Controller
             'stock',
             'category_id',
             'tenant_outlet_id',
+            'supports_modifiers',
         ]);
+    }
+
+    private function syncModifierOptions(Product $product, array $rows): void
+    {
+        $normalized = collect($rows)
+            ->map(function ($row, $index) {
+                $name = trim((string) data_get($row, 'name', ''));
+                $price = (int) data_get($row, 'price', 0);
+
+                if ($name === '') {
+                    return null;
+                }
+
+                return [
+                    'name' => $name,
+                    'price' => max(0, $price),
+                    'is_active' => true,
+                    'sort_order' => $index,
+                ];
+            })
+            ->filter()
+            ->values();
+
+        $product->modifierOptions()->delete();
+
+        if ($normalized->isNotEmpty()) {
+            $product->modifierOptions()->createMany($normalized->all());
+        }
     }
 
     private function productIndexPayload(Product $product, ?int $activeOutletId = null): array
