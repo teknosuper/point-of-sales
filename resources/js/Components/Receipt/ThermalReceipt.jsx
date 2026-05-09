@@ -121,6 +121,29 @@ export default function ThermalReceipt({
                     <span>Pelanggan:</span>
                     <span>{transaction?.customer?.name || "Umum"}</span>
                 </div>
+                <div className="flex justify-between">
+                    <span>Pesanan:</span>
+                    <span>
+                        {transaction?.order_type === "dine_in"
+                            ? "Dine In"
+                            : "Take Away"}
+                    </span>
+                </div>
+                {transaction?.dining_table?.name && (
+                    <div className="flex justify-between">
+                        <span>Meja:</span>
+                        <span>
+                            {transaction.dining_table.code ||
+                                transaction.dining_table.name}
+                        </span>
+                    </div>
+                )}
+                {transaction?.waiter?.name && (
+                    <div className="flex justify-between">
+                        <span>Waiter:</span>
+                        <span>{transaction.waiter.name}</span>
+                    </div>
+                )}
             </div>
 
             <pre className="whitespace-pre-wrap">{line}</pre>
@@ -345,6 +368,18 @@ export function ThermalReceipt58mm({
             <pre>{line}</pre>
             <p>#{transaction?.invoice}</p>
             <p>{formatTime(transaction?.created_at)}</p>
+            <p>
+                {transaction?.order_type === "dine_in"
+                    ? "Dine In"
+                    : "Take Away"}
+            </p>
+            {transaction?.dining_table?.name && (
+                <p>
+                    Meja{" "}
+                    {transaction.dining_table.code ||
+                        transaction.dining_table.name}
+                </p>
+            )}
             <pre>{line}</pre>
 
             {items.map((item, i) => {

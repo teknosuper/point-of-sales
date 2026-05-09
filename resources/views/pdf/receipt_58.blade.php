@@ -150,6 +150,22 @@
                 <td>Pelanggan</td>
                 <td>: {{ $transaction->customer->name ?? 'Umum' }}</td>
             </tr>
+            <tr>
+                <td>Pesanan</td>
+                <td>: {{ ($transaction->order_type ?? 'take_away') === 'dine_in' ? 'Dine In' : 'Take Away' }}</td>
+            </tr>
+            @if($transaction->diningTable?->name)
+            <tr>
+                <td>Meja</td>
+                <td>: {{ $transaction->diningTable->code ?: $transaction->diningTable->name }}</td>
+            </tr>
+            @endif
+            @if($transaction->waiter?->name)
+            <tr>
+                <td>Waiter</td>
+                <td>: {{ $transaction->waiter->name }}</td>
+            </tr>
+            @endif
         </table>
     </div>
 

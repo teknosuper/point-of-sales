@@ -44,6 +44,22 @@
             <span>Pelanggan:</span>
             <span>{{ $transaction->customer->name ?? 'Umum' }}</span>
         </div>
+        <div style="display:flex; justify-content:space-between;">
+            <span>Pesanan:</span>
+            <span>{{ ($transaction->order_type ?? 'take_away') === 'dine_in' ? 'Dine In' : 'Take Away' }}</span>
+        </div>
+        @if($transaction->diningTable?->name)
+        <div style="display:flex; justify-content:space-between;">
+            <span>Meja:</span>
+            <span>{{ $transaction->diningTable->code ?: $transaction->diningTable->name }}</span>
+        </div>
+        @endif
+        @if($transaction->waiter?->name)
+        <div style="display:flex; justify-content:space-between;">
+            <span>Waiter:</span>
+            <span>{{ $transaction->waiter->name }}</span>
+        </div>
+        @endif
     </div>
 
     <pre style="margin:4px 0;">{{ $line }}</pre>

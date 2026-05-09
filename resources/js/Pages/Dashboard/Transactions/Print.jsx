@@ -434,6 +434,26 @@ export default function Print({ transaction }) {
                                             {transaction.customer.phone}
                                         </p>
                                     )}
+                                    <div className="mt-2 flex flex-wrap gap-2">
+                                        <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                                            {transaction.order_type === "dine_in"
+                                                ? "Dine In"
+                                                : "Take Away"}
+                                        </span>
+                                        {transaction.dining_table?.name && (
+                                            <span className="inline-flex rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">
+                                                Meja:{" "}
+                                                {transaction.dining_table.code ||
+                                                    transaction.dining_table.name}
+                                            </span>
+                                        )}
+                                        {transaction.waiter?.name && (
+                                            <span className="inline-flex rounded-full bg-primary-50 px-3 py-1 text-xs font-semibold text-primary-700 dark:bg-primary-950/30 dark:text-primary-300">
+                                                Waiter:{" "}
+                                                {transaction.waiter.name}
+                                            </span>
+                                        )}
+                                    </div>
                                 </div>
                                 <div className="bg-slate-50/60 dark:bg-slate-800/40 rounded-xl p-3 sm:p-4">
                                     <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-2">

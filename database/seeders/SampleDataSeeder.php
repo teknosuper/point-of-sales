@@ -12,6 +12,7 @@ use App\Models\LoyaltyPointHistory;
 use App\Models\Payable;
 use App\Models\PayablePayment;
 use App\Models\Product;
+use App\Models\ProductModifierOption;
 use App\Models\Profit;
 use App\Models\Receivable;
 use App\Models\ReceivablePayment;
@@ -53,6 +54,7 @@ class SampleDataSeeder extends Seeder
         TransactionDetail::truncate();
         Profit::truncate();
         Transaction::truncate();
+        ProductModifierOption::truncate();
         Product::truncate();
         Category::truncate();
         Customer::truncate();
@@ -282,8 +284,8 @@ class SampleDataSeeder extends Seeder
             // Minuman
             ['category' => 'Minuman', 'barcode' => 'MNM-0001', 'title' => 'Aqua Botol 600ml', 'description' => 'Air mineral murni dalam kemasan botol praktis', 'buy_price' => 3000, 'sell_price' => 5000, 'stock' => 200, 'image_url' => 'https://images.unsplash.com/photo-1548839140-29a749e1cf4d?w=300&h=300&fit=crop'],
             ['category' => 'Minuman', 'barcode' => 'MNM-0002', 'title' => 'Teh Botol Sosro 450ml', 'description' => 'Teh manis segar dalam kemasan botol', 'buy_price' => 4000, 'sell_price' => 6000, 'stock' => 150, 'image_url' => 'https://images.unsplash.com/photo-1556679343-c7306c1976bc?w=300&h=300&fit=crop'],
-            ['category' => 'Minuman', 'barcode' => 'MNM-0003', 'title' => 'Kopi Susu Gula Aren', 'description' => 'Kopi susu dengan gula aren asli', 'buy_price' => 12000, 'sell_price' => 18000, 'stock' => 80, 'image_url' => 'https://images.unsplash.com/photo-1461023058943-07fcbe16d735?w=300&h=300&fit=crop'],
-            ['category' => 'Minuman', 'barcode' => 'MNM-0004', 'title' => 'Jus Jeruk Segar 500ml', 'description' => 'Jus jeruk murni tanpa pengawet', 'buy_price' => 8000, 'sell_price' => 12000, 'stock' => 60, 'image_url' => 'https://images.unsplash.com/photo-1621506289937-a8e4df240d0b?w=300&h=300&fit=crop'],
+            ['category' => 'Minuman', 'barcode' => 'MNM-0003', 'title' => 'Kopi Susu Gula Aren', 'description' => 'Kopi susu dengan gula aren asli', 'buy_price' => 12000, 'sell_price' => 18000, 'stock' => 80, 'image_url' => 'https://images.unsplash.com/photo-1461023058943-07fcbe16d735?w=300&h=300&fit=crop', 'supports_modifiers' => true, 'modifier_options' => [['name' => 'Extra espresso', 'price' => 5000], ['name' => 'Extra shot gula aren', 'price' => 3000], ['name' => 'Whipped cream', 'price' => 4000]]],
+            ['category' => 'Minuman', 'barcode' => 'MNM-0004', 'title' => 'Jus Jeruk Segar 500ml', 'description' => 'Jus jeruk murni tanpa pengawet', 'buy_price' => 8000, 'sell_price' => 12000, 'stock' => 60, 'image_url' => 'https://images.unsplash.com/photo-1621506289937-a8e4df240d0b?w=300&h=300&fit=crop', 'supports_modifiers' => true, 'modifier_options' => [['name' => 'Madu', 'price' => 3000], ['name' => 'Yakult', 'price' => 4000], ['name' => 'Es krim vanilla', 'price' => 5000]]],
 
             // Makanan Ringan
             ['category' => 'Makanan Ringan', 'barcode' => 'SNK-0001', 'title' => 'Chitato Original 68g', 'description' => 'Keripik kentang renyah rasa original', 'buy_price' => 8000, 'sell_price' => 12000, 'stock' => 120, 'image_url' => 'https://images.unsplash.com/photo-1566478989037-eec170784d0b?w=300&h=300&fit=crop'],
@@ -292,8 +294,8 @@ class SampleDataSeeder extends Seeder
             ['category' => 'Makanan Ringan', 'barcode' => 'SNK-0004', 'title' => 'Pringles Sour Cream', 'description' => 'Keripik kentang premium rasa sour cream', 'buy_price' => 25000, 'sell_price' => 35000, 'stock' => 50, 'image_url' => 'https://images.unsplash.com/photo-1613919113640-25732ec5e61f?w=300&h=300&fit=crop'],
 
             // Makanan Berat
-            ['category' => 'Makanan Berat', 'barcode' => 'MKN-0001', 'title' => 'Nasi Goreng Frozen', 'description' => 'Nasi goreng siap saji tinggal panaskan', 'buy_price' => 15000, 'sell_price' => 22000, 'stock' => 40, 'image_url' => 'https://images.unsplash.com/photo-1603133872878-684f208fb84b?w=300&h=300&fit=crop'],
-            ['category' => 'Makanan Berat', 'barcode' => 'MKN-0002', 'title' => 'Ayam Goreng Frozen', 'description' => 'Ayam goreng krispy siap goreng', 'buy_price' => 25000, 'sell_price' => 38000, 'stock' => 35, 'image_url' => 'https://images.unsplash.com/photo-1626082927389-6cd097cdc6ec?w=300&h=300&fit=crop'],
+            ['category' => 'Makanan Berat', 'barcode' => 'MKN-0001', 'title' => 'Nasi Goreng Frozen', 'description' => 'Nasi goreng siap saji tinggal panaskan', 'buy_price' => 15000, 'sell_price' => 22000, 'stock' => 40, 'image_url' => 'https://images.unsplash.com/photo-1603133872878-684f208fb84b?w=300&h=300&fit=crop', 'supports_modifiers' => true, 'modifier_options' => [['name' => 'Telur mata sapi', 'price' => 5000], ['name' => 'Sosis', 'price' => 6000], ['name' => 'Extra ayam suwir', 'price' => 7000]]],
+            ['category' => 'Makanan Berat', 'barcode' => 'MKN-0002', 'title' => 'Ayam Goreng Frozen', 'description' => 'Ayam goreng krispy siap goreng', 'buy_price' => 25000, 'sell_price' => 38000, 'stock' => 35, 'image_url' => 'https://images.unsplash.com/photo-1626082927389-6cd097cdc6ec?w=300&h=300&fit=crop', 'supports_modifiers' => true, 'modifier_options' => [['name' => 'Nasi putih', 'price' => 6000], ['name' => 'Sambal ekstra', 'price' => 2000], ['name' => 'Keju mozarella', 'price' => 7000]]],
             ['category' => 'Makanan Berat', 'barcode' => 'MKN-0003', 'title' => 'Sosis Sapi 500g', 'description' => 'Sosis sapi premium isi 12 pcs', 'buy_price' => 35000, 'sell_price' => 48000, 'stock' => 45, 'image_url' => 'https://images.unsplash.com/photo-1587735243615-c03f25aaff15?w=300&h=300&fit=crop'],
 
             // Produk Susu
@@ -333,7 +335,7 @@ class SampleDataSeeder extends Seeder
                 'prod-'.$slug
             );
 
-            return Product::create([
+            $createdProduct = Product::create([
                 'category_id' => $category?->id,
                 'image' => $image ?? 'default.jpg',
                 'barcode' => $product['barcode'],
@@ -341,8 +343,25 @@ class SampleDataSeeder extends Seeder
                 'description' => $product['description'],
                 'buy_price' => $product['buy_price'],
                 'sell_price' => $product['sell_price'],
+                'supports_modifiers' => (bool) ($product['supports_modifiers'] ?? false),
                 'stock' => $product['stock'],
             ]);
+
+            if (! empty($product['modifier_options'])) {
+                $createdProduct->modifierOptions()->createMany(
+                    collect($product['modifier_options'])
+                        ->values()
+                        ->map(fn (array $option, int $index) => [
+                            'name' => $option['name'],
+                            'price' => (int) ($option['price'] ?? 0),
+                            'is_active' => true,
+                            'sort_order' => $index + 1,
+                        ])
+                        ->all()
+                );
+            }
+
+            return $createdProduct;
         })->keyBy('barcode');
     }
 

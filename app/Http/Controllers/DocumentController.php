@@ -78,7 +78,7 @@ class DocumentController extends Controller
     {
         $this->ensureFontDirectory();
 
-        $transaction = Transaction::with(['details.product', 'details.modifiers', 'cashier', 'customer', 'outlet'])
+        $transaction = Transaction::with(['details.product', 'details.modifiers', 'cashier', 'waiter', 'diningTable', 'customer', 'outlet'])
             ->where('invoice', $invoice)
             ->firstOrFail();
         $this->ensureUserCanAccessOutlet($request, $transaction->outlet_id);
@@ -104,7 +104,7 @@ class DocumentController extends Controller
     {
         $this->ensureFontDirectory();
 
-        $transaction = Transaction::with(['details.product', 'details.modifiers', 'cashier', 'customer', 'outlet'])
+        $transaction = Transaction::with(['details.product', 'details.modifiers', 'cashier', 'waiter', 'diningTable', 'customer', 'outlet'])
             ->where('invoice', $invoice)
             ->firstOrFail();
         $this->ensureUserCanAccessOutlet($request, $transaction->outlet_id);
@@ -124,7 +124,7 @@ class DocumentController extends Controller
     {
         $this->ensureFontDirectory();
 
-        $transaction = Transaction::with(['details.product', 'details.modifiers', 'customer', 'cashier', 'outlet'])
+        $transaction = Transaction::with(['details.product', 'details.modifiers', 'customer', 'cashier', 'waiter', 'diningTable', 'outlet'])
             ->where('invoice', $invoice)
             ->firstOrFail();
         $this->ensureUserCanAccessOutlet($request, $transaction->outlet_id);

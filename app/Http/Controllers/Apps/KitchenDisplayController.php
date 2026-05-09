@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\KitchenStation;
 use App\Models\KitchenStationDevice;
 use App\Models\KitchenTicket;
+use App\Models\TransactionTenantAllocation;
 use App\Services\OutletResolver;
 use App\Services\PrintJobService;
 use Illuminate\Http\JsonResponse;
@@ -213,6 +214,26 @@ class KitchenDisplayController extends Controller
             ],
             'created_at' => now(),
         ]);
+
+        TransactionTenantAllocation::query()
+            ->where('transaction_id', $kitchenTicket->transaction_id)
+            ->whereIn(
+                'tenant_outlet_id',
+                $kitchenTicket->items()
+                    ->with('transactionDetail:id,tenant_outlet_id')
+                    ->get()
+                    ->pluck('transactionDetail.tenant_outlet_id')
+                    ->filter()
+                    ->map(fn ($id) => (int) $id)
+                    ->unique()
+                    ->values()
+                    ->all()
+            )
+            ->update([
+                'kitchen_status' => 'completed',
+                'waiter_status' => 'ready',
+                'ready_at' => now(),
+            ]);
 
         return back()->with('success', 'Ticket dapur selesai.');
     }

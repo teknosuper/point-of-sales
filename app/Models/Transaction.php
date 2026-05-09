@@ -17,6 +17,8 @@ class Transaction extends Model
         'cashier_shift_id' => 'integer',
         'outlet_id' => 'integer',
         'customer_id' => 'integer',
+        'waiter_id' => 'integer',
+        'table_id' => 'integer',
         'cash' => 'integer',
         'change' => 'integer',
         'discount' => 'integer',
@@ -39,6 +41,9 @@ class Transaction extends Model
         'cashier_shift_id',
         'outlet_id',
         'customer_id',
+        'order_type',
+        'waiter_id',
+        'table_id',
         'invoice',
         'cash',
         'change',
@@ -86,6 +91,16 @@ class Transaction extends Model
     public function cashier()
     {
         return $this->belongsTo(User::class, 'cashier_id');
+    }
+
+    public function waiter()
+    {
+        return $this->belongsTo(User::class, 'waiter_id');
+    }
+
+    public function diningTable()
+    {
+        return $this->belongsTo(DiningTable::class, 'table_id');
     }
 
     public function cashierShift()

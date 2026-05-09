@@ -15,17 +15,27 @@ class DatabaseSeeder extends Seeder
     {
         app(PermissionRegistrar::class)->forgetCachedPermissions();
 
-        $this->call([
+        $defaultSeeders = [
             PermissionSeeder::class,
             RoleSeeder::class,
             UserSeeder::class,
             PaymentSettingSeeder::class,
             OutletKitchenSeeder::class,
-            SampleDataSeeder::class,
-            OperationalCoreSeeder::class,
-            FeatureCoverageSeeder::class,
             DemoInitialSetupSeeder::class,
-        ]);
+        ];
+
+        $this->call($defaultSeeders);
+
+        if (env('SEED_RETAIL_SAMPLE_DATA', false)) {
+            $this->command?->warn('SEED_RETAIL_SAMPLE_DATA aktif: menjalankan sample retail lama.');
+
+            $this->call([
+                SampleDataSeeder::class,
+                OperationalCoreSeeder::class,
+                FeatureCoverageSeeder::class,
+                DemoInitialSetupSeeder::class,
+            ]);
+        }
 
         app(PermissionRegistrar::class)->forgetCachedPermissions();
     }

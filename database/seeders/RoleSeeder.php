@@ -33,6 +33,7 @@ class RoleSeeder extends Seeder
         $this->createRoleWithPermissions('crm-reminders-access', '%crm-reminders%');
         $this->createRoleWithPermissions('transactions-access', '%transactions%');
         $this->createRoleWithPermissions('transactions-confirm-payment', 'transactions-confirm-payment');
+        $this->createRoleWithPermissions('waiter-board-access', 'waiter-board-access');
         $this->createRoleWithPermissions('receivables-access', '%receivables%');
         $this->createRoleWithPermissions('payables-access', '%payables%');
         $this->createRoleWithPermissions('suppliers-access', '%suppliers%');
@@ -69,6 +70,20 @@ class RoleSeeder extends Seeder
             'suppliers-access',
         ])->get();
         $cashierRole->syncPermissions($cashierPermissions);
+
+        $waiterRole = Role::firstOrCreate(['name' => 'waiter']);
+        $waiterPermissions = Permission::whereIn('name', [
+            'dashboard-access',
+            'transactions-access',
+            'waiter-board-access',
+        ])->get();
+        $waiterRole->syncPermissions($waiterPermissions);
+
+        $kitchenRole = Role::firstOrCreate(['name' => 'kitchen-operator']);
+        $kitchenPermissions = Permission::whereIn('name', [
+            'dashboard-access',
+        ])->get();
+        $kitchenRole->syncPermissions($kitchenPermissions);
 
         app(PermissionRegistrar::class)->forgetCachedPermissions();
     }

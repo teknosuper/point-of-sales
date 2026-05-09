@@ -27,6 +27,7 @@ class User extends Authenticatable
         'avatar',
         'preferred_workspace',
         'preferred_kitchen_station_id',
+        'waiter_service_scope',
     ];
 
     /**
@@ -127,6 +128,12 @@ class User extends Authenticatable
             ->withTimestamps();
     }
 
+    public function waiterTenantOutlets()
+    {
+        return $this->belongsToMany(Outlet::class, 'user_waiter_tenant_outlet', 'user_id', 'tenant_outlet_id')
+            ->withTimestamps();
+    }
+
     public function hasAccessToOutlet(int $outletId): bool
     {
         if ($this->isSuperAdmin()) {
@@ -145,6 +152,16 @@ class User extends Authenticatable
     public function isKitchenWorkspace(): bool
     {
         return $this->preferred_workspace === 'kitchen';
+    }
+
+    public function isWaiter(): bool
+    {
+        return $this->hasRole('waiter');
+    }
+
+    public function servesAllTenantOutlets(): bool
+    {
+        return ($this->waiter_service_scope ?? 'outlet_all') === 'outlet_all';
     }
 
     public function auditLogs()

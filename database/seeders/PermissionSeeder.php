@@ -76,6 +76,7 @@ class PermissionSeeder extends Seeder
         // permission transactions
         $create('transactions-access');
         $create('transactions-confirm-payment');
+        $create('waiter-board-access');
 
         // permission receivables & payables
         $create('receivables-access');

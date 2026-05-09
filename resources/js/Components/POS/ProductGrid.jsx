@@ -99,6 +99,15 @@ function ProductCard({ product, onAddToCart, isAdding }) {
 
             {/* Product Info */}
             <div className="flex-1 p-3 flex flex-col justify-between min-h-[80px]">
+                {product.tenant_outlet?.name && (
+                    <div className="mb-2">
+                        <span className="inline-flex max-w-full items-center rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                            <span className="truncate">
+                                {product.tenant_outlet.name}
+                            </span>
+                        </span>
+                    </div>
+                )}
                 <h3 className="text-sm font-medium text-slate-800 dark:text-slate-200 line-clamp-2 leading-tight">
                     {product.title}
                 </h3>

@@ -79,6 +79,7 @@ class FoodcourtTenantAllocationService
                 'grand_total' => $grandTotal,
                 'payment_status' => (string) ($transaction->payment_status ?: 'paid'),
                 'kitchen_status' => $tenantDetails->contains(fn (TransactionDetail $detail) => $detail->kitchen_station_id) ? 'pending' : 'not_required',
+                'waiter_status' => $tenantDetails->contains(fn (TransactionDetail $detail) => $detail->kitchen_station_id) ? ($allocation->waiter_status ?: 'pending') : 'not_required',
             ]);
             $allocation->save();
 

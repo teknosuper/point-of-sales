@@ -37,6 +37,37 @@ class UserRequest extends FormRequest
             'primary_outlet_id' => ['nullable', 'integer', 'exists:outlets,id'],
             'preferred_workspace' => ['nullable', Rule::in(['standard', 'kitchen'])],
             'preferred_kitchen_station_id' => ['nullable', 'integer', 'exists:kitchen_stations,id'],
+            'waiter_service_scope' => ['nullable', Rule::in(['outlet_all', 'tenant_only'])],
+            'waiter_tenant_outlet_ids' => ['nullable', 'array'],
+            'waiter_tenant_outlet_ids.*' => ['integer', 'exists:outlets,id'],
         ];
+    }
+
+    public function withValidator($validator): void
+    {
+        $validator->after(function ($validator) {
+            $selectedRoles = collect($this->input('selectedRoles', []))
+                ->filter()
+                ->values();
+
+            if (! $selectedRoles->contains('waiter')) {
+                return;
+            }
+
+            if ($this->input('waiter_service_scope', 'outlet_all') !== 'tenant_only') {
+                return;
+            }
+
+            $tenantOutletIds = collect($this->input('waiter_tenant_outlet_ids', []))
+                ->filter()
+                ->values();
+
+            if ($tenantOutletIds->isEmpty()) {
+                $validator->errors()->add(
+                    'waiter_tenant_outlet_ids',
+                    'Pilih minimal satu tenant/dapur untuk waiter dengan cakupan per dapur.'
+                );
+            }
+        });
     }
 }

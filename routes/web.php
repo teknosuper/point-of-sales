@@ -23,6 +23,7 @@ use App\Http\Controllers\Apps\StockMutationController;
 use App\Http\Controllers\Apps\StockOpnameController;
 use App\Http\Controllers\Apps\SupplierReturnController;
 use App\Http\Controllers\Apps\TransactionController;
+use App\Http\Controllers\Apps\WaiterBoardController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\OutletContextController;
@@ -318,6 +319,10 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
 
     // confirm payment for bank transfer
     Route::patch('/transactions/{transaction}/confirm-payment', [TransactionController::class, 'confirmPayment'])->middleware(['permission:transactions-confirm-payment', 'step_up', 'outlet_access'])->name('transactions.confirm-payment');
+    Route::get('/waiter-board', [WaiterBoardController::class, 'index'])->middleware(['permission:waiter-board-access', 'outlet_access'])->name('waiter-board.index');
+    Route::post('/waiter-board/{allocation}/assign', [WaiterBoardController::class, 'assign'])->middleware(['permission:waiter-board-access', 'outlet_access'])->name('waiter-board.assign');
+    Route::post('/waiter-board/{allocation}/pick-up', [WaiterBoardController::class, 'pickUp'])->middleware(['permission:waiter-board-access', 'outlet_access'])->name('waiter-board.pick-up');
+    Route::post('/waiter-board/{allocation}/deliver', [WaiterBoardController::class, 'deliver'])->middleware(['permission:waiter-board-access', 'outlet_access'])->name('waiter-board.deliver');
 
     // reports
     Route::get('/reports/sales', [SalesReportController::class, 'index'])->middleware('permission:reports-access')->name('reports.sales.index');

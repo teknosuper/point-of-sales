@@ -26,7 +26,11 @@ class UserController extends Controller
     {
         // get all users data
         $users = User::query()
-            ->with(['roles', 'outlets' => fn ($query) => $query->select('outlets.id', 'name', 'code')])
+            ->with([
+                'roles',
+                'outlets' => fn ($query) => $query->select('outlets.id', 'name', 'code'),
+                'waiterTenantOutlets' => fn ($query) => $query->select('outlets.id', 'name', 'code'),
+            ])
             ->when(request()->search, fn ($query) => $query->where('name', 'like', '%'.request()->search.'%'))
             ->select('id', 'name', 'avatar', 'email')
             ->latest()
@@ -54,6 +58,9 @@ class UserController extends Controller
             ->active()
             ->ordered()
             ->get(['id', 'name', 'code', 'outlet_type']);
+        $tenantOutlets = $outlets
+            ->where('outlet_type', 'tenant')
+            ->values();
         $kitchenStations = KitchenStation::query()
             ->where('is_active', true)
             ->with('outlet:id,name,code')
@@ -66,6 +73,7 @@ class UserController extends Controller
         return Inertia::render('Dashboard/Users/Create', [
             'roles' => $roles,
             'outlets' => $outlets,
+            'tenantOutlets' => $tenantOutlets,
             'kitchenStations' => $kitchenStations,
         ]);
     }
@@ -97,11 +105,20 @@ class UserController extends Controller
             'preferred_kitchen_station_id' => $request->input('preferred_workspace') === 'kitchen'
                 ? ($request->input('preferred_kitchen_station_id') ?: null)
                 : null,
+            'waiter_service_scope' => in_array('waiter', $request->input('selectedRoles', []), true)
+                ? $request->input('waiter_service_scope', 'outlet_all')
+                : 'outlet_all',
         ]);
 
         // assign role to user
         $user->assignRole($request->selectedRoles);
         $this->syncUserOutlets($user, $request->input('selectedOutlets', []), $request->input('primary_outlet_id'));
+        $this->syncWaiterTenantOutlets(
+            $user,
+            $request->input('selectedRoles', []),
+            $request->input('waiter_service_scope', 'outlet_all'),
+            $request->input('waiter_tenant_outlet_ids', [])
+        );
 
         $this->auditLogService->log(
             event: 'user.created',
@@ -109,7 +126,7 @@ class UserController extends Controller
             auditable: $user,
             description: 'Pengguna baru dibuat.',
             after: $this->userPayload(
-                $user->fresh(['outlets:id,name,code']),
+                $user->fresh(['outlets:id,name,code', 'waiterTenantOutlets:id,name,code']),
                 $this->auditLogService->roleNames($request->selectedRoles),
                 $avatarPath !== null
             ),
@@ -133,6 +150,9 @@ class UserController extends Controller
             ->active()
             ->ordered()
             ->get(['id', 'name', 'code', 'outlet_type']);
+        $tenantOutlets = $outlets
+            ->where('outlet_type', 'tenant')
+            ->values();
         $kitchenStations = KitchenStation::query()
             ->where('is_active', true)
             ->with('outlet:id,name,code')
@@ -146,6 +166,7 @@ class UserController extends Controller
             'roles' => fn ($query) => $query->select('id', 'name'),
             'roles.permissions' => fn ($query) => $query->select('id', 'name'),
             'outlets' => fn ($query) => $query->select('outlets.id', 'name', 'code'),
+            'waiterTenantOutlets' => fn ($query) => $query->select('outlets.id', 'name', 'code'),
         ]);
 
         // render view
@@ -153,6 +174,7 @@ class UserController extends Controller
             'roles' => $roles,
             'user' => $user,
             'outlets' => $outlets,
+            'tenantOutlets' => $tenantOutlets,
             'kitchenStations' => $kitchenStations,
         ]);
     }
@@ -199,14 +221,27 @@ class UserController extends Controller
             'preferred_kitchen_station_id' => $request->input('preferred_workspace') === 'kitchen'
                 ? ($request->input('preferred_kitchen_station_id') ?: null)
                 : null,
+            'waiter_service_scope' => in_array('waiter', $request->input('selectedRoles', []), true)
+                ? $request->input('waiter_service_scope', 'outlet_all')
+                : 'outlet_all',
         ]);
 
         // assign role to user
         $user->syncRoles($request->selectedRoles);
         $this->syncUserOutlets($user, $request->input('selectedOutlets', []), $request->input('primary_outlet_id'));
+        $this->syncWaiterTenantOutlets(
+            $user,
+            $request->input('selectedRoles', []),
+            $request->input('waiter_service_scope', 'outlet_all'),
+            $request->input('waiter_tenant_outlet_ids', [])
+        );
 
         $afterRoles = $this->auditLogService->roleNames($request->selectedRoles);
-        $after = $this->userPayload($user->fresh(['outlets:id,name,code']), $afterRoles, $avatarChanged);
+        $after = $this->userPayload(
+            $user->fresh(['outlets:id,name,code', 'waiterTenantOutlets:id,name,code']),
+            $afterRoles,
+            $avatarChanged
+        );
 
         $this->auditLogService->log(
             event: 'user.updated',
@@ -265,8 +300,16 @@ class UserController extends Controller
             'roles' => array_values($roles),
             'preferred_workspace' => $user->preferred_workspace,
             'preferred_kitchen_station_id' => $user->preferred_kitchen_station_id,
+            'waiter_service_scope' => $user->waiter_service_scope ?? 'outlet_all',
             'outlets' => $user->relationLoaded('outlets')
                 ? $user->outlets->map(fn ($outlet) => [
+                    'id' => $outlet->id,
+                    'name' => $outlet->name,
+                    'code' => $outlet->code,
+                ])->values()->all()
+                : [],
+            'waiter_tenant_outlets' => $user->relationLoaded('waiterTenantOutlets')
+                ? $user->waiterTenantOutlets->map(fn ($outlet) => [
                     'id' => $outlet->id,
                     'name' => $outlet->name,
                     'code' => $outlet->code,
@@ -324,5 +367,30 @@ class UserController extends Controller
                 'preferred_kitchen_station_id' => 'Station dapur default harus berada di salah satu outlet yang dipilih.',
             ]);
         }
+    }
+
+    private function syncWaiterTenantOutlets(
+        User $user,
+        array $selectedRoles = [],
+        string $scope = 'outlet_all',
+        array $tenantOutletIds = []
+    ): void {
+        if (! in_array('waiter', $selectedRoles, true) || $scope !== 'tenant_only') {
+            $user->waiterTenantOutlets()->sync([]);
+
+            return;
+        }
+
+        $allowedOutletIds = $user->outlets()->pluck('outlets.id')->map(fn ($id) => (int) $id);
+
+        $syncIds = collect($tenantOutletIds)
+            ->filter()
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->filter(fn (int $id) => $allowedOutletIds->contains($id))
+            ->values()
+            ->all();
+
+        $user->waiterTenantOutlets()->sync($syncIds);
     }
 }

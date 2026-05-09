@@ -7,6 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Cart;
 use App\Models\Customer;
 use App\Models\CustomerVoucher;
+use App\Models\DiningTable;
 use App\Models\Outlet;
 use App\Models\PaymentSetting;
 use App\Models\Product;
@@ -93,9 +94,22 @@ class TransactionController extends Controller
             ...$customer->toArray(),
             'loyalty_tier' => $this->loyaltyService->resolvedTier($customer, $outlet?->id),
         ]);
+        $diningTables = DiningTable::query()
+            ->where('outlet_id', $outlet?->id)
+            ->where('status', 'active')
+            ->orderBy('sort_order')
+            ->orderBy('name')
+            ->get(['id', 'name', 'code', 'capacity'])
+            ->map(fn (DiningTable $table) => [
+                'id' => $table->id,
+                'name' => $table->name,
+                'code' => $table->code,
+                'capacity' => (int) $table->capacity,
+            ])
+            ->values();
 
         // get all products with categories for product grid
-        $productsQuery = Product::with(['category:id,name', 'modifierOptions'])
+        $productsQuery = Product::with(['category:id,name', 'modifierOptions', 'tenantOutlet:id,name,code'])
             ->select('id', 'barcode', 'title', 'description', 'image', 'buy_price', 'sell_price', 'stock', 'category_id', 'tenant_outlet_id', 'supports_modifiers')
             ->orderBy('title')
             ->when($outlet && Schema::hasTable('product_outlet_stocks'), function ($query) use ($outlet) {
@@ -128,6 +142,11 @@ class TransactionController extends Controller
                     ])
                     ->values()
                     ->all(),
+                'tenant_outlet' => $product->tenantOutlet ? [
+                    'id' => $product->tenantOutlet->id,
+                    'name' => $product->tenantOutlet->name,
+                    'code' => $product->tenantOutlet->code,
+                ] : null,
                 'pricing_badge' => $pricing && ! empty($pricing['pricing_rule']) ? [
                     'label' => $pricing['pricing_rule']['label'],
                     'promo_price' => $pricing['pricing_rule']['price_context']
@@ -170,6 +189,7 @@ class TransactionController extends Controller
             'carts_total' => $carts_total,
             'heldCarts' => $heldCarts,
             'customers' => $customers,
+            'diningTables' => $diningTables,
             'products' => $products,
             'categories' => $categories,
             'initialPricingPreview' => $initialPricingPreview,
@@ -270,6 +290,7 @@ class TransactionController extends Controller
     public function addToCart(Request $request)
     {
         $outlet = $this->resolveActiveOutlet($request);
+        $forceNew = $request->boolean('force_new');
 
         // Cari produk berdasarkan ID yang diberikan
         $product = Product::whereId($request->product_id)->first();
@@ -303,14 +324,17 @@ class TransactionController extends Controller
         }
 
         // Cek keranjang
-        $cart = Cart::with('product.modifierOptions', 'tenantOutlet:id,name,code', 'modifiers')
-            ->where('product_id', $request->product_id)
-            ->where('cashier_id', auth()->user()->id)
-            ->when($outlet, fn ($query) => $query->where('outlet_id', $outlet->id))
-            ->whereNull('notes')
-            ->whereDoesntHave('modifiers')
-            ->active()
-            ->first();
+        $cart = null;
+        if (! $forceNew) {
+            $cart = Cart::with('product.modifierOptions', 'tenantOutlet:id,name,code', 'modifiers')
+                ->where('product_id', $request->product_id)
+                ->where('cashier_id', auth()->user()->id)
+                ->when($outlet, fn ($query) => $query->where('outlet_id', $outlet->id))
+                ->whereNull('notes')
+                ->whereDoesntHave('modifiers')
+                ->active()
+                ->first();
+        }
 
         if ($cart) {
             // Tingkatkan qty
@@ -858,6 +882,10 @@ class TransactionController extends Controller
      */
     public function store(Request $request, PaymentGatewayManager $paymentGatewayManager)
     {
+        $validatedMeta = $request->validate([
+            'order_type' => ['nullable', 'in:dine_in,take_away'],
+            'table_id' => ['nullable', 'exists:dining_tables,id'],
+        ]);
         $isPayLater = $request->boolean('pay_later');
         $paymentGateway = $isPayLater ? null : $request->input('payment_gateway');
         if ($paymentGateway) {
@@ -892,6 +920,8 @@ class TransactionController extends Controller
         $isCashPayment = empty($paymentGateway) && ! $isPayLater;
         $manualDiscount = max(0, (int) $request->input('discount', 0));
         $shippingCost = max(0, (int) $request->input('shipping_cost', 0));
+        $orderType = $validatedMeta['order_type'] ?? 'take_away';
+        $tableId = $orderType === 'dine_in' ? ($validatedMeta['table_id'] ?? null) : null;
         $requestedRedeemPoints = max(0, (int) $request->input('redeem_points', 0));
         $cashAmount = $isCashPayment ? max(0, (int) $request->cash) : 0;
         $customer = $request->filled('customer_id')
@@ -913,7 +943,9 @@ class TransactionController extends Controller
             $requestedRedeemPoints,
             $customer,
             $voucher,
-            $outlet
+            $outlet,
+            $orderType,
+            $tableId
         ) {
             $activeShift = $this->cashierShiftService->requireActiveShiftForUser(
                 auth()->user()->id,
@@ -929,6 +961,21 @@ class TransactionController extends Controller
 
             if ($carts->isEmpty()) {
                 abort(422, 'Keranjang kosong.');
+            }
+
+            if ($orderType === 'dine_in') {
+                if (! $tableId) {
+                    abort(422, 'Meja wajib dipilih untuk transaksi dine in.');
+                }
+
+                $table = DiningTable::query()
+                    ->where('outlet_id', $outlet?->id)
+                    ->where('status', 'active')
+                    ->find($tableId);
+
+                if (! $table) {
+                    abort(422, 'Meja tidak ditemukan atau tidak aktif.');
+                }
             }
 
             $pricingPreview = $this->pricingService->previewCart($carts, $customer, outletId: $outlet?->id);
@@ -951,6 +998,8 @@ class TransactionController extends Controller
                 'cashier_shift_id' => $activeShift->id,
                 'outlet_id' => $outlet?->id,
                 'customer_id' => $request->customer_id,
+                'order_type' => $orderType,
+                'table_id' => $tableId,
                 'invoice' => $invoice,
                 'cash' => $cashAmount,
                 'change' => $changeAmount,
@@ -1044,7 +1093,7 @@ class TransactionController extends Controller
                 ]);
             }
 
-            return $transaction->fresh(['customer']);
+            return $transaction->fresh(['customer', 'waiter', 'diningTable']);
         });
 
         if ($paymentGateway) {
@@ -1073,6 +1122,8 @@ class TransactionController extends Controller
             'details.modifiers',
             'details.pricingRule',
             'cashier',
+            'waiter',
+            'diningTable',
             'customer',
             'receivable',
             'bankAccount',
@@ -1242,4 +1293,5 @@ class TransactionController extends Controller
             ->active()
             ->first();
     }
+
 }

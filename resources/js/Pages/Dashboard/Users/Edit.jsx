@@ -14,7 +14,13 @@ import toast from "react-hot-toast";
 import { useState } from "react";
 
 export default function Edit() {
-    const { roles, user, outlets = [], kitchenStations = [] } = usePage().props;
+    const {
+        roles,
+        user,
+        outlets = [],
+        tenantOutlets = [],
+        kitchenStations = [],
+    } = usePage().props;
 
     const selectedOutletIds = user.outlets?.map((outlet) => outlet.id) ?? [];
     const primaryOutletId =
@@ -30,6 +36,9 @@ export default function Edit() {
         primary_outlet_id: primaryOutletId,
         preferred_workspace: user.preferred_workspace || "standard",
         preferred_kitchen_station_id: user.preferred_kitchen_station_id || "",
+        waiter_service_scope: user.waiter_service_scope || "outlet_all",
+        waiter_tenant_outlet_ids:
+            user.waiter_tenant_outlets?.map((outlet) => outlet.id) || [],
         avatar: null,
         _method: "PUT",
     });
@@ -62,6 +71,19 @@ export default function Edit() {
         }
     };
 
+    const setSelectedWaiterTenantOutlets = (e) => {
+        const value = Number(e.target.value);
+        let items = [...data.waiter_tenant_outlet_ids];
+
+        if (items.includes(value)) {
+            items = items.filter((id) => id !== value);
+        } else {
+            items.push(value);
+        }
+
+        setData("waiter_tenant_outlet_ids", items);
+    };
+
     const submit = (e) => {
         e.preventDefault();
         post(route("users.update", user.id), {
@@ -72,6 +94,10 @@ export default function Edit() {
 
     const availableKitchenStations = kitchenStations.filter((station) =>
         data.selectedOutlets.includes(Number(station.outlet_id))
+    );
+    const isWaiterSelected = data.selectedRoles.includes("waiter");
+    const accessibleTenantOutlets = tenantOutlets.filter((outlet) =>
+        data.selectedOutlets.includes(outlet.id)
     );
 
     return (
@@ -348,6 +374,111 @@ export default function Edit() {
                             )}
                         </div>
                     </div>
+
+                    {isWaiterSelected && (
+                        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6">
+                            <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-4">
+                                Cakupan Waiter
+                            </h3>
+                            <div className="space-y-4">
+                                <div className="grid gap-3 md:grid-cols-2">
+                                    {[
+                                        {
+                                            value: "outlet_all",
+                                            label: "Semua Dapur Outlet",
+                                            description:
+                                                "Waiter bisa melayani semua tenant/dapur di outlet ini.",
+                                        },
+                                        {
+                                            value: "tenant_only",
+                                            label: "Dapur Tertentu",
+                                            description:
+                                                "Waiter hanya bisa melayani tenant yang dipilih di bawah.",
+                                        },
+                                    ].map((option) => (
+                                        <button
+                                            key={option.value}
+                                            type="button"
+                                            onClick={() =>
+                                                setData(
+                                                    "waiter_service_scope",
+                                                    option.value
+                                                )
+                                            }
+                                            className={`rounded-xl border px-4 py-3 text-left transition-colors ${
+                                                data.waiter_service_scope ===
+                                                option.value
+                                                    ? "border-primary-500 bg-primary-50 dark:bg-primary-950/30"
+                                                    : "border-slate-200 dark:border-slate-700"
+                                            }`}
+                                        >
+                                            <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                                                {option.label}
+                                            </p>
+                                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                {option.description}
+                                            </p>
+                                        </button>
+                                    ))}
+                                </div>
+                                {data.waiter_service_scope ===
+                                    "tenant_only" && (
+                                    <div>
+                                        <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                            Tenant / Dapur yang Dilayani
+                                        </label>
+                                        <div className="grid gap-3 md:grid-cols-2">
+                                            {accessibleTenantOutlets.map(
+                                                (outlet) => (
+                                                    <label
+                                                        key={outlet.id}
+                                                        className={`flex items-start gap-3 rounded-xl border px-4 py-3 transition-all ${
+                                                            data.waiter_tenant_outlet_ids.includes(
+                                                                outlet.id
+                                                            )
+                                                                ? "border-primary-500 bg-primary-50 dark:bg-primary-950/50"
+                                                                : "border-slate-200 dark:border-slate-700"
+                                                        }`}
+                                                    >
+                                                        <Checkbox
+                                                            value={String(
+                                                                outlet.id
+                                                            )}
+                                                            onChange={
+                                                                setSelectedWaiterTenantOutlets
+                                                            }
+                                                            checked={data.waiter_tenant_outlet_ids.includes(
+                                                                outlet.id
+                                                            )}
+                                                        />
+                                                        <div>
+                                                            <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                                                                {outlet.code} -{" "}
+                                                                {outlet.name}
+                                                            </p>
+                                                        </div>
+                                                    </label>
+                                                )
+                                            )}
+                                        </div>
+                                        {accessibleTenantOutlets.length ===
+                                        0 ? (
+                                            <p className="mt-2 text-xs text-amber-600 dark:text-amber-300">
+                                                Pilih akses outlet tenant dulu agar waiter bisa dibatasi per dapur.
+                                            </p>
+                                        ) : null}
+                                        {errors.waiter_tenant_outlet_ids && (
+                                            <p className="mt-2 text-xs text-danger-500">
+                                                {
+                                                    errors.waiter_tenant_outlet_ids
+                                                }
+                                            </p>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
 
                     {/* Submit */}
                     <div className="flex justify-end gap-3">

@@ -32,6 +32,7 @@ import {
     IconBuildingBank,
     IconAlertTriangle,
     IconWallet,
+    IconX,
 } from "@tabler/icons-react";
 
 const formatPrice = (value = 0) =>
@@ -57,6 +58,7 @@ export default function Index({
     carts_total = 0,
     heldCarts = [],
     customers = [],
+    diningTables = [],
     products = [],
     categories = [],
     initialPricingPreview = { items: [], summary: {} },
@@ -87,7 +89,15 @@ export default function Index({
     const [savingNoteCartId, setSavingNoteCartId] = useState(null);
     const [modifierDrafts, setModifierDrafts] = useState({});
     const [savingModifierCartId, setSavingModifierCartId] = useState(null);
+    const [modifierModalProduct, setModifierModalProduct] = useState(null);
+    const [selectedModifierOptionIds, setSelectedModifierOptionIds] = useState(
+        []
+    );
+    const [isModifierModalSubmitting, setIsModifierModalSubmitting] =
+        useState(false);
     const [selectedCustomer, setSelectedCustomer] = useState(WALK_IN_CUSTOMER);
+    const [orderType, setOrderType] = useState("take_away");
+    const [selectedTableId, setSelectedTableId] = useState("");
     const [pricingPreview, setPricingPreview] = useState(initialPricingPreview);
     const [isLoadingPricing, setIsLoadingPricing] = useState(false);
     const [redeemPointsInput, setRedeemPointsInput] = useState("");
@@ -296,6 +306,12 @@ export default function Index({
     }, [selectedCustomer?.id, selectedCustomer?.is_loyalty_member]);
 
     useEffect(() => {
+        if (orderType !== "dine_in") {
+            setSelectedTableId("");
+        }
+    }, [orderType]);
+
+    useEffect(() => {
         const eligibleVoucherIds = new Set(
             (pricingPreview?.eligible_vouchers || []).map((voucher) =>
                 String(voucher.id)
@@ -341,61 +357,95 @@ export default function Index({
         });
     };
 
-    // Handle add product to cart
-    const handleAddToCart = async (product) => {
+    const hasPresetModifiers = useCallback(
+        (product) => Array.isArray(product?.modifier_options) && product.modifier_options.length > 0,
+        []
+    );
+
+    const addProductToCart = useCallback(async (product, options = {}) => {
         if (!product?.id) return;
+        const modifiers = Array.isArray(options.modifiers)
+            ? options.modifiers.filter((item) => item?.name)
+            : [];
+        const shouldForceNew = modifiers.length > 0;
 
         setAddingProductId(product.id);
         setPendingCartMutations((count) => count + 1);
         const previousCarts = localCarts;
         const tempId = `temp-${product.id}-${Date.now()}`;
 
-        setLocalCarts((currentCarts) => {
-            const existingCart = currentCarts.find(
-                (item) =>
-                    item.product_id === product.id &&
-                    !(item.notes || "").trim() &&
-                    (!item.modifiers || item.modifiers.length === 0)
-            );
-
-            if (existingCart) {
-                return currentCarts.map((item) =>
-                    item.product_id === product.id
-                        ? {
-                              ...item,
-                              qty: Number(item.qty || 0) + 1,
-                              price:
-                                  Number(item.product?.sell_price || product.sell_price || 0) *
-                                  (Number(item.qty || 0) + 1),
-                          }
-                        : item
+        if (!shouldForceNew) {
+            setLocalCarts((currentCarts) => {
+                const existingCart = currentCarts.find(
+                    (item) =>
+                        item.product_id === product.id &&
+                        !(item.notes || "").trim() &&
+                        (!item.modifiers || item.modifiers.length === 0)
                 );
-            }
 
-            return [
-                {
-                    id: tempId,
-                    product_id: product.id,
-                    qty: 1,
-                    price: Number(product.sell_price || 0),
-                    product: {
-                        ...product,
+                if (existingCart) {
+                    return currentCarts.map((item) =>
+                        item.product_id === product.id
+                            ? {
+                                  ...item,
+                                  qty: Number(item.qty || 0) + 1,
+                                  price:
+                                      Number(
+                                          item.product?.sell_price ||
+                                              product.sell_price ||
+                                              0
+                                      ) *
+                                      (Number(item.qty || 0) + 1),
+                              }
+                            : item
+                    );
+                }
+
+                return [
+                    {
+                        id: tempId,
+                        product_id: product.id,
+                        qty: 1,
+                        price: Number(product.sell_price || 0),
+                        product: {
+                            ...product,
+                        },
+                        tenant_outlet_id: product.tenant_outlet_id || null,
+                        is_optimistic: true,
                     },
-                    tenant_outlet_id: product.tenant_outlet_id || null,
-                    is_optimistic: true,
-                },
-                ...currentCarts,
-            ];
-        });
+                    ...currentCarts,
+                ];
+            });
+        }
 
-        axios
+        return axios
             .post(route("transactions.addToCart"), {
                 product_id: product.id,
                 sell_price: product.sell_price,
                 qty: 1,
+                force_new: shouldForceNew,
             })
-            .then((response) => {
-                const serverCart = response.data?.data?.cart;
+            .then(async (response) => {
+                let serverCart = response.data?.data?.cart;
+
+                if (serverCart && modifiers.length > 0) {
+                    for (const modifier of modifiers) {
+                        const modifierResponse = await axios.post(
+                            route("transactions.storeCartModifier", serverCart.id),
+                            {
+                                name: modifier.name,
+                                qty: 1,
+                                unit_price: Math.max(
+                                    0,
+                                    Number(modifier.price || 0)
+                                ),
+                            }
+                        );
+
+                        serverCart =
+                            modifierResponse.data?.data?.cart || serverCart;
+                    }
+                }
 
                 if (serverCart) {
                     setLocalCarts((currentCarts) => {
@@ -419,18 +469,84 @@ export default function Index({
 
                 setCartSyncVersion((version) => version + 1);
                 toast.success(`${product.title} ditambahkan`);
+                return true;
             })
             .catch((error) => {
                 setLocalCarts(previousCarts);
                 toast.error(
                     error?.response?.data?.message || "Gagal menambahkan produk"
                 );
+                return false;
             })
             .finally(() => {
                 setPendingCartMutations((count) => Math.max(0, count - 1));
                 setAddingProductId(null);
             });
-    };
+    }, [localCarts]);
+
+    // Handle add product to cart
+    const handleAddToCart = useCallback(
+        (product) => {
+            if (!product?.id) return;
+
+            if (hasPresetModifiers(product)) {
+                setModifierModalProduct(product);
+                setSelectedModifierOptionIds([]);
+                return;
+            }
+
+            addProductToCart(product);
+        },
+        [addProductToCart, hasPresetModifiers]
+    );
+
+    const handleToggleModifierOption = useCallback((optionId) => {
+        setSelectedModifierOptionIds((current) =>
+            current.includes(optionId)
+                ? current.filter((id) => id !== optionId)
+                : [...current, optionId]
+        );
+    }, []);
+
+    const closeModifierModal = useCallback(() => {
+        if (isModifierModalSubmitting) {
+            return;
+        }
+
+        setModifierModalProduct(null);
+        setSelectedModifierOptionIds([]);
+    }, [isModifierModalSubmitting]);
+
+    const submitModifierModal = useCallback(
+        async (includeModifiers) => {
+            if (!modifierModalProduct?.id) {
+                return;
+            }
+
+            const selectedModifiers = includeModifiers
+                ? (modifierModalProduct.modifier_options || []).filter(
+                      (option) =>
+                          selectedModifierOptionIds.includes(option.id)
+                  )
+                : [];
+
+            setIsModifierModalSubmitting(true);
+
+            try {
+                const success = await addProductToCart(modifierModalProduct, {
+                    modifiers: selectedModifiers,
+                });
+
+                if (success) {
+                    setModifierModalProduct(null);
+                    setSelectedModifierOptionIds([]);
+                }
+            } finally {
+                setIsModifierModalSubmitting(false);
+            }
+        },
+        [addProductToCart, modifierModalProduct, selectedModifierOptionIds]
+    );
 
     // Handle update cart quantity
     const [updatingCartId, setUpdatingCartId] = useState(null);
@@ -826,6 +942,11 @@ export default function Index({
             return;
         }
 
+        if (orderType === "dine_in" && !selectedTableId) {
+            toast.error("Pilih meja untuk transaksi dine in");
+            return;
+        }
+
         // Validate bank transfer requires bank selection
         const isBankTransfer = paymentMethod === "bank_transfer";
         if (isBankTransfer && !selectedBankAccount) {
@@ -839,6 +960,11 @@ export default function Index({
             route("transactions.store"),
             {
                 customer_id: selectedCustomer?.is_walk_in ? null : selectedCustomer?.id ?? null,
+                order_type: orderType,
+                table_id:
+                    orderType === "dine_in" && selectedTableId
+                        ? Number(selectedTableId)
+                        : null,
                 discount,
                 redeem_points: Number(redeemPointsInput || 0),
                 customer_voucher_id: selectedVoucherId || null,
@@ -858,6 +984,8 @@ export default function Index({
                     setRedeemPointsInput("");
                     setCashInput("");
                     setSelectedCustomer(WALK_IN_CUSTOMER);
+                    setOrderType("take_away");
+                    setSelectedTableId("");
                     setSelectedBankAccount(null);
                     setSelectedVoucherId("");
                     setPaymentMethod(defaultPaymentGateway ?? "cash");
@@ -1048,6 +1176,75 @@ export default function Index({
                             label="Pelanggan"
                             tierOptions={loyaltyTierOptions}
                         />
+                        <div className="mt-3 space-y-3">
+                            <div>
+                                <label className="mb-2 block text-xs font-medium text-slate-600 dark:text-slate-400">
+                                    Jenis Pesanan
+                                </label>
+                                <div className="grid grid-cols-2 gap-2">
+                                    {[
+                                        {
+                                            value: "take_away",
+                                            label: "Take Away",
+                                        },
+                                        {
+                                            value: "dine_in",
+                                            label: "Dine In",
+                                        },
+                                    ].map((option) => (
+                                        <button
+                                            key={option.value}
+                                            type="button"
+                                            onClick={() =>
+                                                setOrderType(option.value)
+                                            }
+                                            className={`rounded-xl border-2 px-3 py-2.5 text-sm font-semibold transition-colors ${
+                                                orderType === option.value
+                                                    ? "border-primary-500 bg-primary-50 text-primary-700 dark:bg-primary-950/30 dark:text-primary-300"
+                                                    : "border-slate-200 bg-white text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                                            }`}
+                                        >
+                                            {option.label}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                            {orderType === "dine_in" && (
+                                <div>
+                                    <label className="mb-2 block text-xs font-medium text-slate-600 dark:text-slate-400">
+                                        Meja
+                                    </label>
+                                    <select
+                                        value={selectedTableId}
+                                        onChange={(e) =>
+                                            setSelectedTableId(
+                                                e.target.value
+                                            )
+                                        }
+                                        className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                    >
+                                        <option value="">
+                                            Pilih meja
+                                        </option>
+                                        {diningTables.map((table) => (
+                                            <option
+                                                key={table.id}
+                                                value={table.id}
+                                            >
+                                                {table.code
+                                                    ? `${table.code} - ${table.name}`
+                                                    : table.name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    {diningTables.length === 0 ? (
+                                        <p className="mt-2 text-[11px] text-amber-600 dark:text-amber-300">
+                                            Belum ada meja aktif untuk outlet ini.
+                                        </p>
+                                    ) : null}
+                                </div>
+                            )}
+                        </div>
                     </div>
 
                     {/* Held Transactions & Alerts */}
@@ -1971,6 +2168,126 @@ export default function Index({
                     </div>
                 </div>
             </div>
+
+            {modifierModalProduct && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                    <div
+                        className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm"
+                        onClick={closeModifierModal}
+                    />
+                    <div className="relative w-full max-w-md overflow-hidden rounded-3xl bg-white shadow-2xl dark:bg-slate-900">
+                        <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4 dark:border-slate-800">
+                            <div>
+                                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary-500">
+                                    Opsi Tambahan
+                                </p>
+                                <h3 className="mt-1 text-lg font-bold text-slate-900 dark:text-white">
+                                    {modifierModalProduct.title}
+                                </h3>
+                                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                    Pilih topping / extra sebelum item dimasukkan ke keranjang.
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={closeModifierModal}
+                                disabled={isModifierModalSubmitting}
+                                className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 text-slate-500 hover:bg-slate-200 disabled:opacity-50 dark:bg-slate-800 dark:text-slate-300"
+                            >
+                                <IconX size={18} />
+                            </button>
+                        </div>
+
+                        <div className="space-y-3 px-5 py-4">
+                            {(modifierModalProduct.modifier_options || []).map(
+                                (option) => {
+                                    const active =
+                                        selectedModifierOptionIds.includes(
+                                            option.id
+                                        );
+
+                                    return (
+                                        <button
+                                            key={option.id}
+                                            type="button"
+                                            onClick={() =>
+                                                handleToggleModifierOption(
+                                                    option.id
+                                                )
+                                            }
+                                            className={`flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left transition ${
+                                                active
+                                                    ? "border-primary-500 bg-primary-50 dark:border-primary-400 dark:bg-primary-950/30"
+                                                    : "border-slate-200 bg-white hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-slate-600"
+                                            }`}
+                                        >
+                                            <div>
+                                                <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                                                    {option.name}
+                                                </p>
+                                                <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                                                    Tambahan {formatPrice(option.price)}
+                                                </p>
+                                            </div>
+                                            <div
+                                                className={`h-5 w-5 rounded-md border ${
+                                                    active
+                                                        ? "border-primary-500 bg-primary-500"
+                                                        : "border-slate-300 dark:border-slate-600"
+                                                }`}
+                                            />
+                                        </button>
+                                    );
+                                }
+                            )}
+                        </div>
+
+                        <div className="border-t border-slate-200 bg-slate-50 px-5 py-4 dark:border-slate-800 dark:bg-slate-950/40">
+                            <div className="mb-3 flex items-center justify-between text-sm">
+                                <span className="text-slate-500 dark:text-slate-400">
+                                    Total tambahan
+                                </span>
+                                <span className="font-semibold text-primary-600 dark:text-primary-400">
+                                    {formatPrice(
+                                        (modifierModalProduct.modifier_options || [])
+                                            .filter((option) =>
+                                                selectedModifierOptionIds.includes(
+                                                    option.id
+                                                )
+                                            )
+                                            .reduce(
+                                                (sum, option) =>
+                                                    sum +
+                                                    Number(option.price || 0),
+                                                0
+                                            )
+                                    )}
+                                </span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                                <button
+                                    type="button"
+                                    onClick={() => submitModifierModal(false)}
+                                    disabled={isModifierModalSubmitting}
+                                    className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                                >
+                                    Tanpa topping
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => submitModifierModal(true)}
+                                    disabled={isModifierModalSubmitting}
+                                    className="rounded-2xl bg-primary-500 px-4 py-3 text-sm font-semibold text-white hover:bg-primary-600 disabled:opacity-50"
+                                >
+                                    {isModifierModalSubmitting
+                                        ? "Menambahkan..."
+                                        : "Tambah ke keranjang"}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Numpad Modal */}
             <NumpadModal
