@@ -229,17 +229,32 @@ export default function ProductGrid({
 }) {
     const normalizedSelectedCategory =
         selectedCategory === null ? null : Number(selectedCategory);
+    const [selectedTenantOutletId, setSelectedTenantOutletId] = useState(null);
+    const tenantTabs = products
+        .map((product) => product.tenant_outlet)
+        .filter((tenant, index, array) =>
+            tenant?.id &&
+            array.findIndex((item) => Number(item?.id) === Number(tenant.id)) ===
+                index
+        )
+        .sort((a, b) =>
+            String(a?.name || "").localeCompare(String(b?.name || ""), "id")
+        );
 
-    // Filter products by category and search
+    // Filter products by category, tenant, and search
     const filteredProducts = products.filter((product) => {
         const matchesCategory =
             normalizedSelectedCategory === null ||
             Number(product.category_id) === normalizedSelectedCategory;
+        const matchesTenant =
+            selectedTenantOutletId === null ||
+            Number(product.tenant_outlet?.id) ===
+                Number(selectedTenantOutletId);
         const matchesSearch =
             !searchQuery ||
             product.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
             product.barcode?.toLowerCase().includes(searchQuery.toLowerCase());
-        return matchesCategory && matchesSearch;
+        return matchesCategory && matchesTenant && matchesSearch;
     });
 
     return (
@@ -258,8 +273,8 @@ export default function ProductGrid({
             </div>
 
             {/* Category Tabs */}
-            <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800 overflow-x-auto scrollbar-hide">
-                <div className="flex gap-2">
+            <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800">
+                <div className="flex flex-wrap gap-2">
                     <CategoryTab
                         category={{ id: null, name: "Semua" }}
                         isActive={normalizedSelectedCategory === null}
@@ -274,6 +289,33 @@ export default function ProductGrid({
                                 Number(category.id)
                             }
                             onClick={() => onCategoryChange(Number(category.id))}
+                        />
+                    ))}
+                </div>
+            </div>
+
+            {/* Tenant Tabs */}
+            <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800">
+                <div className="flex flex-wrap gap-2">
+                    <CategoryTab
+                        category={{ id: null, name: "Semua Dapur" }}
+                        isActive={selectedTenantOutletId === null}
+                        onClick={() => setSelectedTenantOutletId(null)}
+                    />
+                    {tenantTabs.map((tenant) => (
+                        <CategoryTab
+                            key={tenant.id}
+                            category={{
+                                id: tenant.id,
+                                name: tenant.name,
+                            }}
+                            isActive={
+                                Number(selectedTenantOutletId) ===
+                                Number(tenant.id)
+                            }
+                            onClick={() =>
+                                setSelectedTenantOutletId(Number(tenant.id))
+                            }
                         />
                     ))}
                 </div>
