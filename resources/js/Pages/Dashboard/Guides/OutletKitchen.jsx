@@ -14,11 +14,11 @@ const sections = [
         ],
     },
     {
-        title: "Kapan pakai Kitchen Ops & Printer",
+        title: "Kapan pakai Operasional Dapur & Printer",
         icon: <IconClipboardCheck size={20} className="text-primary-500" />,
         points: [
-            "Saat membuat station dapur seperti minuman, ayam, salad, atau grill.",
-            "Saat menghubungkan station ke layar kitchen, printer thermal, atau tablet.",
+            "Saat membuat stasiun dapur seperti minuman, ayam, salad, atau grill.",
+            "Saat menghubungkan stasiun ke layar dapur, printer thermal, atau tablet.",
             "Saat mengatur driver, endpoint, paper width, template print, dan health check device.",
         ],
     },
@@ -28,7 +28,7 @@ const sections = [
         points: [
             "Saat ingin melihat angka transaksi, revenue, payout tenant, dan performa outlet.",
             "Saat ingin fokus ke satu outlet atau tenant lewat filter outlet.",
-            "Saat ingin lompat ke detail outlet atau kitchen ops dari konteks angka bisnis.",
+            "Saat ingin lompat ke detail outlet atau operasional dapur dari konteks angka bisnis.",
         ],
     },
 ];
@@ -37,16 +37,16 @@ const setupSteps = [
     "Buat outlet utama lebih dulu di menu Outlet & Tenant.",
     "Jika model bisnis foodcourt, buat tenant-tenant sebagai outlet bertipe tenant.",
     "Assign user yang boleh mengelola outlet tersebut.",
-    "Masuk ke Kitchen Ops & Printer lalu buat station dapur untuk outlet yang dipilih.",
-    "Tambahkan device screen atau printer untuk tiap station.",
-    "Atur produk agar tenant outlet dan kitchen station-nya sesuai.",
-    "Uji transaksi dari POS, lalu cek Kitchen Queue dan Settlement Tenant.",
+    "Masuk ke Operasional Dapur & Printer lalu buat stasiun dapur untuk outlet yang dipilih.",
+    "Tambahkan perangkat layar atau printer untuk tiap stasiun.",
+    "Atur produk agar tenant outlet dan stasiun dapurnya sesuai.",
+    "Uji transaksi dari POS, lalu cek Antrean Dapur dan Settlement Tenant.",
 ];
 
 const useCases = [
     {
         title: "Toko biasa dengan banyak dapur",
-        body: "Gunakan satu main outlet, lalu buat banyak kitchen station di dalam outlet itu. Contoh: minuman, ayam, salad.",
+        body: "Gunakan satu outlet utama, lalu buat banyak stasiun dapur di dalam outlet itu. Contoh: minuman, ayam, salad.",
     },
     {
         title: "Foodcourt 1 kasir, banyak tenant",
@@ -61,7 +61,7 @@ const useCases = [
 export default function OutletKitchen({ outletTypes = [], outlets = [] }) {
     return (
         <>
-            <Head title="Panduan Outlet, Tenant & Kitchen" />
+            <Head title="Panduan Outlet, Tenant & Dapur" />
 
             <div className="space-y-6">
                 <div className="flex items-start gap-3">
@@ -70,7 +70,7 @@ export default function OutletKitchen({ outletTypes = [], outlets = [] }) {
                     </div>
                     <div>
                         <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
-                            Panduan Outlet, Tenant & Kitchen
+                            Panduan Outlet, Tenant & Dapur
                         </h1>
                         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                             Panduan operasional untuk membedakan struktur bisnis, operasional dapur, dan statistik agar admin tidak bingung.
@@ -78,31 +78,46 @@ export default function OutletKitchen({ outletTypes = [], outlets = [] }) {
                     </div>
                 </div>
 
-                <div className="grid gap-4 lg:grid-cols-3">
-                    {sections.map((section) => (
-                        <div
-                            key={section.title}
-                            className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900"
-                        >
-                            <div className="mb-3 flex items-center gap-2">
-                                {section.icon}
-                                <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
-                                    {section.title}
-                                </h2>
+                <details className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+                    <summary className="cursor-pointer list-none">
+                        <p className="font-semibold text-slate-900 dark:text-white">
+                            Panduan memilih menu yang tepat
+                        </p>
+                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                            Buka untuk melihat kapan memakai menu outlet, dapur, atau statistik.
+                        </p>
+                    </summary>
+                    <div className="mt-4 grid gap-4 lg:grid-cols-3">
+                        {sections.map((section) => (
+                            <div
+                                key={section.title}
+                                className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900"
+                            >
+                                <div className="mb-3 flex items-center gap-2">
+                                    {section.icon}
+                                    <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+                                        {section.title}
+                                    </h2>
+                                </div>
+                                <div className="space-y-2 text-sm text-slate-600 dark:text-slate-300">
+                                    {section.points.map((point) => (
+                                        <p key={point}>• {point}</p>
+                                    ))}
+                                </div>
                             </div>
-                            <div className="space-y-2 text-sm text-slate-600 dark:text-slate-300">
-                                {section.points.map((point) => (
-                                    <p key={point}>• {point}</p>
-                                ))}
-                            </div>
-                        </div>
-                    ))}
-                </div>
+                        ))}
+                    </div>
+                </details>
 
-                <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
-                    <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
-                        Urutan Setup yang Disarankan
-                    </h2>
+                <details className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+                    <summary className="cursor-pointer list-none">
+                        <p className="font-semibold text-slate-900 dark:text-white">
+                            Urutan setup yang disarankan
+                        </p>
+                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                            Buka untuk melihat langkah implementasi dari outlet sampai dapur.
+                        </p>
+                    </summary>
                     <div className="mt-4 grid gap-3">
                         {setupSteps.map((step, index) => (
                             <div
@@ -116,7 +131,7 @@ export default function OutletKitchen({ outletTypes = [], outlets = [] }) {
                             </div>
                         ))}
                     </div>
-                </div>
+                </details>
 
                 <div className="grid gap-6 xl:grid-cols-2">
                     <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
@@ -164,7 +179,7 @@ export default function OutletKitchen({ outletTypes = [], outlets = [] }) {
 
                 <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
                     <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
-                        Quick Links
+                        Tautan Cepat
                     </h2>
                     <div className="mt-4 flex flex-wrap gap-2">
                         <Link
@@ -183,7 +198,7 @@ export default function OutletKitchen({ outletTypes = [], outlets = [] }) {
                             href={route("settings.kitchen-devices.index")}
                             className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
                         >
-                            Buka Kitchen Ops & Printer
+                            Buka Operasional Dapur & Printer
                         </Link>
                         <Link
                             href={route("reports.outlet-analytics.index")}

@@ -86,9 +86,12 @@ function ProductCard({
     product,
     isSelected,
     onToggle,
+    canSelect = false,
     canUpdate,
     canDelete,
     activeOutletName,
+    showCostAsPrimary = false,
+    showSellPrice = true,
 }) {
     const lowStock = product.stock > 0 && product.stock <= 5;
     const outOfStock = product.stock === 0;
@@ -105,14 +108,16 @@ function ProductCard({
             }`}
         >
             <div className="relative aspect-square overflow-hidden bg-slate-100 dark:bg-slate-800">
-                <div className="absolute left-2 top-2 z-10">
-                    <input
-                        type="checkbox"
-                        checked={isSelected}
-                        onChange={() => onToggle(product)}
-                        className="h-5 w-5 cursor-pointer rounded border-2 border-white bg-white/80 text-primary-500 shadow-sm focus:ring-primary-500"
-                    />
-                </div>
+                {canSelect ? (
+                    <div className="absolute left-2 top-2 z-10">
+                        <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => onToggle(product)}
+                            className="h-5 w-5 cursor-pointer rounded border-2 border-white bg-white/80 text-primary-500 shadow-sm focus:ring-primary-500"
+                        />
+                    </div>
+                ) : null}
 
                 {product.image ? (
                     <img
@@ -193,7 +198,7 @@ function ProductCard({
                                 : "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
                         }`}
                     >
-                        {tenantReady ? "Tenant OK" : "Tenant Belum"}
+                        {tenantReady ? "Tenant Siap" : "Tenant Belum"}
                     </span>
                     <span
                         className={`rounded-md px-2 py-0.5 text-[11px] font-semibold ${
@@ -202,7 +207,7 @@ function ProductCard({
                                 : "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
                         }`}
                     >
-                        {kitchenReady ? "Kitchen OK" : "Kitchen Belum"}
+                        {kitchenReady ? "Dapur Siap" : "Dapur Belum"}
                     </span>
                 </div>
 
@@ -227,13 +232,17 @@ function ProductCard({
 
                 <div className="mt-2 border-t border-slate-100 pt-2 dark:border-slate-800">
                     <p className="text-base font-bold text-primary-600 dark:text-primary-400">
-                        {formatCurrency(product.sell_price)}
+                        {formatCurrency(
+                            showCostAsPrimary ? product.buy_price : product.sell_price
+                        )}
                     </p>
                     <div className="mt-1 flex items-center justify-between">
                         <p className="text-xs text-slate-400 dark:text-slate-500">
-                            Modal: {formatCurrency(product.buy_price)}
+                            {showCostAsPrimary
+                                ? `Harga jual: ${formatCurrency(product.sell_price)}`
+                                : `Harga beli: ${formatCurrency(product.buy_price)}`}
                         </p>
-                        {product.sell_price > product.buy_price ? (
+                        {showSellPrice && product.sell_price > product.buy_price ? (
                             <span className="text-xs font-medium text-success-600 dark:text-success-400">
                                 +{formatCurrency(product.sell_price - product.buy_price)}
                             </span>
@@ -253,7 +262,7 @@ function ProductCard({
 
 export default function Index({ products, filters = {}, setupStatus = {}, meta = {} }) {
     const { can } = useAuthorization();
-    const { activeOutlet } = usePage().props;
+    const { activeOutlet, auth } = usePage().props;
     const [viewMode, setViewMode] = useState("grid");
     const [showFilters, setShowFilters] = useState(false);
     const [showBarcodeModal, setShowBarcodeModal] = useState(false);
@@ -296,6 +305,10 @@ export default function Index({ products, filters = {}, setupStatus = {}, meta =
     const canCreateProducts = can("products-create");
     const canEditProducts = can("products-edit");
     const canDeleteProducts = can("products-delete");
+    const canManagePricing = can("products-pricing-update");
+    const canManageCatalog = canCreateProducts;
+    const isKitchenWorkspace = auth?.user?.preferred_workspace === "kitchen";
+    const showCostAsPrimary = isKitchenWorkspace || !canManagePricing;
 
     const hasActiveFilters = useMemo(
         () =>
@@ -460,6 +473,14 @@ export default function Index({ products, filters = {}, setupStatus = {}, meta =
                             Cetak All Barcode
                         </button>
 
+                        <Link
+                            href={route("products.menu-book")}
+                            className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 sm:w-auto"
+                        >
+                            <IconPrinter size={18} />
+                            Buku Menu
+                        </Link>
+
                         <button
                             type="button"
                             onClick={() => setShowFilters((value) => !value)}
@@ -513,17 +534,19 @@ export default function Index({ products, filters = {}, setupStatus = {}, meta =
                     >
                         Panduan Lengkap
                     </Link>
-                    <Link
-                        href={route("outlets.index")}
-                        className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
-                    >
-                        Outlet & Tenant
-                    </Link>
+                    {can("outlets-access") ? (
+                        <Link
+                            href={route("outlets.index")}
+                            className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                        >
+                            Outlet & Tenant
+                        </Link>
+                    ) : null}
                     <Link
                         href={route("settings.kitchen-devices.index")}
                         className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
                     >
-                        Kitchen Ops & Printer
+                        Operasional Dapur & Printer
                     </Link>
                 </div>
 
@@ -548,7 +571,7 @@ export default function Index({ products, filters = {}, setupStatus = {}, meta =
                                 : "border border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300"
                         }`}
                     >
-                        Tanpa Kitchen ({setupStatus.products_without_station_mapping_count ?? 0})
+                        Tanpa Dapur ({setupStatus.products_without_station_mapping_count ?? 0})
                     </button>
                     <button
                         type="button"
@@ -722,7 +745,7 @@ export default function Index({ products, filters = {}, setupStatus = {}, meta =
                                     >
                                         <option value="">Semua mapping</option>
                                         <option value="tenant_missing">Tenant belum</option>
-                                        <option value="kitchen_missing">Kitchen belum</option>
+                                        <option value="kitchen_missing">Dapur belum</option>
                                         <option value="ready">Siap operasional</option>
                                     </select>
                                 </div>
@@ -796,21 +819,23 @@ export default function Index({ products, filters = {}, setupStatus = {}, meta =
                         <span>
                             Halaman {currentPage} • {rows.length} row tampil • total {total} data
                         </span>
-                        <label className="flex items-center gap-2">
-                            <input
-                                type="checkbox"
-                                checked={
-                                    selectedProducts.length === rows.length && rows.length > 0
-                                }
-                                onChange={toggleSelectAll}
-                                className="h-4 w-4 rounded border-slate-300 text-primary-500 focus:ring-primary-500"
-                            />
-                            <span>Pilih semua di halaman ini</span>
-                        </label>
+                        {canManageCatalog ? (
+                            <label className="flex items-center gap-2">
+                                <input
+                                    type="checkbox"
+                                    checked={
+                                        selectedProducts.length === rows.length && rows.length > 0
+                                    }
+                                    onChange={toggleSelectAll}
+                                    className="h-4 w-4 rounded border-slate-300 text-primary-500 focus:ring-primary-500"
+                                />
+                                <span>Pilih semua di halaman ini</span>
+                            </label>
+                        ) : null}
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2">
-                        {selectedProducts.length > 0 ? (
+                        {canManageCatalog && selectedProducts.length > 0 ? (
                             <button
                                 onClick={handlePrintSelected}
                                 className="inline-flex items-center gap-2 rounded-xl bg-primary-500 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-primary-600"
@@ -865,7 +890,7 @@ export default function Index({ products, filters = {}, setupStatus = {}, meta =
                     </div>
                 </div>
 
-                {selectedProducts.length > 0 ? (
+                {canManageCatalog && selectedProducts.length > 0 ? (
                     <div className="rounded-2xl border border-primary-200 bg-primary-50 p-5 dark:border-primary-900/40 dark:bg-primary-950/20">
                         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                             <div>
@@ -981,9 +1006,12 @@ export default function Index({ products, filters = {}, setupStatus = {}, meta =
                                     product={product}
                                     isSelected={isProductSelected(product.id)}
                                     onToggle={toggleProductSelection}
+                                    canSelect={canManageCatalog}
                                     canUpdate={canEditProducts}
                                     canDelete={canDeleteProducts}
                                     activeOutletName={activeOutletName}
+                                    showCostAsPrimary={showCostAsPrimary}
+                                    showSellPrice={canManagePricing}
                                 />
                             ))}
                         </div>
@@ -998,7 +1026,7 @@ export default function Index({ products, filters = {}, setupStatus = {}, meta =
                                         <Table.Th>Tenant</Table.Th>
                                         <Table.Th>Mapping</Table.Th>
                                         <Table.Th>Harga Beli</Table.Th>
-                                        <Table.Th>Harga Jual</Table.Th>
+                                        {canManagePricing ? <Table.Th>Harga Jual</Table.Th> : null}
                                         <Table.Th>Stok</Table.Th>
                                         <Table.Th>Stok Outlet</Table.Th>
                                         <Table.Th></Table.Th>
@@ -1071,7 +1099,7 @@ export default function Index({ products, filters = {}, setupStatus = {}, meta =
                                                                 : "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
                                                         }`}
                                                     >
-                                                        {product.tenant_outlet_id ? "Tenant OK" : "Tenant Belum"}
+                                                        {product.tenant_outlet_id ? "Tenant Siap" : "Tenant Belum"}
                                                     </span>
                                                     <span
                                                         className={`rounded px-2 py-0.5 text-[11px] font-semibold ${
@@ -1081,15 +1109,28 @@ export default function Index({ products, filters = {}, setupStatus = {}, meta =
                                                         }`}
                                                     >
                                                         {Number(product.active_kitchen_station_mappings_count ?? 0) > 0
-                                                            ? "Kitchen OK"
-                                                            : "Kitchen Belum"}
+                                                            ? "Dapur Siap"
+                                                            : "Dapur Belum"}
                                                     </span>
                                                 </div>
                                             </Table.Td>
-                                            <Table.Td>{formatCurrency(product.buy_price)}</Table.Td>
-                                            <Table.Td className="font-semibold text-primary-600 dark:text-primary-400">
-                                                {formatCurrency(product.sell_price)}
+                                            <Table.Td>
+                                                <div className="space-y-1">
+                                                    <p className="font-semibold text-slate-800 dark:text-slate-100">
+                                                        {formatCurrency(product.buy_price)}
+                                                    </p>
+                                                    {showCostAsPrimary ? (
+                                                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                                                            Harga utama untuk operasional dapur.
+                                                        </p>
+                                                    ) : null}
+                                                </div>
                                             </Table.Td>
+                                            {canManagePricing ? (
+                                                <Table.Td className="font-semibold text-primary-600 dark:text-primary-400">
+                                                    {formatCurrency(product.sell_price)}
+                                                </Table.Td>
+                                            ) : null}
                                             <Table.Td>
                                                 <span
                                                     className={`rounded px-2 py-0.5 text-xs font-medium ${

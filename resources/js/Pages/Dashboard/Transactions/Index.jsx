@@ -44,7 +44,7 @@ const formatPrice = (value = 0) =>
 
 const WALK_IN_CUSTOMER = {
     id: "walk_in",
-    name: "Pelanggan Umum / Walk-in",
+    name: "Pelanggan Umum",
     no_telp: "",
     member_code: "",
     is_loyalty_member: false,
@@ -1171,7 +1171,7 @@ export default function Index({
                             customers={customers}
                             selected={selectedCustomer}
                             onSelect={setSelectedCustomer}
-                            placeholder="Pilih pelanggan / umum..."
+                            placeholder="Pilih pelanggan umum atau terdaftar..."
                             error={errors?.customer_id}
                             label="Pelanggan"
                             tierOptions={loyaltyTierOptions}
@@ -1185,11 +1185,11 @@ export default function Index({
                                     {[
                                         {
                                             value: "take_away",
-                                            label: "Take Away",
+                                            label: "Bawa Pulang",
                                         },
                                         {
                                             value: "dine_in",
-                                            label: "Dine In",
+                                            label: "Makan di Tempat",
                                         },
                                     ].map((option) => (
                                         <button
@@ -1896,10 +1896,10 @@ export default function Index({
                                     <div className="flex items-start justify-between gap-3">
                                         <div>
                                             <p className="text-sm font-semibold text-amber-700 dark:text-amber-300">
-                                                Transaksi Umum / Walk-in
+                                                Transaksi Pelanggan Umum
                                             </p>
                                             <p className="text-xs text-amber-600/80 dark:text-amber-400/80">
-                                                Poin, voucher customer, dan benefit member tidak berlaku karena transaksi ini tidak terhubung ke customer terdaftar.
+                                                Poin, voucher pelanggan, dan manfaat member tidak berlaku karena transaksi ini tidak terhubung ke pelanggan terdaftar.
                                             </p>
                                         </div>
                                     </div>
@@ -1916,7 +1916,7 @@ export default function Index({
                                                     Pelanggan Non-member
                                                 </p>
                                                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                                                    Transaksi tetap bisa diproses, tetapi redeem poin dan voucher customer belum tersedia sampai pelanggan di-upgrade menjadi member.
+                                                    Transaksi tetap bisa diproses, tetapi penukaran poin dan voucher pelanggan belum tersedia sampai pelanggan di-upgrade menjadi member.
                                                 </p>
                                             </div>
                                         </div>
@@ -1928,7 +1928,7 @@ export default function Index({
                                     <div className="flex items-start justify-between gap-3">
                                         <div>
                                             <p className="text-sm font-semibold text-primary-700 dark:text-primary-300">
-                                                Loyalty Member
+                                                Member Loyalty
                                             </p>
                                             <p className="text-xs text-primary-600/80 dark:text-primary-400/80">
                                                 Tier {selectedCustomer.loyalty_tier} | saldo{" "}

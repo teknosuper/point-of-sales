@@ -4,9 +4,26 @@ import { Head, usePage } from "@inertiajs/react";
 import { IconDatabaseOff, IconKey, IconShield } from "@tabler/icons-react";
 import Search from "@/Components/Dashboard/Search";
 import Pagination from "@/Components/Dashboard/Pagination";
+import {
+    decoratePermission,
+    permissionGroupLabel,
+} from "@/Utils/permissionPresentation";
 
 export default function Index() {
     const { permissions } = usePage().props;
+    const rows = permissions.data.map(decoratePermission);
+    const grouped = rows.reduce((accumulator, permission) => {
+        accumulator[permission.group] = accumulator[permission.group] || {
+            key: permission.group,
+            label: permissionGroupLabel(permission.name),
+            count: 0,
+        };
+        accumulator[permission.group].count += 1;
+        return accumulator;
+    }, {});
+    const groups = Object.values(grouped).sort((left, right) =>
+        left.label.localeCompare(right.label, "id-ID")
+    );
 
     return (
         <>
@@ -36,24 +53,55 @@ export default function Index() {
                 />
             </div>
 
+            <div className="mb-6 rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-100">
+                <p className="font-semibold">Cara membaca izin</p>
+                <p className="mt-1">
+                    Nama besar menunjukkan aksi yang dipahami admin, sedangkan nama teknis tetap ditampilkan kecil di bawahnya untuk kebutuhan audit dan debugging.
+                </p>
+            </div>
+
+            <div className="mb-6 flex flex-wrap gap-2">
+                {groups.map((group) => (
+                    <span
+                        key={group.key}
+                        className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                    >
+                        {group.label}: {group.count}
+                    </span>
+                ))}
+            </div>
+
             {/* Permissions Grid */}
-            {permissions.data.length > 0 ? (
+            {rows.length > 0 ? (
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
-                    {permissions.data.map((permission, i) => (
+                    {rows.map((permission, i) => (
                         <div
                             key={permission.id || i}
                             className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-4 hover:shadow-md hover:border-primary-300 dark:hover:border-primary-700 transition-all"
                         >
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-start gap-2">
                                 <div className="w-8 h-8 rounded-lg bg-primary-100 dark:bg-primary-900/50 flex items-center justify-center">
                                     <IconShield
                                         size={16}
                                         className="text-primary-600 dark:text-primary-400"
                                     />
                                 </div>
-                                <span className="text-sm font-medium text-slate-700 dark:text-slate-300 truncate">
-                                    {permission.name}
-                                </span>
+                                <div className="min-w-0">
+                                    <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                                        {permission.label}
+                                    </p>
+                                    <p className="mt-1 text-[11px] uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                                        {permission.group_label}
+                                    </p>
+                                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 break-all">
+                                        {permission.name}
+                                    </p>
+                                    {permission.description ? (
+                                        <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                                            {permission.description}
+                                        </p>
+                                    ) : null}
+                                </div>
                             </div>
                         </div>
                     ))}

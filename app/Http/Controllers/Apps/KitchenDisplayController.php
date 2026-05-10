@@ -344,6 +344,7 @@ class KitchenDisplayController extends Controller
     {
         $pendingCount = $station->kitchenTickets()->where('status', 'pending')->count();
         $acknowledgedCount = $station->kitchenTickets()->where('status', 'acknowledged')->count();
+        $completedCount = $station->kitchenTickets()->where('status', 'completed')->count();
 
         return [
             'id' => $station->id,
@@ -354,6 +355,7 @@ class KitchenDisplayController extends Controller
             'station_type' => $station->station_type,
             'pending_count' => $pendingCount,
             'acknowledged_count' => $acknowledgedCount,
+            'completed_count' => $completedCount,
             'devices' => $station->devices->map(fn ($device) => [
                 ...$this->devicePayload($device),
             ])->values(),
@@ -372,6 +374,7 @@ class KitchenDisplayController extends Controller
         match ($statusFilter) {
             'pending' => $query->where('status', 'pending'),
             'acknowledged' => $query->where('status', 'acknowledged'),
+            'completed' => $query->where('status', 'completed'),
             default => $query->whereIn('status', ['pending', 'acknowledged']),
         };
 
@@ -389,6 +392,7 @@ class KitchenDisplayController extends Controller
                     'status' => $ticket->status,
                     'fired_at' => optional($ticket->fired_at)?->toIso8601String(),
                     'acknowledged_at' => optional($ticket->acknowledged_at)?->toIso8601String(),
+                    'completed_at' => optional($ticket->completed_at)?->toIso8601String(),
                     'invoice' => $ticket->transaction?->invoice,
                     'customer_name' => $ticket->transaction?->customer?->name,
                     'notes' => $ticket->notes,
@@ -425,6 +429,7 @@ class KitchenDisplayController extends Controller
         return match ((string) $request->query('status', 'active')) {
             'pending' => 'pending',
             'acknowledged' => 'acknowledged',
+            'completed' => 'completed',
             default => 'active',
         };
     }

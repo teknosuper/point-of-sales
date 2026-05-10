@@ -13,6 +13,8 @@ import {
     IconReceipt2,
     IconShoppingBag,
     IconTrendingUp,
+    IconUsers,
+    IconWallet,
     IconFilter,
     IconX,
     IconSearch,

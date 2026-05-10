@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { IconDownload } from "@tabler/icons-react";
 import toast from "react-hot-toast";
+import { detectPwaInstalled, persistPwaInstalled } from "@/Utils/pwaInstallation";
 
 export default function PWAInstallButton({ compact = false }) {
     const [deferredPrompt, setDeferredPrompt] = useState(null);
@@ -10,10 +11,16 @@ export default function PWAInstallButton({ compact = false }) {
     useEffect(() => {
         if (typeof window === "undefined") return;
 
-        const standalone =
-            window.matchMedia?.("(display-mode: standalone)")?.matches ||
-            window.navigator.standalone === true;
-        setIsInstalled(Boolean(standalone));
+        const syncInstalledState = () => {
+            const installed = detectPwaInstalled();
+            setIsInstalled(installed);
+
+            if (installed) {
+                persistPwaInstalled();
+            }
+        };
+
+        syncInstalledState();
 
         const ua = window.navigator.userAgent || "";
         setIsIos(/iphone|ipad|ipod/i.test(ua));
@@ -24,16 +31,21 @@ export default function PWAInstallButton({ compact = false }) {
         };
 
         const handleInstalled = () => {
-            setIsInstalled(true);
+            persistPwaInstalled();
+            syncInstalledState();
             setDeferredPrompt(null);
         };
 
         window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
         window.addEventListener("appinstalled", handleInstalled);
+        window.addEventListener("focus", syncInstalledState);
+        window.addEventListener("pageshow", syncInstalledState);
 
         return () => {
             window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
             window.removeEventListener("appinstalled", handleInstalled);
+            window.removeEventListener("focus", syncInstalledState);
+            window.removeEventListener("pageshow", syncInstalledState);
         };
     }, []);
 
@@ -53,7 +65,7 @@ export default function PWAInstallButton({ compact = false }) {
         }
 
         if (isIos) {
-            toast("Gunakan Share lalu pilih Add to Home Screen.", {
+            toast("Gunakan Bagikan lalu pilih Tambahkan ke Layar Utama.", {
                 duration: 4000,
                 icon: "📲",
             });
@@ -73,7 +85,7 @@ export default function PWAInstallButton({ compact = false }) {
             }`}
         >
             <IconDownload size={16} />
-            Install App
+            Instal Aplikasi
         </button>
     );
 }

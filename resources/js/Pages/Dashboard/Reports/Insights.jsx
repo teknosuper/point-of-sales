@@ -356,7 +356,7 @@ export default function Insights({
 
     return (
         <>
-            <Head title="Advanced Sales Insights" />
+            <Head title="Insight Penjualan Lanjutan" />
 
             <div className="space-y-6">
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -366,7 +366,7 @@ export default function Insights({
                                 size={28}
                                 className="text-primary-500"
                             />
-                            Advanced Sales Insights
+                            Insight Penjualan Lanjutan
                         </h1>
                         <p className="text-sm text-slate-500 dark:text-slate-400">
                             Insight operasional penjualan, margin, produk, dan
@@ -505,13 +505,13 @@ export default function Insights({
 
                 <div className="grid gap-6 xl:grid-cols-2">
                     <ChartCard
-                        title="Sales by Hour"
+                        title="Penjualan per Jam"
                         subtitle="Pola omzet per jam dari transaksi yang lolos filter."
                         chartRef={salesHourChartRef}
                         hasData={hourChartData.length > 0}
                     />
                     <ChartCard
-                        title="Sales by Day"
+                        title="Penjualan per Hari"
                         subtitle="Tren omzet harian pada periode aktif."
                         chartRef={salesDayChartRef}
                         hasData={dayChartData.length > 0}

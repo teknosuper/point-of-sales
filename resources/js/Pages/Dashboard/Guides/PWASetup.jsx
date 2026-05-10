@@ -47,8 +47,8 @@ export default function PWASetup({ platforms = [], recommendedRoutes = [] }) {
 
     const diagnosticItems = [
         {
-            label: "Secure Context",
-            description: "PWA install dan service worker butuh HTTPS atau localhost.",
+            label: "Konteks Aman",
+            description: "PWA dan service worker butuh HTTPS atau localhost.",
             ok: diagnostics.secureContext,
             icon: <IconShieldCheck size={18} />,
         },
@@ -65,8 +65,8 @@ export default function PWASetup({ platforms = [], recommendedRoutes = [] }) {
             icon: <IconWifi size={18} />,
         },
         {
-            label: "Mode App / Standalone",
-            description: "Aktif setelah app dibuka dari hasil install atau Add to Home Screen.",
+            label: "Mode Aplikasi / Mandiri",
+            description: "Aktif setelah aplikasi dibuka dari hasil instalasi atau Tambahkan ke Layar Utama.",
             ok: diagnostics.standalone,
             icon: <IconDeviceMobile size={18} />,
         },
@@ -74,16 +74,16 @@ export default function PWASetup({ platforms = [], recommendedRoutes = [] }) {
 
     return (
         <>
-            <Head title="Setup PWA & Device" />
+            <Head title="Setup PWA & Perangkat" />
 
             <div className="space-y-6">
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
                     <div>
                         <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
-                            Setup PWA & Device
+                            Setup PWA & Perangkat
                         </h1>
                         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                            Panduan instalasi aplikasi web ke Android, iPhone, desktop, dan pengecekan dasar PWA tanpa membuka DevTools.
+                            Panduan instalasi aplikasi web ke Android, iPhone, desktop, dan pengecekan dasar PWA tanpa membuka alat pengembang browser.
                         </p>
                     </div>
                     <div className="flex flex-wrap items-center gap-3">
@@ -135,7 +135,7 @@ export default function PWASetup({ platforms = [], recommendedRoutes = [] }) {
                         <div className="flex items-center gap-2">
                             <IconChecklist size={20} className="text-primary-600" />
                             <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
-                                Checklist Per Platform
+                                Checklist per Platform
                             </h2>
                         </div>
                         <div className="mt-4 space-y-4">
@@ -162,7 +162,7 @@ export default function PWASetup({ platforms = [], recommendedRoutes = [] }) {
                             <div className="flex items-center gap-2">
                                 <IconHome size={20} className="text-primary-600" />
                                 <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
-                                    Start URL yang Direkomendasikan
+                                    URL Awal yang Direkomendasikan
                                 </h2>
                             </div>
                             <div className="mt-4 space-y-3">
@@ -192,8 +192,8 @@ export default function PWASetup({ platforms = [], recommendedRoutes = [] }) {
                                 <p className="font-semibold">Catatan Operasional</p>
                             </div>
                             <ul className="mt-3 space-y-2 text-blue-800 dark:text-blue-200">
-                                <li>Gunakan `localhost` atau HTTPS agar service worker dan install prompt aktif.</li>
-                                <li>Untuk tablet dapur, kombinasikan PWA dengan `Link Tablet / Kiosk` per station.</li>
+                                <li>Gunakan `localhost` atau HTTPS agar service worker dan tombol instalasi aktif.</li>
+                                <li>Untuk tablet dapur, kombinasikan PWA dengan `Tautan Tablet / Kiosk` per stasiun.</li>
                                 <li>Untuk kasir, lebih aman install langsung dari halaman POS agar shortcut membuka konteks transaksi.</li>
                             </ul>
                         </div>

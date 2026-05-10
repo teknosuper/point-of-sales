@@ -11,7 +11,7 @@ export default function SetupWizard({
 }) {
     return (
         <>
-            <Head title="Wizard Setup Outlet & Kitchen" />
+            <Head title="Wizard Setup Outlet & Dapur" />
 
             <div className="space-y-6">
                 <div className="flex items-start gap-3">
@@ -20,17 +20,17 @@ export default function SetupWizard({
                     </div>
                     <div>
                         <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
-                            Wizard Setup Outlet & Kitchen
+                            Wizard Setup Outlet & Dapur
                         </h1>
                         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                            Jalankan langkah awal satu per satu sampai outlet, tenant, dapur, device, dan transaksi pertama siap dipakai.
+                            Jalankan langkah awal satu per satu sampai outlet, tenant, dapur, perangkat, dan transaksi pertama siap dipakai.
                         </p>
                     </div>
                 </div>
 
                 <div className="flex flex-wrap gap-3">
                     <div className="rounded-xl bg-slate-100 px-3 py-2 text-sm font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-200">
-                        Progress: {summary.completed ?? 0} / {summary.total ?? 0} selesai
+                        Progres: {summary.completed ?? 0} / {summary.total ?? 0} selesai
                     </div>
                     <Link
                         href={route("guides.outlet-kitchen")}

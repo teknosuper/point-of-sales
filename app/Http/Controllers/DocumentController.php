@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Outlet;
 use App\Models\Payable;
 use App\Models\Receivable;
+use App\Models\Category;
 use App\Models\Transaction;
 use App\Services\OutletResolver;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -140,6 +141,40 @@ class DocumentController extends Controller
         $pdf->setPaper([0, 0, 425, 283], 'landscape');
 
         return $pdf->stream("shipping-{$transaction->invoice}.pdf");
+    }
+
+    public function menuBook(Request $request)
+    {
+        $this->ensureFontDirectory();
+
+        $outlet = $this->outletResolver->resolve($request, $request->user());
+
+        $categories = Category::query()
+            ->with([
+                'products' => function ($query) {
+                    $query
+                        ->with([
+                            'tenantOutlet:id,name,code',
+                            'modifierOptions' => fn ($modifierQuery) => $modifierQuery
+                                ->where('is_active', true)
+                                ->orderBy('sort_order')
+                                ->orderBy('name'),
+                        ])
+                        ->orderBy('tenant_outlet_id')
+                        ->orderBy('title');
+                },
+            ])
+            ->whereHas('products')
+            ->orderBy('name')
+            ->get();
+
+        $pdf = Pdf::loadView('pdf.menu_book', [
+            'store' => $this->storeProfile($outlet),
+            'generatedAt' => now(),
+            'categories' => $categories,
+        ])->setPaper('a4');
+
+        return $pdf->stream('buku-menu.pdf');
     }
 
     public function receivable(Request $request, Receivable $receivable)

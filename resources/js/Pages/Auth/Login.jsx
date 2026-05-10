@@ -158,18 +158,18 @@ export default function Login({
                             </Link>
                             <h1 className="text-3xl font-bold text-slate-900 dark:text-white">
                                 {isKitchenMode
-                                    ? "Masuk ke Mode Dapur"
+                                    ? "Masuk ke Layar Dapur"
                                     : "Selamat Datang Kembali"}
                             </h1>
                             <p className="mt-2 text-slate-600 dark:text-slate-400">
                                 {isKitchenMode
-                                    ? "Login untuk membuka antrian kitchen station Anda"
+                                    ? "Masuk untuk membuka antrean dapur pada stasiun kerja Anda"
                                     : "Masuk untuk mengakses dashboard Anda"}
                             </p>
                             {isKitchenMode && stationHint ? (
                                 <div className="mt-4 rounded-2xl border border-primary-200 bg-primary-50 px-4 py-3 text-sm text-primary-800 dark:border-primary-900/40 dark:bg-primary-950/30 dark:text-primary-200">
                                     <p className="font-semibold">
-                                        Station tujuan: {stationHint.name}
+                                        Stasiun tujuan: {stationHint.name}
                                     </p>
                                     <p className="mt-1 text-xs uppercase tracking-[0.14em] text-primary-600 dark:text-primary-300">
                                         {stationHint.outlet_code || "OUT"} •{" "}

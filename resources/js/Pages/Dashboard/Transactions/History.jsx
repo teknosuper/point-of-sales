@@ -195,10 +195,10 @@ const History = ({ transactions, filters }) => {
                                             Semua pelanggan
                                         </option>
                                         <option value="walk_in">
-                                            Umum / Walk-in
+                                            Pelanggan Umum
                                         </option>
                                         <option value="registered">
-                                            Customer Terdaftar
+                                            Pelanggan Terdaftar
                                         </option>
                                     </select>
                                 </div>
@@ -333,7 +333,7 @@ const History = ({ transactions, filters }) => {
                                                     <span className="px-2 py-1 text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-md">
                                                         {transaction.customer
                                                             ?.name ??
-                                                            "Umum / Walk-in"}
+                                                            "Pelanggan Umum"}
                                                     </span>
                                                     <div>
                                                         <span
@@ -344,8 +344,8 @@ const History = ({ transactions, filters }) => {
                                                             }`}
                                                         >
                                                             {transaction.customer_id
-                                                                ? "Customer"
-                                                                : "Walk-in"}
+                                                                ? "Terdaftar"
+                                                                : "Umum"}
                                                         </span>
                                                     </div>
                                                 </div>
@@ -387,12 +387,16 @@ const History = ({ transactions, filters }) => {
                                                         }
                                                         className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium bg-warning-100 dark:bg-warning-900/30 text-warning-700 dark:text-warning-400 rounded-full hover:bg-warning-200 dark:hover:bg-warning-900/50 transition-colors"
                                                     >
-                                                        Pending - Konfirmasi
+                                                        Menunggu Konfirmasi
                                                     </button>
                                                 ) : (
                                                     <span className="inline-flex items-center px-2 py-1 text-xs font-medium bg-danger-100 dark:bg-danger-900/30 text-danger-700 dark:text-danger-400 rounded-full">
-                                                        {transaction.payment_status ??
-                                                            "-"}
+                                                        {transaction.payment_status === "failed"
+                                                            ? "Gagal"
+                                                            : transaction.payment_status === "expired"
+                                                              ? "Kedaluwarsa"
+                                                              : transaction.payment_status ??
+                                                                "-"}
                                                     </span>
                                                 )}
                                             </td>
@@ -538,11 +542,16 @@ const History = ({ transactions, filters }) => {
                                                         className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium bg-warning-100 dark:bg-warning-900/30 text-warning-700 dark:text-warning-400 rounded-full"
                                                     >
                                                         Pending
+                                                        
                                                     </button>
                                                 ) : (
                                                     <span className="inline-flex items-center px-2 py-1 text-xs font-medium bg-danger-100 dark:bg-danger-900/30 text-danger-700 dark:text-danger-400 rounded-full">
-                                                        {transaction.payment_status ??
-                                                            "-"}
+                                                        {transaction.payment_status === "failed"
+                                                            ? "Gagal"
+                                                            : transaction.payment_status === "expired"
+                                                              ? "Kedaluwarsa"
+                                                              : transaction.payment_status ??
+                                                                "-"}
                                                     </span>
                                                 )}
                                             </div>
@@ -570,7 +579,7 @@ const History = ({ transactions, filters }) => {
                                             </p>
                                             <p className="font-medium">
                                                 {transaction.customer?.name ??
-                                                    "Umum / Walk-in"}
+                                                    "Pelanggan Umum"}
                                             </p>
                                             <span
                                                 className={`mt-1 inline-flex items-center rounded-full px-2 py-1 text-[11px] font-medium ${
@@ -580,8 +589,8 @@ const History = ({ transactions, filters }) => {
                                                 }`}
                                             >
                                                 {transaction.customer_id
-                                                    ? "Customer"
-                                                    : "Walk-in"}
+                                                    ? "Terdaftar"
+                                                    : "Umum"}
                                             </span>
                                         </div>
                                         <div>
@@ -597,8 +606,14 @@ const History = ({ transactions, filters }) => {
                                                 Pembayaran
                                             </p>
                                             <p className="font-medium capitalize">
-                                                {transaction.payment_method?.replace("_", " ") ??
-                                                    "-"}
+                                                {transaction.payment_method === "cash"
+                                                    ? "Tunai"
+                                                    : transaction.payment_method === "bank_transfer"
+                                                      ? "Transfer Bank"
+                                                      : transaction.payment_method === "pay_later"
+                                                        ? "Piutang"
+                                                        : transaction.payment_method?.replace("_", " ") ??
+                                                          "-"}
                                             </p>
                                         </div>
                                     </div>
@@ -744,7 +759,7 @@ const History = ({ transactions, filters }) => {
                                     </span>
                                     <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
                                         {confirmModal.transaction.customer
-                                            ?.name ?? "Umum / Walk-in"}
+                                            ?.name ?? "Pelanggan Umum"}
                                     </span>
                                 </div>
                                 <div className="flex justify-between items-center">

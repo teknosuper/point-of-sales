@@ -125,8 +125,8 @@ export default function ThermalReceipt({
                     <span>Pesanan:</span>
                     <span>
                         {transaction?.order_type === "dine_in"
-                            ? "Dine In"
-                            : "Take Away"}
+                            ? "Makan di Tempat"
+                            : "Bawa Pulang"}
                     </span>
                 </div>
                 {transaction?.dining_table?.name && (
@@ -140,7 +140,7 @@ export default function ThermalReceipt({
                 )}
                 {transaction?.waiter?.name && (
                     <div className="flex justify-between">
-                        <span>Waiter:</span>
+                        <span>Petugas Antar:</span>
                         <span>{transaction.waiter.name}</span>
                     </div>
                 )}
@@ -370,8 +370,8 @@ export function ThermalReceipt58mm({
             <p>{formatTime(transaction?.created_at)}</p>
             <p>
                 {transaction?.order_type === "dine_in"
-                    ? "Dine In"
-                    : "Take Away"}
+                    ? "Makan di Tempat"
+                    : "Bawa Pulang"}
             </p>
             {transaction?.dining_table?.name && (
                 <p>

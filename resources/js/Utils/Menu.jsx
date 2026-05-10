@@ -46,7 +46,7 @@ export default function Menu() {
     // define menu navigations
     const menuNavigation = [
         {
-            title: "Overview",
+            title: "Ringkasan",
             details: [
                 {
                     title: "Dashboard",
@@ -56,14 +56,14 @@ export default function Menu() {
                     permissions: hasAnyPermission(["dashboard-access"]),
                 },
                 {
-                    title: "Panduan Outlet & Kitchen",
+                    title: "Panduan Outlet & Dapur",
                     href: route("guides.outlet-kitchen"),
                     active: url.startsWith("/dashboard/guides/outlet-kitchen"),
                     icon: <IconBooks size={20} strokeWidth={1.5} />,
                     permissions: hasAnyPermission(["dashboard-access"]),
                 },
                 {
-                    title: "Setup PWA & Device",
+                    title: "Setup PWA & Perangkat",
                     href: route("guides.pwa-setup"),
                     active: url.startsWith("/dashboard/guides/pwa-setup"),
                     icon: <IconDeviceMobile size={20} strokeWidth={1.5} />,
@@ -72,7 +72,7 @@ export default function Menu() {
             ],
         },
         {
-            title: "Master Data",
+            title: "Data Utama",
             details: [
                 {
                     title: "Kategori",
@@ -112,7 +112,7 @@ export default function Menu() {
             ],
         },
         {
-            title: "Sales",
+            title: "Penjualan",
             details: [
                 {
                     title: "Transaksi",
@@ -132,7 +132,7 @@ export default function Menu() {
                     permissions: hasAnyPermission(["transactions-access"]),
                 },
                 {
-                    title: "Kitchen Queue",
+                    title: "Layar Dapur",
                     href: route("kitchen.index"),
                     active: url.startsWith("/dashboard/kitchen"),
                     icon: <IconClipboardCheck size={20} strokeWidth={1.5} />,
@@ -162,7 +162,7 @@ export default function Menu() {
             ],
         },
         {
-            title: "Inventory",
+            title: "Inventaris",
             details: [
                 {
                     title: "Stock Opname",
@@ -183,7 +183,7 @@ export default function Menu() {
             ],
         },
         {
-            title: "Procurement",
+            title: "Pengadaan",
             details: [
                 {
                     title: "Purchase Order",
@@ -216,7 +216,7 @@ export default function Menu() {
             ],
         },
         {
-            title: "CRM & Pricing",
+            title: "CRM & Harga",
             details: [
                 {
                     title: "Member",
@@ -233,28 +233,28 @@ export default function Menu() {
                     permissions: hasAnyPermission(["pricing-rules-access"]),
                 },
                 {
-                    title: "Voucher Customer",
+                    title: "Voucher Pelanggan",
                     href: route("customer-vouchers.index"),
                     active: url.startsWith("/dashboard/customer-vouchers"),
                     icon: <IconCreditCard size={20} strokeWidth={1.5} />,
                     permissions: hasAnyPermission(["customer-vouchers-access"]),
                 },
                 {
-                    title: "Segment Customer",
+                    title: "Segmen Pelanggan",
                     href: route("customer-segments.index"),
                     active: url.startsWith("/dashboard/customer-segments"),
                     icon: <IconUsers size={20} strokeWidth={1.5} />,
                     permissions: hasAnyPermission(["customer-segments-access"]),
                 },
                 {
-                    title: "Campaign CRM",
+                    title: "Kampanye CRM",
                     href: route("crm-campaigns.index"),
                     active: url.startsWith("/dashboard/crm-campaigns"),
                     icon: <IconSpeakerphone size={20} strokeWidth={1.5} />,
                     permissions: hasAnyPermission(["crm-campaigns-access"]),
                 },
                 {
-                    title: "Reminder CRM",
+                    title: "Pengingat CRM",
                     href: route("crm-reminders.index"),
                     active: url.startsWith("/dashboard/crm-reminders"),
                     icon: <IconClockHour6 size={20} strokeWidth={1.5} />,
@@ -263,7 +263,7 @@ export default function Menu() {
             ],
         },
         {
-            title: "Reports",
+            title: "Laporan",
             details: [
                 {
                     title: "Laporan Penjualan",
@@ -282,7 +282,7 @@ export default function Menu() {
                     permissions: hasAnyPermission(["profits-access"]),
                 },
                 {
-                    title: "Advanced Insights",
+                    title: "Insight Lanjutan",
                     href: route("reports.insights.index"),
                     active: url.startsWith("/dashboard/reports/insights"),
                     icon: <IconChartBar size={20} strokeWidth={1.5} />,
@@ -305,7 +305,7 @@ export default function Menu() {
             ],
         },
         {
-            title: "Operations & Control",
+            title: "Operasional & Kontrol",
             details: [
                 {
                     title: "Shift Kasir",
@@ -315,7 +315,7 @@ export default function Menu() {
                     permissions: hasAnyPermission(["cashier-shifts-access"]),
                 },
                 {
-                    title: "Audit Log",
+                    title: "Log Audit",
                     href: route("audit-logs.index"),
                     active: url.startsWith("/dashboard/audit-logs"),
                     icon: <IconFileSearch size={20} strokeWidth={1.5} />,
@@ -324,7 +324,7 @@ export default function Menu() {
             ],
         },
         {
-            title: "User Management",
+            title: "Pengguna & Akses",
             details: [
                 {
                     title: "Hak Akses",
@@ -353,7 +353,7 @@ export default function Menu() {
                             permissions: hasAnyPermission(["users-access"]),
                         },
                         {
-                            title: "Tambah Data Pengguna",
+                            title: "Tambah Pengguna",
                             href: route("users.create"),
                             icon: (
                                 <IconCirclePlus size={20} strokeWidth={1.5} />
@@ -372,7 +372,7 @@ export default function Menu() {
             title: "Pengaturan",
             details: [
                 {
-                    title: "Payment Gateway",
+                    title: "Gateway Pembayaran",
                     href: route("settings.payments.edit"),
                     active: url === "/dashboard/settings/payments",
                     icon: <IconCreditCard size={20} strokeWidth={1.5} />,
@@ -393,14 +393,14 @@ export default function Menu() {
                     permissions: hasAnyPermission(["payment-settings-access"]),
                 },
                 {
-                    title: "Loyalty",
+                    title: "Loyalti",
                     href: route("settings.loyalty"),
                     active: url === "/dashboard/settings/loyalty",
                     icon: <IconGift size={20} strokeWidth={1.5} />,
                     permissions: hasAnyPermission(["dashboard-access"]),
                 },
                 {
-                    title: "Kitchen Ops & Printer",
+                    title: "Operasional Dapur & Printer",
                     href: route("settings.kitchen-devices.index"),
                     active: url === "/dashboard/settings/kitchen-devices",
                     icon: <IconSpeakerphone size={20} strokeWidth={1.5} />,

@@ -111,7 +111,7 @@ export default function OutletAnalytics({
                             href={route("settings.kitchen-devices.index", { outlet_id: selectedOutlet.id })}
                             className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
                         >
-                            Buka Kitchen Ops & Printer
+                            Buka Operasional Dapur & Printer
                         </Link>
                     </div>
                 ) : (

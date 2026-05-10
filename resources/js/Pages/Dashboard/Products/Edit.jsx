@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import { Head, useForm, usePage, Link } from "@inertiajs/react";
 import Input from "@/Components/Dashboard/Input";
@@ -18,8 +18,17 @@ import {
 } from "@tabler/icons-react";
 import { getProductImageUrl } from "@/Utils/imageUrl";
 
-export default function Edit({ categories, product, tenantOutlets = [], outletStocks = [] }) {
+export default function Edit({
+    categories,
+    product,
+    tenantOutlets = [],
+    outletStocks = [],
+    capabilities = {},
+}) {
     const { errors } = usePage().props;
+    const canManageCatalog = capabilities?.can_manage_catalog === true;
+    const canManagePricing = capabilities?.can_manage_pricing === true;
+    const canSubmitProductForm = canManageCatalog || canManagePricing;
 
     const { data, setData, post, processing } = useForm({
         image: "",
@@ -64,6 +73,18 @@ export default function Edit({ categories, product, tenantOutlets = [], outletSt
             );
         }
     }, [product.category_id]);
+
+    const modifierSummary = useMemo(
+        () =>
+            (product.modifier_options || [])
+                .map((option) =>
+                    option.price > 0
+                        ? `${option.name} (+Rp ${Number(option.price).toLocaleString("id-ID")})`
+                        : option.name
+                )
+                .join(", "),
+        [product.modifier_options]
+    );
 
     const setSelectedCategoryHandler = (value) => {
         setSelectedCategory(value);
@@ -173,18 +194,30 @@ export default function Edit({ categories, product, tenantOutlets = [], outletSt
                                     </div>
                                 )}
                             </div>
-                            <Input
-                                type="file"
-                                label="Ganti Gambar"
-                                onChange={handleImageChange}
-                                errors={errors.image}
-                                accept="image/*"
-                            />
+                            {canManageCatalog ? (
+                                <Input
+                                    type="file"
+                                    label="Ganti Gambar"
+                                    onChange={handleImageChange}
+                                    errors={errors.image}
+                                    accept="image/*"
+                                />
+                            ) : (
+                                <p className="text-xs text-slate-500 dark:text-slate-400">
+                                    Gambar produk hanya dapat diganti oleh admin atau pengelola katalog.
+                                </p>
+                            )}
                         </div>
                     </div>
 
                     {/* Right - Form */}
                     <div className="lg:col-span-2 space-y-6">
+                        {!canSubmitProductForm ? (
+                            <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-100">
+                                Anda sedang memakai mode operasional dapur/tenant. Di halaman ini Anda hanya bisa menyesuaikan stok outlet. Harga jual, harga beli, dan data katalog produk tetap dikelola admin.
+                            </div>
+                        ) : null}
+
                         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">
                             <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-4 flex items-center gap-2">
                                 <IconBarcode size={18} />
@@ -192,39 +225,65 @@ export default function Edit({ categories, product, tenantOutlets = [], outletSt
                             </h3>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div className="md:col-span-2">
-                                    <InputSelect
-                                        label="Kategori"
-                                        data={categories}
-                                        selected={selectedCategory}
-                                        setSelected={setSelectedCategoryHandler}
-                                        placeholder="Pilih kategori"
-                                        errors={errors.category_id}
-                                        searchable={true}
-                                        displayKey="name"
-                                    />
+                                    {canManageCatalog ? (
+                                        <InputSelect
+                                            label="Kategori"
+                                            data={categories}
+                                            selected={selectedCategory}
+                                            setSelected={setSelectedCategoryHandler}
+                                            placeholder="Pilih kategori"
+                                            errors={errors.category_id}
+                                            searchable={true}
+                                            displayKey="name"
+                                        />
+                                    ) : (
+                                        <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800">
+                                            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                                Kategori
+                                            </p>
+                                            <p className="mt-1 text-sm font-medium text-slate-900 dark:text-slate-100">
+                                                {selectedCategory?.name || "-"}
+                                            </p>
+                                        </div>
+                                    )}
                                 </div>
                                 <div className="md:col-span-2">
-                                    <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                        Tenant Outlet
-                                    </label>
-                                    <select
-                                        value={data.tenant_outlet_id}
-                                        onChange={(e) =>
-                                            setData("tenant_outlet_id", e.target.value)
-                                        }
-                                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-                                    >
-                                        <option value="">Pilih tenant outlet</option>
-                                        {tenantOutlets.map((outlet) => (
-                                            <option key={outlet.id} value={outlet.id}>
-                                                {outlet.code} - {outlet.name}
-                                            </option>
-                                        ))}
-                                    </select>
-                                    {errors.tenant_outlet_id && (
-                                        <p className="mt-1 text-xs text-red-500">
-                                            {errors.tenant_outlet_id}
-                                        </p>
+                                    {canManageCatalog ? (
+                                        <>
+                                            <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                                Tenant Outlet
+                                            </label>
+                                            <select
+                                                value={data.tenant_outlet_id}
+                                                onChange={(e) =>
+                                                    setData("tenant_outlet_id", e.target.value)
+                                                }
+                                                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                            >
+                                                <option value="">Pilih tenant outlet</option>
+                                                {tenantOutlets.map((outlet) => (
+                                                    <option key={outlet.id} value={outlet.id}>
+                                                        {outlet.code} - {outlet.name}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                            {errors.tenant_outlet_id && (
+                                                <p className="mt-1 text-xs text-red-500">
+                                                    {errors.tenant_outlet_id}
+                                                </p>
+                                            )}
+                                        </>
+                                    ) : (
+                                        <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800">
+                                            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                                Tenant Outlet
+                                            </p>
+                                            <p className="mt-1 text-sm font-medium text-slate-900 dark:text-slate-100">
+                                                {tenantOutlets.find(
+                                                    (outlet) => Number(outlet.id) === Number(product.tenant_outlet_id)
+                                                )?.name || "Global"}
+                                            </p>
+                                        </div>
                                     )}
                                 </div>
                                 <Input
@@ -236,6 +295,7 @@ export default function Edit({ categories, product, tenantOutlets = [], outletSt
                                     }
                                     errors={errors.barcode}
                                     placeholder="Kode produk"
+                                    disabled={!canManageCatalog}
                                 />
                                 <Input
                                     type="text"
@@ -244,6 +304,7 @@ export default function Edit({ categories, product, tenantOutlets = [], outletSt
                                     onChange={(e) => setData("sku", e.target.value)}
                                     errors={errors.sku}
                                     placeholder="SKU unik"
+                                    disabled={!canManageCatalog}
                                 />
                                 <Input
                                     type="text"
@@ -254,6 +315,7 @@ export default function Edit({ categories, product, tenantOutlets = [], outletSt
                                     }
                                     errors={errors.title}
                                     placeholder="Nama produk"
+                                    disabled={!canManageCatalog}
                                 />
                                 <div className="md:col-span-2">
                                     <Textarea
@@ -268,34 +330,52 @@ export default function Edit({ categories, product, tenantOutlets = [], outletSt
                                         }
                                         value={data.description}
                                         rows={3}
+                                        disabled={!canManageCatalog}
                                     />
                                 </div>
                                 <div className="md:col-span-2">
-                                    <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
-                                        <input
-                                            type="checkbox"
-                                            checked={data.supports_modifiers}
-                                            onChange={(e) =>
-                                                setData(
-                                                    "supports_modifiers",
-                                                    e.target.checked
-                                                )
-                                            }
-                                            className="mt-0.5 h-4 w-4 rounded border-slate-300 text-primary-500 focus:ring-primary-500"
-                                        />
-                                        <span>
-                                            <span className="block font-semibold">
-                                                Produk ini mendukung topping / tambahan
+                                    {canManageCatalog ? (
+                                        <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                                            <input
+                                                type="checkbox"
+                                                checked={data.supports_modifiers}
+                                                onChange={(e) =>
+                                                    setData(
+                                                        "supports_modifiers",
+                                                        e.target.checked
+                                                    )
+                                                }
+                                                className="mt-0.5 h-4 w-4 rounded border-slate-300 text-primary-500 focus:ring-primary-500"
+                                            />
+                                            <span>
+                                                <span className="block font-semibold">
+                                                    Produk ini mendukung topping / tambahan
+                                                </span>
+                                                <span className="mt-1 block text-xs text-slate-500 dark:text-slate-400">
+                                                    Nonaktifkan jika item ini tidak boleh diberi extra topping atau add-on saat transaksi.
+                                                </span>
                                             </span>
-                                            <span className="mt-1 block text-xs text-slate-500 dark:text-slate-400">
-                                                Nonaktifkan jika item ini tidak boleh diberi extra topping atau add-on saat transaksi.
-                                            </span>
-                                        </span>
-                                    </label>
+                                        </label>
+                                    ) : (
+                                        <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800">
+                                            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                                Topping / Tambahan
+                                            </p>
+                                            <p className="mt-1 text-sm font-medium text-slate-900 dark:text-slate-100">
+                                                {product.supports_modifiers ? "Aktif" : "Tidak aktif"}
+                                            </p>
+                                            {product.supports_modifiers ? (
+                                                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                    {modifierSummary || "Preset tambahan tersedia."}
+                                                </p>
+                                            ) : null}
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         </div>
 
+                        {canManagePricing ? (
                         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">
                             <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-4 flex items-center gap-2">
                                 <IconCurrencyDollar size={18} />
@@ -370,8 +450,37 @@ export default function Edit({ categories, product, tenantOutlets = [], outletSt
                                 </div>
                             )}
                         </div>
+                        ) : (
+                        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">
+                            <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-4 flex items-center gap-2">
+                                <IconCurrencyDollar size={18} />
+                                Harga Produk
+                            </h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800">
+                                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                        Harga Beli
+                                    </p>
+                                    <p className="mt-1 text-lg font-bold text-slate-900 dark:text-slate-100">
+                                        Rp {Number(product.buy_price || 0).toLocaleString("id-ID")}
+                                    </p>
+                                </div>
+                                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800">
+                                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                        Harga Jual
+                                    </p>
+                                    <p className="mt-1 text-lg font-bold text-slate-900 dark:text-slate-100">
+                                        Rp {Number(product.sell_price || 0).toLocaleString("id-ID")}
+                                    </p>
+                                </div>
+                            </div>
+                            <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+                                Perubahan harga hanya boleh dilakukan admin atau pengguna yang memiliki izin pembaruan harga.
+                            </p>
+                        </div>
+                        )}
 
-                        {data.supports_modifiers && (
+                        {canManageCatalog && data.supports_modifiers && (
                             <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">
                                 <div className="mb-4 flex items-center justify-between gap-3">
                                     <div>
@@ -546,24 +655,26 @@ export default function Edit({ categories, product, tenantOutlets = [], outletSt
                             </div>
                         </div>
 
-                        <div className="flex justify-end gap-3">
-                            <Link
-                                href={route("products.index")}
-                                className="px-6 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 font-medium transition-colors"
-                            >
-                                Batal
-                            </Link>
-                            <button
-                                type="submit"
-                                disabled={processing}
-                                className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-primary-500 hover:bg-primary-600 text-white font-medium transition-colors disabled:opacity-50"
-                            >
-                                <IconDeviceFloppy size={18} />
-                                {processing
-                                    ? "Menyimpan..."
-                                    : "Simpan Perubahan"}
-                            </button>
-                        </div>
+                        {canSubmitProductForm ? (
+                            <div className="flex justify-end gap-3">
+                                <Link
+                                    href={route("products.index")}
+                                    className="px-6 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 font-medium transition-colors"
+                                >
+                                    Batal
+                                </Link>
+                                <button
+                                    type="submit"
+                                    disabled={processing}
+                                    className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-primary-500 hover:bg-primary-600 text-white font-medium transition-colors disabled:opacity-50"
+                                >
+                                    <IconDeviceFloppy size={18} />
+                                    {processing
+                                        ? "Menyimpan..."
+                                        : "Simpan Perubahan"}
+                                </button>
+                            </div>
+                        ) : null}
                     </div>
                 </div>
             </form>

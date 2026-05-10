@@ -111,7 +111,7 @@ export default function SetupAudit({
                     description="Outlet yang dipakai operasional tetapi belum punya station kitchen akan kesulitan routing ticket."
                     count={outletsWithoutStations.length}
                     actionHref={route("settings.kitchen-devices.index")}
-                    actionLabel="Buka Kitchen Ops"
+                    actionLabel="Buka Operasional Dapur"
                 >
                     <RowList
                         items={outletsWithoutStations}
@@ -241,7 +241,7 @@ export default function SetupAudit({
                                             Edit Produk
                                         </Link>
                                         <Link href={route("products.index", { mapping_status: "kitchen_missing" })} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600 dark:border-slate-700 dark:text-slate-300">
-                                            Lihat Semua Gap Kitchen
+                                            Lihat Semua Gap Dapur
                                         </Link>
                                     </div>
                                 </div>

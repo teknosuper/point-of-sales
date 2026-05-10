@@ -111,7 +111,7 @@ export default function Show({
                 </div>
 
                 <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
-                    Halaman ini menunjukkan performa dan ownership outlet atau tenant. Untuk mengatur printer, station dapur, dan device kitchen milik outlet ini, lanjutkan ke menu <span className="font-semibold">Kitchen Ops & Printer</span>.
+                    Halaman ini menunjukkan performa dan kepemilikan outlet atau tenant. Untuk mengatur printer, stasiun dapur, dan perangkat dapur milik outlet ini, lanjutkan ke menu <span className="font-semibold">Operasional Dapur & Printer</span>.
                 </div>
 
                 <div className="flex flex-wrap gap-2">
@@ -125,7 +125,7 @@ export default function Show({
                         href={route("settings.kitchen-devices.index", { outlet_id: outlet.id })}
                         className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
                     >
-                        Kitchen Ops & Printer Outlet Ini
+                        Operasional Dapur & Printer Outlet Ini
                     </Link>
                     <Link
                         href={route("reports.outlet-analytics.index", { outlet_id: outlet.id })}

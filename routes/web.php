@@ -99,6 +99,9 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
         ->middlewareFor(['create', 'store'], 'permission:products-create')
         ->middlewareFor(['edit', 'update'], 'permission:products-edit')
         ->middlewareFor('destroy', 'permission:products-delete');
+    Route::get('products-menu-book', [ProductController::class, 'menuBook'])
+        ->middleware('permission:products-access')
+        ->name('products.menu-book');
     Route::post('products/bulk-mapping', [ProductController::class, 'bulkMapping'])
         ->middleware(['permission:products-edit', 'step_up'])
         ->name('products.bulk-mapping');
@@ -114,11 +117,11 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
     Route::post('pricing-rules/preview', [PricingRuleController::class, 'preview'])
         ->middleware('permission:pricing-rules-access')
         ->name('pricing-rules.preview');
-    Route::get('outlets', [OutletManagementController::class, 'index'])->middleware('permission:dashboard-access')->name('outlets.index');
-    Route::get('outlets/{outlet}', [OutletManagementController::class, 'show'])->middleware(['permission:dashboard-access', 'outlet_access'])->name('outlets.show');
-    Route::post('outlets', [OutletManagementController::class, 'store'])->middleware(['permission:dashboard-access', 'step_up'])->name('outlets.store');
-    Route::put('outlets/{outlet}', [OutletManagementController::class, 'update'])->middleware(['permission:dashboard-access', 'step_up', 'outlet_access'])->name('outlets.update');
-    Route::patch('outlets/{outlet}/toggle', [OutletManagementController::class, 'toggle'])->middleware(['permission:dashboard-access', 'step_up', 'outlet_access'])->name('outlets.toggle');
+    Route::get('outlets', [OutletManagementController::class, 'index'])->middleware('permission:outlets-access')->name('outlets.index');
+    Route::get('outlets/{outlet}', [OutletManagementController::class, 'show'])->middleware(['permission:outlets-access', 'outlet_access'])->name('outlets.show');
+    Route::post('outlets', [OutletManagementController::class, 'store'])->middleware(['permission:outlets-create', 'step_up'])->name('outlets.store');
+    Route::put('outlets/{outlet}', [OutletManagementController::class, 'update'])->middleware(['permission:outlets-update', 'step_up', 'outlet_access'])->name('outlets.update');
+    Route::patch('outlets/{outlet}/toggle', [OutletManagementController::class, 'toggle'])->middleware(['permission:outlets-toggle', 'step_up', 'outlet_access'])->name('outlets.toggle');
     Route::get('stock-opnames', [StockOpnameController::class, 'index'])->middleware('permission:stock-opnames-access')->name('stock-opnames.index');
     Route::get('stock-opnames/create', [StockOpnameController::class, 'create'])->middleware('permission:stock-opnames-create')->name('stock-opnames.create');
     Route::post('stock-opnames', [StockOpnameController::class, 'store'])->middleware('permission:stock-opnames-create')->name('stock-opnames.store');
@@ -284,6 +287,7 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
     Route::get('/documents/transactions/{invoice}/pdf/invoice', [\App\Http\Controllers\DocumentController::class, 'invoice'])->middleware('permission:transactions-access')->name('pdf.transactions.invoice');
     Route::get('/documents/transactions/{invoice}/pdf/receipt/{size?}', [\App\Http\Controllers\DocumentController::class, 'receipt'])->middleware('permission:transactions-access')->name('pdf.transactions.receipt');
     Route::get('/documents/transactions/{invoice}/pdf/shipping', [\App\Http\Controllers\DocumentController::class, 'shipping'])->middleware('permission:transactions-access')->name('pdf.transactions.shipping');
+    Route::get('/documents/products/menu-book/pdf', [\App\Http\Controllers\DocumentController::class, 'menuBook'])->middleware('permission:products-access')->name('pdf.products.menu-book');
     Route::get('/documents/receivables/{receivable}/pdf', [\App\Http\Controllers\DocumentController::class, 'receivable'])->middleware(['permission:receivables-access', 'outlet_access'])->name('pdf.receivables.show');
     Route::get('/documents/payables/{payable}/pdf', [\App\Http\Controllers\DocumentController::class, 'payable'])->middleware(['permission:payables-access', 'outlet_access'])->name('pdf.payables.show');
 

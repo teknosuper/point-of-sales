@@ -12,6 +12,7 @@ import {
     IconX,
 } from "@tabler/icons-react";
 import toast from "react-hot-toast";
+import { useAuthorization } from "@/Utils/authorization";
 
 const defaultFilters = {
     search: "",
@@ -44,6 +45,7 @@ const defaultForm = {
 
 export default function Index({ outlets, filters = {}, summary = {}, setupStatus = {}, ui = {}, meta = {} }) {
     const { flash } = usePage().props;
+    const { can } = useAuthorization();
     const [showFilters, setShowFilters] = useState(false);
     const [showForm, setShowForm] = useState(false);
     const [editing, setEditing] = useState(null);
@@ -60,6 +62,9 @@ export default function Index({ outlets, filters = {}, summary = {}, setupStatus
     const users = meta?.users ?? [];
     const outletTypes = meta?.outlet_types ?? [];
     const form = useForm(defaultForm);
+    const canCreateOutlets = can("outlets-create");
+    const canUpdateOutlets = can("outlets-update");
+    const canToggleOutlets = can("outlets-toggle");
 
     useEffect(() => {
         if (flash?.success) toast.success(flash.success);
@@ -78,7 +83,7 @@ export default function Index({ outlets, filters = {}, summary = {}, setupStatus
     }, [filters]);
 
     useEffect(() => {
-        if (ui?.show_form) {
+        if (ui?.show_form && (canCreateOutlets || canUpdateOutlets)) {
             setShowForm(true);
         }
 
@@ -105,6 +110,10 @@ export default function Index({ outlets, filters = {}, summary = {}, setupStatus
     const perPage = Number(outlets?.per_page ?? 10);
 
     const setEditingOutlet = (outlet) => {
+        if (!canUpdateOutlets) {
+            return;
+        }
+
         setShowForm(true);
         setEditing(outlet.id);
         form.setData({
@@ -138,6 +147,10 @@ export default function Index({ outlets, filters = {}, summary = {}, setupStatus
     };
 
     const openCreateForm = () => {
+        if (!canCreateOutlets) {
+            return;
+        }
+
         resetForm();
         setShowForm(true);
         requestAnimationFrame(() => {
@@ -209,18 +222,20 @@ export default function Index({ outlets, filters = {}, summary = {}, setupStatus
                             <IconAdjustmentsHorizontal size={18} />
                             Filter
                         </button>
-                        <button
-                            type="button"
-                            onClick={() => (showForm && !editing ? closeForm() : openCreateForm())}
-                            className="inline-flex items-center gap-2 rounded-xl bg-primary-500 px-4 py-2.5 text-sm font-medium text-white"
-                        >
-                            {showForm && !editing ? <IconX size={18} /> : <IconPlus size={18} />}
-                            {editing
-                                ? "Tambah Outlet Baru"
-                                : showForm
-                                  ? "Tutup Form Outlet"
-                                  : "Buka Form Outlet"}
-                        </button>
+                        {canCreateOutlets || canUpdateOutlets ? (
+                            <button
+                                type="button"
+                                onClick={() => (showForm && !editing ? closeForm() : openCreateForm())}
+                                className="inline-flex items-center gap-2 rounded-xl bg-primary-500 px-4 py-2.5 text-sm font-medium text-white"
+                            >
+                                {showForm && !editing ? <IconX size={18} /> : <IconPlus size={18} />}
+                                {editing
+                                    ? "Tambah Outlet Baru"
+                                    : showForm
+                                      ? "Tutup Form Outlet"
+                                      : "Buka Form Outlet"}
+                            </button>
+                        ) : null}
                     </div>
                 </div>
 
@@ -302,7 +317,7 @@ export default function Index({ outlets, filters = {}, summary = {}, setupStatus
                     <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100">
                         <p className="font-semibold">Bukan untuk printer atau dapur</p>
                         <p className="mt-1 text-amber-800 dark:text-amber-200">
-                            Untuk station dapur, layar kitchen, printer thermal, dan routing device, gunakan menu <span className="font-semibold">Kitchen Ops & Printer</span>.
+                            Untuk stasiun dapur, layar dapur, printer thermal, dan routing perangkat, gunakan menu <span className="font-semibold">Operasional Dapur & Printer</span>.
                         </p>
                     </div>
                 </div>
@@ -312,7 +327,7 @@ export default function Index({ outlets, filters = {}, summary = {}, setupStatus
                         href={route("guides.outlet-kitchen")}
                         className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
                     >
-                        Buka Panduan Lengkap Outlet, Tenant & Kitchen
+                        Buka Panduan Lengkap Outlet, Tenant & Dapur
                     </Link>
                 </div>
 
@@ -430,7 +445,7 @@ export default function Index({ outlets, filters = {}, summary = {}, setupStatus
                     </form>
                 ) : null}
 
-                {showForm ? (
+                {showForm && (canCreateOutlets || canUpdateOutlets) ? (
                     <form
                         ref={formRef}
                         onSubmit={submit}
@@ -670,7 +685,7 @@ export default function Index({ outlets, filters = {}, summary = {}, setupStatus
                                         }
                                         className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
                                     >
-                                        Kitchen Ops
+                                        Operasional Dapur
                                     </button>
                                     <button
                                         type="button"
@@ -681,23 +696,27 @@ export default function Index({ outlets, filters = {}, summary = {}, setupStatus
                                     >
                                         Statistik
                                     </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => setEditingOutlet(outlet)}
-                                        className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
-                                    >
-                                        Edit
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() =>
-                                            router.patch(route("outlets.toggle", outlet.id), {}, { preserveScroll: true })
-                                        }
-                                        className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
-                                    >
-                                        {outlet.is_active ? <IconX size={14} /> : <IconCheck size={14} />}
-                                        {outlet.is_active ? "Nonaktifkan" : "Aktifkan"}
-                                    </button>
+                                    {canUpdateOutlets ? (
+                                        <button
+                                            type="button"
+                                            onClick={() => setEditingOutlet(outlet)}
+                                            className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                                        >
+                                            Edit
+                                        </button>
+                                    ) : null}
+                                    {canToggleOutlets ? (
+                                        <button
+                                            type="button"
+                                            onClick={() =>
+                                                router.patch(route("outlets.toggle", outlet.id), {}, { preserveScroll: true })
+                                            }
+                                            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                                        >
+                                            {outlet.is_active ? <IconX size={14} /> : <IconCheck size={14} />}
+                                            {outlet.is_active ? "Tutup Toko" : "Buka Toko"}
+                                        </button>
+                                    ) : null}
                                 </div>
                             </div>
                         ))}

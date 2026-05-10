@@ -200,52 +200,62 @@ export default function Index({ stations = [], filters = {}, outlets = [], print
 
     return (
         <>
-            <Head title="Kitchen Ops & Printer" />
+            <Head title="Operasional Dapur & Printer" />
 
             <div className="space-y-6">
                 <div>
                     <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
-                        Kitchen Ops & Printer
+                        Operasional Dapur & Printer
                     </h1>
                     <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                        Kelola operasional dapur di dalam outlet: station kitchen, layar antrian, dan printer thermal per station.
+                        Kelola operasional dapur di dalam outlet: stasiun dapur, layar antrean, dan printer thermal per stasiun.
                     </p>
                 </div>
 
-                <div className="grid gap-4 lg:grid-cols-2">
-                    <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-100">
-                        <p className="font-semibold">Halaman ini untuk operasional dapur</p>
-                        <p className="mt-1 text-blue-800 dark:text-blue-200">
-                            Gunakan halaman ini untuk membuat station seperti minuman, ayam, salad, lalu hubungkan ke screen atau printer yang dipakai dapur.
+                <details className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+                    <summary className="cursor-pointer list-none">
+                        <p className="font-semibold text-slate-900 dark:text-white">
+                            Panduan halaman operasional dapur
                         </p>
-                    </div>
-                    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100">
-                        <p className="font-semibold">Bukan untuk membuat tenant atau outlet</p>
-                        <p className="mt-1 text-amber-800 dark:text-amber-200">
-                            Untuk membuat outlet utama, tenant foodcourt, warehouse, atau assign user outlet, gunakan menu <span className="font-semibold">Outlet & Tenant</span>.
+                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                            Buka untuk melihat fungsi halaman ini dan batas penggunaannya.
                         </p>
+                    </summary>
+                    <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                        <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-100">
+                            <p className="font-semibold">Halaman ini untuk operasional dapur</p>
+                            <p className="mt-1 text-blue-800 dark:text-blue-200">
+                                Gunakan halaman ini untuk membuat stasiun seperti minuman, ayam, salad, lalu hubungkan ke layar atau printer yang dipakai dapur.
+                            </p>
+                        </div>
+                        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100">
+                            <p className="font-semibold">Bukan untuk membuat tenant atau outlet</p>
+                            <p className="mt-1 text-amber-800 dark:text-amber-200">
+                                Untuk membuat outlet utama, tenant foodcourt, gudang, atau menetapkan user ke outlet, gunakan menu <span className="font-semibold">Outlet & Tenant</span>.
+                            </p>
+                        </div>
                     </div>
-                </div>
+                </details>
 
                 <div className="grid gap-4 lg:grid-cols-4">
                     {[
                         {
-                            label: "Station",
+                            label: "Stasiun",
                             value: setupStatus.stations_count ?? 0,
                             done: setupStatus.has_station,
                         },
                         {
-                            label: "Device",
+                            label: "Perangkat",
                             value: setupStatus.devices_count ?? 0,
                             done: setupStatus.has_device,
                         },
                         {
-                            label: "Printer / Screen",
+                            label: "Printer / Layar",
                             value: (setupStatus.printer_count ?? 0) + (setupStatus.screen_count ?? 0),
                             done: setupStatus.has_printer_or_screen,
                         },
                         {
-                            label: "Produk ke Station",
+                            label: "Produk ke Stasiun",
                             value: setupStatus.mapped_products_count ?? 0,
                             done: setupStatus.has_product_mapping,
                         },
@@ -269,11 +279,11 @@ export default function Index({ stations = [], filters = {}, outlets = [], print
 
                 {!setupStatus.has_station || !setupStatus.has_device || !setupStatus.has_product_mapping ? (
                     <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100">
-                        <p className="font-semibold">Status setup kitchen masih belum lengkap</p>
+                        <p className="font-semibold">Status setup dapur masih belum lengkap</p>
                         <div className="mt-2 space-y-1 text-amber-800 dark:text-amber-200">
-                            {!setupStatus.has_station ? <p>• Belum ada station dapur yang dibuat untuk outlet ini.</p> : null}
-                            {!setupStatus.has_device ? <p>• Belum ada screen, printer, atau tablet yang terhubung ke station.</p> : null}
-                            {!setupStatus.has_product_mapping ? <p>• Produk belum dipetakan ke station dapur, jadi ticket belum akan terpecah otomatis.</p> : null}
+                            {!setupStatus.has_station ? <p>• Belum ada stasiun dapur yang dibuat untuk outlet ini.</p> : null}
+                            {!setupStatus.has_device ? <p>• Belum ada layar, printer, atau tablet yang terhubung ke stasiun.</p> : null}
+                            {!setupStatus.has_product_mapping ? <p>• Produk belum dipetakan ke stasiun dapur, jadi tiket belum akan terpecah otomatis.</p> : null}
                         </div>
                     </div>
                 ) : null}
@@ -283,7 +293,7 @@ export default function Index({ stations = [], filters = {}, outlets = [], print
                         href={route("guides.outlet-kitchen")}
                         className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
                     >
-                        Buka Panduan Lengkap Outlet, Tenant & Kitchen
+                        Buka Panduan Lengkap Outlet, Tenant & Dapur
                     </Link>
                 </div>
 

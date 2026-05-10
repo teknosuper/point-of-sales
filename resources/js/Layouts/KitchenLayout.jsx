@@ -57,7 +57,7 @@ export default function KitchenLayout({ children }) {
         });
     }, [flash]);
 
-    const brandName = storeProfile?.name || "Kitchen Queue";
+    const brandName = storeProfile?.name || "Layar Dapur";
 
     return (
         <div className="min-h-screen bg-slate-100 dark:bg-slate-950">

@@ -13,6 +13,7 @@ use App\Services\AuditLogService;
 use App\Services\OutletResolver;
 use App\Services\StockMutationService;
 use Illuminate\Http\Request;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 
@@ -151,6 +152,65 @@ class ProductController extends Controller
                     ->orderBy('sort_order')
                     ->orderBy('name')
                     ->get(['id', 'outlet_id', 'name', 'code']),
+            ],
+        ]);
+    }
+
+    public function menuBook(Request $request)
+    {
+        $outlet = $this->outletResolver->resolve($request);
+
+        $categories = Category::query()
+            ->with([
+                'products' => function ($query) {
+                    $query
+                        ->with([
+                            'tenantOutlet:id,name,code',
+                            'modifierOptions' => fn ($modifierQuery) => $modifierQuery
+                                ->where('is_active', true)
+                                ->orderBy('sort_order')
+                                ->orderBy('name'),
+                        ])
+                        ->orderBy('tenant_outlet_id')
+                        ->orderBy('title');
+                },
+            ])
+            ->whereHas('products')
+            ->orderBy('name')
+            ->get()
+            ->map(function (Category $category) {
+                return [
+                    'id' => $category->id,
+                    'name' => $category->name,
+                    'description' => $category->description,
+                    'products' => $category->products->map(function (Product $product) {
+                        return [
+                            'id' => $product->id,
+                            'title' => $product->title,
+                            'description' => $product->description,
+                            'image' => $product->image,
+                            'sell_price' => (int) $product->sell_price,
+                            'tenant_outlet' => $product->tenantOutlet ? [
+                                'id' => $product->tenantOutlet->id,
+                                'name' => $product->tenantOutlet->name,
+                                'code' => $product->tenantOutlet->code,
+                            ] : null,
+                            'modifier_options' => $product->modifierOptions->map(fn ($option) => [
+                                'id' => $option->id,
+                                'name' => $option->name,
+                                'price' => (int) $option->price,
+                            ])->values()->all(),
+                        ];
+                    })->values()->all(),
+                ];
+            })
+            ->values();
+
+        return Inertia::render('Dashboard/Products/MenuBook', [
+            'menuBook' => [
+                'store' => $outlet?->profilePayload() ?? $this->outletResolver->profilePayload(),
+                'generated_at' => now()->toIso8601String(),
+                'categories' => $categories,
             ],
         ]);
     }
@@ -320,6 +380,10 @@ class ProductController extends Controller
             'categories' => $categories,
             'tenantOutlets' => Outlet::active()->ordered()->get(['id', 'name', 'code']),
             'outletStocks' => $outletStocks,
+            'capabilities' => [
+                'can_manage_catalog' => request()->user()?->can('products-create') ?? false,
+                'can_manage_pricing' => request()->user()?->can('products-pricing-update') ?? false,
+            ],
         ]);
     }
 
@@ -372,12 +436,19 @@ class ProductController extends Controller
      */
     public function update(Request $request, Product $product)
     {
+        $canManageCatalog = $request->user()?->can('products-create') ?? false;
+        $canManagePricing = $request->user()?->can('products-pricing-update') ?? false;
+
+        if (! $canManageCatalog && ! $canManagePricing) {
+            return $this->rejectStockOnlyUpdate();
+        }
+
         $before = $this->productAuditPayload($product);
 
         /**
          * validate
          */
-        $request->validate([
+        $validated = $request->validate([
             'barcode' => 'required|unique:products,barcode,'.$product->id,
             'sku' => 'required|unique:products,sku,'.$product->id,
             'title' => 'required',
@@ -388,12 +459,47 @@ class ProductController extends Controller
             'modifier_options' => 'nullable|array',
             'modifier_options.*.name' => 'nullable|string|max:120',
             'modifier_options.*.price' => 'nullable|integer|min:0',
-            'buy_price' => 'required',
-            'sell_price' => 'required',
+            'buy_price' => 'nullable',
+            'sell_price' => 'nullable',
         ]);
 
+        if (! $canManageCatalog) {
+            $validated['barcode'] = $product->barcode;
+            $validated['sku'] = $product->sku;
+            $validated['title'] = $product->title;
+            $validated['description'] = $product->description;
+            $validated['category_id'] = $product->category_id;
+            $validated['tenant_outlet_id'] = $product->tenant_outlet_id;
+            $validated['supports_modifiers'] = $product->supports_modifiers;
+            $validated['modifier_options'] = $product->modifierOptions()
+                ->orderBy('sort_order')
+                ->get(['name', 'price'])
+                ->map(fn ($option) => [
+                    'name' => $option->name,
+                    'price' => (int) $option->price,
+                ])
+                ->all();
+        }
+
+        if (! $canManagePricing) {
+            $validated['buy_price'] = $product->buy_price;
+            $validated['sell_price'] = $product->sell_price;
+        }
+
+        $attributes = [
+            'barcode' => $validated['barcode'],
+            'sku' => $validated['sku'],
+            'title' => $validated['title'],
+            'description' => $validated['description'],
+            'category_id' => $validated['category_id'],
+            'tenant_outlet_id' => $validated['tenant_outlet_id'] ? (int) $validated['tenant_outlet_id'] : null,
+            'supports_modifiers' => (bool) ($validated['supports_modifiers'] ?? false),
+            'buy_price' => $validated['buy_price'],
+            'sell_price' => $validated['sell_price'],
+        ];
+
         // check image update
-        if ($request->file('image')) {
+        if ($request->file('image') && $canManageCatalog) {
 
             // remove old image
             Storage::disk('local')->delete('public/products/'.basename($product->image));
@@ -404,38 +510,24 @@ class ProductController extends Controller
 
             // update product with new image
             $product->update([
+                ...$attributes,
                 'image' => $image->hashName(),
-                'barcode' => $request->barcode,
-                'sku' => $request->sku,
-                'title' => $request->title,
-                'description' => $request->description,
-                'category_id' => $request->category_id,
-                'tenant_outlet_id' => $request->integer('tenant_outlet_id') ?: null,
-                'supports_modifiers' => $request->boolean('supports_modifiers'),
-                'buy_price' => $request->buy_price,
-                'sell_price' => $request->sell_price,
             ]);
 
             $this->logProductUpdate($product, $before);
-            $this->syncModifierOptions($product, $request->input('modifier_options', []));
+            if ($canManageCatalog) {
+                $this->syncModifierOptions($product, $validated['modifier_options'] ?? []);
+            }
 
             return to_route('products.index');
         }
 
         // update product without image
-        $product->update([
-            'barcode' => $request->barcode,
-            'sku' => $request->sku,
-            'title' => $request->title,
-            'description' => $request->description,
-            'category_id' => $request->category_id,
-            'tenant_outlet_id' => $request->integer('tenant_outlet_id') ?: null,
-            'supports_modifiers' => $request->boolean('supports_modifiers'),
-            'buy_price' => $request->buy_price,
-            'sell_price' => $request->sell_price,
-        ]);
+        $product->update($attributes);
 
-        $this->syncModifierOptions($product, $request->input('modifier_options', []));
+        if ($canManageCatalog) {
+            $this->syncModifierOptions($product, $validated['modifier_options'] ?? []);
+        }
         $this->logProductUpdate($product, $before);
 
         // redirect
@@ -547,6 +639,11 @@ class ProductController extends Controller
         if ($normalized->isNotEmpty()) {
             $product->modifierOptions()->createMany($normalized->all());
         }
+    }
+
+    private function rejectStockOnlyUpdate(): RedirectResponse
+    {
+        return back()->with('error', 'Perubahan katalog dan harga produk hanya boleh dilakukan admin. Gunakan bagian stok outlet untuk menambah atau mengurangi stok.');
     }
 
     private function productIndexPayload(Product $product, ?int $activeOutletId = null): array

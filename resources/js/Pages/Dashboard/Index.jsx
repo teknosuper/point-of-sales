@@ -1,7 +1,8 @@
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import { Head, Link } from "@inertiajs/react";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Chart from "chart.js/auto";
+import { detectPwaInstalled } from "@/Utils/pwaInstallation";
 import {
     IconBooks,
     IconBox,
@@ -215,8 +216,49 @@ export default function Dashboard({
 }) {
     const chartRef = useRef(null);
     const chartInstance = useRef(null);
+    const [pwaInstalled, setPwaInstalled] = useState(false);
 
     const chartData = useMemo(() => revenueTrend ?? [], [revenueTrend]);
+    const effectiveOnboardingChecklist = useMemo(
+        () =>
+            onboardingChecklist.map((item) =>
+                item.key === "pwa_device"
+                    ? {
+                          ...item,
+                          done: pwaInstalled,
+                          count: pwaInstalled ? 1 : 0,
+                      }
+                    : item
+            ),
+        [onboardingChecklist, pwaInstalled]
+    );
+    const effectiveOnboardingSummary = useMemo(
+        () => ({
+            ...onboardingSummary,
+            total: effectiveOnboardingChecklist.length,
+            completed: effectiveOnboardingChecklist.filter((item) => item.done).length,
+        }),
+        [onboardingSummary, effectiveOnboardingChecklist]
+    );
+
+    useEffect(() => {
+        if (typeof window === "undefined") return;
+
+        const syncPwaInstalled = () => {
+            setPwaInstalled(detectPwaInstalled());
+        };
+
+        syncPwaInstalled();
+        window.addEventListener("appinstalled", syncPwaInstalled);
+        window.addEventListener("focus", syncPwaInstalled);
+        window.addEventListener("pageshow", syncPwaInstalled);
+
+        return () => {
+            window.removeEventListener("appinstalled", syncPwaInstalled);
+            window.removeEventListener("focus", syncPwaInstalled);
+            window.removeEventListener("pageshow", syncPwaInstalled);
+        };
+    }, []);
 
     // Setup chart
     useEffect(() => {
@@ -367,16 +409,16 @@ export default function Dashboard({
                                 className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
                             >
                                 <IconChecklist size={16} />
-                                Setup PWA & Device
+                                Setup PWA & Perangkat
                             </Link>
                             <div className="rounded-xl bg-slate-100 px-3 py-2 text-sm font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-200">
-                                {onboardingSummary.completed ?? 0} / {onboardingSummary.total ?? 0} selesai
+                                {effectiveOnboardingSummary.completed ?? 0} / {effectiveOnboardingSummary.total ?? 0} selesai
                             </div>
                         </div>
                     </div>
 
                     <div className="mt-4 grid gap-3 lg:grid-cols-2">
-                        {onboardingChecklist.map((item, index) => (
+                        {effectiveOnboardingChecklist.map((item, index) => (
                             <div
                                 key={item.key}
                                 className={`rounded-xl border p-4 ${

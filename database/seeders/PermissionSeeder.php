@@ -48,11 +48,18 @@ class PermissionSeeder extends Seeder
         $create('products-access');
         $create('products-create');
         $create('products-edit');
+        $create('products-pricing-update');
         $create('products-delete');
         $create('pricing-rules-access');
         $create('pricing-rules-create');
         $create('pricing-rules-update');
         $create('pricing-rules-delete');
+
+        // outlet permissions
+        $create('outlets-access');
+        $create('outlets-create');
+        $create('outlets-update');
+        $create('outlets-toggle');
 
         // permission customers
         $create('customers-access');

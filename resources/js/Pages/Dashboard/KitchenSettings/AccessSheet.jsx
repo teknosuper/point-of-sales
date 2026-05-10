@@ -10,19 +10,32 @@ const copyText = async (value) => {
     }
 };
 
+const modeLabels = {
+    screen: "Layar",
+    printer: "Printer",
+    tablet: "Tablet",
+};
+
+const profileLabels = {
+    browser_manual: "Browser Manual",
+    rawbt_android: "RawBT Android",
+    qz_tray: "QZ Tray",
+    local_bridge: "Bridge Lokal",
+};
+
 export default function AccessSheet({ station }) {
     const shortcutUrls = station?.shortcut_urls || {};
     const devices = station?.devices || [];
 
     return (
         <>
-            <Head title={`Lembar Akses ${station?.name || "Kitchen"}`} />
+            <Head title={`Lembar Akses ${station?.name || "Dapur"}`} />
 
             <div className="space-y-6">
                 <div className="flex flex-wrap items-center justify-between gap-3 print:hidden">
                     <div>
                         <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
-                            Lembar Akses Station
+                            Lembar Akses Stasiun
                         </h1>
                         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                             Gunakan halaman ini untuk membagikan akses cepat ke tablet atau petugas dapur.
@@ -44,7 +57,7 @@ export default function AccessSheet({ station }) {
                             className="inline-flex items-center gap-2 rounded-xl bg-primary-600 px-4 py-2 text-sm font-medium text-white"
                         >
                             <IconPrinter size={16} />
-                            Print
+                            Cetak
                         </button>
                     </div>
                 </div>
@@ -52,13 +65,13 @@ export default function AccessSheet({ station }) {
                 <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900 print:border-0 print:shadow-none">
                     <div className="border-b border-slate-200 pb-5 dark:border-slate-800">
                         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary-600">
-                            {station?.outlet?.code || "OUTLET"} • {station?.station_type || "kitchen"}
+                            {station?.outlet?.code || "OUTLET"} • {station?.station_type || "dapur"}
                         </p>
                         <h2 className="mt-2 text-3xl font-bold text-slate-900 dark:text-white">
                             {station?.name}
                         </h2>
                         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                            Outlet {station?.outlet?.name} • Mode {station?.display_mode}
+                            Outlet {station?.outlet?.name} • Mode {modeLabels[station?.display_mode] || station?.display_mode}
                         </p>
                     </div>
 
@@ -66,7 +79,7 @@ export default function AccessSheet({ station }) {
                         <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/30">
                             <div className="flex items-center gap-2 text-slate-900 dark:text-white">
                                 <IconDeviceTablet size={18} />
-                                <p className="font-semibold">Link Tablet / Kiosk</p>
+                                <p className="font-semibold">Tautan Tablet / Kiosk</p>
                             </div>
                             <p className="mt-2 break-all text-sm text-slate-600 dark:text-slate-300">
                                 {shortcutUrls.kiosk_url}
@@ -76,14 +89,14 @@ export default function AccessSheet({ station }) {
                                 onClick={() => copyText(shortcutUrls.kiosk_url)}
                                 className="mt-3 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 print:hidden"
                             >
-                                Salin Link Kiosk
+                                Salin Tautan Kiosk
                             </button>
                         </div>
 
                         <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/30">
                             <div className="flex items-center gap-2 text-slate-900 dark:text-white">
                                 <IconPrinter size={18} />
-                                <p className="font-semibold">Link Masuk Station</p>
+                                <p className="font-semibold">Tautan Masuk Stasiun</p>
                             </div>
                             <p className="mt-2 break-all text-sm text-slate-600 dark:text-slate-300">
                                 {shortcutUrls.entry_url}
@@ -93,7 +106,7 @@ export default function AccessSheet({ station }) {
                                 onClick={() => copyText(shortcutUrls.entry_url)}
                                 className="mt-3 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 print:hidden"
                             >
-                                Salin Link Station
+                                Salin Tautan Stasiun
                             </button>
                         </div>
                     </div>
@@ -104,16 +117,16 @@ export default function AccessSheet({ station }) {
                                 Cara Pakai di Tablet
                             </p>
                             <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm text-slate-600 dark:text-slate-300">
-                                <li>Buka Link Tablet / Kiosk di browser tablet.</li>
+                                <li>Buka Tautan Tablet / Kiosk di browser tablet.</li>
                                 <li>Login memakai akun dapur jika diminta.</li>
-                                <li>Tekan tombol fullscreen di layar queue.</li>
-                                <li>Simpan link kiosk ke home screen agar mudah dibuka ulang.</li>
+                                <li>Tekan tombol layar penuh di layar antrean.</li>
+                                <li>Simpan tautan kiosk ke layar utama agar mudah dibuka ulang.</li>
                             </ol>
                         </div>
 
                         <div className="rounded-2xl border border-slate-200 p-4 dark:border-slate-800">
                             <p className="font-semibold text-slate-900 dark:text-white">
-                                Device Aktif Station
+                                Perangkat Aktif di Stasiun
                             </p>
                             <div className="mt-3 space-y-2 text-sm text-slate-600 dark:text-slate-300">
                                 {devices.length ? (
@@ -124,16 +137,16 @@ export default function AccessSheet({ station }) {
                                         >
                                             <p className="font-medium text-slate-800 dark:text-slate-100">
                                                 {device.name}
-                                                {device.is_primary ? " • Primary" : ""}
+                                                {device.is_primary ? " • Utama" : ""}
                                             </p>
                                             <p className="text-xs text-slate-500 dark:text-slate-400">
-                                                {device.device_type} • {device.print_profile || "manual"}
+                                                {modeLabels[device.device_type] || device.device_type} • {profileLabels[device.print_profile] || device.print_profile || "Manual"}
                                             </p>
                                         </div>
                                     ))
                                 ) : (
                                     <p className="text-sm text-slate-500 dark:text-slate-400">
-                                        Belum ada device aktif yang terhubung ke station ini.
+                                        Belum ada perangkat aktif yang terhubung ke stasiun ini.
                                     </p>
                                 )}
                             </div>
@@ -141,7 +154,7 @@ export default function AccessSheet({ station }) {
                     </div>
 
                     <div className="mt-6 rounded-2xl border border-dashed border-slate-300 p-4 text-xs text-slate-500 dark:border-slate-700 dark:text-slate-400">
-                        Login dapur langsung: {shortcutUrls.login_url}
+                        Tautan login dapur langsung: {shortcutUrls.login_url}
                     </div>
                 </div>
             </div>

@@ -18,6 +18,7 @@ import Table from "@/Components/Dashboard/Table";
 import Checkbox from "@/Components/Dashboard/Checkbox";
 import Pagination from "@/Components/Dashboard/Pagination";
 import { useAuthorization } from "@/Utils/authorization";
+import { roleLabel } from "@/Utils/rolePresentation";
 import Swal from "sweetalert2";
 
 // User Card for Grid View
@@ -89,7 +90,7 @@ function UserCard({
                             className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full bg-accent-100 dark:bg-accent-900/50 text-accent-700 dark:text-accent-400"
                         >
                             <IconShield size={12} />
-                            {role.name}
+                            {roleLabel(role.name)}
                         </span>
                     ))}
                 </div>
@@ -393,7 +394,7 @@ export default function Index() {
                                                             key={index}
                                                             className="px-2 py-0.5 text-xs font-medium bg-accent-100 dark:bg-accent-900/50 text-accent-700 dark:text-accent-400 rounded-full"
                                                         >
-                                                            {role.name}
+                                                            {roleLabel(role.name)}
                                                         </span>
                                                     )
                                                 )}

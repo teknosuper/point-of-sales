@@ -9,6 +9,11 @@ import Search from "@/Components/Dashboard/Search";
 import Pagination from "@/Components/Dashboard/Pagination";
 import { useAuthorization } from "@/Utils/authorization";
 import {
+    decoratePermission,
+    permissionGroupLabel,
+} from "@/Utils/permissionPresentation";
+import { roleDescription, roleLabel } from "@/Utils/rolePresentation";
+import {
     IconDatabaseOff,
     IconCirclePlus,
     IconTrash,
@@ -20,6 +25,8 @@ import {
 
 // Role Card Component
 function RoleCard({ role, onEdit, onDelete, canUpdate, canDelete }) {
+    const previewPermissions = role.permissions.slice(0, 8).map(decoratePermission);
+
     return (
         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden hover:shadow-lg transition-all">
             {/* Header */}
@@ -30,10 +37,10 @@ function RoleCard({ role, onEdit, onDelete, canUpdate, canDelete }) {
                     </div>
                     <div>
                         <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-200 capitalize">
-                            {role.name}
+                            {roleLabel(role.name)}
                         </h3>
                         <p className="text-sm text-slate-500 dark:text-slate-400">
-                            {role.permissions.length} hak akses
+                            {roleDescription(role.name) || `${role.permissions.length} hak akses`}
                         </p>
                     </div>
                 </div>
@@ -42,13 +49,13 @@ function RoleCard({ role, onEdit, onDelete, canUpdate, canDelete }) {
             {/* Permissions */}
             <div className="p-4 bg-slate-50 dark:bg-slate-800/50">
                 <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto scrollbar-thin">
-                    {role.permissions.slice(0, 8).map((permission, index) => (
+                    {previewPermissions.map((permission, index) => (
                         <span
                             key={index}
                             className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full bg-accent-100 dark:bg-accent-900/50 text-accent-700 dark:text-accent-400"
                         >
                             <IconShield size={10} />
-                            {permission.name}
+                            {permission.label}
                         </span>
                     ))}
                     {role.permissions.length > 8 && (
@@ -159,6 +166,24 @@ export default function Index() {
         }
     };
 
+    const groupedPermissionCounts = permissions.reduce((accumulator, permission) => {
+        const decorated = decoratePermission(permission);
+        const key = decorated.group;
+
+        accumulator[key] = accumulator[key] || {
+            key,
+            label: permissionGroupLabel(permission.name),
+            count: 0,
+        };
+        accumulator[key].count += 1;
+
+        return accumulator;
+    }, {});
+
+    const permissionGroups = Object.values(groupedPermissionCounts).sort((left, right) =>
+        left.label.localeCompare(right.label, "id-ID")
+    );
+
     return (
         <>
             <Head title="Akses Group" />
@@ -206,6 +231,24 @@ export default function Index() {
                 />
             </div>
 
+            <div className="mb-6 rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-100">
+                <p className="font-semibold">Panduan singkat penyusunan akses</p>
+                <p className="mt-1">
+                    Untuk user dapur tenant, kombinasikan minimal `Lihat Produk`, `Ubah Produk Operasional`, dan `Tutup atau Buka Toko`. Tambahkan `Ubah Harga Produk` hanya jika memang boleh mengubah harga beli atau harga jual.
+                </p>
+            </div>
+
+            <div className="mb-6 flex flex-wrap gap-2">
+                {permissionGroups.map((group) => (
+                    <span
+                        key={group.key}
+                        className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                    >
+                        {group.label}: {group.count}
+                    </span>
+                ))}
+            </div>
+
             {/* Modal */}
             <Modal
                 show={data.isOpen}
@@ -233,6 +276,11 @@ export default function Index() {
                             onChange={(e) => setData("name", e.target.value)}
                             errors={errors.name}
                         />
+                        {data.name ? (
+                            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                                Label tampilan: {roleLabel(data.name)}
+                            </p>
+                        ) : null}
                     </div>
                     <div className="mb-4">
                         <ListBox

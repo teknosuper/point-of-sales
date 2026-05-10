@@ -12,6 +12,7 @@ import Input from "@/Components/Dashboard/Input";
 import Checkbox from "@/Components/Dashboard/Checkbox";
 import toast from "react-hot-toast";
 import { useState } from "react";
+import { roleDescription, roleLabel } from "@/Utils/rolePresentation";
 
 export default function Edit() {
     const {
@@ -96,6 +97,7 @@ export default function Edit() {
         data.selectedOutlets.includes(Number(station.outlet_id))
     );
     const isWaiterSelected = data.selectedRoles.includes("waiter");
+    const isKitchenOperatorSelected = data.selectedRoles.includes("kitchen-operator");
     const accessibleTenantOutlets = tenantOutlets.filter((outlet) =>
         data.selectedOutlets.includes(outlet.id)
     );
@@ -224,7 +226,7 @@ export default function Edit() {
                             {roles.map((role, i) => (
                                 <label
                                     key={i}
-                                    className={`flex items-center gap-2.5 px-4 py-3 rounded-xl border cursor-pointer transition-all ${
+                                    className={`flex items-start gap-3 px-4 py-3 rounded-xl border cursor-pointer transition-all ${
                                         data.selectedRoles.includes(role.name)
                                             ? "border-primary-500 bg-primary-50 dark:bg-primary-950/50"
                                             : "border-slate-200 dark:border-slate-700 hover:border-primary-300"
@@ -237,8 +239,15 @@ export default function Edit() {
                                             role.name
                                         )}
                                     />
-                                    <span className="text-sm font-medium text-slate-700 dark:text-slate-300 capitalize">
-                                        {role.name}
+                                    <span className="flex flex-col">
+                                        <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                                            {roleLabel(role.name)}
+                                        </span>
+                                        {roleDescription(role.name) ? (
+                                            <span className="text-xs text-slate-500 dark:text-slate-400">
+                                                {roleDescription(role.name)}
+                                            </span>
+                                        ) : null}
                                     </span>
                                 </label>
                             ))}
@@ -248,6 +257,11 @@ export default function Edit() {
                                 {errors.selectedRoles}
                             </p>
                         )}
+                        {isKitchenOperatorSelected ? (
+                            <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-100">
+                                Role dapur tenant sebaiknya dibatasi untuk operasional harian: lihat produk, penyesuaian stok, dan buka/tutup toko. Harga produk tetap memerlukan izin khusus admin.
+                            </div>
+                        ) : null}
                     </div>
 
                     <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6">
@@ -323,7 +337,7 @@ export default function Edit() {
                         <div className="space-y-4">
                             <div>
                                 <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                    Workspace Default
+                                    Mode Kerja Default
                                 </label>
                                 <select
                                     value={data.preferred_workspace}
@@ -335,16 +349,19 @@ export default function Edit() {
                                     }
                                     className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
                                 >
-                                    <option value="standard">Standard Dashboard</option>
-                                    <option value="kitchen">Mode Dapur</option>
+                                    <option value="standard">Dashboard Umum</option>
+                                    <option value="kitchen">Layar Dapur</option>
                                 </select>
+                                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                                    Pilih `Layar Dapur` bila pengguna ini harus langsung masuk ke antrean dapur setelah login.
+                                </p>
                             </div>
 
                             {data.preferred_workspace === "kitchen" && (
                                 <div>
-                                    <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                        Station Dapur Default
-                                    </label>
+                                        <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                        Stasiun Dapur Default
+                                        </label>
                                     <select
                                         value={data.preferred_kitchen_station_id}
                                         onChange={(e) =>
@@ -355,7 +372,7 @@ export default function Edit() {
                                         }
                                         className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
                                     >
-                                        <option value="">Pilih station default</option>
+                                        <option value="">Pilih stasiun default</option>
                                         {availableKitchenStations.map((station) => (
                                             <option key={station.id} value={station.id}>
                                                 {station.outlet?.code || "OUT"} - {station.name}
@@ -363,7 +380,7 @@ export default function Edit() {
                                         ))}
                                     </select>
                                     <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                                        Setelah login, user dapur akan langsung masuk ke queue station ini.
+                                        Setelah login, pengguna dapur akan langsung masuk ke antrean stasiun ini.
                                     </p>
                                     {errors.preferred_kitchen_station_id && (
                                         <p className="mt-2 text-xs text-danger-500">
@@ -378,22 +395,22 @@ export default function Edit() {
                     {isWaiterSelected && (
                         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6">
                             <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-4">
-                                Cakupan Waiter
+                                Cakupan Petugas Antar
                             </h3>
                             <div className="space-y-4">
                                 <div className="grid gap-3 md:grid-cols-2">
                                     {[
                                         {
                                             value: "outlet_all",
-                                            label: "Semua Dapur Outlet",
+                                            label: "Semua Dapur di Outlet",
                                             description:
-                                                "Waiter bisa melayani semua tenant/dapur di outlet ini.",
+                                                "Petugas antar bisa melayani semua tenant atau dapur di outlet ini.",
                                         },
                                         {
                                             value: "tenant_only",
                                             label: "Dapur Tertentu",
                                             description:
-                                                "Waiter hanya bisa melayani tenant yang dipilih di bawah.",
+                                                "Petugas antar hanya bisa melayani tenant yang dipilih di bawah.",
                                         },
                                     ].map((option) => (
                                         <button
@@ -464,7 +481,7 @@ export default function Edit() {
                                         {accessibleTenantOutlets.length ===
                                         0 ? (
                                             <p className="mt-2 text-xs text-amber-600 dark:text-amber-300">
-                                                Pilih akses outlet tenant dulu agar waiter bisa dibatasi per dapur.
+                                                Pilih akses outlet tenant dulu agar petugas antar bisa dibatasi per dapur.
                                             </p>
                                         ) : null}
                                         {errors.waiter_tenant_outlet_ids && (

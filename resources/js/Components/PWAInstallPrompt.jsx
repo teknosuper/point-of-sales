@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { IconDeviceMobile, IconDownload, IconX } from "@tabler/icons-react";
+import { detectPwaInstalled, persistPwaInstalled } from "@/Utils/pwaInstallation";
 
 export default function PWAInstallPrompt() {
     const [deferredPrompt, setDeferredPrompt] = useState(null);
@@ -11,12 +12,17 @@ export default function PWAInstallPrompt() {
     useEffect(() => {
         if (typeof window === "undefined") return;
 
-        const standalone =
-            window.matchMedia?.("(display-mode: standalone)")?.matches ||
-            window.navigator.standalone === true;
+        const syncInstalledState = () => {
+            const installed = detectPwaInstalled();
+            setIsStandalone(installed);
+            setIsInstalled(installed);
 
-        setIsStandalone(Boolean(standalone));
-        setIsInstalled(Boolean(standalone));
+            if (installed) {
+                persistPwaInstalled();
+            }
+        };
+
+        syncInstalledState();
 
         const ua = window.navigator.userAgent || "";
         const ios = /iphone|ipad|ipod/i.test(ua);
@@ -28,16 +34,21 @@ export default function PWAInstallPrompt() {
         };
 
         const handleInstalled = () => {
-            setIsInstalled(true);
+            persistPwaInstalled();
+            syncInstalledState();
             setDeferredPrompt(null);
         };
 
         window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
         window.addEventListener("appinstalled", handleInstalled);
+        window.addEventListener("focus", syncInstalledState);
+        window.addEventListener("pageshow", syncInstalledState);
 
         return () => {
             window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
             window.removeEventListener("appinstalled", handleInstalled);
+            window.removeEventListener("focus", syncInstalledState);
+            window.removeEventListener("pageshow", syncInstalledState);
         };
     }, []);
 
@@ -75,10 +86,10 @@ export default function PWAInstallPrompt() {
                 </div>
                 <div className="min-w-0">
                     <p className="text-sm font-semibold text-slate-900 dark:text-white">
-                        Install aplikasi POINZA
+                        Instal aplikasi POINZA
                     </p>
                     <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                        Pasang ke home screen agar akses kasir, kitchen, dan dashboard terasa seperti app.
+                        Pasang ke layar utama agar akses kasir, dapur, dan dashboard terasa seperti aplikasi.
                     </p>
 
                     {deferredPrompt ? (
@@ -88,11 +99,11 @@ export default function PWAInstallPrompt() {
                             className="mt-3 inline-flex items-center gap-2 rounded-xl bg-primary-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-primary-700"
                         >
                             <IconDownload size={16} />
-                            Install App
+                            Instal Aplikasi
                         </button>
                     ) : isIos ? (
                         <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
-                            Di iPhone/iPad, gunakan menu <span className="font-semibold">Share</span> lalu pilih <span className="font-semibold">Add to Home Screen</span>.
+                            Di iPhone/iPad, gunakan menu <span className="font-semibold">Bagikan</span> lalu pilih <span className="font-semibold">Tambahkan ke Layar Utama</span>.
                         </p>
                     ) : null}
                 </div>

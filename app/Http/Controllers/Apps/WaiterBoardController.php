@@ -91,9 +91,40 @@ class WaiterBoardController extends Controller
             })
             ->values();
 
+        $deliveredAllocations = TransactionTenantAllocation::query()
+            ->with([
+                'transaction.customer:id,name',
+                'transaction.diningTable:id,name,code',
+                'tenantOutlet:id,name,code',
+                'waiter:id,name',
+            ])
+            ->where('outlet_id', $outlet->id)
+            ->where('waiter_status', 'delivered')
+            ->latest('delivered_at')
+            ->latest('id')
+            ->limit(20)
+            ->get()
+            ->map(fn (TransactionTenantAllocation $allocation) => [
+                'id' => $allocation->id,
+                'invoice' => $allocation->transaction?->invoice,
+                'tenant_name' => $allocation->tenantOutlet?->name ?? '-',
+                'customer_name' => $allocation->transaction?->customer?->name ?? 'Umum',
+                'table_name' => $allocation->transaction?->diningTable?->name,
+                'table_code' => $allocation->transaction?->diningTable?->code,
+                'waiter' => $allocation->waiter ? [
+                    'id' => $allocation->waiter->id,
+                    'name' => $allocation->waiter->name,
+                ] : null,
+                'ready_at' => optional($allocation->ready_at)?->toIso8601String(),
+                'picked_up_at' => optional($allocation->picked_up_at)?->toIso8601String(),
+                'delivered_at' => optional($allocation->delivered_at)?->toIso8601String(),
+            ])
+            ->values();
+
         return Inertia::render('Dashboard/Waiter/Index', [
             'allocations' => $allocations,
             'waiters' => $waiters,
+            'deliveredAllocations' => $deliveredAllocations,
         ]);
     }
 

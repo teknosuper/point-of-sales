@@ -26,6 +26,7 @@ class RoleSeeder extends Seeder
         $this->createRoleWithPermissions('categories-access', '%categories%');
         $this->createRoleWithPermissions('products-access', '%products%');
         $this->createRoleWithPermissions('pricing-rules-access', '%pricing-rules%');
+        $this->createRoleWithPermissions('outlets-access', '%outlets%');
         $this->createRoleWithPermissions('customers-access', '%customers%');
         $this->createRoleWithPermissions('customer-vouchers-access', '%customer-vouchers%');
         $this->createRoleWithPermissions('customer-segments-access', '%customer-segments%');
@@ -82,6 +83,10 @@ class RoleSeeder extends Seeder
         $kitchenRole = Role::firstOrCreate(['name' => 'kitchen-operator']);
         $kitchenPermissions = Permission::whereIn('name', [
             'dashboard-access',
+            'outlets-access',
+            'outlets-toggle',
+            'products-access',
+            'products-edit',
         ])->get();
         $kitchenRole->syncPermissions($kitchenPermissions);
 

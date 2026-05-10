@@ -1,11 +1,12 @@
 import React from 'react'
 import { Listbox } from '@headlessui/react'
 import { IconChevronDown, IconCircle, IconCircleFilled } from '@tabler/icons-react'
+import { decoratePermission } from "@/Utils/permissionPresentation";
 export default function ListBox({ selected, data, setSelected, label, errors }) {
 
     const preview = selected.length ?
         selected.length >= 4 ? `jumlah hak akses terpilih ${selected.length}` :
-            selected.map((item) => item.name).join(', ')
+            selected.map((item) => decoratePermission(item).label).join(', ')
         :
         'Pilh Hak Akses'
 
@@ -18,17 +19,23 @@ export default function ListBox({ selected, data, setSelected, label, errors }) 
                     <IconChevronDown size={20} strokeWidth={1.5} />
                 </Listbox.Button>
                 <Listbox.Options className={' p-4 border rounded-lg flex flex-wrap gap-2 bg-gray-100 dark:border-gray-900 dark:bg-gray-950'}>
-                    {data.map((item) => (
+                    {data.map((item) => {
+                        const decorated = decoratePermission(item);
+
+                        return (
                         <Listbox.Option key={item.id} value={item}>
                             {({ selected }) => (
                                 <div
-                                    className='text-sm cursor-pointer px-3 py-1.5 rounded-lg flex items-center gap-2 bg-white text-gray-700 hover:bg-gray-200 border dark:bg-gray-900 dark:border-gray-800 dark:text-gray-400 dark:hover:bg-gray-800 '>
+                                    className='text-sm cursor-pointer px-3 py-1.5 rounded-lg flex items-start gap-2 bg-white text-gray-700 hover:bg-gray-200 border dark:bg-gray-900 dark:border-gray-800 dark:text-gray-400 dark:hover:bg-gray-800 '>
                                     {selected ? <IconCircleFilled size={15} strokeWidth={1.5} className='text-teal-500' /> : <IconCircle size={15} strokeWidth={1.5} />}
-                                    {item.name}
+                                    <div className='flex flex-col'>
+                                        <span>{decorated.label}</span>
+                                        <span className='text-xs text-gray-400'>{decorated.group_label}</span>
+                                    </div>
                                 </div>
                             )}
                         </Listbox.Option>
-                    ))}
+                    )})}
                 </Listbox.Options>
             </Listbox>
             {errors && (
