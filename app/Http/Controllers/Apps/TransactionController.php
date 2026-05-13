@@ -13,6 +13,7 @@ use App\Models\PaymentSetting;
 use App\Models\Product;
 use App\Models\ProductOutletStock;
 use App\Models\Receivable;
+use App\Models\TableOrder;
 use App\Models\Transaction;
 use App\Models\CartModifier;
 use App\Services\AuditLogService;
@@ -184,6 +185,27 @@ class TransactionController extends Controller
             ->when($outlet && Schema::hasColumn('bank_accounts', 'outlet_id'), fn ($query) => $query->where('outlet_id', $outlet->id))
             ->get();
 
+        $pendingTableOrders = TableOrder::query()
+            ->with(['diningTable:id,name,code'])
+            ->when($outlet, fn ($query) => $query->where('outlet_id', $outlet->id))
+            ->where('status', 'pending_cashier_payment')
+            ->latest('created_at')
+            ->limit(6)
+            ->get()
+            ->map(fn (TableOrder $order) => [
+                'id' => $order->id,
+                'order_number' => $order->order_number,
+                'customer_name' => $order->customer_name,
+                'customer_phone' => $order->customer_phone,
+                'grand_total' => (int) $order->grand_total,
+                'created_at' => optional($order->created_at)->toISOString(),
+                'table' => [
+                    'name' => $order->diningTable?->name,
+                    'code' => $order->diningTable?->code,
+                ],
+            ])
+            ->values();
+
         return Inertia::render('Dashboard/Transactions/Index', [
             'carts' => $carts,
             'carts_total' => $carts_total,
@@ -196,6 +218,7 @@ class TransactionController extends Controller
             'paymentGateways' => $paymentSetting?->enabledGateways($outlet?->id) ?? [],
             'defaultPaymentGateway' => $defaultGateway,
             'bankAccounts' => $bankAccounts,
+            'pendingTableOrders' => $pendingTableOrders,
             'shiftSummary' => $this->cashierShiftService->summarizeForDisplay($activeShift),
             'loyaltyTierOptions' => $this->loyaltyService->tierOptions(),
             'tenantOutlets' => Outlet::query()

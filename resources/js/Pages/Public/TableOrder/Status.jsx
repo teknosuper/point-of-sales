@@ -15,6 +15,10 @@ const statusLabel = {
 };
 
 export default function Status({ order }) {
+    const newOrderHref = order?.table?.qr_token
+        ? route("table-order.show", order.table.qr_token)
+        : null;
+
     return (
         <>
             <Head title={`Order ${order.order_number}`} />
@@ -98,12 +102,14 @@ export default function Status({ order }) {
                             </p>
                         )}
 
-                        <Link
-                            href={route("table-order.show", order.table?.qr_token)}
-                            className="mt-5 inline-flex rounded-2xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700"
-                        >
-                            Buat Order Baru
-                        </Link>
+                        {newOrderHref ? (
+                            <Link
+                                href={newOrderHref}
+                                className="mt-5 inline-flex rounded-2xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700"
+                            >
+                                Buat Order Baru
+                            </Link>
+                        ) : null}
                     </div>
                 </div>
             </div>

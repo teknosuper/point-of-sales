@@ -221,7 +221,7 @@ class PublicTableOrderController extends Controller
     {
         $order = TableOrder::query()
             ->with([
-                'diningTable:id,name,code',
+                'diningTable:id,name,code,qr_token',
                 'items.modifiers',
                 'transaction:id,invoice,payment_status,payment_method,created_at',
             ])
@@ -309,6 +309,13 @@ class PublicTableOrderController extends Controller
     private function customerPayload(Customer $customer, int $outletId): array
     {
         $metrics = $this->customerOutletMetricService->metricsForCustomer($customer, $outletId);
+        $recentTableOrders = TableOrder::query()
+            ->select('id', 'order_number', 'grand_total', 'status', 'created_at', 'access_token')
+            ->where('customer_id', $customer->id)
+            ->where('outlet_id', $outletId)
+            ->latest('created_at')
+            ->limit(5)
+            ->get();
         $recentTransactions = $customer->transactions()
             ->select('id', 'invoice', 'grand_total', 'payment_status', 'created_at', 'outlet_id')
             ->with('outlet:id,name')
@@ -330,6 +337,14 @@ class PublicTableOrderController extends Controller
             'loyalty_total_spent' => (int) ($metrics['total_spent'] ?? 0),
             'loyalty_transaction_count' => (int) ($metrics['transaction_count'] ?? 0),
             'last_purchase_at' => optional($metrics['last_purchase_at'] ?? null)->toIso8601String(),
+            'recent_orders' => $recentTableOrders->map(fn ($order) => [
+                'id' => $order->id,
+                'order_number' => $order->order_number,
+                'grand_total' => (int) $order->grand_total,
+                'status' => $order->status,
+                'created_at' => optional($order->created_at)->toIso8601String(),
+                'access_token' => $order->access_token,
+            ])->values(),
             'recent_transactions' => $recentTransactions->map(fn ($transaction) => [
                 'id' => $transaction->id,
                 'invoice' => $transaction->invoice,

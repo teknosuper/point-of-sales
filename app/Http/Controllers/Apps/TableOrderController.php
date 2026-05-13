@@ -85,6 +85,7 @@ class TableOrderController extends Controller
                 'pending_cashier_payment' => (clone $summaryQuery)->where('status', 'pending_cashier_payment')->count(),
                 'paid' => (clone $summaryQuery)->where('status', 'paid')->count(),
                 'rejected' => (clone $summaryQuery)->where('status', 'rejected')->count(),
+                'cancelled' => (clone $summaryQuery)->where('status', 'cancelled')->count(),
             ],
         ]);
     }
@@ -96,10 +97,58 @@ class TableOrderController extends Controller
             abort(404);
         }
 
-        $transaction = $this->tableOrderService->approveCashPayment($tableOrder, $request->user());
+        $validated = $request->validate([
+            'cash' => ['required', 'integer', 'min:0'],
+            'redirect_to' => ['nullable', 'string', 'in:print,list,transactions'],
+        ]);
+
+        $transaction = $this->tableOrderService->approveCashPayment(
+            $tableOrder,
+            $request->user(),
+            (int) $validated['cash']
+        );
+
+        $redirectTo = $validated['redirect_to'] ?? 'print';
+
+        if ($redirectTo === 'list') {
+            return redirect()
+                ->route('table-orders.index')
+                ->with('success', "Pembayaran {$tableOrder->order_number} dikonfirmasi. Invoice {$transaction->invoice} diteruskan ke dapur.");
+        }
+
+        if ($redirectTo === 'transactions') {
+            return redirect()
+                ->route('transactions.index')
+                ->with('success', "Pembayaran {$tableOrder->order_number} dikonfirmasi. Invoice {$transaction->invoice} siap dicetak.");
+        }
 
         return redirect()
-            ->route('table-orders.index')
+            ->route('transactions.print', $transaction->invoice)
             ->with('success', "Pembayaran {$tableOrder->order_number} dikonfirmasi. Invoice {$transaction->invoice} diteruskan ke dapur.");
+    }
+
+    public function cancel(Request $request, TableOrder $tableOrder)
+    {
+        $outlet = app(\App\Services\OutletResolver::class)->resolve($request, $request->user());
+        if ($outlet && (int) $tableOrder->outlet_id !== (int) $outlet->id) {
+            abort(404);
+        }
+
+        $validated = $request->validate([
+            'reason' => ['nullable', 'string', 'max:300'],
+            'redirect_to' => ['nullable', 'string', 'in:list,transactions'],
+        ]);
+
+        $this->tableOrderService->cancel(
+            $tableOrder,
+            $request->user(),
+            filled($validated['reason'] ?? null) ? (string) $validated['reason'] : null
+        );
+
+        $redirectTo = $validated['redirect_to'] ?? 'list';
+
+        return redirect()
+            ->route($redirectTo === 'transactions' ? 'transactions.index' : 'table-orders.index')
+            ->with('success', "Order {$tableOrder->order_number} berhasil dibatalkan.");
     }
 }

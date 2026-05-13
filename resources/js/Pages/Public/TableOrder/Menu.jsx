@@ -1,5 +1,5 @@
-import { Head, useForm, usePage } from "@inertiajs/react";
-import { useMemo, useState } from "react";
+import { Head, Link, useForm, usePage } from "@inertiajs/react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
 
 const formatPrice = (value = 0) =>
@@ -26,8 +26,16 @@ const promoDisplay = (product) => {
     };
 };
 
+const orderStatusLabel = {
+    pending_cashier_payment: "Menunggu bayar di kasir",
+    paid: "Sudah dibayar",
+    rejected: "Ditolak kasir",
+    cancelled: "Dibatalkan",
+};
+
 export default function Menu({ table, outlet, products = [], identity }) {
     const { flash, storeProfile } = usePage().props;
+    const checkoutSectionRef = useRef(null);
     const [cartLines, setCartLines] = useState([]);
     const [modifierModalProduct, setModifierModalProduct] = useState(null);
     const [selectedModifierOptionIds, setSelectedModifierOptionIds] = useState(
@@ -39,7 +47,11 @@ export default function Menu({ table, outlet, products = [], identity }) {
     const [selectedCategory, setSelectedCategory] = useState("all");
     const customer = identity?.customer || null;
     const pendingPhone = identity?.pending_phone || "";
+    const recentOrders = customer?.recent_orders || [];
     const recentTransactions = customer?.recent_transactions || [];
+    const cartStorageKey = customer?.id
+        ? `table-order-cart:${table.qr_token}:${customer.id}`
+        : null;
 
     const orderForm = useForm({
         notes: "",
@@ -275,28 +287,36 @@ export default function Menu({ table, outlet, products = [], identity }) {
     };
 
     const submitOrder = (event) => {
-        event.preventDefault();
+        event?.preventDefault?.();
 
         if (cartItems.length === 0) {
             toast.error("Pilih minimal satu menu.");
             return;
         }
 
-        orderForm
-            .transform((data) => ({
-                ...data,
-                items: cartItems.map((item) => ({
-                    product_id: item.product_id,
-                    qty: item.qty,
-                    notes: item.notes || null,
-                    modifiers: (item.modifiers || []).map((modifier) => ({
-                        id: modifier.id,
-                    })),
+        orderForm.transform((data) => ({
+            ...data,
+            items: cartItems.map((item) => ({
+                product_id: item.product_id,
+                qty: item.qty,
+                notes: item.notes || null,
+                modifiers: (item.modifiers || []).map((modifier) => ({
+                    id: modifier.id,
                 })),
-            }))
-            .post(route("table-order.store", table.qr_token), {
-                preserveScroll: true,
-            });
+            })),
+        }));
+
+        orderForm.post(route("table-order.store", table.qr_token), {
+            preserveScroll: true,
+            onSuccess: () => {
+                if (cartStorageKey && typeof window !== "undefined") {
+                    window.localStorage.removeItem(cartStorageKey);
+                }
+
+                setCartLines([]);
+                orderForm.setData("notes", "");
+            },
+        });
     };
 
     const submitIdentify = (event) => {
@@ -314,6 +334,12 @@ export default function Menu({ table, outlet, products = [], identity }) {
     };
 
     const logoutCustomer = () => {
+        if (cartStorageKey && typeof window !== "undefined") {
+            window.localStorage.removeItem(cartStorageKey);
+        }
+
+        setCartLines([]);
+        orderForm.setData("notes", "");
         logoutForm.post(route("table-order.logout", table.qr_token), {
             preserveScroll: true,
         });
@@ -338,12 +364,96 @@ export default function Menu({ table, outlet, products = [], identity }) {
             ? `Sisa ${stock}`
             : null;
 
+    const showMobileCheckoutBar = customer && cartItems.length > 0;
+
+    const scrollToCheckout = () => {
+        checkoutSectionRef.current?.scrollIntoView({
+            behavior: "smooth",
+            block: "start",
+        });
+    };
+
+    useEffect(() => {
+        if (!cartStorageKey || typeof window === "undefined") {
+            setCartLines([]);
+            orderForm.setData("notes", "");
+            return;
+        }
+
+        try {
+            const storedPayload = window.localStorage.getItem(cartStorageKey);
+
+            if (!storedPayload) {
+                setCartLines([]);
+                orderForm.setData("notes", "");
+                return;
+            }
+
+            const parsedPayload = JSON.parse(storedPayload);
+            const productMap = new Map(products.map((product) => [product.id, product]));
+            const restoredLines = Array.isArray(parsedPayload?.cartLines)
+                ? parsedPayload.cartLines
+                      .map((line) => {
+                          const product = productMap.get(line.product_id);
+
+                          if (!product) {
+                              return null;
+                          }
+
+                          return {
+                              ...line,
+                              qty: Math.max(
+                                  1,
+                                  Math.min(
+                                      Number(line.qty || 1),
+                                      Number(product.stock || line.qty || 1)
+                                  )
+                              ),
+                              unit_price: Number(product.sell_price || line.unit_price || 0),
+                              modifiers: Array.isArray(line.modifiers)
+                                  ? line.modifiers.map((modifier) => ({
+                                        id: modifier.id,
+                                        name: modifier.name,
+                                        price: Number(modifier.price || 0),
+                                    }))
+                                  : [],
+                          };
+                      })
+                      .filter(Boolean)
+                : [];
+
+            setCartLines(restoredLines);
+            orderForm.setData("notes", parsedPayload?.notes || "");
+        } catch {
+            setCartLines([]);
+            orderForm.setData("notes", "");
+        }
+    }, [cartStorageKey, products]);
+
+    useEffect(() => {
+        if (!cartStorageKey || typeof window === "undefined") {
+            return;
+        }
+
+        window.localStorage.setItem(
+            cartStorageKey,
+            JSON.stringify({
+                notes: orderForm.data.notes || "",
+                cartLines,
+            })
+        );
+    }, [cartLines, cartStorageKey, orderForm.data.notes]);
+
     return (
         <>
             <Head title={`Order ${table.name}`} />
 
             <div className="min-h-screen bg-[radial-gradient(circle_at_top,_#fff7ed_0%,_#f5ede2_42%,_#efe4d4_100%)] text-slate-900">
-                <div className="mx-auto max-w-6xl px-4 py-8">
+                <div
+                    className={`mx-auto max-w-6xl px-4 py-8 ${
+                        showMobileCheckoutBar ? "pb-28 lg:pb-8" : ""
+                    }`}
+                >
                     <div className="relative mb-8 overflow-hidden rounded-[32px] border border-[#eadac3] bg-[linear-gradient(135deg,_rgba(255,255,255,0.96)_0%,_rgba(255,247,237,0.96)_100%)] p-6 shadow-[0_20px_60px_rgba(148,101,56,0.12)]">
                         <div className="pointer-events-none absolute -right-14 -top-16 h-44 w-44 rounded-full bg-[#f3cda1]/35 blur-2xl" />
                         <div className="pointer-events-none absolute -bottom-16 left-10 h-36 w-36 rounded-full bg-[#d8e6d2]/40 blur-2xl" />
@@ -592,7 +702,7 @@ export default function Menu({ table, outlet, products = [], identity }) {
                     ) : (
                         <div className="grid gap-6 lg:grid-cols-[1.5fr,0.9fr]">
                             <div className="space-y-6">
-                                <section className="sticky top-4 z-10 rounded-[28px] border border-slate-200 bg-white/95 p-6 shadow-sm backdrop-blur">
+                                <section className="rounded-[28px] border border-slate-200 bg-white/95 p-6 shadow-sm">
                                     <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                                         <div>
                                             <h2 className="text-xl font-semibold">Menu Pesanan</h2>
@@ -795,7 +905,10 @@ export default function Menu({ table, outlet, products = [], identity }) {
                                 )}
                             </div>
 
-                            <div className="h-fit rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
+                            <div
+                                ref={checkoutSectionRef}
+                                className="h-fit scroll-mt-24 rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm"
+                            >
                                 <h2 className="text-xl font-semibold">Checkout Meja</h2>
                                 <p className="mt-2 text-sm text-slate-500">
                                     Pembayaran self-order saat ini menggunakan tunai di kasir.
@@ -848,11 +961,59 @@ export default function Menu({ table, outlet, products = [], identity }) {
                                         </div>
                                     </div>
 
-                                    {recentTransactions.length > 0 ? (
+                                    {recentOrders.length > 0 ? (
                                         <div className="mt-4 rounded-2xl bg-white p-4">
                                             <div className="flex items-center justify-between gap-3">
                                                 <p className="text-sm font-semibold text-slate-800">
-                                                    Riwayat Terakhir
+                                                    Riwayat Order Terakhir
+                                                </p>
+                                                <p className="text-xs text-slate-500">
+                                                    {customer.loyalty_total_spent
+                                                        ? formatPrice(customer.loyalty_total_spent)
+                                                        : "Belum ada total belanja"}
+                                                </p>
+                                            </div>
+                                            <div className="mt-3 space-y-3">
+                                                {recentOrders.map((order) => (
+                                                    <div
+                                                        key={order.id}
+                                                        className="flex items-start justify-between gap-3 border-t border-slate-100 pt-3 first:border-t-0 first:pt-0"
+                                                    >
+                                                        <div>
+                                                            <p className="text-sm font-medium text-slate-800">
+                                                                {order.order_number}
+                                                            </p>
+                                                            <div className="mt-1 flex flex-wrap items-center gap-2">
+                                                                <span className="text-xs text-slate-500">
+                                                                    {outlet?.name || "Outlet"}
+                                                                </span>
+                                                                <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-600">
+                                                                    {orderStatusLabel[order.status] || order.status}
+                                                                </span>
+                                                            </div>
+                                                            {order.access_token ? (
+                                                                <Link
+                                                                    href={route("table-order.status", order.access_token)}
+                                                                    className="mt-2 inline-flex text-xs font-medium text-[#9b4b2e]"
+                                                                >
+                                                                    Lihat status order
+                                                                </Link>
+                                                            ) : null}
+                                                        </div>
+                                                        <div className="text-right">
+                                                            <p className="text-sm font-semibold text-slate-800">
+                                                                {formatPrice(order.grand_total)}
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    ) : recentTransactions.length > 0 ? (
+                                        <div className="mt-4 rounded-2xl bg-white p-4">
+                                            <div className="flex items-center justify-between gap-3">
+                                                <p className="text-sm font-semibold text-slate-800">
+                                                    Riwayat Transaksi Kasir
                                                 </p>
                                                 <p className="text-xs text-slate-500">
                                                     {customer.loyalty_total_spent
@@ -888,7 +1049,7 @@ export default function Menu({ table, outlet, products = [], identity }) {
                                         </div>
                                     ) : (
                                         <div className="mt-4 rounded-2xl bg-white px-4 py-3 text-sm text-slate-500">
-                                            Belum ada histori transaksi di outlet ini.
+                                            Belum ada histori order di outlet ini.
                                         </div>
                                     )}
 
@@ -1143,25 +1304,26 @@ export default function Menu({ table, outlet, products = [], identity }) {
                 </div>
             ) : null}
 
-            {customer && cartItems.length > 0 ? (
-                <div className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 px-4 py-3 shadow-2xl backdrop-blur lg:hidden">
-                    <div className="mx-auto flex max-w-6xl items-center gap-3">
-                        <div className="min-w-0 flex-1">
-                            <p className="text-xs uppercase tracking-wide text-slate-500">
-                                Ringkasan Pesanan
-                            </p>
-                            <p className="truncate text-sm font-semibold text-slate-900">
-                                {cartItems.length} item • {formatPrice(grandTotal)}
-                            </p>
+            {showMobileCheckoutBar ? (
+                <div className="fixed inset-x-0 bottom-0 z-40 px-4 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-3 lg:hidden">
+                    <div className="mx-auto max-w-md rounded-[26px] border border-[#e7d7c3] bg-white/96 p-3 shadow-[0_24px_60px_rgba(15,23,42,0.18)] backdrop-blur">
+                        <div className="flex items-center gap-3">
+                            <div className="min-w-0 flex-1 rounded-2xl bg-[#fff8f1] px-3 py-2.5">
+                                <p className="text-[11px] uppercase tracking-[0.2em] text-[#8f6a44]">
+                                    Ringkasan Pesanan
+                                </p>
+                                <p className="mt-1 truncate text-sm font-semibold text-slate-900">
+                                    {cartItems.length} item • {formatPrice(grandTotal)}
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={scrollToCheckout}
+                                className="inline-flex shrink-0 items-center justify-center rounded-2xl bg-[#b8572f] px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-[#b8572f]/20"
+                            >
+                                Lihat Checkout
+                            </button>
                         </div>
-                        <button
-                            type="button"
-                            onClick={submitOrder}
-                            disabled={orderForm.processing}
-                            className="inline-flex items-center justify-center rounded-2xl bg-[#b8572f] px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
-                        >
-                            {orderForm.processing ? "Mengirim..." : "Checkout"}
-                        </button>
                     </div>
                 </div>
             ) : null}

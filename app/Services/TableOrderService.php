@@ -171,11 +171,17 @@ class TableOrderService
         return $tableOrder;
     }
 
-    public function approveCashPayment(TableOrder $tableOrder, User $cashier): Transaction
+    public function approveCashPayment(TableOrder $tableOrder, User $cashier, int $cashAmount): Transaction
     {
         if ($tableOrder->status !== 'pending_cashier_payment') {
             throw ValidationException::withMessages([
                 'order' => 'Order ini tidak lagi menunggu pembayaran kasir.',
+            ]);
+        }
+
+        if ($cashAmount < (int) $tableOrder->grand_total) {
+            throw ValidationException::withMessages([
+                'cash' => 'Nominal tunai kurang dari total order.',
             ]);
         }
 
@@ -186,8 +192,9 @@ class TableOrderService
             lockForUpdate: true
         );
 
-        $transaction = DB::transaction(function () use ($tableOrder, $cashier, $activeShift) {
+        $transaction = DB::transaction(function () use ($tableOrder, $cashier, $activeShift, $cashAmount) {
             $invoice = $this->generateInvoiceNumber();
+            $changeAmount = max(0, $cashAmount - (int) $tableOrder->grand_total);
 
             $transaction = Transaction::create([
                 'cashier_id' => $cashier->id,
@@ -197,8 +204,8 @@ class TableOrderService
                 'order_type' => 'dine_in',
                 'table_id' => $tableOrder->dining_table_id,
                 'invoice' => $invoice,
-                'cash' => (int) $tableOrder->grand_total,
-                'change' => 0,
+                'cash' => $cashAmount,
+                'change' => $changeAmount,
                 'discount' => 0,
                 'shipping_cost' => 0,
                 'grand_total' => (int) $tableOrder->grand_total,
@@ -289,6 +296,40 @@ class TableOrderService
         );
 
         return $transaction;
+    }
+
+    public function cancel(TableOrder $tableOrder, User $actor, ?string $reason = null): TableOrder
+    {
+        if ($tableOrder->status !== 'pending_cashier_payment') {
+            throw ValidationException::withMessages([
+                'order' => 'Hanya order yang masih menunggu pembayaran yang bisa dibatalkan.',
+            ]);
+        }
+
+        $tableOrder->update([
+            'status' => 'cancelled',
+            'approved_by' => $actor->id,
+            'approved_at' => now(),
+        ]);
+
+        $tableOrder = $tableOrder->fresh(['diningTable']);
+
+        $this->auditLogService->log(
+            event: 'table_order.cancelled',
+            module: 'table_orders',
+            auditable: $tableOrder,
+            description: "Order {$tableOrder->order_number} dibatalkan oleh kasir.",
+            before: [
+                'status' => 'pending_cashier_payment',
+            ],
+            after: [
+                'status' => 'cancelled',
+                'reason' => $reason,
+            ],
+            actor: $actor
+        );
+
+        return $tableOrder;
     }
 
     private function resolveAvailableStock(Product $product, int $outletId): int

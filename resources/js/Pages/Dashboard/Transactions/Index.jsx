@@ -5,7 +5,7 @@ import React, {
     useCallback,
     useRef,
 } from "react";
-import { Head, router, usePage } from "@inertiajs/react";
+import { Head, Link, router, usePage } from "@inertiajs/react";
 import axios from "axios";
 import toast from "react-hot-toast";
 import POSLayout from "@/Layouts/POSLayout";
@@ -33,6 +33,8 @@ import {
     IconAlertTriangle,
     IconWallet,
     IconX,
+    IconDeviceMobile,
+    IconArrowRight,
 } from "@tabler/icons-react";
 
 const formatPrice = (value = 0) =>
@@ -65,6 +67,7 @@ export default function Index({
     paymentGateways = [],
     defaultPaymentGateway = "cash",
     bankAccounts = [],
+    pendingTableOrders = [],
     loyaltyTierOptions = [],
     tenantOutlets = [],
 }) {
@@ -115,6 +118,12 @@ export default function Index({
     const [selectedVoucherId, setSelectedVoucherId] = useState("");
     const [openingCashInput, setOpeningCashInput] = useState("");
     const [shiftNotesInput, setShiftNotesInput] = useState("");
+    const [tableOrderApprovalTarget, setTableOrderApprovalTarget] = useState(null);
+    const [tableOrderCashInput, setTableOrderCashInput] = useState("");
+    const [isApprovingTableOrder, setIsApprovingTableOrder] = useState(false);
+    const [tableOrderCancelTarget, setTableOrderCancelTarget] = useState(null);
+    const [tableOrderCancelReason, setTableOrderCancelReason] = useState("");
+    const [isCancellingTableOrder, setIsCancellingTableOrder] = useState(false);
     const normalizedSelectedCategory =
         selectedCategory === null ? null : Number(selectedCategory);
     const pricingItemsByCartId = useMemo(() => {
@@ -230,6 +239,15 @@ export default function Index({
         [localCarts]
     );
     const isCartSyncing = pendingCartMutations > 0;
+    const tableOrderCashAmount = useMemo(
+        () => Math.max(0, Number(tableOrderCashInput) || 0),
+        [tableOrderCashInput]
+    );
+    const tableOrderChangeAmount = useMemo(() => {
+        const targetTotal = Number(tableOrderApprovalTarget?.grand_total || 0);
+
+        return Math.max(0, tableOrderCashAmount - targetTotal);
+    }, [tableOrderApprovalTarget, tableOrderCashAmount]);
 
     useEffect(() => {
         if (localCarts.length === 0) {
@@ -355,6 +373,79 @@ export default function Index({
             notes: shiftNotesInput,
             redirect_to: "transactions",
         });
+    };
+
+    const openTableOrderApproval = (order) => {
+        setTableOrderApprovalTarget(order);
+        setTableOrderCashInput(String(order?.grand_total || 0));
+    };
+
+    const closeTableOrderApproval = () => {
+        if (isApprovingTableOrder) {
+            return;
+        }
+
+        setTableOrderApprovalTarget(null);
+        setTableOrderCashInput("");
+    };
+
+    const submitTableOrderApproval = () => {
+        if (!tableOrderApprovalTarget?.id) {
+            return;
+        }
+
+        if (tableOrderCashAmount < Number(tableOrderApprovalTarget.grand_total || 0)) {
+            toast.error("Nominal tunai kurang dari total order.");
+            return;
+        }
+
+        setIsApprovingTableOrder(true);
+
+        router.post(
+            route("table-orders.approve", tableOrderApprovalTarget.id),
+            {
+                cash: tableOrderCashAmount,
+                redirect_to: "print",
+            },
+            {
+                preserveScroll: true,
+                onFinish: () => setIsApprovingTableOrder(false),
+            }
+        );
+    };
+
+    const openTableOrderCancel = (order) => {
+        setTableOrderCancelTarget(order);
+        setTableOrderCancelReason("");
+    };
+
+    const closeTableOrderCancel = () => {
+        if (isCancellingTableOrder) {
+            return;
+        }
+
+        setTableOrderCancelTarget(null);
+        setTableOrderCancelReason("");
+    };
+
+    const submitTableOrderCancel = () => {
+        if (!tableOrderCancelTarget?.id) {
+            return;
+        }
+
+        setIsCancellingTableOrder(true);
+
+        router.post(
+            route("table-orders.cancel", tableOrderCancelTarget.id),
+            {
+                reason: tableOrderCancelReason,
+                redirect_to: "transactions",
+            },
+            {
+                preserveScroll: true,
+                onFinish: () => setIsCancellingTableOrder(false),
+            }
+        );
     };
 
     const hasPresetModifiers = useCallback(
@@ -1097,7 +1188,7 @@ export default function Index({
         <>
             <Head title="Transaksi" />
 
-            <div className="h-[calc(100vh-4rem)] flex flex-col lg:flex-row">
+            <div className="h-[calc(100vh-4rem)] overflow-hidden bg-slate-100 dark:bg-slate-950 flex flex-col lg:flex-row">
                 {/* Mobile Tab Switcher */}
                 <div className="lg:hidden flex border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
                     <button
@@ -1259,6 +1350,75 @@ export default function Index({
 
                     {/* Cart Items - Scrollable */}
                     <div className="flex-1 overflow-y-auto min-h-0">
+                        <div className="p-3 border-b border-slate-200 dark:border-slate-800">
+                            <div className="rounded-2xl border border-[#eadac3] bg-[linear-gradient(180deg,_#fffaf4_0%,_#fff4e8_100%)] p-3">
+                                <div className="flex items-start justify-between gap-3">
+                                    <div>
+                                        <p className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+                                            <IconDeviceMobile size={16} className="text-[#b8572f]" />
+                                            Pesanan QR Meja
+                                        </p>
+                                        <p className="mt-1 text-xs text-slate-500">
+                                            Order meja yang menunggu pembayaran tunai kasir.
+                                        </p>
+                                    </div>
+                                    <Link
+                                        href={route("table-orders.index")}
+                                        className="inline-flex items-center gap-1 rounded-xl border border-[#e5d3bf] bg-white px-3 py-2 text-[11px] font-semibold text-[#9b4b2e]"
+                                    >
+                                        Lihat Semua
+                                        <IconArrowRight size={14} />
+                                    </Link>
+                                </div>
+
+                                {pendingTableOrders.length > 0 ? (
+                                    <div className="mt-3 space-y-2">
+                                        {pendingTableOrders.map((order) => (
+                                            <div
+                                                key={order.id}
+                                                className="rounded-2xl border border-white/80 bg-white/90 p-3 shadow-sm"
+                                            >
+                                                <div className="flex items-start justify-between gap-3">
+                                                    <div className="min-w-0">
+                                                        <p className="text-sm font-semibold text-slate-800">
+                                                            {order.order_number}
+                                                        </p>
+                                                        <p className="mt-1 text-xs text-slate-500">
+                                                            Meja {order.table?.code || order.table?.name}
+                                                            {order.customer_name
+                                                                ? ` • ${order.customer_name}`
+                                                                : ""}
+                                                        </p>
+                                                    </div>
+                                                    <span className="text-xs font-bold text-[#b8572f]">
+                                                        {formatPrice(order.grand_total)}
+                                                    </span>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => openTableOrderCancel(order)}
+                                                    className="mt-3 inline-flex w-full items-center justify-center rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-xs font-semibold text-rose-700"
+                                                >
+                                                    Batalkan Order
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => openTableOrderApproval(order)}
+                                                    className="mt-2 inline-flex w-full items-center justify-center rounded-xl bg-[#b8572f] px-3 py-2.5 text-xs font-semibold text-white"
+                                                >
+                                                    Bayar dan Cetak Struk
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="mt-3 rounded-2xl border border-dashed border-[#e7d7c3] bg-white/70 px-3 py-4 text-center text-xs text-slate-500">
+                                        Belum ada order QR yang menunggu pembayaran.
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
                         {/* Hold Button - at top of cart section */}
                         {localCarts.length > 0 && (
                             <div className="p-3 border-b border-slate-200 dark:border-slate-800">
@@ -2168,6 +2328,180 @@ export default function Index({
                     </div>
                 </div>
             </div>
+
+            {tableOrderApprovalTarget && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                    <div
+                        className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm"
+                        onClick={closeTableOrderApproval}
+                    />
+                    <div className="relative w-full max-w-md overflow-hidden rounded-3xl bg-white shadow-2xl dark:bg-slate-900">
+                        <div className="border-b border-slate-200 px-5 py-4 dark:border-slate-800">
+                            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#b8572f]">
+                                Pembayaran QR Meja
+                            </p>
+                            <h3 className="mt-1 text-lg font-bold text-slate-900 dark:text-white">
+                                {tableOrderApprovalTarget.order_number}
+                            </h3>
+                            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                Meja {tableOrderApprovalTarget.table?.code || tableOrderApprovalTarget.table?.name}
+                                {tableOrderApprovalTarget.customer_name
+                                    ? ` • ${tableOrderApprovalTarget.customer_name}`
+                                    : ""}
+                            </p>
+                        </div>
+
+                        <div className="space-y-4 px-5 py-4">
+                            <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-800/60">
+                                <div className="flex items-center justify-between text-sm">
+                                    <span className="text-slate-500">Total order</span>
+                                    <span className="text-xl font-bold text-slate-900 dark:text-white">
+                                        {formatPrice(tableOrderApprovalTarget.grand_total)}
+                                    </span>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="mb-2 block text-xs font-medium text-slate-600 dark:text-slate-400">
+                                    Jumlah Bayar Tunai
+                                </label>
+                                <input
+                                    type="text"
+                                    inputMode="numeric"
+                                    value={tableOrderCashInput}
+                                    onChange={(event) =>
+                                        setTableOrderCashInput(
+                                            event.target.value.replace(/[^\d]/g, "")
+                                        )
+                                    }
+                                    placeholder="0"
+                                    className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-base font-semibold text-slate-800 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"
+                                />
+                            </div>
+
+                            <div className="grid grid-cols-3 gap-2">
+                                {[
+                                    Number(tableOrderApprovalTarget.grand_total || 0),
+                                    Math.ceil(Number(tableOrderApprovalTarget.grand_total || 0) / 10000) * 10000,
+                                    Math.ceil(Number(tableOrderApprovalTarget.grand_total || 0) / 50000) * 50000,
+                                ]
+                                    .filter((value, index, array) => value > 0 && array.indexOf(value) === index)
+                                    .map((amount) => (
+                                        <button
+                                            key={amount}
+                                            type="button"
+                                            onClick={() => setTableOrderCashInput(String(amount))}
+                                            className={`rounded-xl px-3 py-2 text-xs font-semibold transition ${
+                                                tableOrderCashAmount === amount
+                                                    ? "bg-primary-500 text-white"
+                                                    : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"
+                                            }`}
+                                        >
+                                            {formatPrice(amount)}
+                                        </button>
+                                    ))}
+                            </div>
+
+                            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900/40 dark:bg-emerald-950/20">
+                                <div className="flex items-center justify-between text-sm">
+                                    <span className="text-emerald-700 dark:text-emerald-300">
+                                        Kembalian
+                                    </span>
+                                    <span className="font-bold text-emerald-700 dark:text-emerald-300">
+                                        {formatPrice(tableOrderChangeAmount)}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3 border-t border-slate-200 bg-slate-50 px-5 py-4 dark:border-slate-800 dark:bg-slate-900/80">
+                            <button
+                                type="button"
+                                onClick={closeTableOrderApproval}
+                                disabled={isApprovingTableOrder}
+                                className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                            >
+                                Batal
+                            </button>
+                            <button
+                                type="button"
+                                onClick={submitTableOrderApproval}
+                                disabled={
+                                    isApprovingTableOrder ||
+                                    tableOrderCashAmount <
+                                        Number(tableOrderApprovalTarget.grand_total || 0)
+                                }
+                                className="rounded-2xl bg-[#b8572f] px-4 py-3 text-sm font-semibold text-white disabled:opacity-60"
+                            >
+                                {isApprovingTableOrder ? "Memproses..." : "Approve dan Cetak"}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {tableOrderCancelTarget && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                    <div
+                        className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm"
+                        onClick={closeTableOrderCancel}
+                    />
+                    <div className="relative w-full max-w-md overflow-hidden rounded-3xl bg-white shadow-2xl dark:bg-slate-900">
+                        <div className="border-b border-slate-200 px-5 py-4 dark:border-slate-800">
+                            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-rose-600">
+                                Batalkan Pesanan QR
+                            </p>
+                            <h3 className="mt-1 text-lg font-bold text-slate-900 dark:text-white">
+                                {tableOrderCancelTarget.order_number}
+                            </h3>
+                            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                Meja {tableOrderCancelTarget.table?.code || tableOrderCancelTarget.table?.name}
+                                {tableOrderCancelTarget.customer_name
+                                    ? ` • ${tableOrderCancelTarget.customer_name}`
+                                    : ""}
+                            </p>
+                        </div>
+
+                        <div className="space-y-4 px-5 py-4">
+                            <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-300">
+                                Order akan dibatalkan dan tidak bisa lagi dibayar dari kasir.
+                            </div>
+
+                            <div>
+                                <label className="mb-2 block text-xs font-medium text-slate-600 dark:text-slate-400">
+                                    Alasan pembatalan
+                                </label>
+                                <textarea
+                                    rows={3}
+                                    value={tableOrderCancelReason}
+                                    onChange={(event) => setTableOrderCancelReason(event.target.value)}
+                                    placeholder="Opsional, mis. pelanggan membatalkan order"
+                                    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3 border-t border-slate-200 bg-slate-50 px-5 py-4 dark:border-slate-800 dark:bg-slate-900/80">
+                            <button
+                                type="button"
+                                onClick={closeTableOrderCancel}
+                                disabled={isCancellingTableOrder}
+                                className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                            >
+                                Kembali
+                            </button>
+                            <button
+                                type="button"
+                                onClick={submitTableOrderCancel}
+                                disabled={isCancellingTableOrder}
+                                className="rounded-2xl bg-rose-600 px-4 py-3 text-sm font-semibold text-white disabled:opacity-60"
+                            >
+                                {isCancellingTableOrder ? "Membatalkan..." : "Batalkan Order"}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {modifierModalProduct && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4">

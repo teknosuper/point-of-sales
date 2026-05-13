@@ -126,6 +126,9 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
     Route::post('table-orders/{tableOrder}/approve', [TableOrderController::class, 'approve'])
         ->middleware(['permission:table-orders-approve', 'outlet_access'])
         ->name('table-orders.approve');
+    Route::post('table-orders/{tableOrder}/cancel', [TableOrderController::class, 'cancel'])
+        ->middleware(['permission:table-orders-approve', 'outlet_access'])
+        ->name('table-orders.cancel');
     Route::get('products-menu-book', [ProductController::class, 'menuBook'])
         ->middleware('permission:products-access')
         ->name('products.menu-book');
