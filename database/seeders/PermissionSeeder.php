@@ -50,6 +50,10 @@ class PermissionSeeder extends Seeder
         $create('products-edit');
         $create('products-pricing-update');
         $create('products-delete');
+        $create('dining-tables-access');
+        $create('dining-tables-create');
+        $create('dining-tables-update');
+        $create('dining-tables-delete');
         $create('pricing-rules-access');
         $create('pricing-rules-create');
         $create('pricing-rules-update');
@@ -84,6 +88,8 @@ class PermissionSeeder extends Seeder
         $create('transactions-access');
         $create('transactions-confirm-payment');
         $create('waiter-board-access');
+        $create('table-orders-access');
+        $create('table-orders-approve');
 
         // permission receivables & payables
         $create('receivables-access');

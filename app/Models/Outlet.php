@@ -4,7 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 class Outlet extends Model
 {
@@ -105,10 +105,13 @@ class Outlet extends Model
             return null;
         }
 
-        if (str_starts_with($this->logo, 'http://') || str_starts_with($this->logo, 'https://') || str_starts_with($this->logo, '/storage/')) {
+        if (
+            Str::startsWith($this->logo, ['http://', 'https://', '/storage/'])
+            || Str::startsWith($this->logo, 'data:')
+        ) {
             return $this->logo;
         }
 
-        return Storage::disk('public')->url($this->logo);
+        return '/storage/'.ltrim($this->logo, '/');
     }
 }

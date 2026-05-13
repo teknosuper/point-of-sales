@@ -11,6 +11,7 @@ use App\Services\OutletResolver;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Inertia\Inertia;
 
 class SettingController extends Controller
@@ -65,7 +66,7 @@ class SettingController extends Controller
 
         $settings = [
             'store_name' => $outlet?->name ?? Setting::get('store_name', ''),
-            'store_logo' => $outlet?->logo ?? Setting::get('store_logo', ''),
+            'store_logo' => $this->resolveStoreLogoUrl($outlet?->logo ?? Setting::get('store_logo', '')),
             'store_address' => $outlet?->address ?? Setting::get('store_address', ''),
             'store_phone' => $outlet?->phone ?? Setting::get('store_phone', ''),
             'store_email' => $outlet?->email ?? Setting::get('store_email', ''),
@@ -133,7 +134,7 @@ class SettingController extends Controller
 
         if ($request->file('store_logo')) {
             if ($logoPath) {
-                Storage::disk('public')->delete($logoPath);
+                Storage::disk('public')->delete($this->normalizePublicStoragePath($logoPath));
             }
             $logoPath = $request->file('store_logo')->store('store', 'public');
             $logoChanged = true;
@@ -204,6 +205,39 @@ class SettingController extends Controller
         }
 
         return $this->outletResolver->resolve($request, $request->user());
+    }
+
+    private function resolveStoreLogoUrl(?string $logoPath): ?string
+    {
+        if (! $logoPath) {
+            return null;
+        }
+
+        if (
+            Str::startsWith($logoPath, ['http://', 'https://', '/storage/'])
+            || Str::startsWith($logoPath, 'data:')
+        ) {
+            return $logoPath;
+        }
+
+        return '/storage/'.ltrim($logoPath, '/');
+    }
+
+    private function normalizePublicStoragePath(?string $path): ?string
+    {
+        if (! $path) {
+            return null;
+        }
+
+        if (Str::startsWith($path, '/storage/')) {
+            return Str::after($path, '/storage/');
+        }
+
+        if (Str::contains($path, '/storage/')) {
+            return Str::after($path, '/storage/');
+        }
+
+        return $path;
     }
 
     public function loyalty()

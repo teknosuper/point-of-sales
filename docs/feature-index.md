@@ -10,6 +10,18 @@ Modul kasir untuk membangun cart, hold/resume transaksi, checkout multi-metode p
 
 Dokumen: `docs/features/pos-transactions.md`
 
+### Manajemen Meja
+
+Modul master meja dine in per outlet untuk dipakai pada transaksi makan di tempat.
+
+Dokumen: `docs/features/dining-tables.md`
+
+### Table Order QR
+
+Modul self-order publik untuk meja yang baru diteruskan ke dapur setelah pembayaran tunai dikonfirmasi kasir.
+
+Dokumen: `docs/features/table-order-qr.md`
+
 ### Customer & Wilayah
 
 Modul customer mendukung CRUD dan data wilayah Indonesia sampai level desa, serta histori transaksi pelanggan.

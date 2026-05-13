@@ -89,6 +89,13 @@ export default function Menu() {
                     permissions: hasAnyPermission(["products-access"]),
                 },
                 {
+                    title: "Manajemen Meja",
+                    href: route("dining-tables.index"),
+                    active: url.startsWith("/dashboard/dining-tables"),
+                    icon: <IconTable size={20} strokeWidth={1.5} />,
+                    permissions: hasAnyPermission(["dining-tables-access"]),
+                },
+                {
                     title: "Pelanggan",
                     href: route("customers.index"),
                     active: url === "/dashboard/customers" ? true : false, // Update comparison here
@@ -130,6 +137,13 @@ export default function Menu() {
                             : false,
                     icon: <IconClockHour6 size={20} strokeWidth={1.5} />,
                     permissions: hasAnyPermission(["transactions-access"]),
+                },
+                {
+                    title: "Pesanan QR Meja",
+                    href: route("table-orders.index"),
+                    active: url.startsWith("/dashboard/table-orders"),
+                    icon: <IconDeviceMobile size={20} strokeWidth={1.5} />,
+                    permissions: hasAnyPermission(["table-orders-access"]),
                 },
                 {
                     title: "Layar Dapur",

@@ -6,6 +6,7 @@ use App\Support\ImagePlaceholder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Str;
 
 class Product extends Model
 {
@@ -108,6 +109,13 @@ class Product extends Model
             return ImagePlaceholder::product($attributes['title'] ?? 'Produk');
         }
 
-        return asset('storage/products/'.$value);
+        if (
+            Str::startsWith($value, ['http://', 'https://', '/storage/'])
+            || Str::startsWith($value, 'data:')
+        ) {
+            return $value;
+        }
+
+        return '/storage/products/'.ltrim($value, '/');
     }
 }

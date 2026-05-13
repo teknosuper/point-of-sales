@@ -46,6 +46,7 @@ export default function Store({ settings, tenantOutlets = [] }) {
     const submit = (e) => {
         e.preventDefault();
         post(route("settings.store.update"), {
+            forceFormData: true,
             preserveScroll: true,
             onSuccess: () => {
                 toast.success("Profil toko disimpan");
@@ -80,11 +81,10 @@ export default function Store({ settings, tenantOutlets = [] }) {
                             <div className="w-32 h-32 rounded-2xl border-2 border-dashed border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 flex items-center justify-center overflow-hidden mb-3">
                                 {logoPreview ? (
                                     <img
-                                        src={logoPreview.startsWith("http") || logoPreview.startsWith("/storage")
-                                            ? logoPreview
-                                            : `/storage/${logoPreview}`}
+                                        src={logoPreview}
                                         alt="Logo"
                                         className="w-full h-full object-cover"
+                                        onError={() => setLogoPreview(null)}
                                     />
                                 ) : (
                                     <IconBuildingStore size={36} className="text-slate-300" />

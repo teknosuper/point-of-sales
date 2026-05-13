@@ -16,7 +16,7 @@ class KitchenTicketService
         private readonly PrintJobService $printJobService
     ) {}
 
-    public function createForTransaction(Transaction $transaction): Collection
+    public function createForTransaction(Transaction $transaction, string $sourceChannel = 'pos'): Collection
     {
         $transaction->loadMissing([
             'details.product.kitchenStationMappings.kitchenStation',
@@ -45,7 +45,7 @@ class KitchenTicketService
                 'cashier_shift_id' => $transaction->cashier_shift_id,
                 'kitchen_station_id' => (int) $stationId,
                 'ticket_number' => $this->generateTicketNumber($transaction, (int) $stationId),
-                'source_channel' => 'pos',
+                'source_channel' => $sourceChannel,
                 'status' => 'pending',
                 'fired_at' => now(),
             ]);

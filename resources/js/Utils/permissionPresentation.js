@@ -21,6 +21,10 @@ const permissionLabels = {
     "products-edit": "Ubah Produk Operasional",
     "products-pricing-update": "Ubah Harga Produk",
     "products-delete": "Hapus Produk",
+    "dining-tables-access": "Lihat Manajemen Meja",
+    "dining-tables-create": "Tambah Meja",
+    "dining-tables-update": "Ubah Meja",
+    "dining-tables-delete": "Hapus Meja",
     "pricing-rules-access": "Lihat Aturan Harga",
     "pricing-rules-create": "Tambah Aturan Harga",
     "pricing-rules-update": "Ubah Aturan Harga",
@@ -49,6 +53,8 @@ const permissionLabels = {
     "transactions-access": "Akses POS dan Transaksi",
     "transactions-confirm-payment": "Konfirmasi Pembayaran",
     "waiter-board-access": "Akses Papan Petugas Antar",
+    "table-orders-access": "Lihat Pesanan QR Meja",
+    "table-orders-approve": "Approve Pembayaran QR Meja",
     "receivables-access": "Lihat Piutang",
     "receivables-pay": "Bayar atau Catat Piutang",
     "payables-access": "Lihat Hutang",
@@ -114,6 +120,7 @@ export function permissionGroup(name = "") {
     if (name.startsWith("permissions-")) return "permissions";
     if (name.startsWith("categories-")) return "categories";
     if (name.startsWith("products-")) return "products";
+    if (name.startsWith("dining-tables-")) return "transactions";
     if (name.startsWith("pricing-rules-")) return "pricing";
     if (name.startsWith("outlets-")) return "outlets";
     if (
@@ -153,6 +160,8 @@ export function permissionDescription(name = "") {
             return "Dipakai untuk menutup atau membuka toko tanpa harus mengubah data outlet lain.";
         case "outlets-update":
             return "Mengubah data outlet seperti nama, komisi, PIC, dan profil outlet.";
+        case "table-orders-approve":
+            return "Kasir mengonfirmasi pembayaran tunai self-order meja dan meneruskan pesanan ke dapur.";
         default:
             return "";
     }

@@ -25,6 +25,7 @@ class RoleSeeder extends Seeder
         $this->createRoleWithPermissions('permissions-access', '%permissions%');
         $this->createRoleWithPermissions('categories-access', '%categories%');
         $this->createRoleWithPermissions('products-access', '%products%');
+        $this->createRoleWithPermissions('dining-tables-access', '%dining-tables%');
         $this->createRoleWithPermissions('pricing-rules-access', '%pricing-rules%');
         $this->createRoleWithPermissions('outlets-access', '%outlets%');
         $this->createRoleWithPermissions('customers-access', '%customers%');
@@ -35,6 +36,8 @@ class RoleSeeder extends Seeder
         $this->createRoleWithPermissions('transactions-access', '%transactions%');
         $this->createRoleWithPermissions('transactions-confirm-payment', 'transactions-confirm-payment');
         $this->createRoleWithPermissions('waiter-board-access', 'waiter-board-access');
+        $this->createRoleWithPermissions('table-orders-access', 'table-orders-access');
+        $this->createRoleWithPermissions('table-orders-approve', 'table-orders-approve');
         $this->createRoleWithPermissions('receivables-access', '%receivables%');
         $this->createRoleWithPermissions('payables-access', '%payables%');
         $this->createRoleWithPermissions('suppliers-access', '%suppliers%');
@@ -59,9 +62,12 @@ class RoleSeeder extends Seeder
         $cashierPermissions = Permission::whereIn('name', [
             'dashboard-access',
             'transactions-access',
+            'table-orders-access',
+            'table-orders-approve',
             'cashier-shifts-access',
             'cashier-shifts-open',
             'cashier-shifts-close',
+            'dining-tables-access',
             'customers-access',
             'customers-create',
             'receivables-access',
@@ -77,6 +83,7 @@ class RoleSeeder extends Seeder
             'dashboard-access',
             'transactions-access',
             'waiter-board-access',
+            'table-orders-access',
         ])->get();
         $waiterRole->syncPermissions($waiterPermissions);
 

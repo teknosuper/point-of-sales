@@ -14,6 +14,8 @@ use App\Models\Transaction;
 use App\Models\User;
 use App\Services\LoyaltyService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Inertia\Testing\AssertableInertia as Assert;
 use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
@@ -144,6 +146,37 @@ class MultiOutletIsolationTest extends TestCase
 
         $this->assertSame(12.5, (float) $tenantA->fresh()->commission_rate_percent);
         $this->assertSame(7.0, (float) $tenantB->fresh()->commission_rate_percent);
+    }
+
+    public function test_store_settings_can_upload_logo_for_active_outlet(): void
+    {
+        Storage::fake('public');
+
+        $user = User::factory()->create();
+        $user->givePermissionTo('dashboard-access');
+
+        $activeOutlet = $this->createOutlet('OUTLET-HQ', 'Outlet HQ', true);
+        $user->outlets()->attach($activeOutlet->id, ['is_primary' => true]);
+
+        $logo = UploadedFile::fake()->image('store-logo.png');
+
+        $this->withSession(['active_outlet_id' => $activeOutlet->id])
+            ->actingAs($user)
+            ->post(route('settings.store.update'), [
+                'store_name' => 'Outlet HQ',
+                'store_address' => 'Jl. HQ No. 1',
+                'store_phone' => '08123456789',
+                'store_email' => 'hq@example.com',
+                'store_website' => 'https://hq.test',
+                'store_city' => 'Jakarta',
+                'store_logo' => $logo,
+            ])
+            ->assertRedirect();
+
+        $activeOutlet->refresh();
+
+        $this->assertNotNull($activeOutlet->logo);
+        Storage::disk('public')->assertExists($activeOutlet->logo);
     }
 
     public function test_kitchen_board_uses_active_outlet_when_station_slug_exists_in_multiple_outlets(): void

@@ -20,6 +20,8 @@ Dokumentasi ini ditujukan untuk developer yang ingin setup, memahami alur modul,
 ### Fitur Operasional
 
 - `docs/features/pos-transactions.md`
+- `docs/features/dining-tables.md`
+- `docs/features/table-order-qr.md`
 - `docs/features/outlet-tenant-kitchen-guide.md`
 - `docs/features/demo-seed-guide.md`
 - `docs/features/printing-architecture-options.md`

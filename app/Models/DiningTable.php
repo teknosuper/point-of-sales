@@ -14,8 +14,10 @@ class DiningTable extends Model
         'outlet_id',
         'name',
         'code',
+        'qr_token',
         'capacity',
         'status',
+        'self_order_enabled',
         'sort_order',
         'notes',
     ];
@@ -24,10 +26,16 @@ class DiningTable extends Model
         'outlet_id' => 'integer',
         'capacity' => 'integer',
         'sort_order' => 'integer',
+        'self_order_enabled' => 'boolean',
     ];
 
     public function transactions()
     {
         return $this->hasMany(Transaction::class, 'table_id');
+    }
+
+    public function tableOrders()
+    {
+        return $this->hasMany(TableOrder::class);
     }
 }

@@ -8,6 +8,7 @@ use App\Http\Controllers\Apps\CrmReminderController;
 use App\Http\Controllers\Apps\CustomerController;
 use App\Http\Controllers\Apps\CustomerSegmentController;
 use App\Http\Controllers\Apps\CustomerVoucherController;
+use App\Http\Controllers\Apps\DiningTableController;
 use App\Http\Controllers\Apps\GoodsReceivingController;
 use App\Http\Controllers\Apps\KitchenSettingsController;
 use App\Http\Controllers\Apps\KitchenDisplayController;
@@ -22,6 +23,7 @@ use App\Http\Controllers\Apps\SalesReturnController;
 use App\Http\Controllers\Apps\StockMutationController;
 use App\Http\Controllers\Apps\StockOpnameController;
 use App\Http\Controllers\Apps\SupplierReturnController;
+use App\Http\Controllers\Apps\TableOrderController;
 use App\Http\Controllers\Apps\TransactionController;
 use App\Http\Controllers\Apps\WaiterBoardController;
 use App\Http\Controllers\DashboardController;
@@ -29,6 +31,7 @@ use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\OutletContextController;
 use App\Http\Controllers\PermissionController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\PublicTableOrderController;
 use App\Http\Controllers\Reports\AdvancedSalesInsightsController;
 use App\Http\Controllers\Reports\OutletAnalyticsController;
 use App\Http\Controllers\Reports\ProfitReportController;
@@ -59,6 +62,18 @@ Route::get('/dashboard/access', function () {
 // Public share routes (no login)
 Route::get('/share/transactions/{invoice}', [\App\Http\Controllers\DocumentController::class, 'publicInvoice'])
     ->name('transactions.public');
+Route::get('/order/table/{qrToken}', [PublicTableOrderController::class, 'show'])
+    ->name('table-order.show');
+Route::post('/order/table/{qrToken}/identify', [PublicTableOrderController::class, 'identify'])
+    ->name('table-order.identify');
+Route::post('/order/table/{qrToken}/register-identity', [PublicTableOrderController::class, 'registerIdentity'])
+    ->name('table-order.register-identity');
+Route::post('/order/table/{qrToken}/logout', [PublicTableOrderController::class, 'logout'])
+    ->name('table-order.logout');
+Route::post('/order/table/{qrToken}', [PublicTableOrderController::class, 'store'])
+    ->name('table-order.store');
+Route::get('/order/status/{accessToken}', [PublicTableOrderController::class, 'status'])
+    ->name('table-order.status');
 
 Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
     Route::get('/', [DashboardController::class, 'index'])->middleware(['auth', 'permission:dashboard-access'])->name('dashboard');
@@ -99,6 +114,18 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
         ->middlewareFor(['create', 'store'], 'permission:products-create')
         ->middlewareFor(['edit', 'update'], 'permission:products-edit')
         ->middlewareFor('destroy', 'permission:products-delete');
+    Route::resource('dining-tables', DiningTableController::class)
+        ->except(['show', 'create', 'edit'])
+        ->middlewareFor('index', 'permission:dining-tables-access')
+        ->middlewareFor('store', ['permission:dining-tables-create', 'outlet_access'])
+        ->middlewareFor('update', ['permission:dining-tables-update', 'outlet_access'])
+        ->middlewareFor('destroy', ['permission:dining-tables-delete', 'outlet_access']);
+    Route::get('table-orders', [TableOrderController::class, 'index'])
+        ->middleware('permission:table-orders-access')
+        ->name('table-orders.index');
+    Route::post('table-orders/{tableOrder}/approve', [TableOrderController::class, 'approve'])
+        ->middleware(['permission:table-orders-approve', 'outlet_access'])
+        ->name('table-orders.approve');
     Route::get('products-menu-book', [ProductController::class, 'menuBook'])
         ->middleware('permission:products-access')
         ->name('products.menu-book');
