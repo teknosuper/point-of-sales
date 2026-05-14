@@ -2,18 +2,31 @@ import DashboardLayout from "@/Layouts/DashboardLayout";
 import PWAConnectionStatus from "@/Components/PWAConnectionStatus";
 import PWAInstallButton from "@/Components/PWAInstallButton";
 import { Head, Link } from "@inertiajs/react";
+import toast from "react-hot-toast";
 import {
     IconBolt,
     IconChecklist,
     IconDeviceMobile,
+    IconDownload,
     IconHome,
+    IconInfoCircle,
     IconPlugConnected,
     IconShieldCheck,
     IconWifi,
 } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
+import usePwaInstall from "@/Hooks/usePwaInstall";
 
 export default function PWASetup({ platforms = [], recommendedRoutes = [] }) {
+    const {
+        canPromptInstall,
+        installHelpText,
+        isInstalled,
+        isIos,
+        isStandalone,
+        promptInstall,
+        shouldShowInstallEntry,
+    } = usePwaInstall();
     const [diagnostics, setDiagnostics] = useState({
         secureContext: false,
         serviceWorker: false,
@@ -44,6 +57,20 @@ export default function PWASetup({ platforms = [], recommendedRoutes = [] }) {
             window.removeEventListener("offline", sync);
         };
     }, []);
+
+    const handleInstallAction = async () => {
+        if (canPromptInstall) {
+            await promptInstall();
+            return;
+        }
+
+        if (isIos) {
+            toast("Gunakan Bagikan lalu pilih Tambahkan ke Layar Utama.", {
+                duration: 4500,
+                icon: "📲",
+            });
+        }
+    };
 
     const diagnosticItems = [
         {
@@ -80,15 +107,101 @@ export default function PWASetup({ platforms = [], recommendedRoutes = [] }) {
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
                     <div>
                         <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
-                            Setup PWA & Perangkat
+                            Install PWA & Setup Perangkat
                         </h1>
                         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                            Panduan instalasi aplikasi web ke Android, iPhone, desktop, dan pengecekan dasar PWA tanpa membuka alat pengembang browser.
+                            Halaman khusus untuk memasang aplikasi ke perangkat kasir, dapur, atau admin dan mengecek apakah browser siap menampilkan instalasi.
                         </p>
                     </div>
                     <div className="flex flex-wrap items-center gap-3">
                         <PWAConnectionStatus />
                         <PWAInstallButton />
+                    </div>
+                </div>
+
+                <div className="grid gap-6 lg:grid-cols-[1.2fr,0.8fr]">
+                    <div className="rounded-3xl border border-primary-200 bg-white p-6 dark:border-primary-900/40 dark:bg-slate-900">
+                        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary-600 dark:text-primary-300">
+                            Install Aplikasi
+                        </p>
+                        <h2 className="mt-2 text-xl font-bold text-slate-900 dark:text-white">
+                            {isInstalled || isStandalone
+                                ? "Aplikasi sudah terpasang"
+                                : "Pasang POINZA ke perangkat ini"}
+                        </h2>
+                        <p className="mt-2 max-w-2xl text-sm text-slate-500 dark:text-slate-400">
+                            {installHelpText}
+                        </p>
+
+                        <div className="mt-5 flex flex-wrap gap-3">
+                            {!isInstalled && !isStandalone && (
+                                <button
+                                    type="button"
+                                    onClick={handleInstallAction}
+                                    className="inline-flex items-center gap-2 rounded-2xl bg-primary-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-primary-700"
+                                >
+                                    <IconDownload size={18} />
+                                    {canPromptInstall
+                                        ? "Instal Sekarang"
+                                        : isIos
+                                        ? "Lihat Cara Install iPhone/iPad"
+                                        : "Cek Cara Install Perangkat Ini"}
+                                </button>
+                            )}
+                            <Link
+                                href={route("transactions.index")}
+                                className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                            >
+                                <IconHome size={18} />
+                                Buka POS Kasir
+                            </Link>
+                        </div>
+                    </div>
+
+                    <div className="rounded-3xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
+                        <div className="flex items-center gap-2">
+                            <IconInfoCircle
+                                size={18}
+                                className="text-primary-600"
+                            />
+                            <p className="font-semibold text-slate-900 dark:text-white">
+                                Status Install
+                            </p>
+                        </div>
+                        <div className="mt-4 space-y-3 text-sm">
+                            <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3 dark:bg-slate-950/40">
+                                <span className="text-slate-500 dark:text-slate-400">
+                                    Sudah terpasang
+                                </span>
+                                <span className="font-semibold text-slate-900 dark:text-white">
+                                    {isInstalled ? "Ya" : "Belum"}
+                                </span>
+                            </div>
+                            <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3 dark:bg-slate-950/40">
+                                <span className="text-slate-500 dark:text-slate-400">
+                                    Mode standalone
+                                </span>
+                                <span className="font-semibold text-slate-900 dark:text-white">
+                                    {isStandalone ? "Aktif" : "Tidak"}
+                                </span>
+                            </div>
+                            <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3 dark:bg-slate-950/40">
+                                <span className="text-slate-500 dark:text-slate-400">
+                                    Prompt browser siap
+                                </span>
+                                <span className="font-semibold text-slate-900 dark:text-white">
+                                    {canPromptInstall ? "Ya" : "Belum"}
+                                </span>
+                            </div>
+                            <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3 dark:bg-slate-950/40">
+                                <span className="text-slate-500 dark:text-slate-400">
+                                    Tombol install perlu tampil
+                                </span>
+                                <span className="font-semibold text-slate-900 dark:text-white">
+                                    {shouldShowInstallEntry ? "Ya" : "Tidak"}
+                                </span>
+                            </div>
+                        </div>
                     </div>
                 </div>
 

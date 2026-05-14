@@ -1162,6 +1162,16 @@ class TransactionController extends Controller
                         'invoice' => $transaction->invoice,
                         'embedded' => 1,
                     ], false),
+                    'receipt_print_url' => route('transactions.print', [
+                        'invoice' => $transaction->invoice,
+                        'embedded' => 1,
+                        'autoprint' => 1,
+                        'mode' => 'thermal58',
+                    ], false),
+                    'receipt_pdf_url' => route('pdf.transactions.receipt', [
+                        'invoice' => $transaction->invoice,
+                        'size' => '58',
+                    ], false),
                 ],
             ], Response::HTTP_CREATED);
         }
@@ -1199,6 +1209,10 @@ class TransactionController extends Controller
         return Inertia::render('Dashboard/Transactions/Print', [
             'transaction' => $transaction,
             'embedded' => $request->boolean('embedded'),
+            'autoPrint' => $request->boolean('autoprint'),
+            'initialMode' => in_array($request->query('mode'), ['invoice', 'thermal80', 'thermal58', 'shipping'], true)
+                ? $request->query('mode')
+                : 'thermal58',
         ]);
     }
 

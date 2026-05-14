@@ -1,70 +1,33 @@
-import { useEffect, useMemo, useState } from "react";
-import { IconDeviceMobile, IconDownload, IconX } from "@tabler/icons-react";
-import { detectPwaInstalled, persistPwaInstalled } from "@/Utils/pwaInstallation";
+import { useMemo, useState } from "react";
+import {
+    IconArrowRight,
+    IconDeviceMobile,
+    IconDownload,
+    IconX,
+} from "@tabler/icons-react";
+import usePwaInstall from "@/Hooks/usePwaInstall";
 
 export default function PWAInstallPrompt() {
-    const [deferredPrompt, setDeferredPrompt] = useState(null);
-    const [isInstalled, setIsInstalled] = useState(false);
     const [dismissed, setDismissed] = useState(false);
-    const [isIos, setIsIos] = useState(false);
-    const [isStandalone, setIsStandalone] = useState(false);
-
-    useEffect(() => {
-        if (typeof window === "undefined") return;
-
-        const syncInstalledState = () => {
-            const installed = detectPwaInstalled();
-            setIsStandalone(installed);
-            setIsInstalled(installed);
-
-            if (installed) {
-                persistPwaInstalled();
-            }
-        };
-
-        syncInstalledState();
-
-        const ua = window.navigator.userAgent || "";
-        const ios = /iphone|ipad|ipod/i.test(ua);
-        setIsIos(ios);
-
-        const handleBeforeInstallPrompt = (event) => {
-            event.preventDefault();
-            setDeferredPrompt(event);
-        };
-
-        const handleInstalled = () => {
-            persistPwaInstalled();
-            syncInstalledState();
-            setDeferredPrompt(null);
-        };
-
-        window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
-        window.addEventListener("appinstalled", handleInstalled);
-        window.addEventListener("focus", syncInstalledState);
-        window.addEventListener("pageshow", syncInstalledState);
-
-        return () => {
-            window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
-            window.removeEventListener("appinstalled", handleInstalled);
-            window.removeEventListener("focus", syncInstalledState);
-            window.removeEventListener("pageshow", syncInstalledState);
-        };
-    }, []);
+    const {
+        canPromptInstall,
+        installHelpText,
+        promptInstall,
+        shouldShowInstallEntry,
+    } = usePwaInstall();
 
     const canShow = useMemo(() => {
-        if (dismissed || isInstalled || isStandalone) return false;
-        return Boolean(deferredPrompt) || isIos;
-    }, [deferredPrompt, dismissed, isInstalled, isStandalone, isIos]);
+        if (dismissed || !shouldShowInstallEntry) return false;
+        return true;
+    }, [dismissed, shouldShowInstallEntry]);
 
     const handleInstall = async () => {
-        if (!deferredPrompt) return;
-
-        deferredPrompt.prompt();
-        const choice = await deferredPrompt.userChoice;
-        if (choice?.outcome === "accepted") {
-            setDeferredPrompt(null);
+        if (canPromptInstall) {
+            await promptInstall();
+            return;
         }
+
+        window.location.href = route("guides.pwa-setup");
     };
 
     if (!canShow) return null;
@@ -89,10 +52,10 @@ export default function PWAInstallPrompt() {
                         Instal aplikasi POINZA
                     </p>
                     <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                        Pasang ke layar utama agar akses kasir, dapur, dan dashboard terasa seperti aplikasi.
+                        {installHelpText}
                     </p>
 
-                    {deferredPrompt ? (
+                    {canPromptInstall ? (
                         <button
                             type="button"
                             onClick={handleInstall}
@@ -101,11 +64,16 @@ export default function PWAInstallPrompt() {
                             <IconDownload size={16} />
                             Instal Aplikasi
                         </button>
-                    ) : isIos ? (
-                        <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
-                            Di iPhone/iPad, gunakan menu <span className="font-semibold">Bagikan</span> lalu pilih <span className="font-semibold">Tambahkan ke Layar Utama</span>.
-                        </p>
-                    ) : null}
+                    ) : (
+                        <button
+                            type="button"
+                            onClick={handleInstall}
+                            className="mt-3 inline-flex items-center gap-2 rounded-xl border border-primary-200 bg-primary-50 px-4 py-2 text-sm font-medium text-primary-700 transition hover:bg-primary-100 dark:border-primary-900/40 dark:bg-primary-950/30 dark:text-primary-200"
+                        >
+                            <IconArrowRight size={16} />
+                            Buka Halaman Install
+                        </button>
+                    )}
                 </div>
             </div>
         </div>

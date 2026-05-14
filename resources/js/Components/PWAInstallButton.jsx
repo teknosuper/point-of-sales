@@ -1,66 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback } from "react";
 import { IconDownload } from "@tabler/icons-react";
 import toast from "react-hot-toast";
-import { detectPwaInstalled, persistPwaInstalled } from "@/Utils/pwaInstallation";
+import usePwaInstall from "@/Hooks/usePwaInstall";
 
 export default function PWAInstallButton({ compact = false }) {
-    const [deferredPrompt, setDeferredPrompt] = useState(null);
-    const [isInstalled, setIsInstalled] = useState(false);
-    const [isIos, setIsIos] = useState(false);
+    const { canPromptInstall, isIos, promptInstall, shouldShowInstallEntry } =
+        usePwaInstall();
 
-    useEffect(() => {
-        if (typeof window === "undefined") return;
-
-        const syncInstalledState = () => {
-            const installed = detectPwaInstalled();
-            setIsInstalled(installed);
-
-            if (installed) {
-                persistPwaInstalled();
-            }
-        };
-
-        syncInstalledState();
-
-        const ua = window.navigator.userAgent || "";
-        setIsIos(/iphone|ipad|ipod/i.test(ua));
-
-        const handleBeforeInstallPrompt = (event) => {
-            event.preventDefault();
-            setDeferredPrompt(event);
-        };
-
-        const handleInstalled = () => {
-            persistPwaInstalled();
-            syncInstalledState();
-            setDeferredPrompt(null);
-        };
-
-        window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
-        window.addEventListener("appinstalled", handleInstalled);
-        window.addEventListener("focus", syncInstalledState);
-        window.addEventListener("pageshow", syncInstalledState);
-
-        return () => {
-            window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
-            window.removeEventListener("appinstalled", handleInstalled);
-            window.removeEventListener("focus", syncInstalledState);
-            window.removeEventListener("pageshow", syncInstalledState);
-        };
-    }, []);
-
-    const visible = useMemo(
-        () => !isInstalled && (Boolean(deferredPrompt) || isIos),
-        [deferredPrompt, isInstalled, isIos]
-    );
-
-    const handleInstall = async () => {
-        if (deferredPrompt) {
-            deferredPrompt.prompt();
-            const choice = await deferredPrompt.userChoice;
-            if (choice?.outcome === "accepted") {
-                setDeferredPrompt(null);
-            }
+    const handleInstall = useCallback(async () => {
+        if (canPromptInstall) {
+            await promptInstall();
             return;
         }
 
@@ -69,10 +18,14 @@ export default function PWAInstallButton({ compact = false }) {
                 duration: 4000,
                 icon: "📲",
             });
+            window.location.href = route("guides.pwa-setup");
+            return;
         }
-    };
 
-    if (!visible) return null;
+        window.location.href = route("guides.pwa-setup");
+    }, [canPromptInstall, isIos, promptInstall]);
+
+    if (!shouldShowInstallEntry) return null;
 
     return (
         <button
@@ -85,7 +38,7 @@ export default function PWAInstallButton({ compact = false }) {
             }`}
         >
             <IconDownload size={16} />
-            Instal Aplikasi
+            {canPromptInstall ? "Instal Aplikasi" : "Halaman Install PWA"}
         </button>
     );
 }

@@ -121,6 +121,7 @@ export default function Index({
     const [completedTransaction, setCompletedTransaction] = useState(null);
     const [checkoutWarning, setCheckoutWarning] = useState("");
     const [isReceiptFrameReady, setIsReceiptFrameReady] = useState(false);
+    const [prefersPrintOpenLabel, setPrefersPrintOpenLabel] = useState(false);
     const [mobileView, setMobileView] = useState("products"); // 'products' | 'cart'
     const [numpadOpen, setNumpadOpen] = useState(false);
     const [showShortcuts, setShowShortcuts] = useState(false);
@@ -352,6 +353,35 @@ export default function Index({
             setIsCashPaymentModalOpen(false);
         }
     }, [payLater, paymentMethod]);
+
+    useEffect(() => {
+        if (typeof window === "undefined" || !window.matchMedia) {
+            return undefined;
+        }
+
+        const mediaQuery = window.matchMedia(
+            "(max-width: 1024px), (pointer: coarse)"
+        );
+        const syncPreference = (event) => {
+            setPrefersPrintOpenLabel(event.matches);
+        };
+
+        syncPreference(mediaQuery);
+
+        if (typeof mediaQuery.addEventListener === "function") {
+            mediaQuery.addEventListener("change", syncPreference);
+
+            return () => {
+                mediaQuery.removeEventListener("change", syncPreference);
+            };
+        }
+
+        mediaQuery.addListener(syncPreference);
+
+        return () => {
+            mediaQuery.removeListener(syncPreference);
+        };
+    }, []);
 
     useEffect(() => {
         const eligibleVoucherIds = new Set(
@@ -1116,18 +1146,55 @@ export default function Index({
         setIsReceiptFrameReady(false);
     }, [isSubmitting]);
 
-    const handlePrintReceipt = useCallback(() => {
-        const receiptWindow = receiptFrameRef.current?.contentWindow;
+    const openReceiptDocument = useCallback((url) => {
+        if (!url) {
+            return false;
+        }
 
-        if (!receiptWindow) {
-            toast.error("Preview struk belum siap");
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.target = "_blank";
+        anchor.rel = "noopener noreferrer";
+        anchor.click();
+
+        return true;
+    }, []);
+
+    const handlePrintReceipt = useCallback(() => {
+        const receiptPrintUrl = completedTransaction?.receipt_print_url;
+
+        if (!receiptPrintUrl) {
+            toast.error("Halaman cetak struk belum siap");
             return;
         }
 
-        receiptWindow.focus();
-        receiptWindow.print();
+        const opened = openReceiptDocument(receiptPrintUrl);
+
+        if (!opened) {
+            toast.error("Gagal membuka halaman cetak");
+            return;
+        }
+
         closeCheckoutModal();
-    }, [closeCheckoutModal]);
+    }, [closeCheckoutModal, completedTransaction, openReceiptDocument]);
+
+    const handleOpenReceiptPdf = useCallback(() => {
+        const receiptPdfUrl = completedTransaction?.receipt_pdf_url;
+
+        if (!receiptPdfUrl) {
+            toast.error("PDF struk belum siap");
+            return;
+        }
+
+        const opened = openReceiptDocument(receiptPdfUrl);
+
+        if (!opened) {
+            toast.error("Gagal membuka PDF struk");
+            return;
+        }
+
+        closeCheckoutModal();
+    }, [closeCheckoutModal, completedTransaction, openReceiptDocument]);
 
     // Keyboard shortcuts
     useEffect(() => {
@@ -2704,6 +2771,28 @@ export default function Index({
                                                 </p>
                                             </div>
 
+                                            <div className="rounded-2xl border border-primary-200 bg-primary-50 p-4 dark:border-primary-900/40 dark:bg-primary-950/20">
+                                                <p className="text-xs font-semibold uppercase tracking-wide text-primary-700 dark:text-primary-300">
+                                                    Cetak
+                                                </p>
+                                                <p className="mt-2 text-sm text-primary-700 dark:text-primary-300">
+                                                    {prefersPrintOpenLabel
+                                                        ? "Di tablet, struk dibuka dulu di halaman khusus lalu dialog print muncul."
+                                                        : "Tombol cetak akan membuka halaman struk khusus lalu langsung memanggil print."}
+                                                </p>
+                                                <button
+                                                    type="button"
+                                                    onClick={handleOpenReceiptPdf}
+                                                    disabled={
+                                                        !completedTransaction?.receipt_pdf_url
+                                                    }
+                                                    className="mt-3 inline-flex items-center gap-2 rounded-xl border border-primary-200 bg-white px-3 py-2 text-xs font-semibold text-primary-700 hover:bg-primary-50 disabled:opacity-60 dark:border-primary-800 dark:bg-slate-900 dark:text-primary-300 dark:hover:bg-slate-800"
+                                                >
+                                                    <IconReceipt size={16} />
+                                                    Buka PDF Struk
+                                                </button>
+                                            </div>
+
                                             {completedTransaction?.transaction
                                                 ?.payment_url && (
                                                 <a
@@ -2750,7 +2839,7 @@ export default function Index({
                                     </div>
                                 </div>
 
-                                <div className="grid grid-cols-2 gap-3 border-t border-slate-200 bg-slate-50 px-5 py-4 dark:border-slate-800 dark:bg-slate-900/80">
+                                <div className="grid gap-3 border-t border-slate-200 bg-slate-50 px-5 py-4 dark:border-slate-800 dark:bg-slate-900/80 sm:grid-cols-[0.9fr,1.1fr]">
                                     <button
                                         type="button"
                                         onClick={closeCheckoutModal}
@@ -2758,15 +2847,32 @@ export default function Index({
                                     >
                                         Tutup
                                     </button>
-                                    <button
-                                        type="button"
-                                        onClick={handlePrintReceipt}
-                                        disabled={!isReceiptFrameReady}
-                                        className="inline-flex items-center justify-center gap-2 rounded-2xl bg-primary-500 px-4 py-3 text-sm font-semibold text-white hover:bg-primary-600 disabled:opacity-60"
-                                    >
-                                        <IconPrinter size={18} />
-                                        Cetak Struk
-                                    </button>
+                                    <div className="grid gap-3 sm:grid-cols-2">
+                                        <button
+                                            type="button"
+                                            onClick={handleOpenReceiptPdf}
+                                            disabled={
+                                                !completedTransaction?.receipt_pdf_url
+                                            }
+                                            className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                                        >
+                                            <IconReceipt size={18} />
+                                            PDF Struk
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={handlePrintReceipt}
+                                            disabled={
+                                                !completedTransaction?.receipt_print_url
+                                            }
+                                            className="inline-flex items-center justify-center gap-2 rounded-2xl bg-primary-500 px-4 py-3 text-sm font-semibold text-white hover:bg-primary-600 disabled:opacity-60"
+                                        >
+                                            <IconPrinter size={18} />
+                                            {prefersPrintOpenLabel
+                                                ? "Buka & Cetak Struk"
+                                                : "Cetak Struk"}
+                                        </button>
+                                    </div>
                                 </div>
                             </>
                         )}

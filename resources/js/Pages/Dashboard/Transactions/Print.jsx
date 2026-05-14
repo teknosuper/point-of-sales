@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Head, Link, router, usePage } from "@inertiajs/react";
 import {
     IconArrowLeft,
@@ -17,10 +17,15 @@ import ThermalReceipt, {
 import ShippingLabel from "@/Components/Receipt/ShippingLabel";
 import { useAuthorization } from "@/Utils/authorization";
 
-export default function Print({ transaction, embedded = false }) {
+export default function Print({
+    transaction,
+    embedded = false,
+    autoPrint = false,
+    initialMode = "thermal58",
+}) {
     const { storeProfile } = usePage().props;
     const { can } = useAuthorization();
-    const [printMode, setPrintMode] = useState("thermal58"); // 'invoice' | 'thermal80' | 'thermal58'
+    const [printMode, setPrintMode] = useState(initialMode); // 'invoice' | 'thermal80' | 'thermal58'
     const [showConfirmModal, setShowConfirmModal] = useState(false);
     const [isConfirming, setIsConfirming] = useState(false);
     const canConfirmPayment = can("transactions-confirm-payment");
@@ -123,6 +128,31 @@ export default function Print({ transaction, embedded = false }) {
     const handlePrint = () => {
         window.print();
     };
+
+    useEffect(() => {
+        setPrintMode(initialMode);
+    }, [initialMode]);
+
+    useEffect(() => {
+        if (!autoPrint) {
+            return undefined;
+        }
+
+        const printTimeout = window.setTimeout(() => {
+            window.print();
+        }, 350);
+
+        const handleAfterPrint = () => {
+            window.close();
+        };
+
+        window.addEventListener("afterprint", handleAfterPrint);
+
+        return () => {
+            window.clearTimeout(printTimeout);
+            window.removeEventListener("afterprint", handleAfterPrint);
+        };
+    }, [autoPrint]);
 
     const SimpleBarcode = ({ value }) => {
         const bars = useMemo(() => {
