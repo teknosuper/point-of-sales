@@ -17,7 +17,7 @@ import ThermalReceipt, {
 import ShippingLabel from "@/Components/Receipt/ShippingLabel";
 import { useAuthorization } from "@/Utils/authorization";
 
-export default function Print({ transaction }) {
+export default function Print({ transaction, embedded = false }) {
     const { storeProfile } = usePage().props;
     const { can } = useAuthorization();
     const [printMode, setPrintMode] = useState("thermal58"); // 'invoice' | 'thermal80' | 'thermal58'
@@ -153,10 +153,17 @@ export default function Print({ transaction }) {
         <>
             <Head title="Invoice Penjualan" />
 
-            <div className="min-h-screen bg-slate-100 dark:bg-slate-950 py-8 px-4 print:bg-white print:p-0">
+            <div
+                className={`${
+                    embedded
+                        ? "bg-white p-4"
+                        : "min-h-screen bg-slate-100 dark:bg-slate-950 py-8 px-4"
+                } print:bg-white print:p-0`}
+            >
                 <div className="max-w-4xl mx-auto space-y-6">
                     {/* Action Bar */}
-                    <div className="flex flex-wrap items-start justify-between gap-3 print:hidden">
+                    {!embedded && (
+                        <div className="flex flex-wrap items-start justify-between gap-3 print:hidden">
                         <Link
                             href={route("transactions.index")}
                             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
@@ -303,7 +310,8 @@ export default function Print({ transaction }) {
                                 </a>
                             )}
                         </div>
-                    </div>
+                        </div>
+                    )}
 
                     {/* Thermal Receipt Preview */}
                     {(printMode === "thermal80" || printMode === "thermal58") && (

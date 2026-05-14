@@ -24,6 +24,7 @@ import {
     IconUser,
     IconShoppingCart,
     IconReceipt,
+    IconPrinter,
     IconKeyboard,
     IconBarcode,
     IconTrash,
@@ -33,8 +34,6 @@ import {
     IconAlertTriangle,
     IconWallet,
     IconX,
-    IconDeviceMobile,
-    IconArrowRight,
 } from "@tabler/icons-react";
 
 const formatPrice = (value = 0) =>
@@ -90,27 +89,38 @@ export default function Index({
     const [cartSyncVersion, setCartSyncVersion] = useState(0);
     const [pendingCartMutations, setPendingCartMutations] = useState(0);
     const [savingNoteCartId, setSavingNoteCartId] = useState(null);
-    const [modifierDrafts, setModifierDrafts] = useState({});
     const [savingModifierCartId, setSavingModifierCartId] = useState(null);
     const [modifierModalProduct, setModifierModalProduct] = useState(null);
+    const [modifierModalCartTargetId, setModifierModalCartTargetId] =
+        useState(null);
     const [selectedModifierOptionIds, setSelectedModifierOptionIds] = useState(
         []
     );
     const [isModifierModalSubmitting, setIsModifierModalSubmitting] =
         useState(false);
     const [selectedCustomer, setSelectedCustomer] = useState(WALK_IN_CUSTOMER);
+    const [openAddCustomerModalSignal, setOpenAddCustomerModalSignal] =
+        useState(0);
     const [orderType, setOrderType] = useState("take_away");
     const [selectedTableId, setSelectedTableId] = useState("");
+    const [isTablePickerModalOpen, setIsTablePickerModalOpen] =
+        useState(false);
     const [pricingPreview, setPricingPreview] = useState(initialPricingPreview);
     const [isLoadingPricing, setIsLoadingPricing] = useState(false);
     const [redeemPointsInput, setRedeemPointsInput] = useState("");
     const [cashInput, setCashInput] = useState("");
+    const [isCashPaymentModalOpen, setIsCashPaymentModalOpen] =
+        useState(false);
     const [paymentMethod, setPaymentMethod] = useState(
         defaultPaymentGateway ?? "cash"
     );
     const [payLater, setPayLater] = useState(false);
     const [dueDate, setDueDate] = useState("");
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [checkoutModalStep, setCheckoutModalStep] = useState(null);
+    const [completedTransaction, setCompletedTransaction] = useState(null);
+    const [checkoutWarning, setCheckoutWarning] = useState("");
+    const [isReceiptFrameReady, setIsReceiptFrameReady] = useState(false);
     const [mobileView, setMobileView] = useState("products"); // 'products' | 'cart'
     const [numpadOpen, setNumpadOpen] = useState(false);
     const [showShortcuts, setShowShortcuts] = useState(false);
@@ -138,6 +148,7 @@ export default function Index({
 
     // Ref for search input to enable keyboard focus
     const searchInputRef = useRef(null);
+    const receiptFrameRef = useRef(null);
 
     // Set default payment method
     useEffect(() => {
@@ -233,6 +244,13 @@ export default function Index({
     const cartCount = useMemo(
         () => localCarts.reduce((total, item) => total + Number(item.qty), 0),
         [localCarts]
+    );
+    const selectedDiningTable = useMemo(
+        () =>
+            diningTables.find(
+                (table) => String(table.id) === String(selectedTableId)
+            ) || null,
+        [diningTables, selectedTableId]
     );
     const pricingDependency = useMemo(
         () => localCarts.map((item) => `${item.id}:${item.qty}`).join("|"),
@@ -330,6 +348,12 @@ export default function Index({
     }, [orderType]);
 
     useEffect(() => {
+        if (payLater || paymentMethod !== "cash") {
+            setIsCashPaymentModalOpen(false);
+        }
+    }, [payLater, paymentMethod]);
+
+    useEffect(() => {
         const eligibleVoucherIds = new Set(
             (pricingPreview?.eligible_vouchers || []).map((voucher) =>
                 String(voucher.id)
@@ -359,6 +383,25 @@ export default function Index({
             ...options,
         ];
     }, [paymentGateways]);
+    const paymentMethodLabel = useMemo(() => {
+        if (payLater) {
+            return "Nota Barang";
+        }
+
+        if (paymentMethod === "bank_transfer") {
+            return "Transfer Bank";
+        }
+
+        if (paymentMethod === "midtrans") {
+            return "Midtrans";
+        }
+
+        if (paymentMethod === "xendit") {
+            return "Xendit";
+        }
+
+        return "Tunai";
+    }, [payLater, paymentMethod]);
 
     // Auto-set cash input for non-cash payment
     useEffect(() => {
@@ -605,8 +648,35 @@ export default function Index({
         }
 
         setModifierModalProduct(null);
+        setModifierModalCartTargetId(null);
         setSelectedModifierOptionIds([]);
     }, [isModifierModalSubmitting]);
+
+    const openCartModifierModal = useCallback((item) => {
+        if (
+            !item?.id ||
+            !item?.product?.supports_modifiers ||
+            !Array.isArray(item?.product?.modifier_options) ||
+            item.product.modifier_options.length === 0
+        ) {
+            return;
+        }
+
+        const activeOptionIds = (item.modifiers || [])
+            .map((modifier) =>
+                item.product.modifier_options.find(
+                    (option) =>
+                        option.name === modifier.name &&
+                        Number(option.price || 0) ===
+                            Number(modifier.unit_price || 0)
+                )?.id
+            )
+            .filter(Boolean);
+
+        setModifierModalProduct(item.product);
+        setModifierModalCartTargetId(item.id);
+        setSelectedModifierOptionIds(activeOptionIds);
+    }, []);
 
     const submitModifierModal = useCallback(
         async (includeModifiers) => {
@@ -624,19 +694,86 @@ export default function Index({
             setIsModifierModalSubmitting(true);
 
             try {
-                const success = await addProductToCart(modifierModalProduct, {
-                    modifiers: selectedModifiers,
-                });
+                let success = false;
+
+                if (modifierModalCartTargetId) {
+                    const existingModifierKeys = new Set(
+                        localCarts
+                            .find((item) => item.id === modifierModalCartTargetId)
+                            ?.modifiers?.map(
+                                (modifier) =>
+                                    `${modifier.name}:${Number(
+                                        modifier.unit_price || 0
+                                    )}`
+                            ) || []
+                    );
+                    const modifiersToAdd = selectedModifiers.filter(
+                        (option) =>
+                            !existingModifierKeys.has(
+                                `${option.name}:${Number(option.price || 0)}`
+                            )
+                    );
+
+                    let updatedCart = null;
+
+                    for (const option of modifiersToAdd) {
+                        const response = await axios.post(
+                            route(
+                                "transactions.storeCartModifier",
+                                modifierModalCartTargetId
+                            ),
+                            {
+                                name: option.name,
+                                qty: 1,
+                                unit_price: Math.max(
+                                    0,
+                                    Number(option.price || 0)
+                                ),
+                            }
+                        );
+
+                        updatedCart = response.data?.data?.cart || updatedCart;
+                    }
+
+                    if (updatedCart) {
+                        setLocalCarts((currentCarts) =>
+                            currentCarts.map((item) =>
+                                item.id === modifierModalCartTargetId
+                                    ? updatedCart
+                                    : item
+                            )
+                        );
+                        setCartSyncVersion((version) => version + 1);
+                    }
+
+                    success = true;
+                } else {
+                    success = await addProductToCart(modifierModalProduct, {
+                        modifiers: selectedModifiers,
+                    });
+                }
 
                 if (success) {
                     setModifierModalProduct(null);
+                    setModifierModalCartTargetId(null);
                     setSelectedModifierOptionIds([]);
                 }
+            } catch (error) {
+                toast.error(
+                    error?.response?.data?.message ||
+                        "Gagal menyimpan topping item"
+                );
             } finally {
                 setIsModifierModalSubmitting(false);
             }
         },
-        [addProductToCart, modifierModalProduct, selectedModifierOptionIds]
+        [
+            addProductToCart,
+            localCarts,
+            modifierModalCartTargetId,
+            modifierModalProduct,
+            selectedModifierOptionIds,
+        ]
     );
 
     // Handle update cart quantity
@@ -776,106 +913,6 @@ export default function Index({
         [localCarts]
     );
 
-    const handleModifierDraftChange = useCallback((cartId, field, value) => {
-        setModifierDrafts((current) => ({
-            ...current,
-            [cartId]: {
-                name: "",
-                unit_price: "",
-                ...(current[cartId] || {}),
-                [field]: value,
-            },
-        }));
-    }, []);
-
-    const handleAddModifier = useCallback(
-        (cartId) => {
-            const draft = modifierDrafts[cartId] || {
-                name: "",
-                unit_price: "",
-            };
-            const name = (draft.name || "").trim();
-            const unitPrice = Number(draft.unit_price || 0);
-
-            if (!name) {
-                toast.error("Nama tambahan wajib diisi");
-                return;
-            }
-
-            setSavingModifierCartId(cartId);
-
-            axios
-                .post(route("transactions.storeCartModifier", cartId), {
-                    name,
-                    qty: 1,
-                    unit_price: Math.max(0, unitPrice),
-                })
-                .then((response) => {
-                    const serverCart = response.data?.data?.cart;
-
-                    if (serverCart) {
-                        setLocalCarts((currentCarts) =>
-                            currentCarts.map((item) =>
-                                item.id === cartId ? serverCart : item
-                            )
-                        );
-                        setCartSyncVersion((version) => version + 1);
-                    }
-
-                    setModifierDrafts((current) => ({
-                        ...current,
-                        [cartId]: { name: "", unit_price: "" },
-                    }));
-                })
-                .catch((error) => {
-                    toast.error(
-                        error?.response?.data?.message ||
-                            "Gagal menambahkan tambahan item"
-                    );
-                })
-                .finally(() => {
-                    setSavingModifierCartId(null);
-                });
-        },
-        [modifierDrafts]
-    );
-
-    const handleAddModifierPreset = useCallback((cartId, option) => {
-        if (!option?.name) {
-            return;
-        }
-
-        setSavingModifierCartId(cartId);
-
-        axios
-            .post(route("transactions.storeCartModifier", cartId), {
-                name: option.name,
-                qty: 1,
-                unit_price: Math.max(0, Number(option.price || 0)),
-            })
-            .then((response) => {
-                const serverCart = response.data?.data?.cart;
-
-                if (serverCart) {
-                    setLocalCarts((currentCarts) =>
-                        currentCarts.map((item) =>
-                            item.id === cartId ? serverCart : item
-                        )
-                    );
-                    setCartSyncVersion((version) => version + 1);
-                }
-            })
-            .catch((error) => {
-                toast.error(
-                    error?.response?.data?.message ||
-                        "Gagal menambahkan topping preset"
-                );
-            })
-            .finally(() => {
-                setSavingModifierCartId(null);
-            });
-    }, []);
-
     const handleRemoveModifier = useCallback((cartId, modifierId) => {
         setSavingModifierCartId(cartId);
 
@@ -942,6 +979,156 @@ export default function Index({
         );
     };
 
+    const resetTransactionForm = useCallback(() => {
+        setLocalCarts([]);
+        setPricingPreview({
+            items: [],
+            summary: {
+                base_subtotal: 0,
+                promo_discount_total: 0,
+                subtotal_after_promo: 0,
+                voucher_discount_total: 0,
+                loyalty_discount_total: 0,
+                manual_discount_total: 0,
+                shipping_cost: 0,
+                grand_total: 0,
+            },
+        });
+        setRedeemPointsInput("");
+        setCashInput("");
+        setSelectedCustomer(WALK_IN_CUSTOMER);
+        setOrderType("take_away");
+        setSelectedTableId("");
+        setSelectedBankAccount(null);
+        setSelectedVoucherId("");
+        setPaymentMethod(defaultPaymentGateway ?? "cash");
+        setPayLater(false);
+        setDueDate("");
+    }, [defaultPaymentGateway]);
+
+    const validateTransactionSubmission = useCallback(() => {
+        if (localCarts.length === 0) {
+            toast.error("Keranjang masih kosong");
+            return false;
+        }
+
+        if (payLater && selectedCustomer?.is_walk_in) {
+            toast.error("Nota barang wajib memakai pelanggan terdaftar");
+            return false;
+        }
+
+        if (payLater && !dueDate) {
+            toast.error("Isi tanggal jatuh tempo untuk nota barang");
+            return false;
+        }
+
+        if (!payLater && isCashPayment && cash < payable) {
+            toast.error("Jumlah pembayaran kurang dari total");
+            return false;
+        }
+
+        if (orderType === "dine_in" && !selectedTableId) {
+            toast.error("Pilih meja untuk transaksi dine in");
+            return false;
+        }
+
+        if (paymentMethod === "bank_transfer" && !selectedBankAccount) {
+            toast.error("Pilih rekening bank tujuan");
+            return false;
+        }
+
+        return true;
+    }, [
+        cash,
+        dueDate,
+        isCashPayment,
+        localCarts.length,
+        orderType,
+        payLater,
+        payable,
+        paymentMethod,
+        selectedBankAccount,
+        selectedCustomer?.is_walk_in,
+        selectedTableId,
+    ]);
+
+    const buildTransactionPayload = useCallback(
+        () => ({
+            customer_id: selectedCustomer?.is_walk_in
+                ? null
+                : selectedCustomer?.id ?? null,
+            order_type: orderType,
+            table_id:
+                orderType === "dine_in" && selectedTableId
+                    ? Number(selectedTableId)
+                    : null,
+            discount,
+            redeem_points: Number(redeemPointsInput || 0),
+            customer_voucher_id: selectedVoucherId || null,
+            shipping_cost: shipping,
+            grand_total: payable,
+            cash: isCashPayment ? cash : payable,
+            change: isCashPayment ? Math.max(cash - payable, 0) : 0,
+            payment_gateway: payLater ? null : isCashPayment ? null : paymentMethod,
+            bank_account_id:
+                paymentMethod === "bank_transfer"
+                    ? selectedBankAccount?.id
+                    : null,
+            pay_later: payLater,
+            due_date: dueDate,
+        }),
+        [
+            cash,
+            dueDate,
+            isCashPayment,
+            orderType,
+            payLater,
+            payable,
+            paymentMethod,
+            redeemPointsInput,
+            selectedBankAccount,
+            selectedCustomer?.id,
+            selectedCustomer?.is_walk_in,
+            selectedTableId,
+            selectedVoucherId,
+        ]
+    );
+
+    const openCheckoutPreview = useCallback(() => {
+        if (!validateTransactionSubmission()) {
+            return;
+        }
+
+        setCheckoutWarning("");
+        setCompletedTransaction(null);
+        setIsReceiptFrameReady(false);
+        setCheckoutModalStep("preview");
+    }, [validateTransactionSubmission]);
+
+    const closeCheckoutModal = useCallback(() => {
+        if (isSubmitting) {
+            return;
+        }
+
+        setCheckoutModalStep(null);
+        setCompletedTransaction(null);
+        setCheckoutWarning("");
+        setIsReceiptFrameReady(false);
+    }, [isSubmitting]);
+
+    const handlePrintReceipt = useCallback(() => {
+        const receiptWindow = receiptFrameRef.current?.contentWindow;
+
+        if (!receiptWindow) {
+            toast.error("Preview struk belum siap");
+            return;
+        }
+
+        receiptWindow.focus();
+        receiptWindow.print();
+        closeCheckoutModal();
+    }, [closeCheckoutModal]);
+
     // Keyboard shortcuts
     useEffect(() => {
         const handleKeyDown = (e) => {
@@ -964,7 +1151,7 @@ export default function Index({
                     break;
                 case "F2":
                     e.preventDefault();
-                    if (localCarts.length > 0) handleSubmitTransaction();
+                    if (localCarts.length > 0) openCheckoutPreview();
                     break;
                 case "F3":
                     e.preventDefault();
@@ -980,13 +1167,20 @@ export default function Index({
                     setNumpadOpen(false);
                     setShowShortcuts(false);
                     setSearchQuery("");
+                    closeCheckoutModal();
                     break;
             }
         };
 
         window.addEventListener("keydown", handleKeyDown);
         return () => window.removeEventListener("keydown", handleKeyDown);
-    }, [localCarts.length, selectedCustomer, mobileView, showShortcuts]);
+    }, [
+        closeCheckoutModal,
+        localCarts.length,
+        mobileView,
+        openCheckoutPreview,
+        showShortcuts,
+    ]);
 
     // Handle remove from cart
     const handleRemoveFromCart = (cartId) => {
@@ -1017,80 +1211,38 @@ export default function Index({
     };
 
     // Handle submit transaction
-    const handleSubmitTransaction = () => {
-        if (localCarts.length === 0) {
-            toast.error("Keranjang masih kosong");
-            return;
-        }
-
-        if (payLater && !dueDate) {
-            toast.error("Isi tanggal jatuh tempo untuk nota barang");
-            return;
-        }
-
-        if (!payLater && isCashPayment && cash < payable) {
-            toast.error("Jumlah pembayaran kurang dari total");
-            return;
-        }
-
-        if (orderType === "dine_in" && !selectedTableId) {
-            toast.error("Pilih meja untuk transaksi dine in");
-            return;
-        }
-
-        // Validate bank transfer requires bank selection
-        const isBankTransfer = paymentMethod === "bank_transfer";
-        if (isBankTransfer && !selectedBankAccount) {
-            toast.error("Pilih rekening bank tujuan");
+    const handleSubmitTransaction = async () => {
+        if (!validateTransactionSubmission()) {
             return;
         }
 
         setIsSubmitting(true);
 
-        router.post(
-            route("transactions.store"),
-            {
-                customer_id: selectedCustomer?.is_walk_in ? null : selectedCustomer?.id ?? null,
-                order_type: orderType,
-                table_id:
-                    orderType === "dine_in" && selectedTableId
-                        ? Number(selectedTableId)
-                        : null,
-                discount,
-                redeem_points: Number(redeemPointsInput || 0),
-                customer_voucher_id: selectedVoucherId || null,
-                shipping_cost: shipping,
-                grand_total: payable,
-                cash: isCashPayment ? cash : payable,
-                change: isCashPayment ? Math.max(cash - payable, 0) : 0,
-                payment_gateway: payLater ? null : isCashPayment ? null : paymentMethod,
-                bank_account_id: isBankTransfer
-                    ? selectedBankAccount?.id
-                    : null,
-                pay_later: payLater,
-                due_date: dueDate,
-            },
-            {
-                onSuccess: () => {
-                    setRedeemPointsInput("");
-                    setCashInput("");
-                    setSelectedCustomer(WALK_IN_CUSTOMER);
-                    setOrderType("take_away");
-                    setSelectedTableId("");
-                    setSelectedBankAccount(null);
-                    setSelectedVoucherId("");
-                    setPaymentMethod(defaultPaymentGateway ?? "cash");
-                    setPayLater(false);
-                    setDueDate("");
-                    setIsSubmitting(false);
-                    toast.success("Transaksi berhasil!");
-                },
-                onError: () => {
-                    setIsSubmitting(false);
-                    toast.error("Gagal menyimpan transaksi");
-                },
-            }
-        );
+        try {
+            const response = await axios.post(
+                route("transactions.store"),
+                buildTransactionPayload(),
+                {
+                    headers: {
+                        Accept: "application/json",
+                    },
+                }
+            );
+
+            const receiptData = response.data?.data || null;
+            setCompletedTransaction(receiptData);
+            setCheckoutWarning(response.data?.warning || "");
+            setCheckoutModalStep("receipt");
+            setIsReceiptFrameReady(false);
+            resetTransactionForm();
+            toast.success("Transaksi berhasil!");
+        } catch (error) {
+            toast.error(
+                error?.response?.data?.message || "Gagal menyimpan transaksi"
+            );
+        } finally {
+            setIsSubmitting(false);
+        }
     };
 
     // Filter products including out of stock
@@ -1251,28 +1403,26 @@ export default function Index({
 
                 {/* Right Panel - Cart & Payment */}
                 <div
-                    className={`w-full lg:w-[420px] xl:w-[480px] flex flex-col bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 min-h-0 overflow-hidden ${
+                    className={`w-full lg:w-[520px] xl:w-[580px] flex flex-col bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 min-h-0 overflow-hidden ${
                         mobileView !== "cart" ? "hidden lg:flex" : "flex"
                     }`}
                     style={{ height: "calc(100vh - 4rem)" }}
                 >
                     {/* Customer Select - Fixed */}
-                    <div className="p-3 border-b border-slate-200 dark:border-slate-800 flex-shrink-0">
-                        <CustomerSelect
-                            customers={customers}
-                            selected={selectedCustomer}
-                            onSelect={setSelectedCustomer}
-                            placeholder="Pilih pelanggan umum atau terdaftar..."
-                            error={errors?.customer_id}
-                            label="Pelanggan"
-                            tierOptions={loyaltyTierOptions}
-                        />
-                        <div className="mt-3 space-y-3">
-                            <div>
-                                <label className="mb-2 block text-xs font-medium text-slate-600 dark:text-slate-400">
-                                    Jenis Pesanan
-                                </label>
-                                <div className="grid grid-cols-2 gap-2">
+                    <div className="border-b border-slate-200 p-2.5 dark:border-slate-800 lg:p-3 flex-shrink-0">
+                        <div className="space-y-2.5">
+                            <CustomerSelect
+                                customers={customers}
+                                selected={selectedCustomer}
+                                onSelect={setSelectedCustomer}
+                                placeholder="Pilih pelanggan umum atau terdaftar..."
+                                error={errors?.customer_id}
+                                tierOptions={loyaltyTierOptions}
+                                openAddModalSignal={openAddCustomerModalSignal}
+                            />
+                            <div className="space-y-2.5">
+                                <div>
+                                <div className="grid grid-cols-2 gap-1 rounded-2xl bg-slate-100 p-1 dark:bg-slate-800">
                                     {[
                                         {
                                             value: "take_away",
@@ -1286,55 +1436,61 @@ export default function Index({
                                         <button
                                             key={option.value}
                                             type="button"
-                                            onClick={() =>
-                                                setOrderType(option.value)
-                                            }
-                                            className={`rounded-xl border-2 px-3 py-2.5 text-sm font-semibold transition-colors ${
+                                            onClick={() => {
+                                                setOrderType(option.value);
+                                                if (
+                                                    option.value === "dine_in" &&
+                                                    !selectedTableId
+                                                ) {
+                                                    setIsTablePickerModalOpen(
+                                                        true
+                                                    );
+                                                }
+                                            }}
+                                            className={`rounded-xl px-3 py-2 text-sm font-semibold transition-colors ${
                                                 orderType === option.value
-                                                    ? "border-primary-500 bg-primary-50 text-primary-700 dark:bg-primary-950/30 dark:text-primary-300"
-                                                    : "border-slate-200 bg-white text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                                                    ? "bg-white text-primary-700 shadow-sm dark:bg-slate-900 dark:text-primary-300"
+                                                    : "text-slate-600 dark:text-slate-300"
                                             }`}
                                         >
                                             {option.label}
                                         </button>
                                     ))}
                                 </div>
-                            </div>
-                            {orderType === "dine_in" && (
-                                <div>
-                                    <label className="mb-2 block text-xs font-medium text-slate-600 dark:text-slate-400">
-                                        Meja
-                                    </label>
-                                    <select
-                                        value={selectedTableId}
-                                        onChange={(e) =>
-                                            setSelectedTableId(
-                                                e.target.value
-                                            )
-                                        }
-                                        className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-                                    >
-                                        <option value="">
-                                            Pilih meja
-                                        </option>
-                                        {diningTables.map((table) => (
-                                            <option
-                                                key={table.id}
-                                                value={table.id}
-                                            >
-                                                {table.code
-                                                    ? `${table.code} - ${table.name}`
-                                                    : table.name}
-                                            </option>
-                                        ))}
-                                    </select>
-                                    {diningTables.length === 0 ? (
-                                        <p className="mt-2 text-[11px] text-amber-600 dark:text-amber-300">
-                                            Belum ada meja aktif untuk outlet ini.
-                                        </p>
-                                    ) : null}
                                 </div>
-                            )}
+                                {orderType === "dine_in" && (
+                                    <div>
+                                        <button
+                                            type="button"
+                                            onClick={() =>
+                                                setIsTablePickerModalOpen(true)
+                                            }
+                                            className="flex h-11 w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-3 text-left text-sm text-slate-700 transition hover:border-primary-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                        >
+                                            <div className="min-w-0">
+                                                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                                                    Meja
+                                                </p>
+                                                <p className="truncate font-medium">
+                                                    {selectedDiningTable
+                                                        ? selectedDiningTable.code
+                                                            ? `${selectedDiningTable.code} - ${selectedDiningTable.name}`
+                                                            : selectedDiningTable.name
+                                                        : "Pilih meja"}
+                                                </p>
+                                            </div>
+                                            <span className="text-xs font-semibold text-primary-600 dark:text-primary-300">
+                                                Ubah
+                                            </span>
+                                        </button>
+                                        {diningTables.length === 0 ? (
+                                            <p className="mt-2 text-[11px] text-amber-600 dark:text-amber-300">
+                                                Belum ada meja aktif untuk outlet ini.
+                                            </p>
+                                        ) : null}
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     </div>
 
@@ -1350,88 +1506,19 @@ export default function Index({
 
                     {/* Cart Items - Scrollable */}
                     <div className="flex-1 overflow-y-auto min-h-0">
-                        <div className="p-3 border-b border-slate-200 dark:border-slate-800">
-                            <div className="rounded-2xl border border-[#eadac3] bg-[linear-gradient(180deg,_#fffaf4_0%,_#fff4e8_100%)] p-3">
-                                <div className="flex items-start justify-between gap-3">
-                                    <div>
-                                        <p className="flex items-center gap-2 text-sm font-semibold text-slate-800">
-                                            <IconDeviceMobile size={16} className="text-[#b8572f]" />
-                                            Pesanan QR Meja
-                                        </p>
-                                        <p className="mt-1 text-xs text-slate-500">
-                                            Order meja yang menunggu pembayaran tunai kasir.
-                                        </p>
-                                    </div>
-                                    <Link
-                                        href={route("table-orders.index")}
-                                        className="inline-flex items-center gap-1 rounded-xl border border-[#e5d3bf] bg-white px-3 py-2 text-[11px] font-semibold text-[#9b4b2e]"
-                                    >
-                                        Lihat Semua
-                                        <IconArrowRight size={14} />
-                                    </Link>
-                                </div>
-
-                                {pendingTableOrders.length > 0 ? (
-                                    <div className="mt-3 space-y-2">
-                                        {pendingTableOrders.map((order) => (
-                                            <div
-                                                key={order.id}
-                                                className="rounded-2xl border border-white/80 bg-white/90 p-3 shadow-sm"
-                                            >
-                                                <div className="flex items-start justify-between gap-3">
-                                                    <div className="min-w-0">
-                                                        <p className="text-sm font-semibold text-slate-800">
-                                                            {order.order_number}
-                                                        </p>
-                                                        <p className="mt-1 text-xs text-slate-500">
-                                                            Meja {order.table?.code || order.table?.name}
-                                                            {order.customer_name
-                                                                ? ` • ${order.customer_name}`
-                                                                : ""}
-                                                        </p>
-                                                    </div>
-                                                    <span className="text-xs font-bold text-[#b8572f]">
-                                                        {formatPrice(order.grand_total)}
-                                                    </span>
-                                                </div>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => openTableOrderCancel(order)}
-                                                    className="mt-3 inline-flex w-full items-center justify-center rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-xs font-semibold text-rose-700"
-                                                >
-                                                    Batalkan Order
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => openTableOrderApproval(order)}
-                                                    className="mt-2 inline-flex w-full items-center justify-center rounded-xl bg-[#b8572f] px-3 py-2.5 text-xs font-semibold text-white"
-                                                >
-                                                    Bayar dan Cetak Struk
-                                                </button>
-                                            </div>
-                                        ))}
-                                    </div>
-                                ) : (
-                                    <div className="mt-3 rounded-2xl border border-dashed border-[#e7d7c3] bg-white/70 px-3 py-4 text-center text-xs text-slate-500">
-                                        Belum ada order QR yang menunggu pembayaran.
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-
                         {/* Hold Button - at top of cart section */}
                         {localCarts.length > 0 && (
-                            <div className="p-3 border-b border-slate-200 dark:border-slate-800">
-                                <HoldButton
-                                    hasItems={localCarts.length > 0}
-                                    onHold={handleHoldCart}
-                                    isHolding={isHolding}
-                                />
-                            </div>
-                        )}
+                        <div className="border-b border-slate-200 p-2.5 dark:border-slate-800 lg:p-3">
+                            <HoldButton
+                                hasItems={localCarts.length > 0}
+                                onHold={handleHoldCart}
+                                isHolding={isHolding}
+                            />
+                        </div>
+                    )}
 
-                        <div className="p-3 border-b border-slate-200 dark:border-slate-800">
-                            <div className="flex items-center justify-between mb-3">
+                        <div className="border-b border-slate-200 p-2.5 dark:border-slate-800 lg:p-3">
+                            <div className="mb-2 flex items-center justify-between">
                                 <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-2">
                                     <IconShoppingCart size={16} />
                                     Keranjang
@@ -1444,7 +1531,7 @@ export default function Index({
                             </div>
 
                             {localCarts.length > 0 ? (
-                                <div className="space-y-2 max-h-[200px] overflow-y-auto pr-1">
+                                <div className="space-y-2 pr-1">
                                     {localCarts.map((item) => (
                                         (() => {
                                             const pricingItem =
@@ -1485,9 +1572,9 @@ export default function Index({
                                             return (
                                         <div
                                             key={item.id}
-                                            className="flex items-start gap-2 p-2 rounded-lg bg-slate-50 dark:bg-slate-800/50 group"
+                                            className="flex items-start gap-2.5 rounded-xl bg-slate-50 p-2.5 dark:bg-slate-800/50 group"
                                         >
-                                            <div className="mt-0.5 w-10 h-10 rounded-lg bg-slate-200 dark:bg-slate-700 overflow-hidden flex-shrink-0 self-start">
+                                            <div className="mt-0.5 h-11 w-11 rounded-lg bg-slate-200 dark:bg-slate-700 overflow-hidden flex-shrink-0 self-start">
                                                 {item.product?.image ? (
                                                     <img
                                                         src={getProductImageUrl(
@@ -1518,7 +1605,7 @@ export default function Index({
                                                 )}
                                             </div>
                                             <div className="flex-1 min-w-0">
-                                                <p className="text-xs font-medium text-slate-700 dark:text-slate-300 truncate">
+                                                <p className="text-sm font-medium text-slate-700 dark:text-slate-300 truncate">
                                                     {item.product?.title ||
                                                         "Produk"}
                                                 </p>
@@ -1556,40 +1643,21 @@ export default function Index({
                                                                 ?.modifier_options ||
                                                                 []
                                                             ).length > 0 && (
-                                                                <div className="flex flex-wrap gap-1.5">
-                                                                    {item.product.modifier_options.map(
-                                                                        (option) => (
-                                                                            <button
-                                                                                key={
-                                                                                    option.id
-                                                                                }
-                                                                                type="button"
-                                                                                onClick={() =>
-                                                                                    handleAddModifierPreset(
-                                                                                        item.id,
-                                                                                        option
-                                                                                    )
-                                                                                }
-                                                                                disabled={
-                                                                                    savingModifierCartId ===
-                                                                                    item.id
-                                                                                }
-                                                                                className="inline-flex items-center gap-1 rounded-full border border-primary-200 bg-primary-50 px-2.5 py-1 text-[10px] font-semibold text-primary-700 hover:border-primary-300 hover:bg-primary-100 disabled:opacity-60 dark:border-primary-900/60 dark:bg-primary-950/30 dark:text-primary-300"
-                                                                            >
-                                                                                <span>
-                                                                                    {
-                                                                                        option.name
-                                                                                    }
-                                                                                </span>
-                                                                                <span className="text-primary-500 dark:text-primary-400">
-                                                                                    {formatPrice(
-                                                                                        option.price
-                                                                                    )}
-                                                                                </span>
-                                                                            </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() =>
+                                                                        openCartModifierModal(
+                                                                            item
                                                                         )
-                                                                    )}
-                                                                </div>
+                                                                    }
+                                                                    disabled={
+                                                                        savingModifierCartId ===
+                                                                        item.id
+                                                                    }
+                                                                    className="inline-flex items-center justify-center rounded-xl border border-primary-200 bg-primary-50 px-3 py-2 text-[11px] font-semibold text-primary-700 hover:border-primary-300 hover:bg-primary-100 disabled:opacity-60 dark:border-primary-900/60 dark:bg-primary-950/30 dark:text-primary-300"
+                                                                >
+                                                                    Tambah topping / extra
+                                                                </button>
                                                             )}
                                                             {(item.modifiers ||
                                                                 []
@@ -1608,20 +1676,12 @@ export default function Index({
                                                                                 }
                                                                             </p>
                                                                             <p className="text-slate-500 dark:text-slate-400">
-                                                                                Harga
-                                                                                :
-                                                                                {" "}
                                                                                 {formatPrice(
-                                                                                    modifier.unit_price
+                                                                                    modifier.total_price
                                                                                 )}
                                                                             </p>
                                                                         </div>
                                                                         <div className="flex items-center gap-2">
-                                                                            <span className="font-semibold text-primary-600 dark:text-primary-400">
-                                                                                {formatPrice(
-                                                                                    modifier.total_price
-                                                                                )}
-                                                                            </span>
                                                                             <button
                                                                                 type="button"
                                                                                 onClick={() =>
@@ -1642,67 +1702,6 @@ export default function Index({
                                                                     </div>
                                                                 )
                                                             )}
-                                                            <div className="grid grid-cols-[minmax(0,1fr)_88px_auto] gap-1.5">
-                                                                <input
-                                                                    type="text"
-                                                                    value={
-                                                                        modifierDrafts[
-                                                                            item.id
-                                                                        ]
-                                                                            ?.name ||
-                                                                        ""
-                                                                    }
-                                                                    onChange={(e) =>
-                                                                        handleModifierDraftChange(
-                                                                            item.id,
-                                                                            "name",
-                                                                            e
-                                                                                .target
-                                                                                .value
-                                                                        )
-                                                                    }
-                                                                    placeholder="Contoh: Extra cheese"
-                                                                    className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-[11px] text-slate-700 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-                                                                />
-                                                                <input
-                                                                    type="text"
-                                                                    inputMode="numeric"
-                                                                    value={
-                                                                        modifierDrafts[
-                                                                            item.id
-                                                                        ]
-                                                                            ?.unit_price ||
-                                                                        ""
-                                                                    }
-                                                                    onChange={(e) =>
-                                                                        handleModifierDraftChange(
-                                                                            item.id,
-                                                                            "unit_price",
-                                                                            e.target.value.replace(
-                                                                                /[^\d]/g,
-                                                                                ""
-                                                                            )
-                                                                        )
-                                                                    }
-                                                                    placeholder="Harga"
-                                                                    className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-[11px] text-slate-700 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-                                                                />
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() =>
-                                                                        handleAddModifier(
-                                                                            item.id
-                                                                        )
-                                                                    }
-                                                                    disabled={
-                                                                        savingModifierCartId ===
-                                                                        item.id
-                                                                    }
-                                                                    className="inline-flex h-8 items-center justify-center rounded-lg bg-primary-500 px-2 text-[11px] font-semibold text-white hover:bg-primary-600 disabled:opacity-60"
-                                                                >
-                                                                    +
-                                                                </button>
-                                                            </div>
                                                             {modifierTotal >
                                                             0 ? (
                                                                 <p className="text-[10px] font-medium text-primary-500">
@@ -1769,11 +1768,11 @@ export default function Index({
                                                         )
                                                     }
                                                     disabled={item.qty <= 1}
-                                                    className="w-6 h-6 rounded flex items-center justify-center bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-300 disabled:opacity-50 text-xs"
+                                                    className="h-7 w-7 rounded-lg flex items-center justify-center bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-300 disabled:opacity-50 text-xs"
                                                 >
                                                     -
                                                 </button>
-                                                <span className="w-6 text-center text-xs font-medium">
+                                                <span className="w-7 text-center text-sm font-medium">
                                                     {item.qty}
                                                 </span>
                                                 <button
@@ -1783,7 +1782,7 @@ export default function Index({
                                                             item.qty + 1
                                                         )
                                                     }
-                                                    className="w-6 h-6 rounded flex items-center justify-center bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-300 text-xs"
+                                                    className="h-7 w-7 rounded-lg flex items-center justify-center bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-300 text-xs"
                                                 >
                                                     +
                                                 </button>
@@ -1793,12 +1792,12 @@ export default function Index({
                                                             item.id
                                                         )
                                                     }
-                                                    className="w-6 h-6 rounded flex items-center justify-center text-slate-400 hover:text-danger-500 hover:bg-danger-50 dark:hover:bg-danger-950/50 ml-1"
+                                                    className="ml-1 h-7 w-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-danger-500 hover:bg-danger-50 dark:hover:bg-danger-950/50"
                                                 >
                                                     <IconTrash size={12} />
                                                 </button>
                                             </div>
-                                            <p className="text-xs font-semibold text-primary-600 dark:text-primary-400 w-16 text-right">
+                                            <p className="w-20 text-right text-sm font-semibold text-primary-600 dark:text-primary-400">
                                                 {formatPrice(
                                                     effectiveLineTotal
                                                 )}
@@ -1839,6 +1838,19 @@ export default function Index({
                                         className="sr-only"
                                         checked={payLater}
                                         onChange={(e) => {
+                                            if (
+                                                e.target.checked &&
+                                                selectedCustomer?.is_walk_in
+                                            ) {
+                                                toast.error(
+                                                    "Pilih pelanggan terdaftar sebelum memakai nota barang"
+                                                );
+                                                setOpenAddCustomerModalSignal(
+                                                    (value) => value + 1
+                                                );
+                                                return;
+                                            }
+
                                             setPayLater(e.target.checked);
                                             if (e.target.checked) {
                                                 setSelectedBankAccount(null);
@@ -1883,10 +1895,19 @@ export default function Index({
                                     {paymentOptions.map((method) => (
                                         <button
                                             key={method.value}
-                                            onClick={() =>
-                                                !payLater &&
-                                                setPaymentMethod(method.value)
-                                            }
+                                            onClick={() => {
+                                                if (payLater) {
+                                                    return;
+                                                }
+
+                                                setPaymentMethod(method.value);
+
+                                                if (method.value === "cash") {
+                                                    setIsCashPaymentModalOpen(
+                                                        true
+                                                    );
+                                                }
+                                            }}
                                             disabled={payLater}
                                             className={`p-3 rounded-xl border-2 transition-all flex items-center gap-2 ${
                                                 paymentMethod === method.value && !payLater
@@ -2006,28 +2027,30 @@ export default function Index({
                                     </div>
                                 )}
 
-                            {/* Quick Amounts - Only for cash */}
-                            {paymentMethod === "cash" && (
-                                <div>
-                                    <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-2">
-                                        Nominal Cepat
-                                    </label>
-                                    <div className="grid grid-cols-4 gap-2">
-                                        {quickCashAmounts.map((amt) => (
-                                            <button
-                                                key={amt}
-                                                onClick={() =>
-                                                    setCashInput(String(amt))
-                                                }
-                                                className={`py-2 px-1 rounded-lg text-xs font-semibold transition-all ${
-                                                    Number(cashInput) === amt
-                                                        ? "bg-primary-500 text-white"
-                                                        : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200"
-                                                }`}
-                                            >
-                                                {formatPrice(amt)}
-                                            </button>
-                                        ))}
+                            {paymentMethod === "cash" && !payLater && (
+                                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/50">
+                                    <div className="flex items-center justify-between gap-3">
+                                        <div>
+                                            <p className="text-sm font-semibold text-slate-800 dark:text-white">
+                                                Pembayaran Tunai
+                                            </p>
+                                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                {cash > 0
+                                                    ? `Tunai diterima ${formatPrice(
+                                                          cash
+                                                      )}`
+                                                    : "Atur nominal cepat dan jumlah bayar di pop-up"}
+                                            </p>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() =>
+                                                setIsCashPaymentModalOpen(true)
+                                            }
+                                            className="rounded-xl border border-primary-200 bg-primary-50 px-3 py-2 text-xs font-semibold text-primary-700 hover:border-primary-300 hover:bg-primary-100 dark:border-primary-900/60 dark:bg-primary-950/30 dark:text-primary-300"
+                                        >
+                                            Atur Tunai
+                                        </button>
                                     </div>
                                 </div>
                             )}
@@ -2163,34 +2186,6 @@ export default function Index({
                                     </div>
                                 )}
 
-                            {/* Cash Input - Only for cash */}
-                            {paymentMethod === "cash" && (
-                                <div>
-                                    <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-2">
-                                        Jumlah Bayar (Rp)
-                                    </label>
-                                    <div className="relative">
-                                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">
-                                            Rp
-                                        </span>
-                                        <input
-                                            type="text"
-                                            inputMode="numeric"
-                                            value={cashInput}
-                                            onChange={(e) =>
-                                                setCashInput(
-                                                    e.target.value.replace(
-                                                        /[^\d]/g,
-                                                        ""
-                                                    )
-                                                )
-                                            }
-                                            placeholder="0"
-                                            className="w-full h-10 pl-10 pr-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-base font-semibold focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
-                                        />
-                                    </div>
-                                </div>
-                            )}
                         </div>
                     </div>
 
@@ -2288,7 +2283,7 @@ export default function Index({
 
                         {/* Submit Button - Always visible */}
                         <button
-                            onClick={handleSubmitTransaction}
+                            onClick={openCheckoutPreview}
                             disabled={
                                 !localCarts.length ||
                                 (!payLater &&
@@ -2328,6 +2323,456 @@ export default function Index({
                     </div>
                 </div>
             </div>
+
+            {checkoutModalStep && (
+                <div className="fixed inset-0 z-[80] flex items-end justify-center p-0 sm:items-center sm:p-4">
+                    <div
+                        className="absolute inset-0 bg-slate-950/65 backdrop-blur-sm"
+                        onClick={closeCheckoutModal}
+                    />
+                    <div className="relative z-10 flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl dark:bg-slate-900 sm:rounded-3xl">
+                        {checkoutModalStep === "preview" ? (
+                            <>
+                                <div className="border-b border-slate-200 px-5 py-4 dark:border-slate-800">
+                                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary-500">
+                                        Preview Transaksi
+                                    </p>
+                                    <h3 className="mt-1 text-lg font-bold text-slate-900 dark:text-white">
+                                        Periksa sebelum disimpan
+                                    </h3>
+                                    <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                        Setelah dikonfirmasi, transaksi langsung disimpan dan resi tampil di modal yang sama.
+                                    </p>
+                                </div>
+
+                                <div className="overflow-y-auto px-5 py-4">
+                                    <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                                        <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/40">
+                                            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                                Pelanggan
+                                            </p>
+                                            <p className="mt-1 truncate text-sm font-semibold text-slate-900 dark:text-white">
+                                                {selectedCustomer?.name ||
+                                                    "Pelanggan Umum"}
+                                            </p>
+                                        </div>
+                                        <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/40">
+                                            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                                Jenis Pesanan
+                                            </p>
+                                            <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-white">
+                                                {orderType === "dine_in"
+                                                    ? "Makan di Tempat"
+                                                    : "Bawa Pulang"}
+                                            </p>
+                                        </div>
+                                        <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/40">
+                                            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                                Pembayaran
+                                            </p>
+                                            <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-white">
+                                                {paymentMethodLabel}
+                                            </p>
+                                            {payLater && dueDate && (
+                                                <p className="mt-1 text-xs text-amber-600 dark:text-amber-300">
+                                                    Jatuh tempo {dueDate}
+                                                </p>
+                                            )}
+                                        </div>
+                                        <div className="rounded-2xl border border-primary-200 bg-primary-50 px-4 py-3 dark:border-primary-900/40 dark:bg-primary-950/20">
+                                            <p className="text-[11px] font-semibold uppercase tracking-wide text-primary-700 dark:text-primary-300">
+                                                Total
+                                            </p>
+                                            <p className="mt-1 text-xl font-bold text-primary-700 dark:text-primary-300">
+                                                {formatPrice(payable)}
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    <div className="grid gap-4 lg:grid-cols-[1.2fr,0.8fr]">
+                                        <div className="rounded-2xl border border-slate-200 dark:border-slate-800">
+                                            <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800">
+                                                <div>
+                                                    <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                                                        Ringkasan Item
+                                                    </p>
+                                                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                                                        {cartCount} item di keranjang
+                                                    </p>
+                                                </div>
+                                                {selectedDiningTable && (
+                                                    <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">
+                                                        {selectedDiningTable.code
+                                                            ? `${selectedDiningTable.code} - ${selectedDiningTable.name}`
+                                                            : selectedDiningTable.name}
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <div className="max-h-[44vh] space-y-2 overflow-y-auto px-4 py-4">
+                                                {localCarts.map((item) => {
+                                                    const pricingItem =
+                                                        pricingItemsByCartId[
+                                                            item.id
+                                                        ];
+                                                    const promoLabel =
+                                                        pricingItem?.pricing_rule
+                                                            ?.label ||
+                                                        pricingItem?.pricing_group_label ||
+                                                        pricingItem?.pricing_rule_name;
+                                                    const lineTotal = Number(
+                                                        pricingItem?.line_total ??
+                                                            item.price ??
+                                                            0
+                                                    );
+
+                                                    return (
+                                                        <div
+                                                            key={item.id}
+                                                            className="rounded-2xl bg-slate-50 px-4 py-3 dark:bg-slate-950/40"
+                                                        >
+                                                            <div className="flex items-start justify-between gap-3">
+                                                                <div className="min-w-0 flex-1">
+                                                                    <div className="flex items-start gap-2">
+                                                                        <span className="mt-0.5 inline-flex min-w-[28px] justify-center rounded-lg bg-white px-2 py-1 text-xs font-bold text-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                                                                            {Number(
+                                                                                item.qty
+                                                                            )}x
+                                                                        </span>
+                                                                        <div className="min-w-0">
+                                                                            <p className="truncate text-sm font-semibold text-slate-900 dark:text-white">
+                                                                        {
+                                                                            item
+                                                                                .product
+                                                                                ?.title
+                                                                        }
+                                                                            </p>
+                                                                            <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                                                                                @{" "}
+                                                                                {formatPrice(
+                                                                                    Number(
+                                                                                        pricingItem?.effective_unit_price ??
+                                                                                            item
+                                                                                                .product
+                                                                                                ?.sell_price ??
+                                                                                            0
+                                                                                    )
+                                                                                )}
+                                                                                {promoLabel
+                                                                                    ? ` • ${promoLabel}`
+                                                                                    : ""}
+                                                                            </p>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                                <p className="text-sm font-bold text-primary-600 dark:text-primary-400">
+                                                                    {formatPrice(
+                                                                        lineTotal
+                                                                    )}
+                                                                </p>
+                                                            </div>
+                                                            {(item.modifiers ||
+                                                                []).length >
+                                                                0 && (
+                                                                <div className="mt-2 ml-10 flex flex-wrap gap-2">
+                                                                    {item.modifiers.map(
+                                                                        (
+                                                                            modifier
+                                                                        ) => (
+                                                                            <span
+                                                                                key={
+                                                                                    modifier.id
+                                                                                }
+                                                                                className="rounded-full bg-white px-2.5 py-1 text-[11px] font-medium text-slate-600 dark:bg-slate-900 dark:text-slate-300"
+                                                                            >
+                                                                                {
+                                                                                    modifier.name
+                                                                                }
+                                                                            </span>
+                                                                        )
+                                                                    )}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+
+                                        <div className="space-y-3">
+                                        <div className="rounded-2xl border border-slate-200 px-4 py-4 dark:border-slate-800">
+                                            <div className="space-y-2 text-sm">
+                                                <div className="flex items-center justify-between">
+                                                    <span className="text-slate-500 dark:text-slate-400">
+                                                        Subtotal Dasar
+                                                    </span>
+                                                    <span className="font-medium text-slate-800 dark:text-slate-200">
+                                                        {formatPrice(baseSubtotal)}
+                                                    </span>
+                                                </div>
+                                                {promoDiscount > 0 && (
+                                                    <div className="flex items-center justify-between">
+                                                        <span className="text-slate-500 dark:text-slate-400">
+                                                            Promo
+                                                        </span>
+                                                        <span className="font-medium text-primary-600">
+                                                            -{formatPrice(promoDiscount)}
+                                                        </span>
+                                                    </div>
+                                                )}
+                                                {voucherDiscount > 0 && (
+                                                    <div className="flex items-center justify-between">
+                                                        <span className="text-slate-500 dark:text-slate-400">
+                                                            Voucher
+                                                        </span>
+                                                        <span className="font-medium text-primary-600">
+                                                            -{formatPrice(voucherDiscount)}
+                                                        </span>
+                                                    </div>
+                                                )}
+                                                {loyaltyDiscount > 0 && (
+                                                    <div className="flex items-center justify-between">
+                                                        <span className="text-slate-500 dark:text-slate-400">
+                                                            Redeem Poin
+                                                        </span>
+                                                        <span className="font-medium text-primary-600">
+                                                            -{formatPrice(loyaltyDiscount)}
+                                                        </span>
+                                                    </div>
+                                                )}
+                                                {shipping > 0 && (
+                                                    <div className="flex items-center justify-between">
+                                                        <span className="text-slate-500 dark:text-slate-400">
+                                                            Ongkir
+                                                        </span>
+                                                        <span className="font-medium text-slate-800 dark:text-slate-200">
+                                                            +{formatPrice(shipping)}
+                                                        </span>
+                                                    </div>
+                                                )}
+                                                <div className="flex items-center justify-between border-t border-dashed border-slate-200 pt-3 dark:border-slate-700">
+                                                    <span className="font-semibold text-slate-800 dark:text-white">
+                                                        Total
+                                                    </span>
+                                                    <span className="text-xl font-bold text-primary-600 dark:text-primary-400">
+                                                        {formatPrice(payable)}
+                                                    </span>
+                                                </div>
+                                                {!payLater && (
+                                                    <div className="flex items-center justify-between">
+                                                        <span className="text-slate-500 dark:text-slate-400">
+                                                            Dibayar
+                                                        </span>
+                                                        <span className="font-medium text-slate-800 dark:text-slate-200">
+                                                            {formatPrice(
+                                                                isCashPayment
+                                                                    ? cash
+                                                                    : payable
+                                                            )}
+                                                        </span>
+                                                    </div>
+                                                )}
+                                                {isCashPayment && cash >= payable && (
+                                                    <div className="flex items-center justify-between rounded-xl bg-emerald-50 px-3 py-2 text-sm dark:bg-emerald-950/20">
+                                                        <span className="text-emerald-700 dark:text-emerald-300">
+                                                            Kembalian
+                                                        </span>
+                                                        <span className="font-semibold text-emerald-700 dark:text-emerald-300">
+                                                            {formatPrice(
+                                                                Math.max(
+                                                                    0,
+                                                                    cash - payable
+                                                                )
+                                                            )}
+                                                        </span>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                            {paymentMethod ===
+                                                "bank_transfer" &&
+                                                selectedBankAccount && (
+                                                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm dark:border-slate-800 dark:bg-slate-950/40">
+                                                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                                        Rekening Tujuan
+                                                    </p>
+                                                    <p className="mt-1 font-semibold text-slate-900 dark:text-white">
+                                                        {
+                                                            selectedBankAccount.bank_name
+                                                        }
+                                                    </p>
+                                                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                                                        {
+                                                            selectedBankAccount.account_number
+                                                        }
+                                                    </p>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="grid gap-3 border-t border-slate-200 bg-slate-50 px-5 py-4 dark:border-slate-800 dark:bg-slate-900/80 sm:grid-cols-[1fr,1.1fr]">
+                                    <button
+                                        type="button"
+                                        onClick={closeCheckoutModal}
+                                        disabled={isSubmitting}
+                                        className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                    >
+                                        Kembali
+                                    </button>
+                                    <div className="grid gap-3 sm:grid-cols-[1fr,1.2fr]">
+                                        <div className="rounded-2xl bg-white px-4 py-3 text-center dark:bg-slate-900">
+                                            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                                Bayar
+                                            </p>
+                                            <p className="mt-1 text-lg font-bold text-slate-900 dark:text-white">
+                                                {formatPrice(
+                                                    isCashPayment
+                                                        ? cash
+                                                        : payable
+                                                )}
+                                            </p>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={handleSubmitTransaction}
+                                            disabled={isSubmitting}
+                                            className="rounded-2xl bg-primary-500 px-4 py-3 text-sm font-semibold text-white hover:bg-primary-600 disabled:opacity-60"
+                                        >
+                                            {isSubmitting
+                                                ? "Menyimpan..."
+                                                : "Konfirmasi & Simpan"}
+                                        </button>
+                                    </div>
+                                </div>
+                            </>
+                        ) : (
+                            <>
+                                <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4 dark:border-slate-800">
+                                    <div>
+                                        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary-500">
+                                            Resi Transaksi
+                                        </p>
+                                        <h3 className="mt-1 text-lg font-bold text-slate-900 dark:text-white">
+                                            {completedTransaction?.transaction?.invoice ||
+                                                "Preview Struk"}
+                                        </h3>
+                                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                            Resi sudah siap. Cetak langsung dari modal lalu lanjut transaksi berikutnya.
+                                        </p>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={closeCheckoutModal}
+                                        className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 text-slate-500 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"
+                                    >
+                                        <IconX size={18} />
+                                    </button>
+                                </div>
+
+                                <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
+                                    {checkoutWarning && (
+                                        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300">
+                                            {checkoutWarning}
+                                        </div>
+                                    )}
+
+                                    <div className="grid gap-4 lg:grid-cols-[0.95fr,1.05fr]">
+                                        <div className="space-y-3">
+                                            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/40">
+                                                <p className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                                    Status
+                                                </p>
+                                                <div className="mt-2 flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-white">
+                                                    <IconReceipt size={18} />
+                                                    {completedTransaction?.transaction
+                                                        ?.payment_method ===
+                                                    "pay_later"
+                                                        ? "Piutang tercatat"
+                                                        : "Transaksi tersimpan"}
+                                                </div>
+                                                <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+                                                    Total{" "}
+                                                    <span className="font-semibold text-slate-800 dark:text-slate-200">
+                                                        {formatPrice(
+                                                            completedTransaction
+                                                                ?.transaction
+                                                                ?.grand_total || 0
+                                                        )}
+                                                    </span>
+                                                </p>
+                                            </div>
+
+                                            {completedTransaction?.transaction
+                                                ?.payment_url && (
+                                                <a
+                                                    href={
+                                                        completedTransaction.transaction
+                                                            .payment_url
+                                                    }
+                                                    target="_blank"
+                                                    rel="noreferrer"
+                                                    className="flex items-center justify-between rounded-2xl border border-primary-200 bg-primary-50 px-4 py-3 text-sm font-semibold text-primary-700 dark:border-primary-900/40 dark:bg-primary-950/20 dark:text-primary-300"
+                                                >
+                                                    <span>
+                                                        Buka link pembayaran
+                                                    </span>
+                                                    <IconCreditCard size={18} />
+                                                </a>
+                                            )}
+                                        </div>
+
+                                        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 dark:border-slate-800 dark:bg-slate-950/60">
+                                            {!isReceiptFrameReady && (
+                                                <div className="flex h-[60vh] items-center justify-center text-sm text-slate-500 dark:text-slate-400">
+                                                    Memuat preview struk...
+                                                </div>
+                                            )}
+                                            {completedTransaction?.print_url && (
+                                                <iframe
+                                                    ref={receiptFrameRef}
+                                                    src={completedTransaction.print_url}
+                                                    title="Preview Struk"
+                                                    onLoad={() =>
+                                                        setIsReceiptFrameReady(
+                                                            true
+                                                        )
+                                                    }
+                                                    className={`h-[60vh] w-full bg-white ${
+                                                        isReceiptFrameReady
+                                                            ? "block"
+                                                            : "hidden"
+                                                    }`}
+                                                />
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-3 border-t border-slate-200 bg-slate-50 px-5 py-4 dark:border-slate-800 dark:bg-slate-900/80">
+                                    <button
+                                        type="button"
+                                        onClick={closeCheckoutModal}
+                                        className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                    >
+                                        Tutup
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={handlePrintReceipt}
+                                        disabled={!isReceiptFrameReady}
+                                        className="inline-flex items-center justify-center gap-2 rounded-2xl bg-primary-500 px-4 py-3 text-sm font-semibold text-white hover:bg-primary-600 disabled:opacity-60"
+                                    >
+                                        <IconPrinter size={18} />
+                                        Cetak Struk
+                                    </button>
+                                </div>
+                            </>
+                        )}
+                    </div>
+                </div>
+            )}
 
             {tableOrderApprovalTarget && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -2519,7 +2964,9 @@ export default function Index({
                                     {modifierModalProduct.title}
                                 </h3>
                                 <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                                    Pilih topping / extra sebelum item dimasukkan ke keranjang.
+                                    {modifierModalCartTargetId
+                                        ? "Pilih topping / extra untuk item yang sudah ada di keranjang."
+                                        : "Pilih topping / extra sebelum item dimasukkan ke keranjang."}
                                 </p>
                             </div>
                             <button
@@ -2605,7 +3052,9 @@ export default function Index({
                                     disabled={isModifierModalSubmitting}
                                     className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
                                 >
-                                    Tanpa topping
+                                    {modifierModalCartTargetId
+                                        ? "Tutup"
+                                        : "Tanpa topping"}
                                 </button>
                                 <button
                                     type="button"
@@ -2614,10 +3063,105 @@ export default function Index({
                                     className="rounded-2xl bg-primary-500 px-4 py-3 text-sm font-semibold text-white hover:bg-primary-600 disabled:opacity-50"
                                 >
                                     {isModifierModalSubmitting
-                                        ? "Menambahkan..."
+                                        ? "Menyimpan..."
+                                        : modifierModalCartTargetId
+                                        ? "Simpan topping"
                                         : "Tambah ke keranjang"}
                                 </button>
                             </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {isTablePickerModalOpen && orderType === "dine_in" && (
+                <div className="fixed inset-0 z-[70] flex items-end justify-center p-0 sm:items-center sm:p-4">
+                    <div
+                        className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm"
+                        onClick={() => setIsTablePickerModalOpen(false)}
+                    />
+                    <div className="relative z-10 w-full max-w-lg overflow-hidden rounded-t-3xl bg-white shadow-2xl dark:bg-slate-900 sm:rounded-3xl">
+                        <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4 dark:border-slate-800">
+                            <div>
+                                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary-500">
+                                    Dine In
+                                </p>
+                                <h3 className="mt-1 text-lg font-bold text-slate-900 dark:text-white">
+                                    Pilih Meja
+                                </h3>
+                                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                    Pilih meja aktif untuk transaksi makan di tempat.
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setIsTablePickerModalOpen(false)}
+                                className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 text-slate-500 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"
+                            >
+                                <IconX size={18} />
+                            </button>
+                        </div>
+
+                        <div className="max-h-[70vh] space-y-2 overflow-y-auto p-4">
+                            {diningTables.length > 0 ? (
+                                diningTables.map((table) => {
+                                    const isActive =
+                                        String(selectedTableId) ===
+                                        String(table.id);
+
+                                    return (
+                                        <button
+                                            key={table.id}
+                                            type="button"
+                                            onClick={() => {
+                                                setSelectedTableId(
+                                                    String(table.id)
+                                                );
+                                                setIsTablePickerModalOpen(
+                                                    false
+                                                );
+                                            }}
+                                            className={`flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left transition ${
+                                                isActive
+                                                    ? "border-primary-500 bg-primary-50 dark:border-primary-400 dark:bg-primary-950/30"
+                                                    : "border-slate-200 bg-white hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-slate-600"
+                                            }`}
+                                        >
+                                            <div>
+                                                <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                                                    {table.code
+                                                        ? `${table.code} - ${table.name}`
+                                                        : table.name}
+                                                </p>
+                                                <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                                                    Kapasitas {table.capacity} orang
+                                                </p>
+                                            </div>
+                                            <div
+                                                className={`h-5 w-5 rounded-md border ${
+                                                    isActive
+                                                        ? "border-primary-500 bg-primary-500"
+                                                        : "border-slate-300 dark:border-slate-600"
+                                                }`}
+                                            />
+                                        </button>
+                                    );
+                                })
+                            ) : (
+                                <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-400">
+                                    Belum ada meja aktif untuk outlet ini.
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="border-t border-slate-200 bg-slate-50 px-5 py-4 dark:border-slate-800 dark:bg-slate-900/80">
+                            <button
+                                type="button"
+                                onClick={() => setIsTablePickerModalOpen(false)}
+                                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                            >
+                                Tutup
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -2632,6 +3176,110 @@ export default function Index({
                 initialValue={Number(cashInput) || 0}
                 isCurrency={true}
             />
+
+            {isCashPaymentModalOpen && !payLater && paymentMethod === "cash" && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                    <div
+                        className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm"
+                        onClick={() => setIsCashPaymentModalOpen(false)}
+                    />
+                    <div className="relative w-full max-w-md overflow-hidden rounded-3xl bg-white shadow-2xl dark:bg-slate-900">
+                        <div className="border-b border-slate-200 px-5 py-4 dark:border-slate-800">
+                            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary-500">
+                                Pembayaran Tunai
+                            </p>
+                            <h3 className="mt-1 text-lg font-bold text-slate-900 dark:text-white">
+                                Atur Nominal Bayar
+                            </h3>
+                            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                Pilih nominal cepat atau isi jumlah bayar kasir.
+                            </p>
+                        </div>
+
+                        <div className="space-y-4 px-5 py-4">
+                            <div>
+                                <label className="mb-2 block text-xs font-medium text-slate-600 dark:text-slate-400">
+                                    Nominal Cepat
+                                </label>
+                                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                                    {quickCashAmounts.map((amt) => (
+                                        <button
+                                            key={amt}
+                                            type="button"
+                                            onClick={() =>
+                                                setCashInput(String(amt))
+                                            }
+                                            className={`rounded-xl px-3 py-2 text-xs font-semibold transition-all ${
+                                                Number(cashInput) === amt
+                                                    ? "bg-primary-500 text-white"
+                                                    : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"
+                                            }`}
+                                        >
+                                            {formatPrice(amt)}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="mb-2 block text-xs font-medium text-slate-600 dark:text-slate-400">
+                                    Jumlah Bayar (Rp)
+                                </label>
+                                <div className="relative">
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">
+                                        Rp
+                                    </span>
+                                    <input
+                                        type="text"
+                                        inputMode="numeric"
+                                        value={cashInput}
+                                        onChange={(e) =>
+                                            setCashInput(
+                                                e.target.value.replace(
+                                                    /[^\d]/g,
+                                                    ""
+                                                )
+                                            )
+                                        }
+                                        placeholder="0"
+                                        className="h-12 w-full rounded-2xl border border-slate-200 bg-white pl-10 pr-4 text-base font-semibold text-slate-800 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900/40 dark:bg-emerald-950/20">
+                                <div className="flex items-center justify-between text-sm">
+                                    <span className="text-emerald-700 dark:text-emerald-300">
+                                        Kembalian
+                                    </span>
+                                    <span className="font-bold text-emerald-700 dark:text-emerald-300">
+                                        {formatPrice(
+                                            Math.max(0, cash - payable)
+                                        )}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3 border-t border-slate-200 bg-slate-50 px-5 py-4 dark:border-slate-800 dark:bg-slate-900/80">
+                            <button
+                                type="button"
+                                onClick={() => setIsCashPaymentModalOpen(false)}
+                                className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                            >
+                                Tutup
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setIsCashPaymentModalOpen(false)}
+                                className="rounded-2xl bg-primary-500 px-4 py-3 text-sm font-semibold text-white hover:bg-primary-600"
+                            >
+                                Simpan Nominal
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Keyboard Shortcuts Help */}
             {showShortcuts && (

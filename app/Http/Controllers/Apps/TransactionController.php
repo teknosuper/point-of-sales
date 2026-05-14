@@ -31,6 +31,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
+use Symfony\Component\HttpFoundation\Response;
 use Inertia\Inertia;
 
 class TransactionController extends Controller
@@ -918,18 +919,20 @@ class TransactionController extends Controller
         $outlet = $this->resolveActiveOutlet($request);
 
         if ($isPayLater && ! $request->filled('due_date')) {
-            return redirect()
-                ->route('transactions.index')
-                ->with('error', 'Tanggal jatuh tempo wajib diisi untuk nota barang.');
+            return $this->transactionStoreErrorResponse(
+                $request,
+                'Tanggal jatuh tempo wajib diisi untuk nota barang.'
+            );
         }
 
         if ($paymentGateway) {
             $paymentSetting = PaymentSetting::resolveForOutlet($outlet?->id);
 
             if (! $paymentSetting || ! $paymentSetting->isGatewayReady($paymentGateway, $outlet?->id)) {
-                return redirect()
-                    ->route('transactions.index')
-                    ->with('error', 'Gateway pembayaran belum dikonfigurasi.');
+                return $this->transactionStoreErrorResponse(
+                    $request,
+                    'Gateway pembayaran belum dikonfigurasi.'
+                );
             }
         }
 
@@ -1119,6 +1122,8 @@ class TransactionController extends Controller
             return $transaction->fresh(['customer', 'waiter', 'diningTable']);
         });
 
+        $paymentWarning = null;
+
         if ($paymentGateway) {
             try {
                 $paymentResponse = $paymentGatewayManager->createPayment($transaction, $paymentGateway, $paymentSetting);
@@ -1128,16 +1133,49 @@ class TransactionController extends Controller
                     'payment_url' => $paymentResponse['payment_url'] ?? null,
                 ]);
             } catch (PaymentGatewayException $exception) {
-                return redirect()
-                    ->route('transactions.print', $transaction->invoice)
-                    ->with('error', $exception->getMessage());
+                $paymentWarning = $exception->getMessage();
             }
+        }
+
+        $transaction->load([
+            'details.product',
+            'details.modifiers',
+            'details.pricingRule',
+            'cashier',
+            'waiter',
+            'diningTable',
+            'customer',
+            'receivable',
+            'bankAccount',
+            'kitchenTickets.kitchenStation',
+            'tenantAllocations.tenantOutlet:id,name,code',
+            'tenantAllocations.items.product:id,title',
+        ]);
+
+        if ($request->expectsJson()) {
+            return response()->json([
+                'message' => 'Transaksi berhasil disimpan.',
+                'warning' => $paymentWarning,
+                'data' => [
+                    'transaction' => $transaction,
+                    'print_url' => route('transactions.print', [
+                        'invoice' => $transaction->invoice,
+                        'embedded' => 1,
+                    ], false),
+                ],
+            ], Response::HTTP_CREATED);
+        }
+
+        if ($paymentWarning) {
+            return redirect()
+                ->route('transactions.print', $transaction->invoice)
+                ->with('error', $paymentWarning);
         }
 
         return to_route('transactions.print', $transaction->invoice);
     }
 
-    public function print($invoice)
+    public function print(Request $request, $invoice)
     {
         // get transaction
         $transaction = Transaction::with(
@@ -1160,7 +1198,21 @@ class TransactionController extends Controller
 
         return Inertia::render('Dashboard/Transactions/Print', [
             'transaction' => $transaction,
+            'embedded' => $request->boolean('embedded'),
         ]);
+    }
+
+    private function transactionStoreErrorResponse(Request $request, string $message)
+    {
+        if ($request->expectsJson()) {
+            return response()->json([
+                'message' => $message,
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+        }
+
+        return redirect()
+            ->route('transactions.index')
+            ->with('error', $message);
     }
 
     /**

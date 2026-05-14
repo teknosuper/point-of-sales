@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { router } from "@inertiajs/react";
 import axios from "axios";
 import {
@@ -6,8 +6,8 @@ import {
     IconUser,
     IconSearch,
     IconCheck,
-    IconChevronDown,
     IconUserPlus,
+    IconX,
 } from "@tabler/icons-react";
 import { CustomerHistoryButton } from "./CustomerHistoryPanel";
 import AddCustomerModal from "./AddCustomerModal";
@@ -32,12 +32,11 @@ export default function CustomerSelect({
     label,
     onCustomerAdded,
     tierOptions = [],
+    openAddModalSignal = 0,
 }) {
-    const [isOpen, setIsOpen] = useState(false);
+    const [isPickerOpen, setIsPickerOpen] = useState(false);
     const [search, setSearch] = useState("");
     const [showAddModal, setShowAddModal] = useState(false);
-    const containerRef = useRef(null);
-    const inputRef = useRef(null);
 
     // Filter customers by search
     const filteredCustomers = [
@@ -57,31 +56,16 @@ export default function CustomerSelect({
             : true
     );
 
-    // Close on click outside
     useEffect(() => {
-        const handleClickOutside = (event) => {
-            if (
-                containerRef.current &&
-                !containerRef.current.contains(event.target)
-            ) {
-                setIsOpen(false);
-            }
-        };
-        document.addEventListener("mousedown", handleClickOutside);
-        return () =>
-            document.removeEventListener("mousedown", handleClickOutside);
-    }, []);
-
-    // Focus search on open
-    useEffect(() => {
-        if (isOpen && inputRef.current) {
-            inputRef.current.focus();
+        if (openAddModalSignal > 0) {
+            setShowAddModal(false);
+            setIsPickerOpen(true);
         }
-    }, [isOpen]);
+    }, [openAddModalSignal]);
 
     const handleSelect = (customer) => {
         onSelect(customer);
-        setIsOpen(false);
+        setIsPickerOpen(false);
         setSearch("");
     };
 
@@ -117,216 +101,179 @@ export default function CustomerSelect({
 
     return (
         <>
-            <div ref={containerRef} className="relative">
-                {/* Label */}
+            <div className="relative">
                 {label && (
-                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                    <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
                         {label}
                     </label>
                 )}
 
-                {/* Select Button with History and Add */}
-                <div className="flex items-center gap-2">
-                    <button
-                        type="button"
-                        onClick={() => setIsOpen(!isOpen)}
-                        className={`
-                            flex-1 h-12 px-4 rounded-xl text-left
-                            flex items-center gap-3
-                            border-2 transition-all duration-200
-                            ${
-                                isOpen
-                                    ? "border-primary-500 ring-4 ring-primary-500/20"
-                                    : error
-                                    ? "border-danger-500"
-                                    : "border-slate-200 dark:border-slate-700"
-                            }
-                            bg-white dark:bg-slate-900
-                        `}
-                    >
-                        <div
-                            className={`
-                            w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0
-                            ${
-                                selected
-                                    ? "bg-primary-100 dark:bg-primary-900/50"
-                                    : "bg-slate-100 dark:bg-slate-800"
-                            }
-                        `}
-                        >
-                            <IconUser
-                                size={18}
-                                className={
+                <div className="rounded-2xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+                    <div className="flex items-start justify-between gap-3">
+                        <div className="flex min-w-0 items-start gap-3">
+                            <div
+                                className={`mt-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl ${
                                     selected
-                                        ? "text-primary-600 dark:text-primary-400"
-                                        : "text-slate-400"
-                                }
-                            />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                            {selected ? (
-                                <>
-                                    <p className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">
-                                        {selected.name}
-                                    </p>
-                                    {!selected.is_walk_in && selected.no_telp && (
-                                        <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
-                                            {selected.no_telp}
-                                        </p>
-                                    )}
-                                    {!selected.is_walk_in && selected.member_code ? (
-                                        <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                                            {selected.member_code}
-                                        </p>
-                                    ) : null}
-                                    <p className="text-[11px] text-primary-500 dark:text-primary-300 truncate">
-                                        {selected.is_walk_in
-                                            ? "Transaksi umum tanpa customer terdaftar"
-                                            : selected.is_loyalty_member
-                                            ? `${selected.loyalty_tier} • ${selected.loyalty_points || 0} poin`
-                                            : "Non-member"}
-                                    </p>
-                                </>
-                            ) : (
-                                <p className="text-sm text-slate-400 dark:text-slate-500">
-                                    {placeholder}
+                                        ? "bg-primary-100 dark:bg-primary-900/50"
+                                        : "bg-slate-100 dark:bg-slate-800"
+                                }`}
+                            >
+                                <IconUser
+                                    size={18}
+                                    className={
+                                        selected
+                                            ? "text-primary-600 dark:text-primary-400"
+                                            : "text-slate-400"
+                                    }
+                                />
+                            </div>
+                            <div className="min-w-0">
+                                <p className="truncate text-sm font-semibold text-slate-800 dark:text-slate-200">
+                                    {selected?.name || placeholder}
                                 </p>
-                            )}
+                                <p className="mt-1 text-[11px] text-primary-500 dark:text-primary-300">
+                                    {selected?.is_walk_in
+                                        ? "Default pelanggan umum"
+                                        : selected?.is_loyalty_member
+                                        ? `${selected.loyalty_tier} • ${selected.loyalty_points || 0} poin`
+                                        : "Pelanggan terdaftar"}
+                                </p>
+                            </div>
                         </div>
-                        <IconChevronDown
-                            size={18}
-                            className={`text-slate-400 transition-transform ${
-                                isOpen ? "rotate-180" : ""
-                            }`}
-                        />
-                    </button>
-
-                    {/* History Button - Show when customer is selected */}
-                    {selected && !selected.is_walk_in && (
-                        <CustomerHistoryButton
-                            customerId={selected.id}
-                            customerName={selected.name}
-                        />
-                    )}
-
-                    {selected &&
-                    !selected.is_walk_in &&
-                    !selected.is_loyalty_member ? (
                         <button
                             type="button"
-                            onClick={handleUpgradeMember}
-                            className="h-12 px-3 rounded-xl border border-primary-200 bg-primary-50 text-primary-600 hover:bg-primary-100 dark:border-primary-800 dark:bg-primary-950/30 dark:text-primary-300"
-                            title="Upgrade pelanggan menjadi member"
+                            onClick={() => setIsPickerOpen(true)}
+                            className="rounded-xl border border-primary-200 bg-primary-50 px-3 py-2 text-xs font-semibold text-primary-700 hover:border-primary-300 hover:bg-primary-100 dark:border-primary-900/60 dark:bg-primary-950/30 dark:text-primary-300"
                         >
-                            <span className="hidden sm:inline-flex items-center gap-2 text-sm font-semibold">
-                                <IconCrown size={16} />
-                                Upgrade
-                            </span>
-                            <span className="inline-flex sm:hidden">
-                                <IconCrown size={18} />
-                            </span>
+                            Pilih Pelanggan
                         </button>
+                    </div>
+
+                    {(selected && !selected.is_walk_in) || error ? (
+                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                            {selected && !selected.is_walk_in && (
+                                <CustomerHistoryButton
+                                    customerId={selected.id}
+                                    customerName={selected.name}
+                                />
+                            )}
+                            {selected &&
+                            !selected.is_walk_in &&
+                            !selected.is_loyalty_member ? (
+                                <button
+                                    type="button"
+                                    onClick={handleUpgradeMember}
+                                    className="inline-flex h-10 items-center gap-2 rounded-xl border border-primary-200 bg-primary-50 px-3 text-xs font-semibold text-primary-600 hover:bg-primary-100 dark:border-primary-800 dark:bg-primary-950/30 dark:text-primary-300"
+                                    title="Upgrade pelanggan menjadi member"
+                                >
+                                    <IconCrown size={16} />
+                                    Upgrade
+                                </button>
+                            ) : null}
+                            {error && (
+                                <p className="text-xs text-danger-500">{error}</p>
+                            )}
+                        </div>
                     ) : null}
-
-                    {/* Add Customer Button */}
-                    <button
-                        type="button"
-                        onClick={() => setShowAddModal(true)}
-                        className="h-12 w-12 rounded-xl border-2 border-dashed border-primary-300 dark:border-primary-700
-                            text-primary-500 hover:bg-primary-50 dark:hover:bg-primary-950/30
-                            flex items-center justify-center transition-colors"
-                        title="Tambah pelanggan baru"
-                    >
-                        <IconUserPlus size={20} />
-                    </button>
                 </div>
+            </div>
 
-                {/* Error Message */}
-                {error && (
-                    <p className="mt-1 text-xs text-danger-500">{error}</p>
-                )}
+            {isPickerOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                    <div
+                        className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm"
+                        onClick={() => setIsPickerOpen(false)}
+                    />
+                    <div className="relative w-full max-w-2xl overflow-hidden rounded-3xl bg-white shadow-2xl dark:bg-slate-900">
+                        <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4 dark:border-slate-800">
+                            <div>
+                                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary-500">
+                                    Pelanggan
+                                </p>
+                                <h3 className="mt-1 text-lg font-bold text-slate-900 dark:text-white">
+                                    Pilih Pelanggan
+                                </h3>
+                                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                    Default transaksi memakai pelanggan umum. Pilih pelanggan lain bila diperlukan.
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setIsPickerOpen(false)}
+                                className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 text-slate-500 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"
+                            >
+                                <IconX size={18} />
+                            </button>
+                        </div>
 
-                {/* Dropdown */}
-                {isOpen && (
-                    <div className="absolute top-full left-0 right-0 mt-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-xl z-50 animate-slide-up overflow-hidden">
-                        {/* Search */}
-                        <div className="p-3 border-b border-slate-100 dark:border-slate-800">
-                            <div className="relative">
-                                <IconSearch
-                                    size={18}
-                                    className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                                />
-                                <input
-                                    ref={inputRef}
-                                    type="text"
-                                    value={search}
-                                    onChange={(e) => setSearch(e.target.value)}
-                                    placeholder="Cari nama/telepon/nomor anggota..."
-                                    className="w-full h-10 pl-10 pr-4 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm text-slate-800 dark:text-slate-200 placeholder-slate-400 focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all"
-                                />
+                        <div className="border-b border-slate-100 p-4 dark:border-slate-800">
+                            <div className="flex gap-2">
+                                <div className="relative flex-1">
+                                    <IconSearch
+                                        size={18}
+                                        className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                                    />
+                                    <input
+                                        type="text"
+                                        value={search}
+                                        onChange={(e) => setSearch(e.target.value)}
+                                        placeholder="Cari nama/telepon/nomor anggota..."
+                                        className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-4 text-sm text-slate-800 placeholder-slate-400 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                                    />
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setIsPickerOpen(false);
+                                        setShowAddModal(true);
+                                    }}
+                                    className="inline-flex h-11 items-center gap-2 rounded-xl border-2 border-dashed border-primary-300 px-3 text-sm font-semibold text-primary-500 hover:bg-primary-50 dark:border-primary-700 dark:hover:bg-primary-950/30"
+                                >
+                                    <IconUserPlus size={18} />
+                                    Tambah Baru
+                                </button>
                             </div>
                         </div>
 
-                        {/* Customer List */}
-                        <div className="max-h-60 overflow-y-auto scrollbar-thin">
+                        <div className="max-h-[60vh] overflow-y-auto">
                             {filteredCustomers.length > 0 ? (
-                                <ul>
+                                <ul className="p-3">
                                     {filteredCustomers.map((customer) => (
                                         <li key={customer.id}>
                                             <button
                                                 type="button"
-                                                onClick={() =>
-                                                    handleSelect(customer)
-                                                }
-                                                className={`
-                                                    w-full flex items-center gap-3 px-4 py-3 text-left
-                                                    transition-colors
-                                                    ${
-                                                        selected?.id ===
-                                                        customer.id
-                                                            ? "bg-primary-50 dark:bg-primary-950/30"
-                                                            : "hover:bg-slate-50 dark:hover:bg-slate-800"
-                                                    }
-                                                `}
+                                                onClick={() => handleSelect(customer)}
+                                                className={`mb-2 flex w-full items-center gap-3 rounded-2xl border px-4 py-3 text-left transition-colors ${
+                                                    selected?.id === customer.id
+                                                        ? "border-primary-200 bg-primary-50 dark:border-primary-900/60 dark:bg-primary-950/30"
+                                                        : "border-slate-200 bg-white hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800"
+                                                }`}
                                             >
                                                 <div
-                                                    className={`
-                                                    w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0
-                                                    ${
-                                                        selected?.id ===
-                                                        customer.id
+                                                    className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full ${
+                                                        selected?.id === customer.id
                                                             ? "bg-primary-500 text-white"
-                                                            : "bg-slate-100 dark:bg-slate-800 text-slate-500"
-                                                    }
-                                                `}
+                                                            : "bg-slate-100 text-slate-500 dark:bg-slate-800"
+                                                    }`}
                                                 >
-                                                    {selected?.id ===
-                                                    customer.id ? (
+                                                    {selected?.id === customer.id ? (
                                                         <IconCheck size={16} />
                                                     ) : (
                                                         <span className="text-sm font-medium">
-                                                            {customer.name
-                                                                .charAt(0)
-                                                                .toUpperCase()}
+                                                            {customer.name.charAt(0).toUpperCase()}
                                                         </span>
                                                     )}
                                                 </div>
-                                                <div className="flex-1 min-w-0">
-                                                    <p className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">
+                                                <div className="min-w-0 flex-1">
+                                                    <p className="truncate text-sm font-medium text-slate-800 dark:text-slate-200">
                                                         {customer.name}
                                                     </p>
-                                                    <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
+                                                    <p className="truncate text-xs text-slate-500 dark:text-slate-400">
                                                         {customer.is_walk_in
                                                             ? "Tanpa customer terdaftar"
-                                                            : customer.no_telp ||
-                                                              "-"}
+                                                            : customer.no_telp || "-"}
                                                     </p>
-                                                    {!customer.is_walk_in && customer.member_code ? (
-                                                        <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                                                            {customer.member_code}
-                                                        </p>
-                                                    ) : null}
-                                                    <p className="text-[11px] text-primary-500 dark:text-primary-300 truncate">
+                                                    <p className="truncate text-[11px] text-primary-500 dark:text-primary-300">
                                                         {customer.is_walk_in
                                                             ? "Umum / Walk-in"
                                                             : customer.is_loyalty_member
@@ -339,21 +286,19 @@ export default function CustomerSelect({
                                     ))}
                                 </ul>
                             ) : (
-                                <div className="py-8 text-center text-slate-400 dark:text-slate-500">
+                                <div className="py-10 text-center text-slate-400 dark:text-slate-500">
                                     <IconUser
-                                        size={24}
+                                        size={28}
                                         className="mx-auto mb-2 opacity-50"
                                     />
-                                    <p className="text-sm">
-                                        Pelanggan tidak ditemukan
-                                    </p>
+                                    <p className="text-sm">Pelanggan tidak ditemukan</p>
                                     <button
                                         type="button"
                                         onClick={() => {
-                                            setIsOpen(false);
+                                            setIsPickerOpen(false);
                                             setShowAddModal(true);
                                         }}
-                                        className="mt-2 text-sm text-primary-500 hover:text-primary-600 font-medium"
+                                        className="mt-2 text-sm font-medium text-primary-500 hover:text-primary-600"
                                     >
                                         + Tambah pelanggan baru
                                     </button>
@@ -361,16 +306,16 @@ export default function CustomerSelect({
                             )}
                         </div>
                     </div>
-                )}
-            </div>
+                </div>
+            )}
 
             {/* Add Customer Modal */}
-                <AddCustomerModal
-                    isOpen={showAddModal}
-                    onClose={() => setShowAddModal(false)}
-                    onSuccess={handleAddCustomerSuccess}
-                    tierOptions={tierOptions}
-                />
-            </>
-        );
+            <AddCustomerModal
+                isOpen={showAddModal}
+                onClose={() => setShowAddModal(false)}
+                onSuccess={handleAddCustomerSuccess}
+                tierOptions={tierOptions}
+            />
+        </>
+    );
 }
