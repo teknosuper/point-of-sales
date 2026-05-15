@@ -255,6 +255,8 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
 
     // route transaction store
     Route::post('/transactions/store', [TransactionController::class, 'store'])->middleware(['permission:transactions-access', 'active_shift'])->name('transactions.store');
+    Route::get('/transactions/health', [TransactionController::class, 'health'])->middleware('permission:transactions-access')->name('transactions.health');
+    Route::post('/transactions/sync-offline', [TransactionController::class, 'syncOffline'])->middleware(['permission:transactions-access', 'active_shift'])->name('transactions.sync-offline');
     Route::get('/transactions/{invoice}/print', [TransactionController::class, 'print'])->middleware('permission:transactions-access')->name('transactions.print');
     Route::get('/transactions/history', [TransactionController::class, 'history'])->middleware('permission:transactions-access')->name('transactions.history');
     Route::get('/kitchen', [KitchenDisplayController::class, 'index'])->middleware('permission:dashboard-access')->name('kitchen.index');

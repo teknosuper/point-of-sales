@@ -38,7 +38,15 @@ self.addEventListener("fetch", (event) => {
   if (request.mode === "navigate") {
     event.respondWith(
       fetch(request)
-        .then((response) => response)
+        .then(async (response) => {
+          if (response && response.status === 200) {
+            const cloned = response.clone();
+            const cache = await caches.open(RUNTIME_CACHE);
+            cache.put(request, cloned);
+          }
+
+          return response;
+        })
         .catch(async () => {
           const cached = await caches.match(request);
           return cached || caches.match("/offline.html");

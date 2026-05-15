@@ -21,6 +21,19 @@ import useBarcodeScanner from "@/Hooks/useBarcodeScanner";
 import { getProductImageUrl } from "@/Utils/imageUrl";
 import { useAuthorization } from "@/Utils/authorization";
 import {
+    buildOfflineInvoice,
+    buildOfflinePricing,
+    clearOfflineCart,
+    loadOfflineCart,
+    loadOfflinePosBootstrap,
+    loadOfflineTransactionHistory,
+    loadOfflineTransactionQueue,
+    saveOfflineCart,
+    saveOfflinePosBootstrap,
+    saveOfflineTransactionHistory,
+    saveOfflineTransactionQueue,
+} from "@/Utils/offlinePos";
+import {
     IconUser,
     IconShoppingCart,
     IconReceipt,
@@ -43,6 +56,43 @@ const formatPrice = (value = 0) =>
         minimumFractionDigits: 0,
     });
 
+const resolveFreshnessMeta = (timestamp) => {
+    if (!timestamp) {
+        return {
+            label: "belum ada",
+            className:
+                "bg-slate-200 text-slate-600 dark:bg-slate-800 dark:text-slate-300",
+        };
+    }
+
+    const ageMinutes = Math.max(
+        0,
+        Math.round((Date.now() - new Date(timestamp).getTime()) / 60000)
+    );
+
+    if (ageMinutes <= 5) {
+        return {
+            label: "baru",
+            className:
+                "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300",
+        };
+    }
+
+    if (ageMinutes <= 30) {
+        return {
+            label: "perlu cek",
+            className:
+                "bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300",
+        };
+    }
+
+    return {
+        label: "lama",
+        className:
+            "bg-rose-100 text-rose-700 dark:bg-rose-950/30 dark:text-rose-300",
+    };
+};
+
 const WALK_IN_CUSTOMER = {
     id: "walk_in",
     name: "Pelanggan Umum",
@@ -58,23 +108,25 @@ export default function Index({
     carts = [],
     carts_total = 0,
     heldCarts = [],
-    customers = [],
-    diningTables = [],
-    products = [],
-    categories = [],
+    customers: customerOptions = [],
+    diningTables: diningTableOptions = [],
+    products: productOptions = [],
+    categories: categoryOptions = [],
     initialPricingPreview = { items: [], summary: {} },
-    paymentGateways = [],
+    paymentGateways: paymentGatewayOptions = [],
     defaultPaymentGateway = "cash",
     bankAccounts = [],
     pendingTableOrders = [],
-    loyaltyTierOptions = [],
-    tenantOutlets = [],
+    loyaltyTierOptions: loyaltyTierOptionValues = [],
+    tenantOutlets: tenantOutletOptions = [],
 }) {
     const {
         auth,
         errors,
         lowStockNotifications = [],
-        activeCashierShift,
+        activeCashierShift: activeCashierShiftProp,
+        activeOutlet: activeOutletProp,
+        storeProfile: storeProfileProp,
     } = usePage().props;
     const { can } = useAuthorization();
     const canOpenShift = can("cashier-shifts-open");
@@ -121,6 +173,32 @@ export default function Index({
     const [completedTransaction, setCompletedTransaction] = useState(null);
     const [checkoutWarning, setCheckoutWarning] = useState("");
     const [isReceiptFrameReady, setIsReceiptFrameReady] = useState(false);
+    const [isBrowserOnline, setIsBrowserOnline] = useState(
+        typeof navigator === "undefined" ? true : navigator.onLine
+    );
+    const [isServerReachable, setIsServerReachable] = useState(true);
+    const isOfflineMode = !isBrowserOnline || !isServerReachable;
+    const [offlineBootstrap, setOfflineBootstrap] = useState(() =>
+        loadOfflinePosBootstrap()
+    );
+    const [offlineQueue, setOfflineQueue] = useState([]);
+    const [offlineHistory, setOfflineHistory] = useState([]);
+    const [isOfflineHistoryOpen, setIsOfflineHistoryOpen] = useState(false);
+    const [offlineHistoryFilter, setOfflineHistoryFilter] = useState("all");
+    const [isSyncingOfflineQueue, setIsSyncingOfflineQueue] = useState(false);
+    const [isPreparingOfflineSnapshot, setIsPreparingOfflineSnapshot] =
+        useState(false);
+    const [isCheckingOfflineDevice, setIsCheckingOfflineDevice] =
+        useState(true);
+    const [isRefreshingOfflinePreparation, setIsRefreshingOfflinePreparation] =
+        useState(false);
+    const [lastOfflineDeviceCheckAt, setLastOfflineDeviceCheckAt] =
+        useState(null);
+    const [offlineDeviceStatus, setOfflineDeviceStatus] = useState({
+        serviceWorkerReady: false,
+        standalone: false,
+        likelyTablet: false,
+    });
     const [prefersPrintOpenLabel, setPrefersPrintOpenLabel] = useState(false);
     const [mobileView, setMobileView] = useState("products"); // 'products' | 'cart'
     const [numpadOpen, setNumpadOpen] = useState(false);
@@ -137,6 +215,44 @@ export default function Index({
     const [isCancellingTableOrder, setIsCancellingTableOrder] = useState(false);
     const normalizedSelectedCategory =
         selectedCategory === null ? null : Number(selectedCategory);
+    const products =
+        productOptions.length > 0
+            ? productOptions
+            : offlineBootstrap?.products || [];
+    const customers =
+        customerOptions.length > 0
+            ? customerOptions
+            : offlineBootstrap?.customers || [];
+    const categories =
+        categoryOptions.length > 0
+            ? categoryOptions
+            : offlineBootstrap?.categories || [];
+    const diningTables =
+        diningTableOptions.length > 0
+            ? diningTableOptions
+            : offlineBootstrap?.diningTables || [];
+    const paymentGateways =
+        paymentGatewayOptions.length > 0
+            ? paymentGatewayOptions
+            : offlineBootstrap?.paymentGateways || [];
+    const loyaltyTierOptions =
+        loyaltyTierOptionValues.length > 0
+            ? loyaltyTierOptionValues
+            : offlineBootstrap?.loyaltyTierOptions || [];
+    const tenantOutlets =
+        tenantOutletOptions.length > 0
+            ? tenantOutletOptions
+            : offlineBootstrap?.tenantOutlets || [];
+    const activeCashierShift =
+        activeCashierShiftProp || offlineBootstrap?.activeCashierShift || null;
+    const activeOutlet =
+        activeOutletProp || offlineBootstrap?.activeOutlet || null;
+    const storeProfile =
+        storeProfileProp || offlineBootstrap?.storeProfile || null;
+    const resolvedDefaultPaymentGateway =
+        defaultPaymentGateway ||
+        offlineBootstrap?.defaultPaymentGateway ||
+        "cash";
     const pricingItemsByCartId = useMemo(() => {
         const items = pricingPreview?.items || [];
 
@@ -153,16 +269,200 @@ export default function Index({
 
     // Set default payment method
     useEffect(() => {
-        setPaymentMethod(defaultPaymentGateway ?? "cash");
-    }, [defaultPaymentGateway]);
+        setPaymentMethod(resolvedDefaultPaymentGateway);
+    }, [resolvedDefaultPaymentGateway]);
 
     useEffect(() => {
         setPricingPreview(initialPricingPreview);
     }, [initialPricingPreview]);
 
     useEffect(() => {
-        setLocalCarts(carts);
-    }, [carts]);
+        if (carts.length > 0) {
+            setLocalCarts(carts);
+            return;
+        }
+
+        if (!isOfflineMode) {
+            setLocalCarts([]);
+        }
+    }, [carts, isOfflineMode]);
+
+    useEffect(() => {
+        if (isBrowserOnline && isServerReachable) {
+            return;
+        }
+
+        const savedCart = loadOfflineCart();
+        if (savedCart.length > 0 && localCarts.length === 0) {
+            setLocalCarts(savedCart);
+        }
+    }, [isBrowserOnline, isServerReachable, localCarts.length]);
+
+    useEffect(() => {
+        setOfflineQueue(loadOfflineTransactionQueue());
+        setOfflineHistory(loadOfflineTransactionHistory());
+    }, []);
+
+    const persistOfflineSnapshot = useCallback(() => {
+        if (
+            isOfflineMode ||
+            productOptions.length === 0 ||
+            !activeCashierShiftProp
+        ) {
+            setIsPreparingOfflineSnapshot(false);
+            return;
+        }
+
+        setIsPreparingOfflineSnapshot(true);
+        const snapshot = {
+            products: productOptions,
+            customers: customerOptions,
+            categories: categoryOptions,
+            diningTables: diningTableOptions,
+            paymentGateways: paymentGatewayOptions,
+            loyaltyTierOptions: loyaltyTierOptionValues,
+            tenantOutlets: tenantOutletOptions,
+            activeCashierShift: activeCashierShiftProp,
+            activeOutlet: activeOutletProp,
+            storeProfile: storeProfileProp,
+            defaultPaymentGateway,
+        };
+
+        saveOfflinePosBootstrap(snapshot);
+        setOfflineBootstrap(snapshot);
+        setIsPreparingOfflineSnapshot(false);
+    }, [
+        activeCashierShiftProp,
+        activeOutletProp,
+        categoryOptions,
+        customerOptions,
+        defaultPaymentGateway,
+        diningTableOptions,
+        isOfflineMode,
+        loyaltyTierOptionValues,
+        paymentGatewayOptions,
+        productOptions,
+        storeProfileProp,
+        tenantOutletOptions,
+    ]);
+
+    useEffect(() => {
+        persistOfflineSnapshot();
+    }, [persistOfflineSnapshot]);
+
+    const syncOfflineDeviceStatus = useCallback(() => {
+        if (typeof window === "undefined") {
+            setIsCheckingOfflineDevice(false);
+            return;
+        }
+
+        setOfflineDeviceStatus({
+            serviceWorkerReady: Boolean(navigator.serviceWorker?.controller),
+            standalone: Boolean(
+                window.matchMedia?.("(display-mode: standalone)")?.matches ||
+                    window.navigator?.standalone === true
+            ),
+            likelyTablet: Boolean(
+                window.matchMedia?.("(pointer: coarse)")?.matches ||
+                    window.innerWidth <= 1024
+            ),
+        });
+        setLastOfflineDeviceCheckAt(new Date().toISOString());
+        setIsCheckingOfflineDevice(false);
+    }, []);
+
+    useEffect(() => {
+        syncOfflineDeviceStatus();
+
+        navigator.serviceWorker?.ready
+            ?.then(() => {
+                syncOfflineDeviceStatus();
+            })
+            .catch(() => {
+                setIsCheckingOfflineDevice(false);
+            });
+
+        window.addEventListener("focus", syncOfflineDeviceStatus);
+
+        return () => {
+            window.removeEventListener("focus", syncOfflineDeviceStatus);
+        };
+    }, [syncOfflineDeviceStatus]);
+
+    useEffect(() => {
+        const handleOnline = () => setIsBrowserOnline(true);
+        const handleOffline = () => setIsBrowserOnline(false);
+
+        window.addEventListener("online", handleOnline);
+        window.addEventListener("offline", handleOffline);
+
+        return () => {
+            window.removeEventListener("online", handleOnline);
+            window.removeEventListener("offline", handleOffline);
+        };
+    }, []);
+
+    const checkServerHealth = useCallback(async () => {
+        try {
+            if (typeof navigator !== "undefined" && !navigator.onLine) {
+                setIsServerReachable(false);
+                return;
+            }
+
+            await axios.get(route("transactions.health"), {
+                timeout: 5000,
+                headers: {
+                    Accept: "application/json",
+                },
+            });
+
+            setIsServerReachable(true);
+        } catch {
+            setIsServerReachable(false);
+        }
+    }, []);
+
+    const refreshOfflinePreparation = useCallback(async () => {
+        setIsRefreshingOfflinePreparation(true);
+        setIsPreparingOfflineSnapshot(true);
+        setIsCheckingOfflineDevice(true);
+
+        persistOfflineSnapshot();
+        syncOfflineDeviceStatus();
+        await checkServerHealth();
+
+        setIsRefreshingOfflinePreparation(false);
+    }, [checkServerHealth, persistOfflineSnapshot, syncOfflineDeviceStatus]);
+
+    useEffect(() => {
+        let cancelled = false;
+        const safeCheck = async () => {
+            if (cancelled) {
+                return;
+            }
+
+            await checkServerHealth();
+        };
+
+        safeCheck();
+        const intervalId = window.setInterval(safeCheck, 10000);
+
+        const handleWakeUp = () => {
+            if (document.visibilityState === "visible") {
+                safeCheck();
+            }
+        };
+
+        window.addEventListener("focus", safeCheck);
+        document.addEventListener("visibilitychange", handleWakeUp);
+
+        return () => {
+            cancelled = true;
+            window.clearInterval(intervalId);
+            window.removeEventListener("focus", safeCheck);
+            document.removeEventListener("visibilitychange", handleWakeUp);
+        };
+    }, [checkServerHealth]);
 
     // Barcode scanner integration
     const handleBarcodeScan = useCallback(
@@ -258,6 +558,127 @@ export default function Index({
         [localCarts]
     );
     const isCartSyncing = pendingCartMutations > 0;
+    const offlineQueueCount = offlineQueue.length;
+    const offlinePendingItems = useMemo(
+        () => offlineQueue.filter((item) => item.status !== "failed"),
+        [offlineQueue]
+    );
+    const offlineFailedItems = useMemo(
+        () => offlineQueue.filter((item) => item.status === "failed"),
+        [offlineQueue]
+    );
+    const offlineSyncedItems = useMemo(
+        () => offlineHistory.filter((item) => item.status === "synced"),
+        [offlineHistory]
+    );
+    const hasOfflineSnapshot = useMemo(
+        () =>
+            Boolean(
+                offlineBootstrap?.products?.length &&
+                    offlineBootstrap?.activeCashierShift
+            ),
+        [offlineBootstrap]
+    );
+    const isOfflineDeviceReady = useMemo(
+        () =>
+            Boolean(
+                activeCashierShift &&
+                    hasOfflineSnapshot &&
+                    offlineDeviceStatus.serviceWorkerReady
+            ),
+        [
+            activeCashierShift,
+            hasOfflineSnapshot,
+            offlineDeviceStatus.serviceWorkerReady,
+        ]
+    );
+    const offlinePreparationSteps = useMemo(
+        () => [
+            {
+                key: "snapshot",
+                label: "Data POS",
+                status: isPreparingOfflineSnapshot
+                    ? "loading"
+                    : hasOfflineSnapshot
+                    ? "ready"
+                    : "pending",
+                helper: isPreparingOfflineSnapshot
+                    ? "Menyimpan data terakhir"
+                    : hasOfflineSnapshot
+                    ? "Snapshot tersimpan"
+                    : "Perlu dibuka online",
+            },
+            {
+                key: "device",
+                label: "Perangkat",
+                status: isCheckingOfflineDevice
+                    ? "loading"
+                    : offlineDeviceStatus.serviceWorkerReady
+                    ? "ready"
+                    : "pending",
+                helper: isCheckingOfflineDevice
+                    ? "Memeriksa service worker"
+                    : offlineDeviceStatus.serviceWorkerReady
+                    ? offlineDeviceStatus.standalone
+                        ? "PWA siap"
+                        : "Browser siap offline"
+                    : "Service worker belum aktif",
+            },
+            {
+                key: "ready",
+                label: "Mode Offline",
+                status:
+                    isPreparingOfflineSnapshot || isCheckingOfflineDevice
+                        ? "loading"
+                        : isOfflineDeviceReady
+                        ? "ready"
+                        : "pending",
+                helper:
+                    isPreparingOfflineSnapshot || isCheckingOfflineDevice
+                        ? "Persiapan masih berjalan"
+                        : isOfflineDeviceReady
+                        ? "Siap untuk transaksi tunai"
+                        : "Belum semua syarat terpenuhi",
+            },
+        ],
+        [
+            hasOfflineSnapshot,
+            isCheckingOfflineDevice,
+            isOfflineDeviceReady,
+            isPreparingOfflineSnapshot,
+            offlineDeviceStatus.serviceWorkerReady,
+            offlineDeviceStatus.standalone,
+        ]
+    );
+    const offlinePreparationProgress = useMemo(() => {
+        const readySteps = offlinePreparationSteps.filter(
+            (step) => step.status === "ready"
+        ).length;
+
+        return Math.round((readySteps / offlinePreparationSteps.length) * 100);
+    }, [offlinePreparationSteps]);
+    const formattedOfflineSnapshotAt = useMemo(
+        () =>
+            offlineBootstrap?.saved_at
+                ? new Date(offlineBootstrap.saved_at).toLocaleString("id-ID")
+                : null,
+        [offlineBootstrap?.saved_at]
+    );
+    const formattedOfflineDeviceCheckAt = useMemo(
+        () =>
+            lastOfflineDeviceCheckAt
+                ? new Date(lastOfflineDeviceCheckAt).toLocaleString("id-ID")
+                : null,
+        [lastOfflineDeviceCheckAt]
+    );
+    const offlineSnapshotFreshness = useMemo(
+        () => resolveFreshnessMeta(offlineBootstrap?.saved_at),
+        [offlineBootstrap?.saved_at]
+    );
+    const offlineDeviceCheckFreshness = useMemo(
+        () => resolveFreshnessMeta(lastOfflineDeviceCheckAt),
+        [lastOfflineDeviceCheckAt]
+    );
     const tableOrderCashAmount = useMemo(
         () => Math.max(0, Number(tableOrderCashInput) || 0),
         [tableOrderCashInput]
@@ -284,6 +705,12 @@ export default function Index({
                 },
             });
 
+            return;
+        }
+
+        if (isOfflineMode) {
+            setPricingPreview(buildOfflinePricing(localCarts));
+            setIsLoadingPricing(false);
             return;
         }
 
@@ -333,6 +760,8 @@ export default function Index({
         selectedVoucherId,
         cartSyncVersion,
         isCartSyncing,
+        isOfflineMode,
+        localCarts,
     ]);
 
     useEffect(() => {
@@ -394,6 +823,15 @@ export default function Index({
             setSelectedVoucherId("");
         }
     }, [pricingPreview?.eligible_vouchers, selectedVoucherId]);
+
+    useEffect(() => {
+        if (localCarts.length > 0) {
+            saveOfflineCart(localCarts);
+            return;
+        }
+
+        clearOfflineCart();
+    }, [localCarts]);
 
     // Payment options
     const paymentOptions = useMemo(() => {
@@ -533,6 +971,62 @@ export default function Index({
             : [];
         const shouldForceNew = modifiers.length > 0;
 
+        if (isOfflineMode) {
+            const tempId = `offline-${product.id}-${Date.now()}`;
+
+            setLocalCarts((currentCarts) => {
+                if (!shouldForceNew) {
+                    const existingCart = currentCarts.find(
+                        (item) =>
+                            item.product_id === product.id &&
+                            !(item.notes || "").trim() &&
+                            (!item.modifiers || item.modifiers.length === 0)
+                    );
+
+                    if (existingCart) {
+                        return currentCarts.map((item) =>
+                            item.id === existingCart.id
+                                ? {
+                                      ...item,
+                                      qty: Number(item.qty || 0) + 1,
+                                  }
+                                : item
+                        );
+                    }
+                }
+
+                return [
+                    {
+                        id: tempId,
+                        product_id: product.id,
+                        qty: 1,
+                        price: Number(product.sell_price || 0),
+                        notes: "",
+                        product: { ...product },
+                        tenant_outlet_id: product.tenant_outlet_id || null,
+                        modifiers: modifiers.map((modifier, index) => ({
+                            id: `${tempId}-modifier-${index}`,
+                            name: modifier.name,
+                            qty: 1,
+                            unit_price: Math.max(
+                                0,
+                                Number(modifier.price || 0)
+                            ),
+                            total_price: Math.max(
+                                0,
+                                Number(modifier.price || 0)
+                            ),
+                        })),
+                        is_offline: true,
+                    },
+                    ...currentCarts,
+                ];
+            });
+
+            toast.success(`${product.title} ditambahkan (offline)`);
+            return true;
+        }
+
         setAddingProductId(product.id);
         setPendingCartMutations((count) => count + 1);
         const previousCarts = localCarts;
@@ -636,6 +1130,50 @@ export default function Index({
                 return true;
             })
             .catch((error) => {
+                if (!error?.response) {
+                    setIsServerReachable(false);
+
+                    if (shouldForceNew) {
+                        setLocalCarts((currentCarts) => [
+                            {
+                                id: tempId,
+                                product_id: product.id,
+                                qty: 1,
+                                price: Number(product.sell_price || 0),
+                                notes: "",
+                                product: {
+                                    ...product,
+                                },
+                                tenant_outlet_id:
+                                    product.tenant_outlet_id || null,
+                                modifiers: modifiers.map(
+                                    (modifier, index) => ({
+                                        id: `${tempId}-modifier-${index}`,
+                                        name: modifier.name,
+                                        qty: 1,
+                                        unit_price: Math.max(
+                                            0,
+                                            Number(modifier.price || 0)
+                                        ),
+                                        total_price: Math.max(
+                                            0,
+                                            Number(modifier.price || 0)
+                                        ),
+                                    })
+                                ),
+                                is_offline: true,
+                            },
+                            ...currentCarts,
+                        ]);
+                    }
+
+                    toast("Server tidak merespons. Item dialihkan ke mode offline.", {
+                        duration: 4000,
+                        icon: "📴",
+                    });
+                    return true;
+                }
+
                 setLocalCarts(previousCarts);
                 toast.error(
                     error?.response?.data?.message || "Gagal menambahkan produk"
@@ -646,7 +1184,7 @@ export default function Index({
                 setPendingCartMutations((count) => Math.max(0, count - 1));
                 setAddingProductId(null);
             });
-    }, [localCarts]);
+    }, [isOfflineMode, localCarts]);
 
     // Handle add product to cart
     const handleAddToCart = useCallback(
@@ -726,6 +1264,42 @@ export default function Index({
             try {
                 let success = false;
 
+                if (isOfflineMode && modifierModalCartTargetId) {
+                    const selectedModifierMap = new Map(
+                        selectedModifiers.map((option) => [
+                            `${option.name}:${Number(option.price || 0)}`,
+                            {
+                                id: `${modifierModalCartTargetId}-${option.id}`,
+                                name: option.name,
+                                qty: 1,
+                                unit_price: Math.max(
+                                    0,
+                                    Number(option.price || 0)
+                                ),
+                                total_price: Math.max(
+                                    0,
+                                    Number(option.price || 0)
+                                ),
+                            },
+                        ])
+                    );
+
+                    setLocalCarts((currentCarts) =>
+                        currentCarts.map((item) =>
+                            item.id === modifierModalCartTargetId
+                                ? {
+                                      ...item,
+                                      modifiers: Array.from(
+                                          selectedModifierMap.values()
+                                      ),
+                                  }
+                                : item
+                        )
+                    );
+
+                    success = true;
+                } else
+
                 if (modifierModalCartTargetId) {
                     const existingModifierKeys = new Set(
                         localCarts
@@ -803,6 +1377,7 @@ export default function Index({
             modifierModalCartTargetId,
             modifierModalProduct,
             selectedModifierOptionIds,
+            isOfflineMode,
         ]
     );
 
@@ -812,6 +1387,21 @@ export default function Index({
 
     const handleUpdateQty = (cartId, newQty) => {
         if (newQty < 1) return;
+
+        if (isOfflineMode) {
+            setLocalCarts((currentCarts) =>
+                currentCarts.map((item) =>
+                    item.id === cartId
+                        ? {
+                              ...item,
+                              qty: newQty,
+                          }
+                        : item
+                )
+            );
+            return;
+        }
+
         setUpdatingCartId(cartId);
         setPendingCartMutations((count) => count + 1);
         const previousCarts = localCarts;
@@ -850,6 +1440,15 @@ export default function Index({
                 setCartSyncVersion((version) => version + 1);
             })
             .catch((error) => {
+                if (!error?.response) {
+                    setIsServerReachable(false);
+                    toast("Perubahan qty disimpan lokal karena server tidak merespons.", {
+                        duration: 4000,
+                        icon: "📴",
+                    });
+                    return;
+                }
+
                 setLocalCarts(previousCarts);
                 toast.error(
                     error?.response?.data?.message || "Gagal update quantity"
@@ -863,6 +1462,21 @@ export default function Index({
 
     const handleUpdateTenantOutlet = (cartId, tenantOutletId) => {
         if (!tenantOutletId) return;
+
+        if (isOfflineMode) {
+            setLocalCarts((currentCarts) =>
+                currentCarts.map((item) =>
+                    item.id === cartId
+                        ? {
+                              ...item,
+                              tenant_outlet_id: Number(tenantOutletId),
+                          }
+                        : item
+                )
+            );
+            toast.success("Tenant item diperbarui (offline)");
+            return;
+        }
 
         setUpdatingTenantCartId(cartId);
 
@@ -905,7 +1519,11 @@ export default function Index({
 
     const handleSaveCartNotes = useCallback(
         (cartId, notes) => {
-            if (!cartId || String(cartId).startsWith("temp-")) {
+            if (!cartId) {
+                return;
+            }
+
+            if (isOfflineMode || String(cartId).startsWith("temp-")) {
                 return;
             }
 
@@ -940,10 +1558,26 @@ export default function Index({
                     setSavingNoteCartId(null);
                 });
         },
-        [localCarts]
+        [isOfflineMode, localCarts]
     );
 
     const handleRemoveModifier = useCallback((cartId, modifierId) => {
+        if (isOfflineMode) {
+            setLocalCarts((currentCarts) =>
+                currentCarts.map((item) =>
+                    item.id === cartId
+                        ? {
+                              ...item,
+                              modifiers: (item.modifiers || []).filter(
+                                  (modifier) => modifier.id !== modifierId
+                              ),
+                          }
+                        : item
+                )
+            );
+            return;
+        }
+
         setSavingModifierCartId(cartId);
 
         axios
@@ -974,7 +1608,7 @@ export default function Index({
             .finally(() => {
                 setSavingModifierCartId(null);
             });
-    }, []);
+    }, [isOfflineMode]);
 
     // Handle numpad confirm for cash input
     const handleNumpadConfirm = useCallback((value) => {
@@ -987,6 +1621,11 @@ export default function Index({
     const handleHoldCart = async (label = null) => {
         if (localCarts.length === 0) {
             toast.error("Keranjang kosong");
+            return;
+        }
+
+        if (isOfflineMode) {
+            toast.error("Tahan transaksi tidak tersedia saat offline");
             return;
         }
 
@@ -1042,6 +1681,23 @@ export default function Index({
             return false;
         }
 
+        if (isOfflineMode) {
+            if (payLater) {
+                toast.error("Nota barang tidak tersedia saat offline");
+                return false;
+            }
+
+            if (paymentMethod !== "cash") {
+                toast.error("Saat offline hanya transaksi tunai yang diizinkan");
+                return false;
+            }
+
+            if (selectedVoucherId || Number(redeemPointsInput || 0) > 0) {
+                toast.error("Voucher dan redeem poin tidak tersedia saat offline");
+                return false;
+            }
+        }
+
         if (payLater && selectedCustomer?.is_walk_in) {
             toast.error("Nota barang wajib memakai pelanggan terdaftar");
             return false;
@@ -1072,14 +1728,17 @@ export default function Index({
         cash,
         dueDate,
         isCashPayment,
+        isOfflineMode,
         localCarts.length,
         orderType,
         payLater,
         payable,
         paymentMethod,
+        redeemPointsInput,
         selectedBankAccount,
         selectedCustomer?.is_walk_in,
         selectedTableId,
+        selectedVoucherId,
     ]);
 
     const buildTransactionPayload = useCallback(
@@ -1160,7 +1819,121 @@ export default function Index({
         return true;
     }, []);
 
+    const openOfflineReceiptPrint = useCallback((receiptSource = null) => {
+        const source = receiptSource || completedTransaction;
+
+        if (!source?.is_offline_pending && !source?.offline_reference) {
+            return false;
+        }
+
+        const receiptWindow = window.open("", "_blank", "noopener");
+
+        if (!receiptWindow) {
+            return false;
+        }
+
+        const invoiceNumber =
+            source?.transaction?.invoice ||
+            source?.offline_reference ||
+            "Draft Offline";
+        const createdAt = source?.transaction?.created_at || source?.created_at;
+        const cashierName =
+            source?.cashier_name || auth?.user?.name || "Kasir";
+        const customerName = source?.customer_name || "Pelanggan Umum";
+        const details = source?.details || [];
+        const totalAmount =
+            source?.transaction?.grand_total || source?.grand_total || 0;
+        const cashAmount = source?.cash || 0;
+        const changeAmount = source?.change || 0;
+
+        const lines = details
+            .map((item) => {
+                const modifierLines = (item.modifiers || [])
+                    .map(
+                        (modifier) =>
+                            `+ ${modifier.name} ${formatPrice(
+                                modifier.total_price || 0
+                            )}`
+                    )
+                    .join("<br />");
+
+                return `
+                    <div style="margin-bottom:8px;">
+                        <div style="display:flex;justify-content:space-between;gap:8px;">
+                            <span>${item.qty}x ${item.product_title || item.title || "Produk"}</span>
+                            <span>${formatPrice(item.price || 0)}</span>
+                        </div>
+                        ${modifierLines ? `<div style="font-size:11px;color:#475569;margin-top:4px;">${modifierLines}</div>` : ""}
+                    </div>
+                `;
+            })
+            .join("");
+
+        receiptWindow.document.write(`
+            <html>
+                <head>
+                    <title>${completedTransaction.transaction.invoice}</title>
+                    <style>
+                        body { font-family: monospace; padding: 16px; color: #0f172a; }
+                        .receipt { width: 280px; margin: 0 auto; }
+                        .divider { border-top: 1px dashed #94a3b8; margin: 10px 0; }
+                    </style>
+                </head>
+                <body>
+                    <div class="receipt">
+                        <div style="text-align:center;font-weight:bold;margin-bottom:8px;">
+                            ${storeProfile?.name || "POINZA"}
+                        </div>
+                        <div>No: ${invoiceNumber}</div>
+                        <div>Tgl: ${createdAt ? new Date(createdAt).toLocaleString("id-ID") : "-"}</div>
+                        <div>Kasir: ${cashierName}</div>
+                        <div>Pelanggan: ${customerName}</div>
+                        ${source?.table_label ? `<div>Meja: ${source.table_label}</div>` : ""}
+                        <div class="divider"></div>
+                        ${lines}
+                        <div class="divider"></div>
+                        <div style="display:flex;justify-content:space-between;"><span>Total</span><strong>${formatPrice(totalAmount)}</strong></div>
+                        <div style="display:flex;justify-content:space-between;"><span>Tunai</span><strong>${formatPrice(cashAmount)}</strong></div>
+                        <div style="display:flex;justify-content:space-between;"><span>Kembalian</span><strong>${formatPrice(changeAmount)}</strong></div>
+                        <div class="divider"></div>
+                        <div style="font-size:11px;color:#475569;">
+                            Draft offline. Akan disinkronkan otomatis saat koneksi kembali normal.
+                        </div>
+                    </div>
+                </body>
+            </html>
+        `);
+        receiptWindow.document.close();
+        receiptWindow.focus();
+        receiptWindow.print();
+
+        return true;
+    }, [auth?.user?.name, completedTransaction, storeProfile?.name]);
+
+    const handlePrintOfflineQueueItem = useCallback(
+        (offlineTransaction) => {
+            const opened = openOfflineReceiptPrint(offlineTransaction);
+
+            if (!opened) {
+                toast.error("Gagal membuka draft cetak offline");
+            }
+        },
+        [openOfflineReceiptPrint]
+    );
+
     const handlePrintReceipt = useCallback(() => {
+        if (completedTransaction?.is_offline_pending) {
+            const opened = openOfflineReceiptPrint();
+
+            if (!opened) {
+                toast.error("Gagal membuka draft cetak offline");
+                return;
+            }
+
+            closeCheckoutModal();
+            return;
+        }
+
         const receiptPrintUrl = completedTransaction?.receipt_print_url;
 
         if (!receiptPrintUrl) {
@@ -1176,7 +1949,12 @@ export default function Index({
         }
 
         closeCheckoutModal();
-    }, [closeCheckoutModal, completedTransaction, openReceiptDocument]);
+    }, [
+        closeCheckoutModal,
+        completedTransaction,
+        openOfflineReceiptPrint,
+        openReceiptDocument,
+    ]);
 
     const handleOpenReceiptPdf = useCallback(() => {
         const receiptPdfUrl = completedTransaction?.receipt_pdf_url;
@@ -1195,6 +1973,317 @@ export default function Index({
 
         closeCheckoutModal();
     }, [closeCheckoutModal, completedTransaction, openReceiptDocument]);
+
+    const handlePrintSyncedReceipt = useCallback(
+        (historyItem) => {
+            const receiptUrl =
+                historyItem?.receipt_print_url || historyItem?.receipt_pdf_url;
+
+            if (!receiptUrl) {
+                toast.error("Struk server untuk transaksi ini belum tersedia");
+                return;
+            }
+
+            const opened = openReceiptDocument(receiptUrl);
+
+            if (!opened) {
+                toast.error("Gagal membuka struk server");
+            }
+        },
+        [openReceiptDocument]
+    );
+
+    const buildOfflineTransactionPayload = useCallback(() => {
+        const offlineReference = buildOfflineInvoice();
+        const normalizedItems = localCarts.map((item) => {
+            const pricingItem = pricingItemsByCartId[item.id];
+            const unitPrice = Number(
+                pricingItem?.effective_unit_price ??
+                    item.product?.pricing_badge?.promo_price ??
+                    item.product?.sell_price ??
+                    0
+            );
+            const modifiers = (item.modifiers || []).map((modifier) => ({
+                name: modifier.name,
+                qty: Number(modifier.qty || 1),
+                unit_price: Number(modifier.unit_price || 0),
+                total_price: Number(
+                    modifier.total_price ||
+                        Number(modifier.unit_price || 0) *
+                            Number(modifier.qty || 1)
+                ),
+            }));
+            const modifierTotal = modifiers.reduce(
+                (sum, modifier) => sum + Number(modifier.total_price || 0),
+                0
+            );
+            const lineTotal = unitPrice * Number(item.qty || 1) + modifierTotal;
+
+            return {
+                product_id: item.product_id,
+                product_title: item.product?.title || "Produk",
+                tenant_outlet_id: item.tenant_outlet_id || null,
+                qty: Number(item.qty || 1),
+                base_unit_price: unitPrice,
+                unit_price: unitPrice,
+                price: lineTotal,
+                notes: item.notes || null,
+                discount_total: 0,
+                pricing_rule_name:
+                    pricingItem?.pricing_rule?.name ||
+                    pricingItem?.pricing_rule?.label ||
+                    null,
+                pricing_rule_kind: pricingItem?.pricing_rule?.kind || null,
+                pricing_group_key: pricingItem?.pricing_group_key || null,
+                pricing_group_label:
+                    pricingItem?.pricing_group_label ||
+                    pricingItem?.pricing_rule?.label ||
+                    null,
+                modifiers,
+            };
+        });
+
+        return {
+            offline_reference: offlineReference,
+            status: "pending",
+            sync_attempts: 0,
+            last_error: null,
+            last_attempt_at: null,
+            customer_id: selectedCustomer?.is_walk_in
+                ? null
+                : selectedCustomer?.id ?? null,
+            customer_name: selectedCustomer?.name || "Pelanggan Umum",
+            order_type: orderType,
+            table_id:
+                orderType === "dine_in" && selectedTableId
+                    ? Number(selectedTableId)
+                    : null,
+            table_label: selectedDiningTable
+                ? selectedDiningTable.code
+                    ? `${selectedDiningTable.code} - ${selectedDiningTable.name}`
+                    : selectedDiningTable.name
+                : null,
+            cash: Number(cash),
+            change: Math.max(0, Number(cash) - Number(payable)),
+            shipping_cost: 0,
+            grand_total: Number(payable),
+            created_at: new Date().toISOString(),
+            outlet_id: activeOutlet?.id ?? null,
+            outlet_name: activeOutlet?.name || storeProfile?.name || "POINZA",
+            cashier_name: auth?.user?.name || "Kasir",
+            details: normalizedItems,
+        };
+    }, [
+        activeOutlet?.id,
+        activeOutlet?.name,
+        auth?.user?.name,
+        cash,
+        localCarts,
+        orderType,
+        payable,
+        pricingItemsByCartId,
+        selectedCustomer?.id,
+        selectedCustomer?.is_walk_in,
+        selectedCustomer?.name,
+        selectedDiningTable,
+        selectedTableId,
+        storeProfile?.name,
+    ]);
+
+    const syncOfflineQueue = useCallback(async () => {
+        if (isSyncingOfflineQueue || offlineQueue.length === 0 || isOfflineMode) {
+            return;
+        }
+
+        setIsSyncingOfflineQueue(true);
+        const currentQueue = [...offlineQueue];
+        const remainingQueue = [];
+        const historyEntries = [...offlineHistory];
+        let syncedCount = 0;
+
+        for (const offlineTransaction of currentQueue) {
+            try {
+                const response = await axios.post(
+                    route("transactions.sync-offline"),
+                    offlineTransaction,
+                    {
+                        headers: {
+                            Accept: "application/json",
+                        },
+                        timeout: 15000,
+                    }
+                );
+                syncedCount += 1;
+                historyEntries.unshift({
+                    offline_reference: offlineTransaction.offline_reference,
+                    status: "synced",
+                    customer_name: offlineTransaction.customer_name,
+                    grand_total: offlineTransaction.grand_total,
+                    synced_at: new Date().toISOString(),
+                    server_invoice:
+                        response.data?.data?.transaction?.invoice || null,
+                    receipt_print_url:
+                        response.data?.data?.receipt_print_url || null,
+                    receipt_pdf_url:
+                        response.data?.data?.receipt_pdf_url || null,
+                    last_error: null,
+                });
+            } catch (error) {
+                const failedItem = {
+                    ...offlineTransaction,
+                    status:
+                        error?.response?.status === 422 ? "failed" : "pending",
+                    sync_attempts:
+                        Number(offlineTransaction.sync_attempts || 0) + 1,
+                    last_attempt_at: new Date().toISOString(),
+                    last_error:
+                        error?.response?.data?.message ||
+                        "Server belum merespons",
+                };
+
+                remainingQueue.push(failedItem);
+
+                if (error?.response?.status === 422) {
+                    toast.error(
+                        `Sync offline gagal untuk ${offlineTransaction.offline_reference}`
+                    );
+                }
+            }
+        }
+
+        saveOfflineTransactionQueue(remainingQueue);
+        saveOfflineTransactionHistory(historyEntries);
+        setOfflineQueue(remainingQueue);
+        setOfflineHistory(historyEntries);
+        setIsSyncingOfflineQueue(false);
+
+        if (syncedCount > 0) {
+            toast.success(
+                `${syncedCount} transaksi offline berhasil disinkronkan`
+            );
+        }
+    }, [isSyncingOfflineQueue, offlineHistory, offlineQueue, isOfflineMode]);
+
+    const retrySingleOfflineTransaction = useCallback(
+        async (offlineReference) => {
+            if (isOfflineMode || isSyncingOfflineQueue) {
+                return;
+            }
+
+            const offlineTransaction = offlineQueue.find(
+                (item) => item.offline_reference === offlineReference
+            );
+
+            if (!offlineTransaction) {
+                toast.error("Antrean offline tidak ditemukan");
+                return;
+            }
+
+            setIsSyncingOfflineQueue(true);
+
+            try {
+                const response = await axios.post(
+                    route("transactions.sync-offline"),
+                    offlineTransaction,
+                    {
+                        headers: {
+                            Accept: "application/json",
+                        },
+                        timeout: 15000,
+                    }
+                );
+
+                const nextQueue = offlineQueue.filter(
+                    (item) => item.offline_reference !== offlineReference
+                );
+                const nextHistory = [
+                    {
+                        offline_reference: offlineTransaction.offline_reference,
+                        status: "synced",
+                        customer_name: offlineTransaction.customer_name,
+                        grand_total: offlineTransaction.grand_total,
+                        synced_at: new Date().toISOString(),
+                        server_invoice:
+                            response.data?.data?.transaction?.invoice || null,
+                        receipt_print_url:
+                            response.data?.data?.receipt_print_url || null,
+                        receipt_pdf_url:
+                            response.data?.data?.receipt_pdf_url || null,
+                        last_error: null,
+                    },
+                    ...offlineHistory,
+                ];
+
+                setOfflineQueue(nextQueue);
+                setOfflineHistory(nextHistory);
+                saveOfflineTransactionQueue(nextQueue);
+                saveOfflineTransactionHistory(nextHistory);
+                toast.success(
+                    `${offlineTransaction.offline_reference} berhasil disinkronkan`
+                );
+            } catch (error) {
+                const nextQueue = offlineQueue.map((item) =>
+                    item.offline_reference === offlineReference
+                        ? {
+                              ...item,
+                              status:
+                                  error?.response?.status === 422
+                                      ? "failed"
+                                      : "pending",
+                              sync_attempts:
+                                  Number(item.sync_attempts || 0) + 1,
+                              last_attempt_at: new Date().toISOString(),
+                              last_error:
+                                  error?.response?.data?.message ||
+                                  "Server belum merespons",
+                          }
+                        : item
+                );
+
+                setOfflineQueue(nextQueue);
+                saveOfflineTransactionQueue(nextQueue);
+                toast.error(
+                    error?.response?.data?.message ||
+                        "Sinkronisasi transaksi offline gagal"
+                );
+            } finally {
+                setIsSyncingOfflineQueue(false);
+            }
+        },
+        [isOfflineMode, isSyncingOfflineQueue, offlineHistory, offlineQueue]
+    );
+
+    const removeOfflineQueueItem = useCallback((offlineReference) => {
+        const queueItem = offlineQueue.find(
+            (item) => item.offline_reference === offlineReference
+        );
+
+        if (!queueItem) {
+            return;
+        }
+
+        const confirmed = window.confirm(
+            `Hapus antrean lokal ${offlineReference}? Transaksi ini tidak akan ikut sinkron otomatis.`
+        );
+
+        if (!confirmed) {
+            return;
+        }
+
+        const nextQueue = offlineQueue.filter(
+            (item) => item.offline_reference !== offlineReference
+        );
+
+        setOfflineQueue(nextQueue);
+        saveOfflineTransactionQueue(nextQueue);
+        toast.success(`${offlineReference} dihapus dari antrean offline`);
+    }, [offlineQueue]);
+
+    useEffect(() => {
+        if (!isOfflineMode && offlineQueue.length > 0) {
+            syncOfflineQueue();
+        }
+    }, [isOfflineMode, offlineQueue.length, syncOfflineQueue]);
 
     // Keyboard shortcuts
     useEffect(() => {
@@ -1251,6 +2340,13 @@ export default function Index({
 
     // Handle remove from cart
     const handleRemoveFromCart = (cartId) => {
+        if (isOfflineMode) {
+            setLocalCarts((currentCarts) =>
+                currentCarts.filter((item) => item.id !== cartId)
+            );
+            return;
+        }
+
         setRemovingItemId(cartId);
         setPendingCartMutations((count) => count + 1);
         const previousCarts = localCarts;
@@ -1266,6 +2362,15 @@ export default function Index({
                 toast.success("Item dihapus dari keranjang");
             })
             .catch((error) => {
+                if (!error?.response) {
+                    setIsServerReachable(false);
+                    toast("Server tidak merespons. Item dihapus dari keranjang lokal.", {
+                        duration: 4000,
+                        icon: "📴",
+                    });
+                    return;
+                }
+
                 setLocalCarts(previousCarts);
                 toast.error(
                     error?.response?.data?.message || "Gagal menghapus item"
@@ -1284,6 +2389,41 @@ export default function Index({
         }
 
         setIsSubmitting(true);
+
+        if (isOfflineMode) {
+            try {
+                const offlinePayload = buildOfflineTransactionPayload();
+                const nextQueue = [...offlineQueue, offlinePayload];
+
+                saveOfflineTransactionQueue(nextQueue);
+                setOfflineQueue(nextQueue);
+                setCompletedTransaction({
+                    transaction: {
+                        invoice: offlinePayload.offline_reference,
+                        grand_total: offlinePayload.grand_total,
+                        payment_method: "cash",
+                        payment_status: "paid",
+                        created_at: offlinePayload.created_at,
+                    },
+                    customer_name: offlinePayload.customer_name,
+                    table_label: offlinePayload.table_label,
+                    cash: offlinePayload.cash,
+                    change: offlinePayload.change,
+                    details: offlinePayload.details,
+                    offline_reference: offlinePayload.offline_reference,
+                    is_offline_pending: true,
+                });
+                setCheckoutWarning(
+                    "Transaksi disimpan offline. Sinkronisasi otomatis akan berjalan saat server kembali normal."
+                );
+                setCheckoutModalStep("receipt");
+                resetTransactionForm();
+                toast.success("Transaksi tunai disimpan offline");
+            } finally {
+                setIsSubmitting(false);
+            }
+            return;
+        }
 
         try {
             const response = await axios.post(
@@ -1407,7 +2547,7 @@ export default function Index({
         <>
             <Head title="Transaksi" />
 
-            <div className="h-[calc(100vh-4rem)] overflow-hidden bg-slate-100 dark:bg-slate-950 flex flex-col lg:flex-row">
+            <div className="relative h-[calc(100vh-4rem)] overflow-hidden bg-slate-100 dark:bg-slate-950 flex flex-col lg:flex-row">
                 {/* Mobile Tab Switcher */}
                 <div className="lg:hidden flex border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
                     <button
@@ -1441,39 +2581,220 @@ export default function Index({
                     </button>
                 </div>
 
+                {(isOfflineMode || offlineQueueCount > 0) && (
+                    <div className="border-b border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200 lg:absolute lg:inset-x-0 lg:top-0 lg:z-10">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div>
+                                <p className="font-semibold">
+                                    {isOfflineMode
+                                        ? "Mode kasir offline aktif"
+                                        : "Menunggu sinkronisasi transaksi offline"}
+                                </p>
+                                <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                                    {!isBrowserOnline
+                                        ? "Perangkat tidak terhubung ke internet. Hanya transaksi tunai yang bisa diproses lokal."
+                                        : !isServerReachable
+                                        ? "Internet ada, tetapi server sedang tidak merespons. Transaksi tunai tetap disimpan lokal."
+                                        : `${offlineQueueCount} transaksi offline menunggu sinkronisasi ke server.`}
+                                </p>
+                                <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
+                                    <span
+                                        className={`rounded-full px-2.5 py-1 font-semibold ${
+                                            isPreparingOfflineSnapshot ||
+                                            isCheckingOfflineDevice
+                                                ? "bg-white text-amber-700 dark:bg-slate-900 dark:text-amber-300"
+                                                : isOfflineDeviceReady
+                                                ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300"
+                                                : "bg-white text-amber-700 dark:bg-slate-900 dark:text-amber-300"
+                                        }`}
+                                    >
+                                        {isPreparingOfflineSnapshot ||
+                                        isCheckingOfflineDevice
+                                            ? "Persiapan offline..."
+                                            : isOfflineDeviceReady
+                                            ? "Siap offline"
+                                            : "Belum siap offline"}
+                                    </span>
+                                    <span className="text-amber-700/90 dark:text-amber-300/90">
+                                        {isPreparingOfflineSnapshot
+                                            ? "Menyimpan data POS terakhir ke perangkat"
+                                            : hasOfflineSnapshot
+                                            ? "Snapshot POS tersimpan"
+                                            : "Buka halaman ini saat online untuk menyimpan snapshot POS"}
+                                    </span>
+                                    <span className="text-amber-700/90 dark:text-amber-300/90">
+                                        {isCheckingOfflineDevice
+                                            ? "Memeriksa service worker"
+                                            : offlineDeviceStatus.serviceWorkerReady
+                                            ? "Service worker aktif"
+                                            : "Service worker belum aktif"}
+                                    </span>
+                                    {offlineDeviceStatus.likelyTablet && (
+                                        <span className="text-amber-700/90 dark:text-amber-300/90">
+                                            {offlineDeviceStatus.standalone
+                                                ? "Mode tablet/PWA aktif"
+                                                : "Tablet terdeteksi, lebih stabil jika dibuka sebagai PWA"}
+                                        </span>
+                                    )}
+                                </div>
+                                <div className="mt-3 rounded-2xl border border-amber-200/70 bg-white/70 px-3 py-3 dark:border-amber-900/30 dark:bg-slate-900/60">
+                                    <div className="mb-3 flex items-center justify-between gap-3">
+                                        <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-200">
+                                            Persiapan Offline
+                                        </p>
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-[11px] font-semibold text-amber-800 dark:text-amber-200">
+                                                {offlinePreparationProgress}%
+                                            </span>
+                                            <button
+                                                type="button"
+                                                onClick={
+                                                    refreshOfflinePreparation
+                                                }
+                                                disabled={
+                                                    isRefreshingOfflinePreparation
+                                                }
+                                                className="rounded-full border border-amber-300 bg-white px-2.5 py-1 text-[10px] font-semibold text-amber-700 disabled:opacity-60 dark:border-amber-700 dark:bg-slate-900 dark:text-amber-300"
+                                            >
+                                                {isRefreshingOfflinePreparation
+                                                    ? "Menyegarkan..."
+                                                    : "Segarkan"}
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div className="mb-4 h-1.5 overflow-hidden rounded-full bg-amber-100 dark:bg-amber-950/40">
+                                        <div
+                                            className="h-full rounded-full bg-amber-500 transition-all duration-300"
+                                            style={{
+                                                width: `${offlinePreparationProgress}%`,
+                                            }}
+                                        />
+                                    </div>
+                                    <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-amber-800/90 dark:text-amber-200/90">
+                                        <span className="inline-flex items-center gap-2">
+                                            <span>
+                                                Snapshot:{" "}
+                                                {formattedOfflineSnapshotAt || "-"}
+                                            </span>
+                                            <span
+                                                className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${offlineSnapshotFreshness.className}`}
+                                            >
+                                                {offlineSnapshotFreshness.label}
+                                            </span>
+                                        </span>
+                                        <span className="inline-flex items-center gap-2">
+                                            <span>
+                                                Cek perangkat:{" "}
+                                                {formattedOfflineDeviceCheckAt || "-"}
+                                            </span>
+                                            <span
+                                                className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${offlineDeviceCheckFreshness.className}`}
+                                            >
+                                                {offlineDeviceCheckFreshness.label}
+                                            </span>
+                                        </span>
+                                    </div>
+                                    <div className="grid gap-3 sm:grid-cols-3">
+                                        {offlinePreparationSteps.map((step, index) => (
+                                            <div
+                                                key={step.key}
+                                                className="relative"
+                                            >
+                                                <div className="flex items-center gap-2">
+                                                    <span
+                                                        className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold ${
+                                                            step.status === "ready"
+                                                                ? "bg-emerald-500 text-white"
+                                                                : step.status === "loading"
+                                                                ? "animate-pulse bg-amber-500 text-white"
+                                                                : "bg-slate-200 text-slate-500 dark:bg-slate-700 dark:text-slate-300"
+                                                        }`}
+                                                    >
+                                                        {index + 1}
+                                                    </span>
+                                                    <p className="text-[11px] font-semibold text-slate-800 dark:text-slate-100">
+                                                        {step.label}
+                                                    </p>
+                                                </div>
+                                                <p className="mt-1 pl-8 text-[10px] leading-tight text-amber-800/90 dark:text-amber-200/90">
+                                                    {step.helper}
+                                                </p>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                {offlineQueueCount > 0 && (
+                                    <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-amber-700 dark:bg-slate-900 dark:text-amber-300">
+                                        {offlineQueueCount} antrean
+                                    </span>
+                                )}
+                                {!isOfflineMode && offlineQueueCount > 0 && (
+                                    <button
+                                        type="button"
+                                        onClick={syncOfflineQueue}
+                                        disabled={isSyncingOfflineQueue}
+                                        className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-white disabled:opacity-60 dark:bg-white dark:text-slate-900"
+                                    >
+                                        Sync Sekarang
+                                    </button>
+                                )}
+                                {(offlineQueueCount > 0 ||
+                                    offlineHistory.length > 0) && (
+                                    <button
+                                        type="button"
+                                        onClick={() =>
+                                            setIsOfflineHistoryOpen(true)
+                                        }
+                                        className="rounded-full border border-amber-300 bg-white px-3 py-1 text-xs font-semibold text-amber-700 dark:border-amber-700 dark:bg-slate-900 dark:text-amber-300"
+                                    >
+                                        Riwayat Sync
+                                    </button>
+                                )}
+                                {isSyncingOfflineQueue && (
+                                    <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">
+                                        Sinkronisasi...
+                                    </span>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                <div className="min-h-0 flex-1 flex flex-col lg:flex-row">
                 {/* Left Panel - Products */}
                 <div
                     className={`flex-1 bg-slate-100 dark:bg-slate-950 overflow-hidden ${
                         mobileView !== "products"
                             ? "hidden lg:flex lg:flex-col"
                             : "flex flex-col"
-                    }`}
+                    } ${(isOfflineMode || offlineQueueCount > 0) ? "lg:pt-[76px]" : ""}`}
                 >
-                    <ProductGrid
-                        products={allProducts}
-                        categories={categories}
-                        selectedCategory={selectedCategory}
-                        onCategoryChange={(categoryId) =>
-                            setSelectedCategory(
-                                categoryId === null ? null : Number(categoryId)
-                            )
-                        }
-                        searchQuery={searchQuery}
-                        onSearchChange={setSearchQuery}
-                        isSearching={isSearching}
-                        onAddToCart={handleAddToCart}
-                        addingProductId={addingProductId}
-                        searchInputRef={searchInputRef}
-                        onBarcodeDetected={handleBarcodeScan}
-                    />
-                </div>
+                        <ProductGrid
+                            products={allProducts}
+                            categories={categories}
+                            selectedCategory={selectedCategory}
+                            onCategoryChange={(categoryId) =>
+                                setSelectedCategory(
+                                    categoryId === null ? null : Number(categoryId)
+                                )
+                            }
+                            searchQuery={searchQuery}
+                            onSearchChange={setSearchQuery}
+                            isSearching={isSearching}
+                            onAddToCart={handleAddToCart}
+                            addingProductId={addingProductId}
+                            searchInputRef={searchInputRef}
+                            onBarcodeDetected={handleBarcodeScan}
+                        />
+                    </div>
 
-                {/* Right Panel - Cart & Payment */}
+                    {/* Right Panel - Cart & Payment */}
                 <div
                     className={`w-full lg:w-[520px] xl:w-[580px] flex flex-col bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 min-h-0 overflow-hidden ${
                         mobileView !== "cart" ? "hidden lg:flex" : "flex"
-                    }`}
-                    style={{ height: "calc(100vh - 4rem)" }}
+                    } ${(isOfflineMode || offlineQueueCount > 0) ? "lg:pt-[76px]" : ""}`}
                 >
                     {/* Customer Select - Fixed */}
                     <div className="border-b border-slate-200 p-2.5 dark:border-slate-800 lg:p-3 flex-shrink-0">
@@ -1905,6 +3226,13 @@ export default function Index({
                                         className="sr-only"
                                         checked={payLater}
                                         onChange={(e) => {
+                                            if (isOfflineMode) {
+                                                toast.error(
+                                                    "Nota barang tidak tersedia saat offline"
+                                                );
+                                                return;
+                                            }
+
                                             if (
                                                 e.target.checked &&
                                                 selectedCustomer?.is_walk_in
@@ -1959,63 +3287,81 @@ export default function Index({
                                     Metode Pembayaran
                                 </label>
                                 <div className="grid grid-cols-2 gap-2">
-                                    {paymentOptions.map((method) => (
-                                        <button
-                                            key={method.value}
-                                            onClick={() => {
-                                                if (payLater) {
-                                                    return;
-                                                }
+                                    {paymentOptions.map((method) => {
+                                        const disabledByOffline =
+                                            isOfflineMode &&
+                                            method.value !== "cash";
 
-                                                setPaymentMethod(method.value);
+                                        return (
+                                            <button
+                                                key={method.value}
+                                                onClick={() => {
+                                                    if (payLater) {
+                                                        return;
+                                                    }
 
-                                                if (method.value === "cash") {
-                                                    setIsCashPaymentModalOpen(
-                                                        true
-                                                    );
-                                                }
-                                            }}
-                                            disabled={payLater}
-                                            className={`p-3 rounded-xl border-2 transition-all flex items-center gap-2 ${
-                                                paymentMethod === method.value && !payLater
-                                                    ? "border-primary-500 bg-primary-50 dark:bg-primary-950/30"
-                                                    : "border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600"
-                                            } ${payLater ? "opacity-50 cursor-not-allowed" : ""}`}
-                                        >
-                                            <div
-                                                className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                                                    paymentMethod ===
-                                                        method.value &&
-                                                    !payLater
-                                                        ? "bg-primary-500 text-white"
-                                                        : "bg-slate-100 dark:bg-slate-800 text-slate-500"
-                                                }`}
+                                                    if (disabledByOffline) {
+                                                        toast.error(
+                                                            "Saat offline hanya pembayaran tunai yang tersedia"
+                                                        );
+                                                        return;
+                                                    }
+
+                                                    setPaymentMethod(method.value);
+
+                                                    if (method.value === "cash") {
+                                                        setIsCashPaymentModalOpen(
+                                                            true
+                                                        );
+                                                    }
+                                                }}
+                                                disabled={payLater || disabledByOffline}
+                                                className={`p-3 rounded-xl border-2 transition-all flex items-center gap-2 ${
+                                                    paymentMethod === method.value && !payLater
+                                                        ? "border-primary-500 bg-primary-50 dark:bg-primary-950/30"
+                                                        : "border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600"
+                                                } ${payLater || disabledByOffline ? "opacity-50 cursor-not-allowed" : ""}`}
                                             >
-                                                {method.value === "cash" ? (
-                                                    <IconCash size={16} />
-                                                ) : method.value ===
-                                                  "bank_transfer" ? (
-                                                    <IconBuildingBank
-                                                        size={16}
-                                                    />
-                                                ) : (
-                                                    <IconCreditCard size={16} />
-                                                )}
-                                            </div>
-                                            <div className="text-left">
-                                                <p
-                                                    className={`text-sm font-semibold ${
+                                                <div
+                                                    className={`w-8 h-8 rounded-lg flex items-center justify-center ${
                                                         paymentMethod ===
-                                                        method.value
-                                                            ? "text-primary-700 dark:text-primary-300"
-                                                            : "text-slate-700 dark:text-slate-300"
+                                                            method.value &&
+                                                        !payLater
+                                                            ? "bg-primary-500 text-white"
+                                                            : "bg-slate-100 dark:bg-slate-800 text-slate-500"
                                                     }`}
                                                 >
-                                                    {method.label}
-                                                </p>
-                                            </div>
-                                        </button>
-                                    ))}
+                                                    {method.value === "cash" ? (
+                                                        <IconCash size={16} />
+                                                    ) : method.value ===
+                                                      "bank_transfer" ? (
+                                                        <IconBuildingBank
+                                                            size={16}
+                                                        />
+                                                    ) : (
+                                                        <IconCreditCard size={16} />
+                                                    )}
+                                                </div>
+                                                <div className="text-left">
+                                                    <p
+                                                        className={`text-sm font-semibold ${
+                                                            paymentMethod ===
+                                                            method.value
+                                                                ? "text-primary-700 dark:text-primary-300"
+                                                                : "text-slate-700 dark:text-slate-300"
+                                                        }`}
+                                                    >
+                                                        {method.label}
+                                                    </p>
+                                                    {disabledByOffline && (
+                                                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                                                            Butuh server online
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            </button>
+                                        );
+                                    })}
                                 </div>
                             </div>
 
@@ -2122,6 +3468,68 @@ export default function Index({
                                 </div>
                             )}
 
+                            {offlineQueueCount > 0 && (
+                                <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/40 dark:bg-amber-950/20">
+                                    <div className="flex items-start justify-between gap-3">
+                                        <div>
+                                            <p className="text-sm font-semibold text-amber-700 dark:text-amber-300">
+                                                Antrean Sinkronisasi Offline
+                                            </p>
+                                            <p className="text-xs text-amber-600/80 dark:text-amber-400/80">
+                                                Transaksi tunai yang sudah tersimpan lokal dan menunggu dikirim ke server.
+                                            </p>
+                                        </div>
+                                        <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-amber-700 dark:bg-slate-900 dark:text-amber-300">
+                                            {offlineQueueCount} pending
+                                        </span>
+                                    </div>
+                                    <div className="mt-3 space-y-2">
+                                        {offlineQueue.slice(0, 3).map((queuedItem) => (
+                                            <div
+                                                key={queuedItem.offline_reference}
+                                                className="flex items-center justify-between rounded-xl bg-white px-3 py-2 text-xs text-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                                            >
+                                                <div className="min-w-0">
+                                                    <p className="truncate font-semibold">
+                                                        {queuedItem.offline_reference}
+                                                    </p>
+                                                    <p className="text-slate-500 dark:text-slate-400">
+                                                        {queuedItem.customer_name || "Pelanggan Umum"}
+                                                    </p>
+                                                </div>
+                                                <span className="ml-3 shrink-0 font-semibold text-amber-700 dark:text-amber-300">
+                                                    {formatPrice(queuedItem.grand_total || 0)}
+                                                </span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <div className="mt-3 grid grid-cols-2 gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() =>
+                                                setIsOfflineHistoryOpen(true)
+                                            }
+                                            className="rounded-xl border border-amber-300 bg-white px-3 py-2 text-xs font-semibold text-amber-700 dark:border-amber-700 dark:bg-slate-900 dark:text-amber-300"
+                                        >
+                                            Lihat Riwayat
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={syncOfflineQueue}
+                                            disabled={
+                                                isOfflineMode ||
+                                                isSyncingOfflineQueue
+                                            }
+                                            className="rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white disabled:opacity-60 dark:bg-white dark:text-slate-900"
+                                        >
+                                            {isSyncingOfflineQueue
+                                                ? "Menyinkronkan..."
+                                                : "Sync Sekarang"}
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
                             {/* Discount Input */}
                             {promoDiscount > 0 && (
                                 <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-900/40 dark:bg-emerald-950/20">
@@ -2213,7 +3621,8 @@ export default function Index({
                                             pricingPreview?.summary
                                                 ?.available_loyalty_points ?? 0
                                         } poin`}
-                                        className="w-full h-10 px-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
+                                        disabled={isOfflineMode}
+                                        className="w-full h-10 px-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 disabled:cursor-not-allowed disabled:opacity-60"
                                     />
                                 </div>
                             )}
@@ -2232,7 +3641,8 @@ export default function Index({
                                                     e.target.value
                                                 )
                                             }
-                                            className="w-full h-10 px-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
+                                            disabled={isOfflineMode}
+                                            className="w-full h-10 px-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 disabled:cursor-not-allowed disabled:opacity-60"
                                         >
                                             <option value="">
                                                 Tanpa voucher
@@ -2813,27 +4223,44 @@ export default function Index({
                                         </div>
 
                                         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 dark:border-slate-800 dark:bg-slate-950/60">
-                                            {!isReceiptFrameReady && (
-                                                <div className="flex h-[60vh] items-center justify-center text-sm text-slate-500 dark:text-slate-400">
-                                                    Memuat preview struk...
+                                            {completedTransaction?.is_offline_pending ? (
+                                                <div className="flex h-[60vh] flex-col items-center justify-center px-6 text-center">
+                                                    <IconReceipt
+                                                        size={42}
+                                                        className="mb-3 text-amber-500"
+                                                    />
+                                                    <p className="text-base font-semibold text-slate-900 dark:text-white">
+                                                        Draft resi offline siap dicetak
+                                                    </p>
+                                                    <p className="mt-2 max-w-sm text-sm text-slate-500 dark:text-slate-400">
+                                                        Gunakan tombol cetak untuk mencetak draft lokal. Setelah server kembali normal, transaksi ini akan tersinkron otomatis.
+                                                    </p>
                                                 </div>
-                                            )}
-                                            {completedTransaction?.print_url && (
-                                                <iframe
-                                                    ref={receiptFrameRef}
-                                                    src={completedTransaction.print_url}
-                                                    title="Preview Struk"
-                                                    onLoad={() =>
-                                                        setIsReceiptFrameReady(
-                                                            true
-                                                        )
-                                                    }
-                                                    className={`h-[60vh] w-full bg-white ${
-                                                        isReceiptFrameReady
-                                                            ? "block"
-                                                            : "hidden"
-                                                    }`}
-                                                />
+                                            ) : (
+                                                <>
+                                                    {!isReceiptFrameReady && (
+                                                        <div className="flex h-[60vh] items-center justify-center text-sm text-slate-500 dark:text-slate-400">
+                                                            Memuat preview struk...
+                                                        </div>
+                                                    )}
+                                                    {completedTransaction?.print_url && (
+                                                        <iframe
+                                                            ref={receiptFrameRef}
+                                                            src={completedTransaction.print_url}
+                                                            title="Preview Struk"
+                                                            onLoad={() =>
+                                                                setIsReceiptFrameReady(
+                                                                    true
+                                                                )
+                                                            }
+                                                            className={`h-[60vh] w-full bg-white ${
+                                                                isReceiptFrameReady
+                                                                    ? "block"
+                                                                    : "hidden"
+                                                            }`}
+                                                        />
+                                                    )}
+                                                </>
                                             )}
                                         </div>
                                     </div>
@@ -2879,6 +4306,8 @@ export default function Index({
                     </div>
                 </div>
             )}
+
+            </div>
 
             {tableOrderApprovalTarget && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -3381,6 +4810,298 @@ export default function Index({
                                 className="rounded-2xl bg-primary-500 px-4 py-3 text-sm font-semibold text-white hover:bg-primary-600"
                             >
                                 Simpan Nominal
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {isOfflineHistoryOpen && (
+                <div className="fixed inset-0 z-[75] flex items-center justify-center p-4">
+                    <div
+                        className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm"
+                        onClick={() => setIsOfflineHistoryOpen(false)}
+                    />
+                    <div className="relative z-10 flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl dark:bg-slate-900">
+                        <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4 dark:border-slate-800">
+                            <div>
+                                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-600 dark:text-amber-300">
+                                    Offline Sync
+                                </p>
+                                <h3 className="mt-1 text-lg font-bold text-slate-900 dark:text-white">
+                                    Riwayat Sinkronisasi Offline
+                                </h3>
+                                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                    Pantau transaksi tunai yang masih pending, gagal, atau sudah berhasil disinkronkan.
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setIsOfflineHistoryOpen(false)}
+                                className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 text-slate-500 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"
+                            >
+                                <IconX size={18} />
+                            </button>
+                        </div>
+
+                        <div className="grid gap-3 border-b border-slate-200 bg-slate-50 px-5 py-4 text-sm dark:border-slate-800 dark:bg-slate-950/40 sm:grid-cols-3">
+                            <div className="rounded-2xl bg-white px-4 py-3 dark:bg-slate-900">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                    Pending
+                                </p>
+                                <p className="mt-1 text-xl font-bold text-amber-600 dark:text-amber-300">
+                                    {offlinePendingItems.length}
+                                </p>
+                            </div>
+                            <div className="rounded-2xl bg-white px-4 py-3 dark:bg-slate-900">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                    Gagal
+                                </p>
+                                <p className="mt-1 text-xl font-bold text-rose-600 dark:text-rose-300">
+                                    {offlineFailedItems.length}
+                                </p>
+                            </div>
+                            <div className="rounded-2xl bg-white px-4 py-3 dark:bg-slate-900">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                    Tersinkron
+                                </p>
+                                <p className="mt-1 text-xl font-bold text-emerald-600 dark:text-emerald-300">
+                                    {offlineSyncedItems.length}
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto px-5 py-4">
+                            <div className="space-y-5">
+                                <div className="flex flex-wrap gap-2">
+                                    {[
+                                        ["all", "Semua"],
+                                        ["pending", "Pending"],
+                                        ["failed", "Gagal"],
+                                        ["synced", "Tersinkron"],
+                                    ].map(([value, label]) => (
+                                        <button
+                                            key={value}
+                                            type="button"
+                                            onClick={() =>
+                                                setOfflineHistoryFilter(value)
+                                            }
+                                            className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                                                offlineHistoryFilter === value
+                                                    ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900"
+                                                    : "bg-white text-slate-600 ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-700"
+                                            }`}
+                                        >
+                                            {label}
+                                        </button>
+                                    ))}
+                                </div>
+
+                                <div>
+                                    <p className="mb-3 text-sm font-semibold text-slate-800 dark:text-slate-100">
+                                        Antrean Aktif
+                                    </p>
+                                    <div className="space-y-2">
+                                        {(offlineHistoryFilter === "all" ||
+                                            offlineHistoryFilter === "pending" ||
+                                            offlineHistoryFilter === "failed") &&
+                                        offlineQueue.filter((item) => {
+                                            if (offlineHistoryFilter === "pending") {
+                                                return item.status !== "failed";
+                                            }
+
+                                            if (offlineHistoryFilter === "failed") {
+                                                return item.status === "failed";
+                                            }
+
+                                            return true;
+                                        }).length > 0 ? (
+                                            offlineQueue
+                                                .filter((item) => {
+                                                    if (
+                                                        offlineHistoryFilter ===
+                                                        "pending"
+                                                    ) {
+                                                        return (
+                                                            item.status !==
+                                                            "failed"
+                                                        );
+                                                    }
+
+                                                    if (
+                                                        offlineHistoryFilter ===
+                                                        "failed"
+                                                    ) {
+                                                        return (
+                                                            item.status ===
+                                                            "failed"
+                                                        );
+                                                    }
+
+                                                    return (
+                                                        offlineHistoryFilter !==
+                                                        "synced"
+                                                    );
+                                                })
+                                                .map((item) => (
+                                                <div
+                                                    key={item.offline_reference}
+                                                    className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/30"
+                                                >
+                                                    <div className="flex items-start justify-between gap-3">
+                                                        <div className="min-w-0">
+                                                            <p className="truncate text-sm font-semibold text-slate-900 dark:text-white">
+                                                                {item.offline_reference}
+                                                            </p>
+                                                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                                {item.customer_name || "Pelanggan Umum"} • {formatPrice(item.grand_total || 0)}
+                                                            </p>
+                                                            {item.last_error && (
+                                                                <p className="mt-1 text-xs text-rose-600 dark:text-rose-300">
+                                                                    {item.last_error}
+                                                                </p>
+                                                            )}
+                                                        </div>
+                                                        <div className="text-right">
+                                                            <span
+                                                                className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                                                                    item.status === "failed"
+                                                                        ? "bg-rose-100 text-rose-700 dark:bg-rose-950/30 dark:text-rose-300"
+                                                                        : "bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300"
+                                                                }`}
+                                                            >
+                                                                {item.status === "failed" ? "Gagal" : "Pending"}
+                                                            </span>
+                                                            <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
+                                                                Attempt {Number(item.sync_attempts || 0)}
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                    <div className="mt-3 flex flex-wrap gap-2">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() =>
+                                                                handlePrintOfflineQueueItem(
+                                                                    item
+                                                                )
+                                                            }
+                                                            className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                                        >
+                                                            Cetak Draft
+                                                        </button>
+                                                        {!isOfflineMode && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() =>
+                                                                    retrySingleOfflineTransaction(
+                                                                        item.offline_reference
+                                                                    )
+                                                                }
+                                                                className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-[11px] font-semibold text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-300"
+                                                            >
+                                                                Sync Ulang
+                                                            </button>
+                                                        )}
+                                                        <button
+                                                            type="button"
+                                                            onClick={() =>
+                                                                removeOfflineQueueItem(
+                                                                    item.offline_reference
+                                                                )
+                                                            }
+                                                            className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-1.5 text-[11px] font-semibold text-rose-700 dark:border-rose-900/50 dark:bg-rose-950/30 dark:text-rose-300"
+                                                        >
+                                                            Hapus Antrean
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ))
+                                        ) : (
+                                            <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-950/40 dark:text-slate-400">
+                                                {offlineHistoryFilter === "synced"
+                                                    ? "Filter saat ini hanya menampilkan transaksi yang sudah tersinkron."
+                                                    : "Tidak ada antrean offline aktif."}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <p className="mb-3 text-sm font-semibold text-slate-800 dark:text-slate-100">
+                                        Riwayat Tersinkron Terakhir
+                                    </p>
+                                    <div className="space-y-2">
+                                        {(offlineHistoryFilter === "all" ||
+                                            offlineHistoryFilter === "synced") &&
+                                        offlineSyncedItems.length > 0 ? (
+                                            offlineSyncedItems.slice(0, 10).map((item) => (
+                                                <div
+                                                    key={`${item.offline_reference}-${item.synced_at || item.server_invoice || "history"}`}
+                                                    className="rounded-2xl border border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-900"
+                                                >
+                                                    <div className="flex items-start justify-between gap-3">
+                                                        <div className="min-w-0">
+                                                            <p className="truncate text-sm font-semibold text-slate-900 dark:text-white">
+                                                                {item.offline_reference}
+                                                            </p>
+                                                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                                Invoice server: {item.server_invoice || "-"}
+                                                            </p>
+                                                        </div>
+                                                        <div className="text-right">
+                                                            <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">
+                                                                Synced
+                                                            </span>
+                                                            <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
+                                                                {item.synced_at
+                                                                    ? new Date(item.synced_at).toLocaleString("id-ID")
+                                                                    : "-"}
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                    <div className="mt-3 flex flex-wrap gap-2">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() =>
+                                                                handlePrintSyncedReceipt(
+                                                                    item
+                                                                )
+                                                            }
+                                                            className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-950/30 dark:text-slate-200"
+                                                        >
+                                                            Cetak Struk Server
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ))
+                                        ) : (
+                                            <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-950/40 dark:text-slate-400">
+                                                {offlineHistoryFilter === "pending" ||
+                                                offlineHistoryFilter === "failed"
+                                                    ? "Filter saat ini hanya menampilkan antrean aktif."
+                                                    : "Belum ada riwayat sinkronisasi."}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="grid gap-3 border-t border-slate-200 bg-slate-50 px-5 py-4 dark:border-slate-800 dark:bg-slate-900/80 sm:grid-cols-2">
+                            <button
+                                type="button"
+                                onClick={() => setIsOfflineHistoryOpen(false)}
+                                className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                            >
+                                Tutup
+                            </button>
+                            <button
+                                type="button"
+                                onClick={syncOfflineQueue}
+                                disabled={isOfflineMode || isSyncingOfflineQueue || offlineQueue.length === 0}
+                                className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white disabled:opacity-60 dark:bg-white dark:text-slate-900"
+                            >
+                                {isSyncingOfflineQueue ? "Menyinkronkan..." : "Sinkronkan Pending"}
                             </button>
                         </div>
                     </div>

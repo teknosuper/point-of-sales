@@ -1185,6 +1185,175 @@ class TransactionController extends Controller
         return to_route('transactions.print', $transaction->invoice);
     }
 
+    public function health(Request $request): JsonResponse
+    {
+        return response()->json([
+            'ok' => true,
+            'server_time' => now()->toIso8601String(),
+            'outlet_id' => $this->resolveActiveOutlet($request)?->id,
+        ]);
+    }
+
+    public function syncOffline(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'offline_reference' => ['required', 'string', 'max:80'],
+            'customer_id' => ['nullable', 'integer', 'exists:customers,id'],
+            'order_type' => ['nullable', 'in:dine_in,take_away'],
+            'table_id' => ['nullable', 'integer', 'exists:dining_tables,id'],
+            'cash' => ['required', 'integer', 'min:0'],
+            'change' => ['nullable', 'integer', 'min:0'],
+            'shipping_cost' => ['nullable', 'integer', 'min:0'],
+            'grand_total' => ['required', 'integer', 'min:0'],
+            'details' => ['required', 'array', 'min:1'],
+            'details.*.product_id' => ['required', 'integer', 'exists:products,id'],
+            'details.*.tenant_outlet_id' => ['nullable', 'integer'],
+            'details.*.qty' => ['required', 'integer', 'min:1'],
+            'details.*.base_unit_price' => ['required', 'integer', 'min:0'],
+            'details.*.unit_price' => ['required', 'integer', 'min:0'],
+            'details.*.price' => ['required', 'integer', 'min:0'],
+            'details.*.notes' => ['nullable', 'string'],
+            'details.*.discount_total' => ['nullable', 'integer', 'min:0'],
+            'details.*.pricing_rule_name' => ['nullable', 'string', 'max:255'],
+            'details.*.pricing_rule_kind' => ['nullable', 'string', 'max:255'],
+            'details.*.pricing_group_key' => ['nullable', 'string', 'max:255'],
+            'details.*.pricing_group_label' => ['nullable', 'string', 'max:255'],
+            'details.*.modifiers' => ['nullable', 'array'],
+            'details.*.modifiers.*.name' => ['required_with:details.*.modifiers', 'string', 'max:255'],
+            'details.*.modifiers.*.qty' => ['nullable', 'integer', 'min:1'],
+            'details.*.modifiers.*.unit_price' => ['nullable', 'integer', 'min:0'],
+            'details.*.modifiers.*.total_price' => ['nullable', 'integer', 'min:0'],
+        ]);
+
+        $outlet = $this->resolveActiveOutlet($request);
+        $orderType = $validated['order_type'] ?? 'take_away';
+        $tableId = $orderType === 'dine_in' ? ($validated['table_id'] ?? null) : null;
+
+        if ($orderType === 'dine_in' && ! $tableId) {
+            return response()->json([
+                'message' => 'Meja wajib dipilih untuk sinkronisasi transaksi dine in.',
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+        }
+
+        $customer = ! empty($validated['customer_id'])
+            ? Customer::find($validated['customer_id'])
+            : null;
+
+        $transaction = DB::transaction(function () use ($validated, $outlet, $orderType, $tableId, $customer) {
+            $activeShift = $this->cashierShiftService->requireActiveShiftForUser(
+                auth()->id(),
+                $outlet?->id,
+                lockForUpdate: true
+            );
+
+            $invoice = $validated['offline_reference'];
+            if (Transaction::query()->where('invoice', $invoice)->exists()) {
+                $invoice = $invoice.'-'.Str::upper(Str::random(4));
+            }
+
+            $transaction = Transaction::create([
+                'cashier_id' => auth()->id(),
+                'cashier_shift_id' => $activeShift->id,
+                'outlet_id' => $outlet?->id,
+                'customer_id' => $customer?->id,
+                'order_type' => $orderType,
+                'table_id' => $tableId,
+                'invoice' => $invoice,
+                'cash' => (int) $validated['cash'],
+                'change' => (int) ($validated['change'] ?? 0),
+                'discount' => 0,
+                'loyalty_points_redeemed' => 0,
+                'loyalty_discount_total' => 0,
+                'customer_voucher_discount' => 0,
+                'shipping_cost' => (int) ($validated['shipping_cost'] ?? 0),
+                'grand_total' => (int) $validated['grand_total'],
+                'payment_method' => 'cash',
+                'payment_status' => 'paid',
+            ]);
+
+            foreach ($validated['details'] as $row) {
+                $product = Product::query()->findOrFail($row['product_id']);
+
+                $detail = $transaction->details()->create([
+                    'transaction_id' => $transaction->id,
+                    'outlet_id' => $outlet?->id,
+                    'tenant_outlet_id' => $row['tenant_outlet_id'] ?? ($outlet?->id),
+                    'product_id' => $product->id,
+                    'qty' => (int) $row['qty'],
+                    'base_unit_price' => (int) $row['base_unit_price'],
+                    'unit_price' => (int) $row['unit_price'],
+                    'price' => (int) $row['price'],
+                    'notes' => $row['notes'] ?? null,
+                    'discount_total' => (int) ($row['discount_total'] ?? 0),
+                    'pricing_rule_name' => $row['pricing_rule_name'] ?? null,
+                    'pricing_rule_kind' => $row['pricing_rule_kind'] ?? null,
+                    'pricing_group_key' => $row['pricing_group_key'] ?? null,
+                    'pricing_group_label' => $row['pricing_group_label'] ?? null,
+                ]);
+
+                foreach (($row['modifiers'] ?? []) as $modifier) {
+                    $detail->modifiers()->create([
+                        'name' => $modifier['name'],
+                        'qty' => (int) ($modifier['qty'] ?? 1),
+                        'unit_price' => (int) ($modifier['unit_price'] ?? 0),
+                        'total_price' => (int) ($modifier['total_price'] ?? 0),
+                    ]);
+                }
+
+                $totalBuyPrice = (int) $product->buy_price * (int) $row['qty'];
+                $profitTotal = (int) $row['price'] - $totalBuyPrice;
+
+                $transaction->profits()->create([
+                    'transaction_id' => $transaction->id,
+                    'total' => $profitTotal,
+                ]);
+
+                $this->stockMutationService->decrementForTransactionDetail(
+                    $product,
+                    $transaction,
+                    $detail,
+                    (int) $row['qty'],
+                    auth()->id()
+                );
+            }
+
+            $this->foodcourtTenantAllocationService->rebuildForTransaction($transaction->fresh(['details']));
+            $this->kitchenTicketService->createForTransaction($transaction->fresh(['details.product.kitchenStationMappings']));
+
+            return $transaction->fresh([
+                'details.product',
+                'details.modifiers',
+                'cashier',
+                'diningTable',
+                'customer',
+                'bankAccount',
+                'tenantAllocations.tenantOutlet:id,name,code',
+                'tenantAllocations.items.product:id,title',
+            ]);
+        });
+
+        return response()->json([
+            'message' => 'Transaksi offline berhasil disinkronkan.',
+            'data' => [
+                'transaction' => $transaction,
+                'print_url' => route('transactions.print', [
+                    'invoice' => $transaction->invoice,
+                    'embedded' => 1,
+                ], false),
+                'receipt_print_url' => route('transactions.print', [
+                    'invoice' => $transaction->invoice,
+                    'embedded' => 1,
+                    'autoprint' => 1,
+                    'mode' => 'thermal58',
+                ], false),
+                'receipt_pdf_url' => route('pdf.transactions.receipt', [
+                    'invoice' => $transaction->invoice,
+                    'size' => '58',
+                ], false),
+            ],
+        ], Response::HTTP_CREATED);
+    }
+
     public function print(Request $request, $invoice)
     {
         // get transaction
