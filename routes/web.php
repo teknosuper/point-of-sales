@@ -119,6 +119,9 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
         ->middlewareFor('store', ['permission:dining-tables-create', 'outlet_access'])
         ->middlewareFor('update', ['permission:dining-tables-update', 'outlet_access'])
         ->middlewareFor('destroy', ['permission:dining-tables-delete', 'outlet_access']);
+    Route::get('dining-tables/{diningTable}/print', [DiningTableController::class, 'print'])
+        ->middleware(['permission:dining-tables-access', 'outlet_access'])
+        ->name('dining-tables.print');
     Route::get('table-orders', [TableOrderController::class, 'index'])
         ->middleware('permission:table-orders-access')
         ->name('table-orders.index');

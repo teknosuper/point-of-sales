@@ -11,6 +11,13 @@ export default function PWAStartupSplash() {
             return undefined;
         }
 
+        const pathname = window.location?.pathname || "";
+        const isPrintRoute = /\/print$/.test(pathname) || pathname.includes("/print/");
+
+        if (isPrintRoute) {
+            return undefined;
+        }
+
         const isStandalone =
             Boolean(
                 window.matchMedia?.("(display-mode: standalone)")?.matches

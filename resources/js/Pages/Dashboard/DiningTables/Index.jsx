@@ -11,6 +11,7 @@ import {
     IconInfoCircle,
     IconMapPin,
     IconPlus,
+    IconPrinter,
     IconSearch,
     IconTable,
     IconTrash,
@@ -551,6 +552,15 @@ export default function Index({
                                                 >
                                                     Copy Link
                                                 </button>
+                                                <a
+                                                    href={route("dining-tables.print", table.id)}
+                                                    target="_blank"
+                                                    rel="noreferrer"
+                                                    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                                                >
+                                                    <IconPrinter size={15} />
+                                                    Print QR Meja
+                                                </a>
                                             </>
                                         ) : null}
                                         {canUpdate ? (

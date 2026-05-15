@@ -152,6 +152,24 @@ class DiningTableController extends Controller
             ->with('success', 'Meja berhasil dihapus.');
     }
 
+    public function print(Request $request, DiningTable $diningTable)
+    {
+        $outlet = $this->resolveRequiredOutlet($request);
+        abort_unless((int) $diningTable->outlet_id === (int) $outlet->id, 404);
+
+        return Inertia::render('Dashboard/DiningTables/Print', [
+            'table' => $this->tablePayload($diningTable),
+            'outlet' => [
+                'id' => (int) $outlet->id,
+                'name' => $outlet->name,
+            ],
+            'printMeta' => [
+                'paper_width_mm' => 100,
+                'printed_at' => now()->toIso8601String(),
+            ],
+        ]);
+    }
+
     private function validateRequest(Request $request, Outlet $outlet, ?DiningTable $diningTable = null): array
     {
         return $request->validate([
