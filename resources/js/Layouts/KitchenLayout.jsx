@@ -4,6 +4,7 @@ import { Toaster, toast } from "react-hot-toast";
 import { IconChefHat, IconLogout } from "@tabler/icons-react";
 import PWAConnectionStatus from "@/Components/PWAConnectionStatus";
 import PWAInstallButton from "@/Components/PWAInstallButton";
+import PWAUpdateControl from "@/Components/PWAUpdateControl";
 import {
     brandPlaceholderDataUri,
     setFallbackImage,
@@ -96,6 +97,7 @@ export default function KitchenLayout({ children }) {
                     <div className="flex items-center gap-3">
                         <PWAConnectionStatus compact />
                         <PWAInstallButton compact />
+                        <PWAUpdateControl compact />
                         <div className="text-right">
                             <p className="text-sm font-medium text-slate-700 dark:text-slate-200">
                                 {auth?.user?.name}

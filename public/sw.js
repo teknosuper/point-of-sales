@@ -75,3 +75,92 @@ self.addEventListener("fetch", (event) => {
     })
   );
 });
+
+self.addEventListener("message", (event) => {
+  const type = event.data?.type;
+  const replyPort = event.ports?.[0];
+
+  if (type === "SKIP_WAITING") {
+    self.skipWaiting();
+    replyPort?.postMessage({ ok: true });
+    return;
+  }
+
+  if (type === "RESET_APP_CACHE") {
+    const work = Promise.all([
+      caches.delete(RUNTIME_CACHE),
+      caches.delete(STATIC_CACHE),
+    ])
+      .then(() => caches.open(STATIC_CACHE))
+      .then((cache) => cache.addAll(APP_SHELL))
+      .then(() => {
+        replyPort?.postMessage({ ok: true });
+      })
+      .catch((error) => {
+        replyPort?.postMessage({
+          ok: false,
+          error: error?.message || "reset_app_cache_failed",
+        });
+      });
+
+    if (typeof event.waitUntil === "function") {
+      event.waitUntil(work);
+    }
+
+    return;
+  }
+
+  if (type !== "WARM_ROUTES") return;
+
+  const urls = Array.from(new Set(event.data?.payload?.urls || [])).filter(Boolean);
+
+  const work = caches.open(RUNTIME_CACHE).then(async (cache) => {
+    const results = [];
+
+    for (const url of urls) {
+      try {
+        const response = await fetch(url, {
+          credentials: "same-origin",
+          cache: "no-store",
+        });
+
+        if (response && response.ok) {
+          await cache.put(url, response.clone());
+          results.push({
+            url,
+            ok: true,
+            status: response.status,
+          });
+          continue;
+        }
+
+        results.push({
+          url,
+          ok: false,
+          status: response?.status || 0,
+        });
+      } catch (error) {
+        results.push({
+          url,
+          ok: false,
+          error: "fetch_failed",
+        });
+      }
+    }
+
+    replyPort?.postMessage({
+      ok: results.some((item) => item.ok),
+      results,
+    });
+  }).catch((error) => {
+    replyPort?.postMessage({
+      ok: false,
+      error: error?.message || "warm_routes_failed",
+      results: [],
+    });
+  });
+
+  if (typeof event.waitUntil === "function") {
+    event.waitUntil(work);
+  }
+});

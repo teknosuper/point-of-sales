@@ -4,6 +4,7 @@ import Sidebar from "@/Components/Dashboard/Sidebar";
 import Navbar from "@/Components/Dashboard/Navbar";
 import PWAConnectionStatus from "@/Components/PWAConnectionStatus";
 import PWAInstallButton from "@/Components/PWAInstallButton";
+import PWAUpdateControl from "@/Components/PWAUpdateControl";
 import { Toaster, toast } from "react-hot-toast";
 import { useTheme } from "@/Context/ThemeSwitcherContext";
 
@@ -114,6 +115,7 @@ export default function AppLayout({ children }) {
                         <div className="mb-4 flex flex-wrap items-center gap-3 print:hidden">
                             <PWAConnectionStatus />
                             <PWAInstallButton />
+                            <PWAUpdateControl />
                         </div>
                         {showSecurityWarnings && (
                             <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">

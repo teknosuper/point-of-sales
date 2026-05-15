@@ -2,7 +2,7 @@
   "name": "POINZA POS",
   "short_name": "POINZA",
   "description": "Point of sale, kitchen queue, dan operasional outlet berbasis web yang bisa di-install.",
-  "start_url": "/dashboard",
+  "start_url": "/login",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait-primary",

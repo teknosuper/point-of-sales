@@ -9,6 +9,7 @@ use App\Models\Outlet;
 use App\Models\Product;
 use App\Models\ProductKitchenStationMapping;
 use App\Models\Transaction;
+use Illuminate\Support\Facades\File;
 use Inertia\Inertia;
 
 class OperationsGuideController extends Controller
@@ -102,6 +103,92 @@ class OperationsGuideController extends Controller
 
     public function pwaSetup()
     {
+        $manifestPath = public_path('build/manifest.json');
+        $buildVersion = null;
+        $buildGeneratedAt = null;
+
+        if (File::exists($manifestPath)) {
+            $buildVersion = substr(sha1_file($manifestPath) ?: '', 0, 10) ?: null;
+            $buildGeneratedAt = date(DATE_ATOM, File::lastModified($manifestPath));
+        }
+
+        $user = auth()->user();
+        $optionalRoute = static function (?string $permission, string $routeName) use ($user) {
+            if (!$user) {
+                return null;
+            }
+
+            if ($permission && !$user->can($permission)) {
+                return null;
+            }
+
+            return route($routeName);
+        };
+
+        $buildProfile = static function (string $key, string $label, string $description, array $routes) {
+            $preparedRoutes = collect($routes)
+                ->filter(fn ($route) => !empty($route['href']))
+                ->unique('href')
+                ->values()
+                ->all();
+
+            if (count($preparedRoutes) === 0) {
+                return null;
+            }
+
+            return [
+                'key' => $key,
+                'label' => $label,
+                'description' => $description,
+                'routes' => $preparedRoutes,
+            ];
+        };
+
+        $offlineShellProfiles = array_values(array_filter([
+            $buildProfile(
+                'cashier',
+                'Kasir / Frontline',
+                'Menyiapkan route utama kasir agar POS, shift, dan riwayat transaksi lebih siap dibuka kembali saat perangkat sempat online sebelumnya.',
+                [
+                    ['label' => 'Setup PWA', 'href' => $optionalRoute('dashboard-access', 'guides.pwa-setup')],
+                    ['label' => 'Dashboard', 'href' => $optionalRoute('dashboard-access', 'dashboard')],
+                    ['label' => 'POS Kasir', 'href' => $optionalRoute('transactions-access', 'transactions.index')],
+                    ['label' => 'Riwayat Transaksi', 'href' => $optionalRoute('transactions-access', 'transactions.history')],
+                    ['label' => 'Shift Kasir', 'href' => $optionalRoute('cashier-shifts-access', 'cashier-shifts.index')],
+                    ['label' => 'Pesanan QR Meja', 'href' => $optionalRoute('table-orders-access', 'table-orders.index')],
+                ]
+            ),
+            $buildProfile(
+                'kitchen',
+                'Kitchen / Produksi',
+                'Cocok untuk tablet dapur yang fokus ke antrian kitchen dan pemantauan order tanpa memuat modul administrasi.',
+                [
+                    ['label' => 'Setup PWA', 'href' => $optionalRoute('dashboard-access', 'guides.pwa-setup')],
+                    ['label' => 'Dashboard', 'href' => $optionalRoute('dashboard-access', 'dashboard')],
+                    ['label' => 'Kitchen Queue', 'href' => $optionalRoute('dashboard-access', 'kitchen.index')],
+                    ['label' => 'POS Kasir', 'href' => $optionalRoute('transactions-access', 'transactions.index')],
+                ]
+            ),
+            $buildProfile(
+                'supervisor',
+                'Owner / Supervisor',
+                'Memanaskan dashboard inti, data master, inventaris, dan laporan yang paling sering dibuka untuk pemantauan operasional.',
+                [
+                    ['label' => 'Setup PWA', 'href' => $optionalRoute('dashboard-access', 'guides.pwa-setup')],
+                    ['label' => 'Dashboard', 'href' => $optionalRoute('dashboard-access', 'dashboard')],
+                    ['label' => 'Produk', 'href' => $optionalRoute('products-access', 'products.index')],
+                    ['label' => 'Pelanggan', 'href' => $optionalRoute('customers-access', 'customers.index')],
+                    ['label' => 'Supplier', 'href' => $optionalRoute('suppliers-access', 'suppliers.index')],
+                    ['label' => 'Stock Opname', 'href' => $optionalRoute('stock-opnames-access', 'stock-opnames.index')],
+                    ['label' => 'Mutasi Stok', 'href' => $optionalRoute('stock-mutations-access', 'stock-mutations.index')],
+                    ['label' => 'Piutang', 'href' => $optionalRoute('receivables-access', 'receivables.index')],
+                    ['label' => 'Laporan Penjualan', 'href' => $optionalRoute('reports-access', 'reports.sales.index')],
+                    ['label' => 'Laporan Profit', 'href' => $optionalRoute('profits-access', 'reports.profits.index')],
+                    ['label' => 'Audit Log', 'href' => $optionalRoute('audit-logs-access', 'audit-logs.index')],
+                ]
+            ),
+        ]));
+
         return Inertia::render('Dashboard/Guides/PWASetup', [
             'platforms' => [
                 [
@@ -145,6 +232,11 @@ class OperationsGuideController extends Controller
                     'href' => route('kitchen.index'),
                     'description' => 'Untuk layar dapur umum sebelum dikunci ke station tertentu.',
                 ],
+            ],
+            'offlineShellProfiles' => $offlineShellProfiles,
+            'buildInfo' => [
+                'version' => $buildVersion,
+                'generated_at' => $buildGeneratedAt,
             ],
         ]);
     }

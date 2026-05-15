@@ -47,6 +47,8 @@ import {
     IconAlertTriangle,
     IconWallet,
     IconX,
+    IconChevronDown,
+    IconChevronUp,
 } from "@tabler/icons-react";
 
 const formatPrice = (value = 0) =>
@@ -199,6 +201,23 @@ export default function Index({
         standalone: false,
         likelyTablet: false,
     });
+    const [isOfflineBannerExpanded, setIsOfflineBannerExpanded] = useState(
+        () => {
+            if (typeof window === "undefined") {
+                return false;
+            }
+
+            const stored = window.localStorage.getItem(
+                "pos:offline-banner-expanded"
+            );
+
+            if (stored !== null) {
+                return stored === "1";
+            }
+
+            return window.innerWidth >= 1280;
+        }
+    );
     const [prefersPrintOpenLabel, setPrefersPrintOpenLabel] = useState(false);
     const [mobileView, setMobileView] = useState("products"); // 'products' | 'cart'
     const [numpadOpen, setNumpadOpen] = useState(false);
@@ -213,6 +232,17 @@ export default function Index({
     const [tableOrderCancelTarget, setTableOrderCancelTarget] = useState(null);
     const [tableOrderCancelReason, setTableOrderCancelReason] = useState("");
     const [isCancellingTableOrder, setIsCancellingTableOrder] = useState(false);
+    useEffect(() => {
+        if (typeof window === "undefined") {
+            return;
+        }
+
+        window.localStorage.setItem(
+            "pos:offline-banner-expanded",
+            isOfflineBannerExpanded ? "1" : "0"
+        );
+    }, [isOfflineBannerExpanded]);
+
     const normalizedSelectedCategory =
         selectedCategory === null ? null : Number(selectedCategory);
     const products =
@@ -2583,8 +2613,8 @@ export default function Index({
 
                 {(isOfflineMode || offlineQueueCount > 0) && (
                     <div className="border-b border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200 lg:absolute lg:inset-x-0 lg:top-0 lg:z-10">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                            <div>
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div className="min-w-0 flex-1">
                                 <p className="font-semibold">
                                     {isOfflineMode
                                         ? "Mode kasir offline aktif"
@@ -2637,94 +2667,50 @@ export default function Index({
                                         </span>
                                     )}
                                 </div>
-                                <div className="mt-3 rounded-2xl border border-amber-200/70 bg-white/70 px-3 py-3 dark:border-amber-900/30 dark:bg-slate-900/60">
-                                    <div className="mb-3 flex items-center justify-between gap-3">
-                                        <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-200">
-                                            Persiapan Offline
-                                        </p>
-                                        <div className="flex items-center gap-2">
-                                            <span className="text-[11px] font-semibold text-amber-800 dark:text-amber-200">
-                                                {offlinePreparationProgress}%
-                                            </span>
-                                            <button
-                                                type="button"
-                                                onClick={
-                                                    refreshOfflinePreparation
-                                                }
-                                                disabled={
-                                                    isRefreshingOfflinePreparation
-                                                }
-                                                className="rounded-full border border-amber-300 bg-white px-2.5 py-1 text-[10px] font-semibold text-amber-700 disabled:opacity-60 dark:border-amber-700 dark:bg-slate-900 dark:text-amber-300"
-                                            >
-                                                {isRefreshingOfflinePreparation
-                                                    ? "Menyegarkan..."
-                                                    : "Segarkan"}
-                                            </button>
-                                        </div>
-                                    </div>
-                                    <div className="mb-4 h-1.5 overflow-hidden rounded-full bg-amber-100 dark:bg-amber-950/40">
-                                        <div
-                                            className="h-full rounded-full bg-amber-500 transition-all duration-300"
-                                            style={{
-                                                width: `${offlinePreparationProgress}%`,
-                                            }}
-                                        />
-                                    </div>
-                                    <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-amber-800/90 dark:text-amber-200/90">
-                                        <span className="inline-flex items-center gap-2">
-                                            <span>
-                                                Snapshot:{" "}
-                                                {formattedOfflineSnapshotAt || "-"}
-                                            </span>
-                                            <span
-                                                className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${offlineSnapshotFreshness.className}`}
-                                            >
-                                                {offlineSnapshotFreshness.label}
-                                            </span>
-                                        </span>
-                                        <span className="inline-flex items-center gap-2">
-                                            <span>
-                                                Cek perangkat:{" "}
-                                                {formattedOfflineDeviceCheckAt || "-"}
-                                            </span>
-                                            <span
-                                                className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${offlineDeviceCheckFreshness.className}`}
-                                            >
-                                                {offlineDeviceCheckFreshness.label}
-                                            </span>
-                                        </span>
-                                    </div>
-                                    <div className="grid gap-3 sm:grid-cols-3">
-                                        {offlinePreparationSteps.map((step, index) => (
-                                            <div
-                                                key={step.key}
-                                                className="relative"
-                                            >
-                                                <div className="flex items-center gap-2">
-                                                    <span
-                                                        className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold ${
-                                                            step.status === "ready"
-                                                                ? "bg-emerald-500 text-white"
-                                                                : step.status === "loading"
-                                                                ? "animate-pulse bg-amber-500 text-white"
-                                                                : "bg-slate-200 text-slate-500 dark:bg-slate-700 dark:text-slate-300"
-                                                        }`}
-                                                    >
-                                                        {index + 1}
-                                                    </span>
-                                                    <p className="text-[11px] font-semibold text-slate-800 dark:text-slate-100">
-                                                        {step.label}
-                                                    </p>
-                                                </div>
-                                                <p className="mt-1 pl-8 text-[10px] leading-tight text-amber-800/90 dark:text-amber-200/90">
-                                                    {step.helper}
-                                                </p>
-                                            </div>
-                                        ))}
-                                    </div>
+                                <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px]">
+                                    <span className="rounded-full bg-white/80 px-2.5 py-1 font-semibold text-amber-800 dark:bg-slate-900/70 dark:text-amber-200">
+                                        Persiapan {offlinePreparationProgress}%
+                                    </span>
+                                    <span className="rounded-full bg-white/80 px-2.5 py-1 font-semibold text-amber-800 dark:bg-slate-900/70 dark:text-amber-200">
+                                        Snapshot {offlineSnapshotFreshness.label}
+                                    </span>
+                                    <span className="rounded-full bg-white/80 px-2.5 py-1 font-semibold text-amber-800 dark:bg-slate-900/70 dark:text-amber-200">
+                                        Perangkat {offlineDeviceCheckFreshness.label}
+                                    </span>
                                 </div>
                             </div>
-                            <div className="flex items-center gap-2">
+                            <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                                <button
+                                    type="button"
+                                    onClick={refreshOfflinePreparation}
+                                    disabled={isRefreshingOfflinePreparation}
+                                    className="rounded-full border border-amber-300 bg-white px-3 py-1.5 text-[11px] font-semibold text-amber-700 disabled:opacity-60 dark:border-amber-700 dark:bg-slate-900 dark:text-amber-300"
+                                >
+                                    {isRefreshingOfflinePreparation
+                                        ? "Menyegarkan..."
+                                        : "Segarkan"}
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() =>
+                                        setIsOfflineBannerExpanded(
+                                            (current) => !current
+                                        )
+                                    }
+                                    className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-white px-3 py-1.5 text-[11px] font-semibold text-amber-700 dark:border-amber-700 dark:bg-slate-900 dark:text-amber-300"
+                                >
+                                    {isOfflineBannerExpanded ? (
+                                        <>
+                                            Ringkas
+                                            <IconChevronUp size={14} />
+                                        </>
+                                    ) : (
+                                        <>
+                                            Detail
+                                            <IconChevronDown size={14} />
+                                        </>
+                                    )}
+                                </button>
                                 {offlineQueueCount > 0 && (
                                     <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-amber-700 dark:bg-slate-900 dark:text-amber-300">
                                         {offlineQueueCount} antrean
@@ -2759,6 +2745,77 @@ export default function Index({
                                 )}
                             </div>
                         </div>
+
+                        {isOfflineBannerExpanded && (
+                            <div className="mt-3 rounded-2xl border border-amber-200/70 bg-white/70 px-3 py-3 dark:border-amber-900/30 dark:bg-slate-900/60">
+                                <div className="mb-3 flex items-center justify-between gap-3">
+                                    <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-200">
+                                        Persiapan Offline
+                                    </p>
+                                    <span className="text-[11px] font-semibold text-amber-800 dark:text-amber-200">
+                                        {offlinePreparationProgress}%
+                                    </span>
+                                </div>
+                                <div className="mb-4 h-1.5 overflow-hidden rounded-full bg-amber-100 dark:bg-amber-950/40">
+                                    <div
+                                        className="h-full rounded-full bg-amber-500 transition-all duration-300"
+                                        style={{
+                                            width: `${offlinePreparationProgress}%`,
+                                        }}
+                                    />
+                                </div>
+                                <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-amber-800/90 dark:text-amber-200/90">
+                                    <span className="inline-flex items-center gap-2">
+                                        <span>
+                                            Snapshot:{" "}
+                                            {formattedOfflineSnapshotAt || "-"}
+                                        </span>
+                                        <span
+                                            className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${offlineSnapshotFreshness.className}`}
+                                        >
+                                            {offlineSnapshotFreshness.label}
+                                        </span>
+                                    </span>
+                                    <span className="inline-flex items-center gap-2">
+                                        <span>
+                                            Cek perangkat:{" "}
+                                            {formattedOfflineDeviceCheckAt || "-"}
+                                        </span>
+                                        <span
+                                            className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${offlineDeviceCheckFreshness.className}`}
+                                        >
+                                            {offlineDeviceCheckFreshness.label}
+                                        </span>
+                                    </span>
+                                </div>
+                                <div className="grid gap-3 sm:grid-cols-3">
+                                    {offlinePreparationSteps.map((step, index) => (
+                                        <div key={step.key} className="relative">
+                                            <div className="flex items-center gap-2">
+                                                <span
+                                                    className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold ${
+                                                        step.status === "ready"
+                                                            ? "bg-emerald-500 text-white"
+                                                            : step.status ===
+                                                              "loading"
+                                                            ? "animate-pulse bg-amber-500 text-white"
+                                                            : "bg-slate-200 text-slate-500 dark:bg-slate-700 dark:text-slate-300"
+                                                    }`}
+                                                >
+                                                    {index + 1}
+                                                </span>
+                                                <p className="text-[11px] font-semibold text-slate-800 dark:text-slate-100">
+                                                    {step.label}
+                                                </p>
+                                            </div>
+                                            <p className="mt-1 pl-8 text-[10px] leading-tight text-amber-800/90 dark:text-amber-200/90">
+                                                {step.helper}
+                                            </p>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
                     </div>
                 )}
 

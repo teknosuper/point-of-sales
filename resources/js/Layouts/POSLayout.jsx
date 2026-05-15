@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { usePage, Link } from "@inertiajs/react";
+import { usePage, Link, router } from "@inertiajs/react";
 import { Toaster, toast } from "react-hot-toast";
 import { useTheme } from "@/Context/ThemeSwitcherContext";
 import {
@@ -17,6 +17,7 @@ import Notification from "@/Components/Dashboard/Notification";
 import OutletSwitcher from "@/Components/Dashboard/OutletSwitcher";
 import PWAConnectionStatus from "@/Components/PWAConnectionStatus";
 import PWAInstallButton from "@/Components/PWAInstallButton";
+import PWAUpdateControl from "@/Components/PWAUpdateControl";
 import {
     brandPlaceholderDataUri,
     setFallbackImage,
@@ -105,6 +106,11 @@ export default function POSLayout({ children }) {
             month: "short",
             year: "numeric",
         });
+    };
+
+    const handleLogout = () => {
+        setShowMobileMenu(false);
+        router.post(route("logout"));
     };
 
     return (
@@ -211,6 +217,10 @@ export default function POSLayout({ children }) {
                         <PWAInstallButton compact />
                     </div>
 
+                    <div className="hidden xl:flex">
+                        <PWAUpdateControl compact />
+                    </div>
+
                     {/* Notifications (desktop) */}
                     <div className="hidden md:flex">
                         <Notification />
@@ -286,6 +296,9 @@ export default function POSLayout({ children }) {
                                 <PWAInstallButton />
                             </div>
                             <div className="px-1 pb-2">
+                                <PWAUpdateControl />
+                            </div>
+                            <div className="px-1 pb-2">
                                 <OutletSwitcher
                                     activeOutlet={activeOutlet}
                                     availableOutlets={availableOutlets}
@@ -315,15 +328,14 @@ export default function POSLayout({ children }) {
                                 <span className="font-medium">Profil</span>
                             </Link>
                             <hr className="border-slate-200 dark:border-slate-700" />
-                            <Link
-                                href={route("logout")}
-                                method="post"
-                                as="button"
+                            <button
+                                type="button"
+                                onClick={handleLogout}
                                 className="flex items-center gap-3 px-4 py-3 rounded-xl text-danger-600 hover:bg-danger-50 dark:hover:bg-danger-950/50 transition-colors w-full"
                             >
                                 <IconLogout size={20} />
                                 <span className="font-medium">Keluar</span>
-                            </Link>
+                            </button>
                         </nav>
                     </div>
                 </div>

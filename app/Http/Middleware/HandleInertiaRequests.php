@@ -14,6 +14,7 @@ use App\Services\PayableAgingService;
 use App\Services\ReceivableService;
 use App\Support\ProductionSecurityBaseline;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Schema;
 use Inertia\Middleware;
 
@@ -38,6 +39,14 @@ class HandleInertiaRequests extends Middleware
         $payableAgingSummary = null;
         $receivableAgingSummary = null;
         $activeOutlet = app(OutletResolver::class)->resolve($request);
+        $manifestPath = public_path('build/manifest.json');
+        $buildVersion = null;
+        $buildGeneratedAt = null;
+
+        if (File::exists($manifestPath)) {
+            $buildVersion = substr(sha1_file($manifestPath) ?: '', 0, 10) ?: null;
+            $buildGeneratedAt = date(DATE_ATOM, File::lastModified($manifestPath));
+        }
 
         if ($request->user()) {
             $userId = $request->user()->id;
@@ -207,6 +216,10 @@ class HandleInertiaRequests extends Middleware
                 'warnings' => $securityWarnings,
                 'publicRegistrationEnabled' => config('security.auth.public_registration'),
                 'stepUpFreshUntil' => $stepUpFreshUntil,
+            ],
+            'appMeta' => [
+                'buildVersion' => $buildVersion,
+                'buildGeneratedAt' => $buildGeneratedAt,
             ],
         ];
     }

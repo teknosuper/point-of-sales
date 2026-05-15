@@ -34,6 +34,8 @@ export default function Login({
     });
     const [showPassword, setShowPassword] = useState(false);
     const lastFlashSignatureRef = useRef(null);
+    const emailInputRef = useRef(null);
+    const passwordInputRef = useRef(null);
 
     const refreshBotGuard = async () => {
         try {
@@ -69,6 +71,24 @@ export default function Login({
         return () => {
             window.removeEventListener("pageshow", handlePageShow);
         };
+    }, []);
+
+    useEffect(() => {
+        if (typeof window === "undefined") {
+            return;
+        }
+
+        const focusDelay = window.setTimeout(() => {
+            const isTouchDevice = window.matchMedia?.("(pointer: coarse)")
+                ?.matches;
+            const target = data.email ? passwordInputRef.current : emailInputRef.current;
+
+            if (isTouchDevice && target) {
+                target.focus();
+            }
+        }, 180);
+
+        return () => window.clearTimeout(focusDelay);
     }, []);
 
     useEffect(() => {
@@ -136,17 +156,14 @@ export default function Login({
             <Head title="Masuk" />
             <Toaster position="top-right" />
 
-            <div className="min-h-screen flex bg-slate-50 dark:bg-slate-950">
+            <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(79,70,229,0.12),_transparent_32%),linear-gradient(180deg,_#f8fafc,_#eef2ff_52%,_#f8fafc)] dark:bg-slate-950 lg:flex">
                 {/* Left - Form */}
-                <div className="flex-1 flex items-center justify-center p-8">
-                    <div className="w-full max-w-md">
+                <div className="flex min-h-screen flex-1 items-center justify-center px-5 py-8 sm:px-8 lg:px-10">
+                    <div className="w-full max-w-md rounded-[32px] border border-white/70 bg-white/92 p-6 shadow-[0_30px_80px_-32px_rgba(15,23,42,0.28)] backdrop-blur sm:p-8 dark:border-slate-800 dark:bg-slate-900/92">
                         {/* Logo */}
                         <div className="mb-8">
-                            <Link
-                                href="/"
-                                className="inline-flex items-center gap-3 mb-6"
-                            >
-                                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary-500 to-primary-600 flex items-center justify-center">
+                            <div className="mb-6 inline-flex items-center gap-3">
+                                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-primary-500 to-primary-600 shadow-lg shadow-primary-500/20">
                                     <IconShoppingCart
                                         size={24}
                                         className="text-white"
@@ -155,16 +172,19 @@ export default function Login({
                                 <span className="text-2xl font-bold text-slate-900 dark:text-white">
                                     POINZA
                                 </span>
-                            </Link>
-                            <h1 className="text-3xl font-bold text-slate-900 dark:text-white">
+                            </div>
+                            <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-primary-200 bg-primary-50 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-primary-700 dark:border-primary-900/40 dark:bg-primary-950/30 dark:text-primary-200">
+                                {isKitchenMode ? "Workspace Dapur" : "Workspace Aplikasi"}
+                            </div>
+                            <h1 className="text-3xl font-bold text-slate-900 dark:text-white sm:text-[2rem]">
                                 {isKitchenMode
                                     ? "Masuk ke Layar Dapur"
-                                    : "Selamat Datang Kembali"}
+                                    : "Masuk ke aplikasi POINZA"}
                             </h1>
                             <p className="mt-2 text-slate-600 dark:text-slate-400">
                                 {isKitchenMode
                                     ? "Masuk untuk membuka antrean dapur pada stasiun kerja Anda"
-                                    : "Masuk untuk mengakses dashboard Anda"}
+                                    : "Masuk untuk membuka dashboard, POS, dan modul operasional dari perangkat ini."}
                             </p>
                             {isKitchenMode && stationHint ? (
                                 <div className="mt-4 rounded-2xl border border-primary-200 bg-primary-50 px-4 py-3 text-sm text-primary-800 dark:border-primary-900/40 dark:bg-primary-950/30 dark:text-primary-200">
@@ -180,6 +200,26 @@ export default function Login({
                             {isKitchenMode && kioskMode ? (
                                 <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
                                     Mode kiosk aktif. Setelah login, perangkat akan diarahkan ke layar antrian dapur yang lebih sederhana.
+                                </div>
+                            ) : null}
+                            {!isKitchenMode ? (
+                                <div className="mt-4 grid grid-cols-2 gap-3">
+                                    {[
+                                        ["Kasir", "Transaksi cepat"],
+                                        ["Offline Cash", "Tetap jalan"],
+                                    ].map(([title, detail]) => (
+                                        <div
+                                            key={title}
+                                            className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/40"
+                                        >
+                                            <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                                                {title}
+                                            </p>
+                                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                {detail}
+                                            </p>
+                                        </div>
+                                    ))}
                                 </div>
                             ) : null}
                         </div>
@@ -225,11 +265,22 @@ export default function Login({
                                         <IconMail size={20} />
                                     </div>
                                     <input
+                                        ref={emailInputRef}
                                         type="email"
                                         value={data.email}
                                         onChange={(e) =>
                                             setData("email", e.target.value)
                                         }
+                                        onKeyDown={(e) => {
+                                            if (e.key === "Enter") {
+                                                e.preventDefault();
+                                                passwordInputRef.current?.focus();
+                                            }
+                                        }}
+                                        autoComplete="username"
+                                        autoCapitalize="none"
+                                        autoCorrect="off"
+                                        inputMode="email"
                                         placeholder="nama@email.com"
                                         className={`w-full h-12 pl-12 pr-4 rounded-xl border-2 ${
                                             errors.email
@@ -255,6 +306,7 @@ export default function Login({
                                         <IconLock size={20} />
                                     </div>
                                     <input
+                                        ref={passwordInputRef}
                                         type={
                                             showPassword ? "text" : "password"
                                         }
@@ -262,6 +314,7 @@ export default function Login({
                                         onChange={(e) =>
                                             setData("password", e.target.value)
                                         }
+                                        autoComplete="current-password"
                                         placeholder="••••••••"
                                         className={`w-full h-12 pl-12 pr-12 rounded-xl border-2 ${
                                             errors.password
@@ -323,7 +376,7 @@ export default function Login({
                             <button
                                 type="submit"
                                 disabled={processing}
-                                className="w-full h-12 rounded-xl bg-gradient-to-r from-primary-500 to-primary-600 text-white font-semibold hover:from-primary-600 hover:to-primary-700 focus:ring-4 focus:ring-primary-500/30 disabled:opacity-50 transition-all flex items-center justify-center gap-2"
+                                className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-primary-500 to-primary-600 text-white font-semibold hover:from-primary-600 hover:to-primary-700 focus:ring-4 focus:ring-primary-500/30 disabled:opacity-50 transition-all"
                             >
                                 {processing ? (
                                     <>
@@ -355,23 +408,22 @@ export default function Login({
                 </div>
 
                 {/* Right - Image/Decoration */}
-                <div className="hidden lg:flex flex-1 bg-gradient-to-br from-primary-500 to-primary-700 items-center justify-center p-12">
+                <div className="hidden flex-1 items-center justify-center bg-[linear-gradient(145deg,#4338ca_0%,#312e81_52%,#0f172a_100%)] p-12 lg:flex">
                     <div className="max-w-md text-center text-white">
-                        <div className="w-24 h-24 rounded-2xl bg-white/20 flex items-center justify-center mx-auto mb-8">
+                        <div className="mx-auto mb-8 flex h-24 w-24 items-center justify-center rounded-[28px] bg-white/15 ring-1 ring-white/15">
                             <IconShoppingCart size={48} />
                         </div>
                         <h2 className="text-3xl font-bold mb-4">
-                            Kelola Operasional Bisnis dengan Lebih Mudah
+                            Satu workspace untuk kasir, dapur, dan kontrol operasional.
                         </h2>
                         <p className="text-lg opacity-90">
-                            POINZA membantu Anda mengelola transaksi,
-                            inventori, dan laporan bisnis dari satu dashboard.
+                            Login dari perangkat ini untuk masuk langsung ke alur kerja yang paling sering dipakai tim Anda.
                         </p>
                         <div className="mt-8 flex flex-wrap justify-center gap-3">
                             {[
                                 "Transaksi Cepat",
-                                "Laporan Real-time",
-                                "Multi User",
+                                "Offline Cash",
+                                "Kitchen Flow",
                             ].map((feature, i) => (
                                 <span
                                     key={i}

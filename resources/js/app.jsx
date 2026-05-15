@@ -7,6 +7,7 @@ import { resolvePageComponent } from 'laravel-vite-plugin/inertia-helpers';
 import { ThemeSwitcherProvider } from './Context/ThemeSwitcherContext';
 import GlobalLoadingIndicator from './Components/GlobalLoadingIndicator';
 import PWAInstallPrompt from './Components/PWAInstallPrompt';
+import PWAStartupSplash from './Components/PWAStartupSplash';
 const appName = import.meta.env.VITE_APP_NAME || 'POINZA';
 
 createInertiaApp({
@@ -17,6 +18,7 @@ createInertiaApp({
 
         root.render(
             <ThemeSwitcherProvider>
+                <PWAStartupSplash />
                 <GlobalLoadingIndicator />
                 <PWAInstallPrompt />
                 <App {...props} />

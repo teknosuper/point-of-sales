@@ -29,6 +29,31 @@
     }
 }
 
+@keyframes pwa-startup-float {
+    0%,
+    100% {
+        transform: translateY(0) scale(1);
+    }
+    50% {
+        transform: translateY(-8px) scale(1.02);
+    }
+}
+
+@keyframes pwa-startup-progress {
+    0% {
+        width: 0%;
+        opacity: 0.45;
+    }
+    50% {
+        width: 72%;
+        opacity: 1;
+    }
+    100% {
+        width: 100%;
+        opacity: 0.8;
+    }
+}
+
 .global-loading-bar {
     position: relative;
     overflow: hidden;
@@ -50,4 +75,12 @@
 
 .global-loading-dot {
     animation: global-loading-pulse 0.9s ease-in-out infinite;
+}
+
+.pwa-startup-orb {
+    animation: pwa-startup-float 1.6s ease-in-out infinite;
+}
+
+.pwa-startup-progress {
+    animation: pwa-startup-progress 1s ease-out forwards;
 }
