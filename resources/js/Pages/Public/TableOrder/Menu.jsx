@@ -33,6 +33,26 @@ const orderStatusLabel = {
     cancelled: "Dibatalkan",
 };
 
+const productPlaceholder = (title = "Menu") =>
+    `data:image/svg+xml;utf8,${encodeURIComponent(`
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+            <rect width="120" height="120" rx="24" fill="#e2e8f0"/>
+            <rect x="18" y="18" width="84" height="84" rx="18" fill="#f8fafc"/>
+            <text x="60" y="68" text-anchor="middle" font-family="Arial, sans-serif" font-size="30" font-weight="700" fill="#334155">
+                ${(title || "M").trim().slice(0, 1).toUpperCase()}
+            </text>
+        </svg>
+    `)}`;
+
+const sanitizePhoneNumber = (value = "") =>
+    String(value)
+        .replace(/[^\d+]/g, "")
+        .replace(/(?!^)\+/g, "")
+        .slice(0, 16);
+
+const isValidPhoneNumber = (value = "") =>
+    /^(?:\+62|62|0)[0-9]{8,13}$/.test(String(value).trim());
+
 export default function Menu({ table, outlet, products = [], identity }) {
     const { flash, storeProfile } = usePage().props;
     const checkoutSectionRef = useRef(null);
@@ -45,6 +65,10 @@ export default function Menu({ table, outlet, products = [], identity }) {
         useState(false);
     const [searchQuery, setSearchQuery] = useState("");
     const [selectedCategory, setSelectedCategory] = useState("all");
+    const [activeMobileTab, setActiveMobileTab] = useState("products");
+    const [showOrderGuide, setShowOrderGuide] = useState(false);
+    const [showCustomerHistory, setShowCustomerHistory] = useState(false);
+    const [showFloatingCheckout, setShowFloatingCheckout] = useState(false);
     const customer = identity?.customer || null;
     const pendingPhone = identity?.pending_phone || "";
     const recentOrders = customer?.recent_orders || [];
@@ -85,7 +109,8 @@ export default function Menu({ table, outlet, products = [], identity }) {
             .filter((product) => {
                 const categoryName = product.category?.name || "Lainnya";
                 const matchesCategory =
-                    selectedCategory === "all" || categoryName === selectedCategory;
+                    selectedCategory === "all" ||
+                    categoryName === selectedCategory;
                 const haystack = [
                     product.title,
                     product.description,
@@ -125,6 +150,7 @@ export default function Menu({ table, outlet, products = [], identity }) {
             return acc;
         }, {});
     }, [filteredProducts]);
+    const filteredProductCount = filteredProducts.length;
 
     const cartItems = useMemo(() => {
         return cartLines.map((line) => {
@@ -150,7 +176,9 @@ export default function Menu({ table, outlet, products = [], identity }) {
         product.modifier_options.length > 0;
 
     const createCartLine = (product, modifiers = []) => ({
-        key: `line-${product.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        key: `line-${product.id}-${Date.now()}-${Math.random()
+            .toString(36)
+            .slice(2, 8)}`,
         product_id: product.id,
         title: product.title,
         qty: 1,
@@ -321,6 +349,19 @@ export default function Menu({ table, outlet, products = [], identity }) {
 
     const submitIdentify = (event) => {
         event.preventDefault();
+
+        const sanitizedPhone = sanitizePhoneNumber(identifyForm.data.no_telp);
+        identifyForm.setData("no_telp", sanitizedPhone);
+
+        if (!isValidPhoneNumber(sanitizedPhone)) {
+            identifyForm.setError(
+                "no_telp",
+                "Format nomor hape tidak valid. Gunakan angka saja, misalnya 0812xxxxxxx atau 62812xxxxxxx."
+            );
+            return;
+        }
+
+        identifyForm.clearErrors("no_telp");
         identifyForm.post(route("table-order.identify", table.qr_token), {
             preserveScroll: true,
         });
@@ -373,6 +414,22 @@ export default function Menu({ table, outlet, products = [], identity }) {
         });
     };
 
+    const openCheckoutView = () => {
+        if (typeof window !== "undefined" && window.innerWidth < 1024) {
+            setActiveMobileTab("cart");
+
+            window.requestAnimationFrame(() => {
+                window.requestAnimationFrame(() => {
+                    scrollToCheckout();
+                });
+            });
+
+            return;
+        }
+
+        scrollToCheckout();
+    };
+
     useEffect(() => {
         if (!cartStorageKey || typeof window === "undefined") {
             setCartLines([]);
@@ -409,7 +466,9 @@ export default function Menu({ table, outlet, products = [], identity }) {
                                       Number(product.stock || line.qty || 1)
                                   )
                               ),
-                              unit_price: Number(product.sell_price || line.unit_price || 0),
+                              unit_price: Number(
+                                  product.sell_price || line.unit_price || 0
+                              ),
                               modifiers: Array.isArray(line.modifiers)
                                   ? line.modifiers.map((modifier) => ({
                                         id: modifier.id,
@@ -444,143 +503,212 @@ export default function Menu({ table, outlet, products = [], identity }) {
         );
     }, [cartLines, cartStorageKey, orderForm.data.notes]);
 
+    useEffect(() => {
+        if (typeof window === "undefined") {
+            return undefined;
+        }
+
+        const syncFloatingCheckout = () => {
+            const shouldShow =
+                window.innerWidth < 1024 &&
+                activeMobileTab === "products" &&
+                cartItems.length > 0 &&
+                window.scrollY > 280;
+
+            setShowFloatingCheckout(shouldShow);
+        };
+
+        syncFloatingCheckout();
+        window.addEventListener("scroll", syncFloatingCheckout, {
+            passive: true,
+        });
+        window.addEventListener("resize", syncFloatingCheckout);
+
+        return () => {
+            window.removeEventListener("scroll", syncFloatingCheckout);
+            window.removeEventListener("resize", syncFloatingCheckout);
+        };
+    }, [activeMobileTab, cartItems.length]);
+
     return (
         <>
             <Head title={`Order ${table.name}`} />
 
-            <div className="min-h-screen bg-[radial-gradient(circle_at_top,_#fff7ed_0%,_#f5ede2_42%,_#efe4d4_100%)] text-slate-900">
+            <div className="min-h-screen overflow-x-hidden bg-[radial-gradient(circle_at_top,_rgba(14,165,233,0.12),_transparent_26%),radial-gradient(circle_at_top_right,_rgba(16,185,129,0.08),_transparent_34%),linear-gradient(180deg,_#eef4ff_0%,_#f8fafc_22%,_#f8fafc_100%)] text-slate-900">
                 <div
-                    className={`mx-auto max-w-6xl px-4 py-8 ${
-                        showMobileCheckoutBar ? "pb-28 lg:pb-8" : ""
+                    className={`mx-auto max-w-7xl overflow-x-hidden px-3 py-4 sm:px-5 sm:py-6 lg:px-6 ${
+                        showMobileCheckoutBar ? "pb-28 lg:pb-10" : ""
                     }`}
                 >
-                    <div className="relative mb-8 overflow-hidden rounded-[32px] border border-[#eadac3] bg-[linear-gradient(135deg,_rgba(255,255,255,0.96)_0%,_rgba(255,247,237,0.96)_100%)] p-6 shadow-[0_20px_60px_rgba(148,101,56,0.12)]">
-                        <div className="pointer-events-none absolute -right-14 -top-16 h-44 w-44 rounded-full bg-[#f3cda1]/35 blur-2xl" />
-                        <div className="pointer-events-none absolute -bottom-16 left-10 h-36 w-36 rounded-full bg-[#d8e6d2]/40 blur-2xl" />
-                        <div className="relative flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
-                            <div className="flex items-start gap-4">
-                                <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-[24px] border border-[#eadac3] bg-white shadow-sm">
-                                    {storeProfile?.logo ? (
-                                        <img
-                                            src={storeProfile.logo}
-                                            alt={storeProfile?.name || "Logo toko"}
-                                            className="h-full w-full object-cover"
-                                        />
-                                    ) : (
-                                        <span className="text-2xl font-bold text-[#9b4b2e]">
-                                            {(storeProfile?.name || outlet?.name || "S")
-                                                .slice(0, 1)
-                                                .toUpperCase()}
-                                        </span>
-                                    )}
+                    <div className="relative mb-4 overflow-hidden rounded-[28px] border border-slate-200/80 bg-[linear-gradient(135deg,_rgba(15,23,42,0.97)_0%,_rgba(30,41,59,0.95)_52%,_rgba(8,47,73,0.94)_100%)] p-5 text-white shadow-[0_30px_90px_-42px_rgba(15,23,42,0.78)] sm:mb-6 sm:p-6">
+                        <div className="pointer-events-none absolute -right-12 -top-14 h-40 w-40 rounded-full bg-sky-400/20 blur-3xl" />
+                        <div className="pointer-events-none absolute -bottom-12 left-10 h-36 w-36 rounded-full bg-emerald-400/15 blur-3xl" />
+                        <div className="relative flex min-w-0 flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+                            <div className="min-w-0">
+                                <div className="flex items-center gap-3">
+                                    <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-[18px] border border-white/15 bg-white/95 shadow-lg shadow-slate-950/20">
+                                        {storeProfile?.logo ? (
+                                            <img
+                                                src={storeProfile.logo}
+                                                alt={storeProfile?.name || "Logo toko"}
+                                                className="h-full w-full object-cover"
+                                            />
+                                        ) : (
+                                            <span className="text-xl font-black text-slate-900">
+                                                {(storeProfile?.name || outlet?.name || "S")
+                                                    .slice(0, 1)
+                                                    .toUpperCase()}
+                                            </span>
+                                        )}
+                                    </div>
+                                    <div className="min-w-0">
+                                        <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-sky-200">
+                                            Self Order
+                                        </p>
+                                        <p className="mt-1 truncate text-sm font-medium text-slate-300">
+                                            {outlet?.name || storeProfile?.name || "Outlet"}
+                                        </p>
+                                    </div>
                                 </div>
-                                <div>
-                                    <p className="text-sm uppercase tracking-[0.28em] text-[#8f6a44]">
-                                        Self Order Meja
-                                    </p>
-                                    <h1 className="mt-2 text-3xl font-bold text-slate-900 lg:text-4xl">
-                                        {outlet?.name || storeProfile?.name || "Outlet"} •{" "}
-                                        {table.code || table.name}
-                                    </h1>
-                                    <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
-                                        Scan meja, masukkan nomor HP, pilih menu, lalu bayar ke kasir.
-                                        Setelah tunai dikonfirmasi, order otomatis diteruskan ke dapur yang sesuai.
-                                    </p>
+                                <h1 className="mt-4 max-w-3xl text-[1.9rem] font-black leading-tight tracking-[-0.04em] text-white sm:text-[2.35rem]">
+                                    Pesan dari meja dengan alur yang cepat dan mudah dipahami.
+                                </h1>
+                                <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300 sm:text-[15px]">
+                                    Pilih menu, tambah catatan bila perlu, lalu kirim ringkasan order ke kasir. Pembayaran dilakukan di kasir dan pesanan diteruskan ke dapur otomatis.
+                                </p>
+                                <div className="mt-4 flex flex-wrap gap-2">
+                                    <span className="rounded-full border border-white/12 bg-white/10 px-3 py-1.5 text-xs font-semibold text-white">
+                                        Meja {table.code || table.name}
+                                    </span>
+                                    <span className="rounded-full border border-emerald-400/20 bg-emerald-400/12 px-3 py-1.5 text-xs font-semibold text-emerald-100">
+                                        Bayar di kasir
+                                    </span>
+                                    <span className="rounded-full border border-sky-400/20 bg-sky-400/12 px-3 py-1.5 text-xs font-semibold text-sky-100">
+                                        Dapur otomatis
+                                    </span>
                                 </div>
                             </div>
-                            <div className="grid shrink-0 grid-cols-2 gap-3 lg:min-w-[250px]">
-                                <div className="rounded-2xl border border-white/70 bg-white/80 px-4 py-3 shadow-sm">
-                                    <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">
+                            <div className="grid w-full min-w-0 grid-cols-2 gap-3 sm:max-w-sm lg:min-w-[300px]">
+                                <div className="rounded-[22px] border border-white/10 bg-white/10 px-4 py-3 backdrop-blur">
+                                    <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-300">
                                         Meja
                                     </p>
-                                    <p className="mt-1 text-lg font-semibold text-slate-900">
+                                    <p className="mt-1 text-base font-semibold text-white sm:text-lg">
                                         {table.code || table.name}
                                     </p>
                                 </div>
-                                <div className="rounded-2xl border border-white/70 bg-white/80 px-4 py-3 shadow-sm">
-                                    <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">
+                                <div className="rounded-[22px] border border-white/10 bg-white/10 px-4 py-3 backdrop-blur">
+                                    <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-300">
                                         Kapasitas
                                     </p>
-                                    <p className="mt-1 text-lg font-semibold text-slate-900">
+                                    <p className="mt-1 text-base font-semibold text-white sm:text-lg">
                                         {table.capacity || 0} Kursi
                                     </p>
+                                </div>
+                                <div className="col-span-2 min-w-0 rounded-[22px] border border-white/10 bg-white/10 px-4 py-3 backdrop-blur">
+                                    <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                        <div>
+                                            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-300">
+                                                Ringkas
+                                            </p>
+                                            <p className="mt-1 text-sm font-medium text-white">
+                                                Pilih menu, kirim order, lalu bayar di kasir.
+                                            </p>
+                                        </div>
+                                        <span className="inline-flex shrink-0 self-start rounded-full bg-white px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-slate-900 sm:self-auto">
+                                            Fast flow
+                                        </span>
+                                    </div>
                                 </div>
                             </div>
                         </div>
                         {flash?.success ? (
-                            <div className="relative mt-5 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+                            <div className="relative mt-4 rounded-2xl border border-emerald-300/25 bg-emerald-400/12 px-4 py-3 text-sm text-emerald-100">
                                 {flash.success}
                             </div>
                         ) : null}
                         {flash?.info ? (
-                            <div className="relative mt-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+                            <div className="relative mt-4 rounded-2xl border border-amber-300/25 bg-amber-400/12 px-4 py-3 text-sm text-amber-100">
                                 {flash.info}
                             </div>
                         ) : null}
                     </div>
 
                     {!customer ? (
-                        <div className="space-y-6">
-                            <div className="rounded-[32px] border border-slate-200 bg-white/95 p-6 shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
-                                <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                        <div className="grid gap-4 lg:grid-cols-[1.15fr,0.85fr]">
+                            <section className="rounded-[28px] border border-slate-200/80 bg-white/96 p-5 shadow-[0_18px_60px_-34px_rgba(15,23,42,0.3)] sm:p-6">
+                                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                                     <div className="max-w-2xl">
-                                        <p className="text-sm uppercase tracking-[0.24em] text-[#8f6a44]">
+                                        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-700">
                                             Mulai Order
                                         </p>
-                                        <h2 className="mt-2 text-2xl font-semibold text-slate-900">
-                                    Identitas Pembeli
+                                        <h2 className="mt-2 text-[1.6rem] font-bold tracking-[-0.03em] text-slate-950">
+                                            Identitas pembeli
                                         </h2>
-                                        <p className="mt-2 text-sm leading-6 text-slate-500">
-                                            Masukkan nomor HP untuk melanjutkan ke katalog menu dan checkout.
+                                        <p className="mt-2 text-sm leading-6 text-slate-600">
+                                            Masukkan nomor HP agar pesanan mudah dikenali kasir dan dapat terhubung ke histori pembelian jika sudah pernah terdaftar.
                                         </p>
                                     </div>
-                                    <div className="rounded-2xl bg-[#fff8f1] px-4 py-3 text-sm text-slate-600">
-                                        Meja <span className="font-semibold text-slate-900">{table.code || table.name}</span>
+                                    <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                                        Meja{" "}
+                                        <span className="font-semibold text-slate-900">
+                                            {table.code || table.name}
+                                        </span>
                                     </div>
                                 </div>
 
                                 {!pendingPhone ? (
-                                    <div className="mt-5 rounded-[28px] border border-slate-100 bg-[linear-gradient(180deg,_#f8fafc_0%,_#f1f5f9_100%)] p-5">
-                                        <div className="flex flex-col gap-1 lg:flex-row lg:items-center lg:justify-between">
-                                            <p className="text-sm font-semibold text-slate-800">
-                                            Masukkan nomor hape
+                                    <div className="mt-5 rounded-[26px] border border-slate-200 bg-[linear-gradient(180deg,_#ffffff_0%,_#f8fafc_100%)] p-4 sm:p-5">
+                                        <div className="flex flex-col gap-1">
+                                            <p className="text-sm font-semibold text-slate-900">
+                                                Masukkan nomor hape
                                             </p>
                                             <p className="text-sm text-slate-500">
-                                            Jika nomor sudah terdaftar, poin dan histori akan langsung terhubung.
+                                                Jika nomor sudah terdaftar, histori dan poin akan langsung terhubung.
                                             </p>
                                         </div>
-                                        <form onSubmit={submitIdentify} className="mt-4 grid gap-3 lg:grid-cols-[1fr,220px] lg:items-start">
+                                        <form
+                                            onSubmit={submitIdentify}
+                                            className="mt-4 grid gap-3 sm:grid-cols-[1fr,180px] sm:items-start"
+                                        >
                                             <div>
                                                 <input
                                                     type="text"
                                                     value={identifyForm.data.no_telp}
                                                     onChange={(event) =>
-                                                        identifyForm.setData("no_telp", event.target.value)
+                                                        identifyForm.setData(
+                                                            "no_telp",
+                                                            sanitizePhoneNumber(
+                                                                event.target.value
+                                                            )
+                                                        )
                                                     }
                                                     placeholder="08xxxxxxxxxx"
-                                                    className="h-12 w-full rounded-2xl border border-slate-300 bg-white px-4 text-base shadow-sm"
+                                                    inputMode="numeric"
+                                                    autoComplete="tel"
+                                                    className="h-12 w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 text-base shadow-sm outline-none transition focus:border-sky-400 focus:bg-white focus:ring-4 focus:ring-sky-100"
                                                 />
                                                 <p className="mt-2 text-xs text-slate-500">
-                                                    Contoh: 0812xxxxxxx
+                                                    Gunakan angka saja. Contoh: 0812xxxxxxx
                                                 </p>
                                             </div>
                                             {identifyForm.errors.no_telp ? (
-                                                <p className="text-sm text-rose-600 lg:col-span-2">
+                                                <p className="text-sm text-rose-600 sm:col-span-2">
                                                     {identifyForm.errors.no_telp}
                                                 </p>
                                             ) : null}
                                             <button
                                                 type="submit"
                                                 disabled={identifyForm.processing}
-                                                className="inline-flex h-12 w-full items-center justify-center rounded-2xl bg-[linear-gradient(135deg,_#0f172a_0%,_#1e293b_100%)] px-5 py-3 font-semibold text-white shadow-lg shadow-slate-900/20 disabled:opacity-50"
+                                                className="inline-flex h-12 w-full items-center justify-center rounded-2xl bg-[linear-gradient(135deg,_#0f172a_0%,_#0f3b68_100%)] px-5 py-3 font-semibold text-white shadow-lg shadow-slate-900/20 disabled:opacity-50"
                                             >
                                                 Lanjutkan
                                             </button>
                                         </form>
                                     </div>
                                 ) : (
-                                    <div className="mt-5 rounded-[28px] border border-slate-100 bg-[linear-gradient(180deg,_#f8fafc_0%,_#f1f5f9_100%)] p-5">
-                                        <p className="text-sm font-semibold text-slate-800">
+                                    <div className="mt-5 rounded-[26px] border border-slate-200 bg-[linear-gradient(180deg,_#ffffff_0%,_#f8fafc_100%)] p-4 sm:p-5">
+                                        <p className="text-sm font-semibold text-slate-900">
                                             Lengkapi profil singkat
                                         </p>
                                         <p className="mt-1 text-sm text-slate-500">
@@ -594,7 +722,7 @@ export default function Menu({ table, outlet, products = [], identity }) {
                                                     registerForm.setData("name", event.target.value)
                                                 }
                                                 placeholder="Nama"
-                                                className="h-12 w-full rounded-2xl border border-slate-300 bg-white px-4 shadow-sm"
+                                                className="h-12 w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 shadow-sm outline-none transition focus:border-sky-400 focus:bg-white focus:ring-4 focus:ring-sky-100"
                                             />
                                             <input
                                                 type="email"
@@ -603,600 +731,901 @@ export default function Menu({ table, outlet, products = [], identity }) {
                                                     registerForm.setData("email", event.target.value)
                                                 }
                                                 placeholder="Email (opsional)"
-                                                className="h-12 w-full rounded-2xl border border-slate-300 bg-white px-4 shadow-sm"
+                                                className="h-12 w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 shadow-sm outline-none transition focus:border-sky-400 focus:bg-white focus:ring-4 focus:ring-sky-100"
                                             />
                                             <textarea
                                                 rows={3}
                                                 value={registerForm.data.address}
                                                 onChange={(event) =>
-                                                    registerForm.setData("address", event.target.value)
+                                                    registerForm.setData(
+                                                        "address",
+                                                        event.target.value
+                                                    )
                                                 }
                                                 placeholder="Alamat (opsional)"
-                                                className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 shadow-sm"
+                                                className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 shadow-sm outline-none transition focus:border-sky-400 focus:bg-white focus:ring-4 focus:ring-sky-100"
                                             />
                                             {Object.values(registerForm.errors).length > 0 ? (
                                                 <div className="space-y-1 text-sm text-rose-600">
-                                                    {Object.entries(registerForm.errors).map(([key, value]) => (
-                                                        <p key={key}>{value}</p>
-                                                    ))}
+                                                    {Object.entries(registerForm.errors).map(
+                                                        ([key, value]) => (
+                                                            <p key={key}>{value}</p>
+                                                        )
+                                                    )}
                                                 </div>
                                             ) : null}
                                             <button
                                                 type="submit"
                                                 disabled={registerForm.processing}
-                                                className="inline-flex h-12 w-full items-center justify-center rounded-2xl bg-[linear-gradient(135deg,_#0f172a_0%,_#1e293b_100%)] px-5 py-3 font-semibold text-white shadow-lg shadow-slate-900/20 disabled:opacity-50"
+                                                className="inline-flex h-12 w-full items-center justify-center rounded-2xl bg-[linear-gradient(135deg,_#0f172a_0%,_#0f3b68_100%)] px-5 py-3 font-semibold text-white shadow-lg shadow-slate-900/20 disabled:opacity-50"
                                             >
                                                 Simpan Profil dan Lanjut
                                             </button>
                                         </form>
                                     </div>
                                 )}
-                            </div>
+                            </section>
 
-                            <div className="rounded-[32px] border border-[#eadac3] bg-[linear-gradient(180deg,_rgba(255,255,255,0.88)_0%,_rgba(255,248,241,0.92)_100%)] p-6 shadow-[0_20px_60px_rgba(148,101,56,0.10)]">
-                                <div className="max-w-2xl">
-                                    <p className="text-sm uppercase tracking-[0.24em] text-[#8f6a44]">
-                                        Langkah Awal
-                                    </p>
-                                    <h2 className="mt-3 text-2xl font-bold text-slate-900">
-                                        Alur self order meja
-                                    </h2>
-                                    <p className="mt-3 text-sm leading-6 text-slate-600">
-                                        Setelah nomor HP dimasukkan, pembeli bisa memilih menu,
-                                        membayar di kasir, lalu menunggu pesanan diproses dapur.
-                                    </p>
-                                </div>
-                                <div className="mt-5 rounded-[28px] border border-white/80 bg-white/75 p-4 shadow-sm">
-                                    <p className="text-[11px] uppercase tracking-[0.24em] text-slate-500">
-                                        Alur Pesanan
-                                    </p>
-                                    <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_auto_1fr_auto_1fr_auto_1fr] lg:items-center">
-                                        <div className="rounded-2xl bg-[#fff8f1] px-4 py-3">
-                                            <div className="flex items-center gap-3">
-                                                <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[#9b4b2e] text-sm font-bold text-white">1</span>
-                                                <div>
-                                                    <p className="text-sm font-semibold text-slate-900">Masukkan nomor HP</p>
-                                                    <p className="mt-1 text-xs leading-5 text-slate-500">Hubungkan pesanan ke data member atau pembeli.</p>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div className="hidden text-center text-2xl text-[#9b4b2e] lg:block">→</div>
-                                        <div className="rounded-2xl bg-[#f5f9f3] px-4 py-3">
-                                            <div className="flex items-center gap-3">
-                                                <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[#5f7d4d] text-sm font-bold text-white">2</span>
-                                                <div>
-                                                    <p className="text-sm font-semibold text-slate-900">Pilih menu</p>
-                                                    <p className="mt-1 text-xs leading-5 text-slate-500">Tambahkan makanan, minuman, dan extra jika perlu.</p>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div className="hidden text-center text-2xl text-[#5f7d4d] lg:block">→</div>
-                                        <div className="rounded-2xl bg-[#f8f5ff] px-4 py-3">
-                                            <div className="flex items-center gap-3">
-                                                <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[#4f46e5] text-sm font-bold text-white">3</span>
-                                                <div>
-                                                    <p className="text-sm font-semibold text-slate-900">Bayar di kasir</p>
-                                                    <p className="mt-1 text-xs leading-5 text-slate-500">Tunjukkan pesanan lalu lakukan pembayaran tunai.</p>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div className="hidden text-center text-2xl text-[#4f46e5] lg:block">→</div>
-                                        <div className="rounded-2xl bg-[#eef6ff] px-4 py-3">
-                                            <div className="flex items-center gap-3">
-                                                <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[#0f766e] text-sm font-bold text-white">4</span>
-                                                <div>
-                                                    <p className="text-sm font-semibold text-slate-900">Tunggu pesanan</p>
-                                                    <p className="mt-1 text-xs leading-5 text-slate-500">Setelah pembayaran dikonfirmasi, dapur mulai memproses order.</p>
-                                                </div>
-                                            </div>
-                                        </div>
+                            <section className="rounded-[28px] border border-slate-200/80 bg-white/96 p-5 shadow-[0_18px_60px_-34px_rgba(15,23,42,0.3)] sm:p-6">
+                                <div className="flex items-start justify-between gap-3">
+                                    <div>
+                                        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-700">
+                                            Cara Order
+                                        </p>
+                                        <h2 className="mt-2 text-xl font-bold tracking-[-0.02em] text-slate-950">
+                                            Ringkas dan cepat dipakai
+                                        </h2>
                                     </div>
-                                    <div className="mt-3 grid gap-2 lg:hidden">
-                                        <div className="flex justify-center text-xl text-[#9b4b2e]">↓</div>
-                                        <div className="flex justify-center text-xl text-[#5f7d4d]">↓</div>
-                                        <div className="flex justify-center text-xl text-[#4f46e5]">↓</div>
-                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() =>
+                                            setShowOrderGuide((current) => !current)
+                                        }
+                                        className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-600 lg:hidden"
+                                    >
+                                        {showOrderGuide ? "Tutup" : "Lihat"}
+                                    </button>
                                 </div>
-                            </div>
-                        </div>
-                    ) : (
-                        <div className="grid gap-6 lg:grid-cols-[1.5fr,0.9fr]">
-                            <div className="space-y-6">
-                                <section className="rounded-[28px] border border-slate-200 bg-white/95 p-6 shadow-sm">
-                                    <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                                        <div>
-                                            <h2 className="text-xl font-semibold">Menu Pesanan</h2>
-                                            <p className="mt-1 text-sm text-slate-500">
-                                                Cari menu dan filter kategori seperti di POS kasir.
+                                <p className="mt-2 text-sm leading-6 text-slate-600">
+                                    Buka nomor, pilih menu, kirim order, lalu bayar di kasir.
+                                </p>
+                                <div
+                                    className={`mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2 ${
+                                        showOrderGuide ? "grid" : "hidden lg:grid"
+                                    }`}
+                                >
+                                    {[
+                                        [
+                                            "1",
+                                            "Isi nomor HP",
+                                            "Agar kasir mudah mengenali order Anda.",
+                                        ],
+                                        [
+                                            "2",
+                                            "Pilih menu",
+                                            "Tambahkan extra atau catatan bila perlu.",
+                                        ],
+                                        [
+                                            "3",
+                                            "Kirim order",
+                                            "Tunjukkan total ke kasir untuk pembayaran.",
+                                        ],
+                                        [
+                                            "4",
+                                            "Tunggu pesanan",
+                                            "Dapur langsung memproses order.",
+                                        ],
+                                    ].map(([step, title, helper]) => (
+                                        <div
+                                            key={step}
+                                            className="rounded-[22px] border border-slate-200 bg-[linear-gradient(180deg,_#ffffff_0%,_#f8fafc_100%)] px-4 py-4 shadow-sm"
+                                        >
+                                            <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-900 text-sm font-bold text-white">
+                                                {step}
+                                            </span>
+                                            <p className="mt-4 text-sm font-semibold text-slate-900">
+                                                {title}
+                                            </p>
+                                            <p className="mt-1 text-sm leading-6 text-slate-500">
+                                                {helper}
                                             </p>
                                         </div>
-                                        <input
-                                            type="text"
-                                            value={searchQuery}
-                                            onChange={(event) => setSearchQuery(event.target.value)}
-                                            placeholder="Cari menu..."
-                                            className="h-11 w-full rounded-2xl border border-slate-300 bg-white px-4 lg:max-w-xs"
-                                        />
-                                    </div>
-
-                                    <div className="mt-4 flex flex-wrap gap-2">
-                                        {categoryOptions.map((categoryName) => {
-                                            const active = selectedCategory === categoryName;
-
-                                            return (
-                                                <button
-                                                    key={categoryName}
-                                                    type="button"
-                                                    onClick={() => setSelectedCategory(categoryName)}
-                                                    className={`rounded-full px-4 py-2 text-sm font-medium ${
-                                                        active
-                                                            ? "bg-slate-900 text-white"
-                                                            : "bg-slate-100 text-slate-600"
-                                                    }`}
-                                                >
-                                                    {categoryName === "all" ? "Semua" : categoryName}
-                                                </button>
-                                            );
-                                        })}
-                                    </div>
-                                </section>
-
-                                {Object.keys(groupedProducts).length === 0 ? (
-                                    <div className="rounded-[28px] border border-slate-200 bg-white p-6 text-sm text-slate-500 shadow-sm">
-                                        Tidak ada menu yang cocok dengan pencarian atau kategori ini.
-                                    </div>
-                                ) : (
-                                    Object.entries(groupedProducts).map(([categoryName, items]) => (
-                                        <section
-                                            key={categoryName}
-                                            className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm"
+                                    ))}
+                                </div>
+                            </section>
+                        </div>
+                    ) : (
+                        <>
+                            <div className="mb-4 grid grid-cols-2 rounded-[22px] border border-slate-200 bg-white p-1 shadow-sm lg:hidden">
+                                <button
+                                    type="button"
+                                    onClick={() => setActiveMobileTab("products")}
+                                    className={`rounded-[18px] px-4 py-3 text-sm font-semibold transition ${
+                                        activeMobileTab === "products"
+                                            ? "bg-slate-950 text-white shadow-lg shadow-slate-900/15"
+                                            : "text-slate-600"
+                                    }`}
+                                >
+                                    Produk
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setActiveMobileTab("cart")}
+                                    className={`rounded-[18px] px-4 py-3 text-sm font-semibold transition ${
+                                        activeMobileTab === "cart"
+                                            ? "bg-slate-950 text-white shadow-lg shadow-slate-900/15"
+                                            : "text-slate-600"
+                                    }`}
+                                >
+                                    Keranjang
+                                    {cartItems.length > 0 ? (
+                                        <span
+                                            className={`ml-2 inline-flex min-w-6 items-center justify-center rounded-full px-1.5 py-0.5 text-[11px] ${
+                                                activeMobileTab === "cart"
+                                                    ? "bg-white/15 text-white"
+                                                    : "bg-slate-100 text-slate-700"
+                                            }`}
                                         >
-                                            <div className="mb-4">
-                                                <h2 className="text-xl font-semibold">{categoryName}</h2>
+                                            {cartItems.length}
+                                        </span>
+                                    ) : null}
+                                </button>
+                            </div>
+
+                        <div className="grid gap-5 lg:grid-cols-[minmax(0,1.35fr),380px] xl:grid-cols-[minmax(0,1.45fr),420px]">
+                            <div
+                                className={`space-y-4 sm:space-y-5 ${
+                                    activeMobileTab === "products"
+                                        ? "block"
+                                        : "hidden lg:block"
+                                }`}
+                            >
+                                <section className="overflow-hidden rounded-[24px] border border-slate-200/80 bg-white/96 shadow-[0_20px_70px_-38px_rgba(15,23,42,0.28)] sm:rounded-[28px]">
+                                    <div className="border-b border-slate-100 bg-[linear-gradient(135deg,_rgba(15,23,42,0.04)_0%,_rgba(14,165,233,0.07)_100%)] px-3 py-3 sm:px-5 sm:py-4">
+                                        <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                                            <div className="min-w-0">
+                                                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-sky-700">
+                                                    Katalog Menu
+                                                </p>
+                                                <h2 className="mt-1.5 break-words text-[1.15rem] font-bold tracking-[-0.03em] text-slate-950 sm:mt-2 sm:text-[1.7rem]">
+                                                    Pilih menu favorit Anda
+                                                </h2>
+                                                <p className="mt-1 text-xs leading-5 text-slate-500 sm:text-sm">
+                                                    Cari menu dengan cepat, lalu pilih kategori yang diinginkan.
+                                                </p>
                                             </div>
+                                            <div className="min-w-0 w-full lg:max-w-sm">
+                                                <input
+                                                    type="text"
+                                                    value={searchQuery}
+                                                    onChange={(event) =>
+                                                        setSearchQuery(
+                                                            event.target.value
+                                                        )
+                                                    }
+                                                    placeholder="Cari menu, minuman, atau snack..."
+                                                    className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm shadow-sm outline-none transition focus:border-sky-400 focus:ring-4 focus:ring-sky-100 sm:h-12 sm:rounded-2xl sm:px-4"
+                                                />
+                                            </div>
+                                        </div>
+                                        <div className="mt-3 flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                                            {categoryOptions.map((categoryName) => {
+                                                const active =
+                                                    selectedCategory ===
+                                                    categoryName;
 
-                                            <div className="grid gap-4 md:grid-cols-2">
-                                                {items.map((product) => (
-                                                    (() => {
-                                                        const promo = promoDisplay(product);
-                                                        const hasStock = Number(product.stock || 0) > 0;
-
-                                                        return (
-                                                    <div
-                                                        key={product.id}
-                                                        className={`rounded-3xl border p-4 transition ${
-                                                            hasStock
-                                                                ? "border-slate-200 bg-slate-50 hover:border-slate-300 hover:shadow-sm"
-                                                                : "border-slate-200 bg-slate-100 opacity-70"
+                                                return (
+                                                    <button
+                                                        key={categoryName}
+                                                        type="button"
+                                                        onClick={() =>
+                                                            setSelectedCategory(
+                                                                categoryName
+                                                            )
+                                                        }
+                                                        className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition sm:px-4 sm:py-2 sm:text-sm ${
+                                                            active
+                                                                ? "bg-slate-950 text-white shadow-lg shadow-slate-900/15"
+                                                                : "border border-slate-200 bg-white text-slate-600"
                                                         }`}
                                                     >
-                                                        <div className="flex gap-4">
-                                                            <div className="relative">
-                                                                <img
-                                                                    src={product.image}
-                                                                    alt={product.title}
-                                                                    className="h-24 w-24 rounded-2xl object-cover"
-                                                                />
-                                                                {promo.badge?.label ? (
-                                                                    <span className="absolute left-2 top-2 max-w-[70%] truncate rounded-full bg-rose-500 px-2 py-1 text-[10px] font-semibold text-white">
-                                                                        {promo.badge.label}
-                                                                    </span>
-                                                                ) : null}
-                                                                {!hasStock ? (
-                                                                    <div className="absolute inset-0 flex items-center justify-center rounded-2xl bg-slate-900/60">
-                                                                        <span className="rounded-full bg-rose-500 px-2 py-1 text-[10px] font-semibold text-white">
-                                                                            Habis
-                                                                        </span>
-                                                                    </div>
-                                                                ) : null}
-                                                            </div>
-                                                            <div className="min-w-0 flex-1">
-                                                                <div className="flex items-start justify-between gap-3">
-                                                                    <h3 className="font-semibold">{product.title}</h3>
-                                                                    {hasPresetModifiers(product) ? (
-                                                                        <span className="rounded-full bg-[#f4d7c8] px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-[#9b4b2e]">
-                                                                            Extra tersedia
-                                                                        </span>
-                                                                    ) : null}
-                                                                </div>
-                                                                <p className="mt-1 text-sm text-slate-500">
-                                                                    {product.description || "Menu tersedia untuk self-order meja."}
-                                                                </p>
-                                                                <p className="mt-3 text-sm font-semibold text-primary-700">
-                                                                    {formatPrice(
-                                                                        promo.showPromo
-                                                                            ? promo.promoPrice
-                                                                            : product.sell_price
-                                                                    )}
-                                                                </p>
-                                                                {promo.showPromo ? (
-                                                                    <p className="mt-1 text-xs text-slate-400 line-through">
-                                                                        {formatPrice(promo.basePrice)}
-                                                                    </p>
-                                                                ) : null}
-                                                                <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                                                                    <span>Stok outlet: {product.stock}</span>
-                                                                    {lowStockLabel(product.stock) ? (
-                                                                        <span className="rounded-full bg-amber-100 px-2 py-1 font-semibold text-amber-700">
-                                                                            {lowStockLabel(product.stock)}
-                                                                        </span>
-                                                                    ) : null}
-                                                                </div>
-                                                                {product.kitchen_stations?.length ? (
-                                                                    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                                                                        <span className="font-medium text-slate-600">
-                                                                            Dapur:
-                                                                        </span>
-                                                                        {product.kitchen_stations.map((station) => (
-                                                                            <span
-                                                                                key={`${product.id}-${station.id || station.name}`}
-                                                                                className="rounded-full bg-slate-200 px-2 py-1 text-[11px] font-medium text-slate-700"
-                                                                            >
-                                                                                {station.name}
-                                                                            </span>
-                                                                        ))}
-                                                                    </div>
-                                                                ) : null}
-                                                            </div>
-                                                        </div>
+                                                        {categoryName === "all"
+                                                            ? "Semua"
+                                                            : categoryName}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                                            <span className="rounded-full bg-slate-100 px-2.5 py-1 font-semibold text-slate-700 sm:px-3 sm:py-1.5">
+                                                {filteredProductCount} menu tampil
+                                            </span>
+                                            {selectedCategory !== "all" ? (
+                                                <span className="rounded-full bg-sky-50 px-2.5 py-1 font-semibold text-sky-700 sm:px-3 sm:py-1.5">
+                                                    {selectedCategory}
+                                                </span>
+                                            ) : null}
+                                            {searchQuery.trim() ? (
+                                                <span className="rounded-full bg-emerald-50 px-2.5 py-1 font-semibold text-emerald-700 sm:px-3 sm:py-1.5">
+                                                    Cari: {searchQuery.trim()}
+                                                </span>
+                                            ) : null}
+                                        </div>
+                                    </div>
 
-                                                        {hasPresetModifiers(product) ? (
-                                                            <div className="mt-4">
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => handleAddProduct(product)}
-                                                                    disabled={!hasStock}
-                                                                    className="inline-flex w-full items-center justify-center rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white disabled:opacity-50"
-                                                                >
-                                                                    Tambah Pesanan
-                                                                </button>
-                                                                <p className="mt-2 text-xs text-slate-500">
-                                                                    Sudah dipilih: {productOrderCount(product.id)} item
-                                                                </p>
-                                                            </div>
-                                                        ) : (
-                                                            <div className="mt-4 flex items-center gap-3">
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() =>
-                                                                        updatePlainQty(
-                                                                            product,
-                                                                            plainProductQty(product.id) - 1
-                                                                        )
-                                                                    }
-                                                                    disabled={!hasStock}
-                                                                    className="h-10 w-10 rounded-2xl border border-slate-300 bg-white text-lg"
-                                                                >
-                                                                    -
-                                                                </button>
-                                                                <input
-                                                                    type="number"
-                                                                    min="0"
-                                                                    max={product.stock}
-                                                                    value={plainProductQty(product.id)}
-                                                                    onChange={(event) =>
-                                                                        updatePlainQty(product, event.target.value)
-                                                                    }
-                                                                    disabled={!hasStock}
-                                                                    className="h-10 w-20 rounded-2xl border border-slate-300 bg-white px-3 text-center"
-                                                                />
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() =>
-                                                                        updatePlainQty(
-                                                                            product,
-                                                                            plainProductQty(product.id) + 1
-                                                                        )
-                                                                    }
-                                                                    disabled={!hasStock}
-                                                                    className="h-10 w-10 rounded-2xl border border-slate-300 bg-white text-lg"
-                                                                >
-                                                                    +
-                                                                </button>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                        );
-                                                    })()
-                                                ))}
+                                    <div className="p-3 sm:p-5">
+                                        {Object.keys(groupedProducts).length === 0 ? (
+                                            <div className="rounded-[24px] border border-dashed border-slate-300 bg-slate-50 px-5 py-8 text-center text-sm text-slate-500">
+                                                Tidak ada menu yang cocok dengan pencarian atau kategori ini.
                                             </div>
-                                        </section>
-                                    ))
-                                )}
+                                        ) : (
+                                            <div className="space-y-5">
+                                                {Object.entries(groupedProducts).map(
+                                                    ([categoryName, items]) => (
+                                                        <section key={categoryName}>
+                                                            <div className="mb-3 flex items-center justify-between gap-3">
+                                                                <h3 className="text-base font-semibold text-slate-900 sm:text-lg">
+                                                                    {categoryName}
+                                                                </h3>
+                                                                <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600 sm:px-3 sm:text-xs">
+                                                                    {items.length} menu
+                                                                </span>
+                                                            </div>
+
+                                                            <div className="space-y-3">
+                                                                {items.map((product) => {
+                                                                    const promo =
+                                                                        promoDisplay(
+                                                                            product
+                                                                        );
+                                                                    const hasStock =
+                                                                        Number(
+                                                                            product.stock || 0
+                                                                        ) > 0;
+
+                                                                    return (
+                                                                        <article
+                                                                            key={product.id}
+                                                                            className={`rounded-[22px] border p-2.5 transition sm:rounded-[26px] sm:p-4 ${
+                                                                                hasStock
+                                                                                    ? "border-slate-200 bg-white shadow-[0_14px_40px_-34px_rgba(15,23,42,0.35)]"
+                                                                                    : "border-slate-200 bg-slate-100/90 opacity-75"
+                                                                            }`}
+                                                                        >
+                                                                            <div className="flex items-start gap-2.5 sm:gap-4">
+                                                                                <div className="relative shrink-0">
+                                                                                    <img
+                                                                                        src={
+                                                                                            product.image ||
+                                                                                            productPlaceholder(
+                                                                                                product.title
+                                                                                            )
+                                                                                        }
+                                                                                        alt={
+                                                                                            product.title
+                                                                                        }
+                                                                                        className="h-20 w-20 rounded-[18px] object-cover sm:h-28 sm:w-28 sm:rounded-[22px]"
+                                                                                        onError={(
+                                                                                            event
+                                                                                        ) => {
+                                                                                            event.currentTarget.src =
+                                                                                                productPlaceholder(
+                                                                                                    product.title
+                                                                                                );
+                                                                                        }}
+                                                                                    />
+                                                                                    {promo.badge?.label ? (
+                                                                                        <span className="absolute left-2 top-2 max-w-[75%] truncate rounded-full bg-rose-500 px-2 py-1 text-[10px] font-semibold text-white">
+                                                                                            {promo.badge.label}
+                                                                                        </span>
+                                                                                    ) : null}
+                                                                                    {!hasStock ? (
+                                                                                        <div className="absolute inset-0 flex items-center justify-center rounded-[22px] bg-slate-950/60">
+                                                                                            <span className="rounded-full bg-rose-500 px-2 py-1 text-[10px] font-semibold text-white">
+                                                                                                Habis
+                                                                                            </span>
+                                                                                        </div>
+                                                                                    ) : null}
+                                                                                </div>
+                                                                                <div className="min-w-0 flex-1">
+                                                                                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                                                                        <div className="min-w-0">
+                                                                                            <h3 className="text-sm font-bold leading-5 text-slate-950 sm:text-base sm:leading-6">
+                                                                                                {
+                                                                                                    product.title
+                                                                                                }
+                                                                                            </h3>
+                                                                                            <p className="mt-1 text-xs leading-5 text-slate-500 sm:text-sm sm:leading-6">
+                                                                                                {product.description ||
+                                                                                                    "Menu tersedia untuk self-order meja."}
+                                                                                            </p>
+                                                                                        </div>
+                                                                                        {hasPresetModifiers(
+                                                                                            product
+                                                                                        ) ? (
+                                                                                            <span className="shrink-0 rounded-full bg-sky-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-sky-700 sm:px-3 sm:text-[11px]">
+                                                                                                Extra tersedia
+                                                                                            </span>
+                                                                                        ) : null}
+                                                                                    </div>
+
+                                                                                    <div className="mt-2.5 flex flex-wrap items-center gap-1.5 text-xs text-slate-500 sm:mt-3 sm:gap-2">
+                                                                                        <span className="rounded-full bg-slate-100 px-2.5 py-1 font-semibold text-slate-700 sm:px-3 sm:py-1.5">
+                                                                                            Stok{" "}
+                                                                                            {
+                                                                                                product.stock
+                                                                                            }
+                                                                                        </span>
+                                                                                        {lowStockLabel(
+                                                                                            product.stock
+                                                                                        ) ? (
+                                                                                            <span className="rounded-full bg-amber-100 px-2.5 py-1 font-semibold text-amber-700 sm:px-3 sm:py-1.5">
+                                                                                                {lowStockLabel(
+                                                                                                    product.stock
+                                                                                                )}
+                                                                                            </span>
+                                                                                        ) : null}
+                                                                                        {product.kitchen_stations?.map(
+                                                                                            (
+                                                                                                station
+                                                                                            ) => (
+                                                                                                <span
+                                                                                                    key={`${product.id}-${station.id || station.name}`}
+                                                                                                    className="rounded-full bg-emerald-50 px-2.5 py-1 font-semibold text-emerald-700 sm:px-3 sm:py-1.5"
+                                                                                                >
+                                                                                                    {
+                                                                                                        station.name
+                                                                                                    }
+                                                                                                </span>
+                                                                                            )
+                                                                                        )}
+                                                                                    </div>
+
+                                                                                    <div className="mt-3 flex flex-col gap-3 border-t border-slate-100 pt-3 sm:mt-4 sm:pt-4 lg:flex-row lg:items-end lg:justify-between">
+                                                                                        <div>
+                                                                                            <p className="text-base font-black tracking-[-0.03em] text-slate-950 sm:text-lg">
+                                                                                                {formatPrice(
+                                                                                                    promo.showPromo
+                                                                                                        ? promo.promoPrice
+                                                                                                        : product.sell_price
+                                                                                                )}
+                                                                                            </p>
+                                                                                            {promo.showPromo ? (
+                                                                                                <p className="mt-1 text-xs text-slate-400 line-through">
+                                                                                                    {formatPrice(
+                                                                                                        promo.basePrice
+                                                                                                    )}
+                                                                                                </p>
+                                                                                            ) : null}
+                                                                                            <p className="mt-1 text-[11px] font-medium text-slate-500 sm:text-xs">
+                                                                                                Dipilih{" "}
+                                                                                                {productOrderCount(
+                                                                                                    product.id
+                                                                                                )}{" "}
+                                                                                                item
+                                                                                            </p>
+                                                                                        </div>
+
+                                                                                        {hasPresetModifiers(
+                                                                                            product
+                                                                                        ) ? (
+                                                                                            <button
+                                                                                                type="button"
+                                                                                                onClick={() =>
+                                                                                                    handleAddProduct(
+                                                                                                        product
+                                                                                                    )
+                                                                                                }
+                                                                                                disabled={
+                                                                                                    !hasStock
+                                                                                                }
+                                                                                                className="inline-flex h-10 w-full items-center justify-center rounded-xl bg-[linear-gradient(135deg,_#0f172a_0%,_#0f3b68_100%)] px-4 text-xs font-semibold text-white shadow-lg shadow-slate-900/15 disabled:opacity-50 sm:h-11 sm:rounded-2xl sm:px-5 sm:text-sm lg:w-auto lg:min-w-[170px]"
+                                                                                            >
+                                                                                                Tambah ke Keranjang
+                                                                                            </button>
+                                                                                        ) : (
+                                                                                            <div className="w-full lg:min-w-[220px]">
+                                                                                                <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-2 py-2">
+                                                                                                    <button
+                                                                                                        type="button"
+                                                                                                        onClick={() =>
+                                                                                                            updatePlainQty(
+                                                                                                                product,
+                                                                                                                plainProductQty(
+                                                                                                                    product.id
+                                                                                                                ) -
+                                                                                                                    1
+                                                                                                            )
+                                                                                                        }
+                                                                                                        disabled={
+                                                                                                            !hasStock
+                                                                                                        }
+                                                                                                        className="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-lg text-slate-700 shadow-sm disabled:opacity-50"
+                                                                                                    >
+                                                                                                        -
+                                                                                                    </button>
+                                                                                                    <input
+                                                                                                        type="number"
+                                                                                                        min="0"
+                                                                                                        max={
+                                                                                                            product.stock
+                                                                                                        }
+                                                                                                        value={plainProductQty(
+                                                                                                            product.id
+                                                                                                        )}
+                                                                                                        onChange={(
+                                                                                                            event
+                                                                                                        ) =>
+                                                                                                            updatePlainQty(
+                                                                                                                product,
+                                                                                                                event
+                                                                                                                    .target
+                                                                                                                    .value
+                                                                                                            )
+                                                                                                        }
+                                                                                                        disabled={
+                                                                                                            !hasStock
+                                                                                                        }
+                                                                                                        className="h-9 w-14 rounded-xl border border-slate-200 bg-white px-2 text-center text-sm font-semibold outline-none"
+                                                                                                    />
+                                                                                                    <button
+                                                                                                        type="button"
+                                                                                                        onClick={() =>
+                                                                                                            updatePlainQty(
+                                                                                                                product,
+                                                                                                                plainProductQty(
+                                                                                                                    product.id
+                                                                                                                ) +
+                                                                                                                    1
+                                                                                                            )
+                                                                                                        }
+                                                                                                        disabled={
+                                                                                                            !hasStock
+                                                                                                        }
+                                                                                                        className="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-lg text-slate-700 shadow-sm disabled:opacity-50"
+                                                                                                    >
+                                                                                                        +
+                                                                                                    </button>
+                                                                                                </div>
+                                                                                            </div>
+                                                                                        )}
+                                                                                    </div>
+                                                                                </div>
+                                                                            </div>
+                                                                        </article>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        </section>
+                                                    )
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                </section>
                             </div>
 
                             <div
                                 ref={checkoutSectionRef}
-                                className="h-fit scroll-mt-24 rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm"
+                                className={`h-fit scroll-mt-24 rounded-[28px] border border-slate-200/80 bg-white/96 p-4 shadow-[0_22px_80px_-40px_rgba(15,23,42,0.3)] sm:p-5 lg:sticky lg:top-6 ${
+                                    activeMobileTab === "cart"
+                                        ? "block"
+                                        : "hidden lg:block"
+                                }`}
                             >
-                                <h2 className="text-xl font-semibold">Checkout Meja</h2>
-                                <p className="mt-2 text-sm text-slate-500">
-                                    Pembayaran self-order saat ini menggunakan tunai di kasir.
-                                </p>
+                                <div className="rounded-[24px] bg-[linear-gradient(135deg,_rgba(15,23,42,0.97)_0%,_rgba(8,47,73,0.96)_100%)] p-4 text-white">
+                                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-sky-200">
+                                        Ringkasan Pesanan
+                                    </p>
+                                    <h2 className="mt-2 text-2xl font-bold tracking-[-0.03em]">
+                                        Checkout meja
+                                    </h2>
+                                    <p className="mt-2 text-sm leading-6 text-slate-300">
+                                        Kirim order setelah semua menu dipilih. Pembayaran dilakukan tunai di kasir.
+                                    </p>
+                                </div>
 
-                                <div className="mt-5 rounded-3xl bg-slate-50 p-4">
+                                <div className="mt-4 rounded-[24px] border border-slate-200 bg-slate-50 p-4">
                                     <div className="flex items-start justify-between gap-3">
-                                        <div>
-                                            <p className="text-sm font-semibold text-slate-800">
+                                        <div className="min-w-0">
+                                            <p className="truncate text-base font-semibold text-slate-900">
                                                 {customer.name}
                                             </p>
-                                            <p className="text-sm text-slate-500">
+                                            <p className="mt-1 text-sm text-slate-500">
                                                 {customer.no_telp}
-                                                {customer.member_code ? ` • ${customer.member_code}` : ""}
+                                                {customer.member_code
+                                                    ? ` • ${customer.member_code}`
+                                                    : ""}
                                             </p>
                                         </div>
                                         <button
                                             type="button"
                                             onClick={logoutCustomer}
-                                            className="rounded-xl border border-slate-300 px-3 py-2 text-xs font-medium text-slate-600"
+                                            className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-600"
                                         >
-                                            Logout
+                                            Ganti
                                         </button>
                                     </div>
 
-                                    <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                                        <div className="rounded-2xl bg-white px-4 py-3">
-                                            <p className="text-xs uppercase tracking-wide text-slate-500">
+                                    <div className="mt-4 grid grid-cols-3 gap-2">
+                                        <div className="rounded-2xl bg-white px-3 py-3">
+                                            <p className="text-[11px] uppercase tracking-wide text-slate-500">
                                                 Tier
                                             </p>
-                                            <p className="mt-1 font-semibold capitalize">
+                                            <p className="mt-1 text-sm font-semibold capitalize text-slate-900">
                                                 {customer.loyalty_tier || "regular"}
                                             </p>
                                         </div>
-                                        <div className="rounded-2xl bg-white px-4 py-3">
-                                            <p className="text-xs uppercase tracking-wide text-slate-500">
+                                        <div className="rounded-2xl bg-white px-3 py-3">
+                                            <p className="text-[11px] uppercase tracking-wide text-slate-500">
                                                 Poin
                                             </p>
-                                            <p className="mt-1 font-semibold">
+                                            <p className="mt-1 text-sm font-semibold text-slate-900">
                                                 {customer.loyalty_points || 0}
                                             </p>
                                         </div>
-                                        <div className="rounded-2xl bg-white px-4 py-3">
-                                            <p className="text-xs uppercase tracking-wide text-slate-500">
+                                        <div className="rounded-2xl bg-white px-3 py-3">
+                                            <p className="text-[11px] uppercase tracking-wide text-slate-500">
                                                 Transaksi
                                             </p>
-                                            <p className="mt-1 font-semibold">
+                                            <p className="mt-1 text-sm font-semibold text-slate-900">
                                                 {customer.loyalty_transaction_count || 0}
                                             </p>
                                         </div>
                                     </div>
 
-                                    {recentOrders.length > 0 ? (
-                                        <div className="mt-4 rounded-2xl bg-white p-4">
-                                            <div className="flex items-center justify-between gap-3">
-                                                <p className="text-sm font-semibold text-slate-800">
-                                                    Riwayat Order Terakhir
-                                                </p>
-                                                <p className="text-xs text-slate-500">
-                                                    {customer.loyalty_total_spent
-                                                        ? formatPrice(customer.loyalty_total_spent)
-                                                        : "Belum ada total belanja"}
-                                                </p>
-                                            </div>
-                                            <div className="mt-3 space-y-3">
-                                                {recentOrders.map((order) => (
-                                                    <div
-                                                        key={order.id}
-                                                        className="flex items-start justify-between gap-3 border-t border-slate-100 pt-3 first:border-t-0 first:pt-0"
-                                                    >
-                                                        <div>
-                                                            <p className="text-sm font-medium text-slate-800">
-                                                                {order.order_number}
-                                                            </p>
-                                                            <div className="mt-1 flex flex-wrap items-center gap-2">
-                                                                <span className="text-xs text-slate-500">
-                                                                    {outlet?.name || "Outlet"}
-                                                                </span>
-                                                                <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-600">
-                                                                    {orderStatusLabel[order.status] || order.status}
-                                                                </span>
+                                    <button
+                                        type="button"
+                                        onClick={() =>
+                                            setShowCustomerHistory(
+                                                (current) => !current
+                                            )
+                                        }
+                                        className="mt-4 inline-flex w-full items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left text-sm font-semibold text-slate-700"
+                                    >
+                                        <span>
+                                            {recentOrders.length > 0
+                                                ? "Riwayat order terakhir"
+                                                : recentTransactions.length > 0
+                                                  ? "Riwayat transaksi kasir"
+                                                  : "Belum ada histori order"}
+                                        </span>
+                                        <span className="text-xs text-slate-500">
+                                            {showCustomerHistory ? "Tutup" : "Lihat"}
+                                        </span>
+                                    </button>
+
+                                    {showCustomerHistory ? (
+                                        recentOrders.length > 0 ? (
+                                            <div className="mt-3 rounded-2xl bg-white p-4">
+                                                <div className="mb-3 flex items-center justify-between gap-3">
+                                                    <p className="text-sm font-semibold text-slate-800">
+                                                        Riwayat Order Terakhir
+                                                    </p>
+                                                    <p className="text-xs text-slate-500">
+                                                        {customer.loyalty_total_spent
+                                                            ? formatPrice(
+                                                                  customer.loyalty_total_spent
+                                                              )
+                                                            : "Belum ada total belanja"}
+                                                    </p>
+                                                </div>
+                                                <div className="space-y-3">
+                                                    {recentOrders.map((order) => (
+                                                        <div
+                                                            key={order.id}
+                                                            className="flex items-start justify-between gap-3 border-t border-slate-100 pt-3 first:border-t-0 first:pt-0"
+                                                        >
+                                                            <div>
+                                                                <p className="text-sm font-medium text-slate-800">
+                                                                    {order.order_number}
+                                                                </p>
+                                                                <div className="mt-1 flex flex-wrap items-center gap-2">
+                                                                    <span className="text-xs text-slate-500">
+                                                                        {outlet?.name ||
+                                                                            "Outlet"}
+                                                                    </span>
+                                                                    <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-600">
+                                                                        {orderStatusLabel[
+                                                                            order
+                                                                                .status
+                                                                        ] ||
+                                                                            order.status}
+                                                                    </span>
+                                                                </div>
+                                                                {order.access_token ? (
+                                                                    <Link
+                                                                        href={route(
+                                                                            "table-order.status",
+                                                                            order.access_token
+                                                                        )}
+                                                                        className="mt-2 inline-flex text-xs font-medium text-sky-700"
+                                                                    >
+                                                                        Lihat status order
+                                                                    </Link>
+                                                                ) : null}
                                                             </div>
-                                                            {order.access_token ? (
-                                                                <Link
-                                                                    href={route("table-order.status", order.access_token)}
-                                                                    className="mt-2 inline-flex text-xs font-medium text-[#9b4b2e]"
-                                                                >
-                                                                    Lihat status order
-                                                                </Link>
-                                                            ) : null}
+                                                            <div className="text-right">
+                                                                <p className="text-sm font-semibold text-slate-800">
+                                                                    {formatPrice(
+                                                                        order.grand_total
+                                                                    )}
+                                                                </p>
+                                                            </div>
                                                         </div>
-                                                        <div className="text-right">
-                                                            <p className="text-sm font-semibold text-slate-800">
-                                                                {formatPrice(order.grand_total)}
-                                                            </p>
-                                                        </div>
-                                                    </div>
-                                                ))}
+                                                    ))}
+                                                </div>
                                             </div>
-                                        </div>
-                                    ) : recentTransactions.length > 0 ? (
-                                        <div className="mt-4 rounded-2xl bg-white p-4">
-                                            <div className="flex items-center justify-between gap-3">
-                                                <p className="text-sm font-semibold text-slate-800">
-                                                    Riwayat Transaksi Kasir
-                                                </p>
-                                                <p className="text-xs text-slate-500">
-                                                    {customer.loyalty_total_spent
-                                                        ? formatPrice(customer.loyalty_total_spent)
-                                                        : "Belum ada total belanja"}
-                                                </p>
+                                        ) : recentTransactions.length > 0 ? (
+                                            <div className="mt-3 rounded-2xl bg-white p-4">
+                                                <div className="mb-3 flex items-center justify-between gap-3">
+                                                    <p className="text-sm font-semibold text-slate-800">
+                                                        Riwayat Transaksi Kasir
+                                                    </p>
+                                                    <p className="text-xs text-slate-500">
+                                                        {customer.loyalty_total_spent
+                                                            ? formatPrice(
+                                                                  customer.loyalty_total_spent
+                                                              )
+                                                            : "Belum ada total belanja"}
+                                                    </p>
+                                                </div>
+                                                <div className="space-y-3">
+                                                    {recentTransactions.map(
+                                                        (transaction) => (
+                                                            <div
+                                                                key={transaction.id}
+                                                                className="flex items-start justify-between gap-3 border-t border-slate-100 pt-3 first:border-t-0 first:pt-0"
+                                                            >
+                                                                <div>
+                                                                    <p className="text-sm font-medium text-slate-800">
+                                                                        {
+                                                                            transaction.invoice
+                                                                        }
+                                                                    </p>
+                                                                    <p className="text-xs text-slate-500">
+                                                                        {transaction.outlet_name ||
+                                                                            outlet?.name ||
+                                                                            "Outlet"}
+                                                                    </p>
+                                                                </div>
+                                                                <div className="text-right">
+                                                                    <p className="text-sm font-semibold text-slate-800">
+                                                                        {formatPrice(
+                                                                            transaction.grand_total
+                                                                        )}
+                                                                    </p>
+                                                                    <p className="text-xs capitalize text-slate-500">
+                                                                        {
+                                                                            transaction.payment_status
+                                                                        }
+                                                                    </p>
+                                                                </div>
+                                                            </div>
+                                                        )
+                                                    )}
+                                                </div>
                                             </div>
-                                            <div className="mt-3 space-y-3">
-                                                {recentTransactions.map((transaction) => (
-                                                    <div
-                                                        key={transaction.id}
-                                                        className="flex items-start justify-between gap-3 border-t border-slate-100 pt-3 first:border-t-0 first:pt-0"
-                                                    >
-                                                        <div>
-                                                            <p className="text-sm font-medium text-slate-800">
-                                                                {transaction.invoice}
-                                                            </p>
-                                                            <p className="text-xs text-slate-500">
-                                                                {transaction.outlet_name || outlet?.name || "Outlet"}
-                                                            </p>
-                                                        </div>
-                                                        <div className="text-right">
-                                                            <p className="text-sm font-semibold text-slate-800">
-                                                                {formatPrice(transaction.grand_total)}
-                                                            </p>
-                                                            <p className="text-xs capitalize text-slate-500">
-                                                                {transaction.payment_status}
-                                                            </p>
-                                                        </div>
-                                                    </div>
-                                                ))}
+                                        ) : (
+                                            <div className="mt-3 rounded-2xl bg-white px-4 py-3 text-sm text-slate-500">
+                                                Belum ada histori order di outlet
+                                                ini.
                                             </div>
-                                        </div>
-                                    ) : (
-                                        <div className="mt-4 rounded-2xl bg-white px-4 py-3 text-sm text-slate-500">
-                                            Belum ada histori order di outlet ini.
-                                        </div>
-                                    )}
+                                        )
+                                    ) : null}
 
                                     <textarea
                                         rows={3}
                                         value={orderForm.data.notes}
                                         onChange={(event) =>
-                                            orderForm.setData("notes", event.target.value)
+                                            orderForm.setData(
+                                                "notes",
+                                                event.target.value
+                                            )
                                         }
                                         placeholder="Catatan umum untuk pesanan"
-                                        className="mt-4 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3"
+                                        className="mt-4 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-sky-400 focus:ring-4 focus:ring-sky-100"
                                     />
                                 </div>
 
-                                <div className="mt-6 space-y-3 rounded-3xl bg-slate-50 p-4">
-                                    {cartItems.length === 0 ? (
-                                        <p className="text-sm text-slate-500">
-                                            Belum ada menu dipilih.
+                                <div className="mt-4 rounded-[24px] border border-slate-200 bg-slate-50 p-4">
+                                    <div className="mb-3 flex items-center justify-between gap-3">
+                                        <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+                                            Keranjang
                                         </p>
-                                    ) : (
-                                        cartItems.map((item) => (
-                                            <div
-                                                key={item.key}
-                                                className="rounded-2xl bg-white px-4 py-4"
-                                            >
-                                                <div className="flex items-start justify-between gap-3">
-                                                    <div>
-                                                        <p className="font-medium">
-                                                            {item.title}
-                                                        </p>
-                                                        {(item.modifiers || []).length > 0 ? (
-                                                            <div className="mt-1 flex flex-wrap gap-2">
-                                                                {item.modifiers.map((modifier) => (
-                                                                    <span
-                                                                        key={`${item.key}-${modifier.id}`}
-                                                                        className="rounded-full bg-[#f5e4d9] px-2 py-1 text-xs text-[#9b4b2e]"
-                                                                    >
-                                                                        {modifier.name} +{formatPrice(modifier.price)}
-                                                                    </span>
-                                                                ))}
-                                                            </div>
-                                                        ) : null}
-                                                    </div>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => updateLineQty(item.key, 0)}
-                                                        className="text-xs font-medium text-rose-600"
-                                                    >
-                                                        Hapus
-                                                    </button>
-                                                </div>
-
-                                                <div className="mt-4 flex items-center gap-3">
-                                                    <button
-                                                        type="button"
-                                                        onClick={() =>
-                                                            updateLineQty(
-                                                                item.key,
-                                                                Number(item.qty || 0) - 1,
-                                                                products.find(
-                                                                    (product) => product.id === item.product_id
-                                                                )?.stock
-                                                            )
-                                                        }
-                                                        className="h-9 w-9 rounded-2xl border border-slate-300 bg-white text-lg"
-                                                    >
-                                                        -
-                                                    </button>
-                                                    <input
-                                                        type="number"
-                                                        min="0"
-                                                        value={Number(item.qty || 0)}
-                                                        onChange={(event) =>
-                                                            updateLineQty(
-                                                                item.key,
-                                                                event.target.value,
-                                                                products.find(
-                                                                    (product) => product.id === item.product_id
-                                                                )?.stock
-                                                            )
-                                                        }
-                                                        className="h-9 w-20 rounded-2xl border border-slate-300 bg-white px-3 text-center"
-                                                    />
-                                                    <button
-                                                        type="button"
-                                                        onClick={() =>
-                                                            updateLineQty(
-                                                                item.key,
-                                                                Number(item.qty || 0) + 1,
-                                                                products.find(
-                                                                    (product) => product.id === item.product_id
-                                                                )?.stock
-                                                            )
-                                                        }
-                                                        className="h-9 w-9 rounded-2xl border border-slate-300 bg-white text-lg"
-                                                    >
-                                                        +
-                                                    </button>
-                                                    <div className="ml-auto text-right">
-                                                        <p className="text-xs text-slate-500">
-                                                            {formatPrice(item.unit_total)} / porsi
-                                                        </p>
-                                                        <p className="font-semibold">
-                                                            {formatPrice(item.line_total)}
-                                                        </p>
-                                                    </div>
-                                                </div>
-
-                                                <textarea
-                                                    rows={2}
-                                                    value={item.notes || ""}
-                                                    onChange={(event) =>
-                                                        updateLineNotes(item.key, event.target.value)
-                                                    }
-                                                    placeholder="Catatan item, mis. tanpa sambal"
-                                                    className="mt-3 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm"
-                                                />
+                                        <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-600">
+                                            {cartItems.length} item
+                                        </span>
+                                    </div>
+                                    <div className="space-y-3">
+                                        {cartItems.length === 0 ? (
+                                            <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-5 text-sm text-slate-500">
+                                                Belum ada menu dipilih.
                                             </div>
-                                        ))
-                                    )}
+                                        ) : (
+                                            cartItems.map((item) => (
+                                                <div
+                                                    key={item.key}
+                                                    className="rounded-2xl bg-white px-4 py-4"
+                                                >
+                                                    <div className="flex items-start justify-between gap-3">
+                                                        <div className="min-w-0">
+                                                            <p className="font-semibold text-slate-900">
+                                                                {item.title}
+                                                            </p>
+                                                            {(item.modifiers || [])
+                                                                .length > 0 ? (
+                                                                <div className="mt-2 flex flex-wrap gap-2">
+                                                                    {item.modifiers.map(
+                                                                        (
+                                                                            modifier
+                                                                        ) => (
+                                                                            <span
+                                                                                key={`${item.key}-${modifier.id}`}
+                                                                                className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700"
+                                                                            >
+                                                                                {
+                                                                                    modifier.name
+                                                                                }{" "}
+                                                                                +
+                                                                                {formatPrice(
+                                                                                    modifier.price
+                                                                                )}
+                                                                            </span>
+                                                                        )
+                                                                    )}
+                                                                </div>
+                                                            ) : null}
+                                                        </div>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() =>
+                                                                updateLineQty(
+                                                                    item.key,
+                                                                    0
+                                                                )
+                                                            }
+                                                            className="text-xs font-semibold text-rose-600"
+                                                        >
+                                                            Hapus
+                                                        </button>
+                                                    </div>
+
+                                                    <div className="mt-4 flex items-center gap-3">
+                                                        <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-2 py-2">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() =>
+                                                                    updateLineQty(
+                                                                        item.key,
+                                                                        Number(
+                                                                            item.qty ||
+                                                                                0
+                                                                        ) - 1,
+                                                                        products.find(
+                                                                            (
+                                                                                product
+                                                                            ) =>
+                                                                                product.id ===
+                                                                                item.product_id
+                                                                        )?.stock
+                                                                    )
+                                                                }
+                                                                className="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-lg text-slate-700 shadow-sm"
+                                                            >
+                                                                -
+                                                            </button>
+                                                            <input
+                                                                type="number"
+                                                                min="0"
+                                                                value={Number(
+                                                                    item.qty || 0
+                                                                )}
+                                                                onChange={(
+                                                                    event
+                                                                ) =>
+                                                                    updateLineQty(
+                                                                        item.key,
+                                                                        event.target
+                                                                            .value,
+                                                                        products.find(
+                                                                            (
+                                                                                product
+                                                                            ) =>
+                                                                                product.id ===
+                                                                                item.product_id
+                                                                        )?.stock
+                                                                    )
+                                                                }
+                                                                className="h-9 w-14 rounded-xl border border-slate-200 bg-white px-2 text-center text-sm font-semibold outline-none"
+                                                            />
+                                                            <button
+                                                                type="button"
+                                                                onClick={() =>
+                                                                    updateLineQty(
+                                                                        item.key,
+                                                                        Number(
+                                                                            item.qty ||
+                                                                                0
+                                                                        ) + 1,
+                                                                        products.find(
+                                                                            (
+                                                                                product
+                                                                            ) =>
+                                                                                product.id ===
+                                                                                item.product_id
+                                                                        )?.stock
+                                                                    )
+                                                                }
+                                                                className="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-lg text-slate-700 shadow-sm"
+                                                            >
+                                                                +
+                                                            </button>
+                                                        </div>
+                                                        <div className="ml-auto text-right">
+                                                            <p className="text-xs text-slate-500">
+                                                                {formatPrice(
+                                                                    item.unit_total
+                                                                )}{" "}
+                                                                / porsi
+                                                            </p>
+                                                            <p className="text-base font-bold text-slate-950">
+                                                                {formatPrice(
+                                                                    item.line_total
+                                                                )}
+                                                            </p>
+                                                        </div>
+                                                    </div>
+
+                                                    <textarea
+                                                        rows={2}
+                                                        value={item.notes || ""}
+                                                        onChange={(event) =>
+                                                            updateLineNotes(
+                                                                item.key,
+                                                                event.target
+                                                                    .value
+                                                            )
+                                                        }
+                                                        placeholder="Catatan item, mis. tanpa sambal"
+                                                        className="mt-3 w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-sky-400 focus:bg-white focus:ring-4 focus:ring-sky-100"
+                                                    />
+                                                </div>
+                                            ))
+                                        )}
+                                    </div>
                                 </div>
 
-                                <div className="mt-6 flex items-center justify-between border-t border-slate-200 pt-4">
-                                    <span className="text-sm text-slate-500">Total</span>
-                                    <span className="text-2xl font-bold">
-                                        {formatPrice(grandTotal)}
-                                    </span>
+                                <div className="mt-4 rounded-[24px] border border-slate-200 bg-white px-4 py-4 shadow-sm">
+                                    <div className="flex items-center justify-between gap-3">
+                                        <span className="text-sm font-medium text-slate-500">
+                                            Total
+                                        </span>
+                                        <span className="text-[1.9rem] font-black tracking-[-0.04em] text-slate-950">
+                                            {formatPrice(grandTotal)}
+                                        </span>
+                                    </div>
+
+                                    {orderForm.errors.items ? (
+                                        <p className="mt-3 text-sm text-rose-600">
+                                            {orderForm.errors.items}
+                                        </p>
+                                    ) : null}
+
+                                    <button
+                                        type="button"
+                                        onClick={submitOrder}
+                                        disabled={orderForm.processing}
+                                        className="mt-4 inline-flex h-12 w-full items-center justify-center rounded-2xl bg-[linear-gradient(135deg,_#0f172a_0%,_#0f3b68_100%)] px-5 text-sm font-semibold text-white shadow-[0_18px_40px_-22px_rgba(15,23,42,0.55)] disabled:opacity-50"
+                                    >
+                                        {orderForm.processing
+                                            ? "Mengirim order..."
+                                            : "Kirim Order dan Bayar ke Kasir"}
+                                    </button>
                                 </div>
-
-                                {orderForm.errors.items ? (
-                                    <p className="mt-3 text-sm text-rose-600">
-                                        {orderForm.errors.items}
-                                    </p>
-                                ) : null}
-
-                                <button
-                                    type="button"
-                                    onClick={submitOrder}
-                                    disabled={orderForm.processing}
-                                    className="mt-6 inline-flex w-full items-center justify-center rounded-2xl bg-[#b8572f] px-5 py-3 font-semibold text-white disabled:opacity-50"
-                                >
-                                    {orderForm.processing
-                                        ? "Mengirim order..."
-                                        : "Checkout dan Bayar ke Kasir"}
-                                </button>
                             </div>
                         </div>
+                        </>
                     )}
                 </div>
             </div>
@@ -1231,51 +1660,65 @@ export default function Menu({ table, outlet, products = [], identity }) {
                         </div>
 
                         <div className="space-y-3 px-5 py-4">
-                            {(modifierModalProduct.modifier_options || []).map((option) => {
-                                const active = selectedModifierOptionIds.includes(option.id);
+                            {(modifierModalProduct.modifier_options || []).map(
+                                (option) => {
+                                    const active =
+                                        selectedModifierOptionIds.includes(
+                                            option.id
+                                        );
 
-                                return (
-                                    <button
-                                        key={option.id}
-                                        type="button"
-                                        onClick={() => toggleModifierOption(option.id)}
-                                        className={`flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left transition ${
-                                            active
-                                                ? "border-primary-500 bg-primary-50"
-                                                : "border-slate-200 bg-white hover:border-slate-300"
-                                        }`}
-                                    >
-                                        <div>
-                                            <p className="text-sm font-semibold text-slate-800">
-                                                {option.name}
-                                            </p>
-                                            <p className="mt-0.5 text-xs text-slate-500">
-                                                Tambahan {formatPrice(option.price)}
-                                            </p>
-                                        </div>
-                                        <div
-                                            className={`h-5 w-5 rounded-md border ${
+                                    return (
+                                        <button
+                                            key={option.id}
+                                            type="button"
+                                            onClick={() =>
+                                                toggleModifierOption(option.id)
+                                            }
+                                            className={`flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left transition ${
                                                 active
-                                                    ? "border-primary-500 bg-primary-500"
-                                                    : "border-slate-300"
+                                                    ? "border-primary-500 bg-primary-50"
+                                                    : "border-slate-200 bg-white hover:border-slate-300"
                                             }`}
-                                        />
-                                    </button>
-                                );
-                            })}
+                                        >
+                                            <div>
+                                                <p className="text-sm font-semibold text-slate-800">
+                                                    {option.name}
+                                                </p>
+                                                <p className="mt-0.5 text-xs text-slate-500">
+                                                    Tambahan{" "}
+                                                    {formatPrice(option.price)}
+                                                </p>
+                                            </div>
+                                            <div
+                                                className={`h-5 w-5 rounded-md border ${
+                                                    active
+                                                        ? "border-primary-500 bg-primary-500"
+                                                        : "border-slate-300"
+                                                }`}
+                                            />
+                                        </button>
+                                    );
+                                }
+                            )}
                         </div>
 
                         <div className="border-t border-slate-200 bg-slate-50 px-5 py-4">
                             <div className="mb-3 flex items-center justify-between text-sm">
-                                <span className="text-slate-500">Total tambahan</span>
+                                <span className="text-slate-500">
+                                    Total tambahan
+                                </span>
                                 <span className="font-semibold text-primary-600">
                                     {formatPrice(
                                         (modifierModalProduct.modifier_options || [])
                                             .filter((option) =>
-                                                selectedModifierOptionIds.includes(option.id)
+                                                selectedModifierOptionIds.includes(
+                                                    option.id
+                                                )
                                             )
                                             .reduce(
-                                                (sum, option) => sum + Number(option.price || 0),
+                                                (sum, option) =>
+                                                    sum +
+                                                    Number(option.price || 0),
                                                 0
                                             )
                                     )}
@@ -1305,23 +1748,33 @@ export default function Menu({ table, outlet, products = [], identity }) {
             ) : null}
 
             {showMobileCheckoutBar ? (
-                <div className="fixed inset-x-0 bottom-0 z-40 px-4 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-3 lg:hidden">
-                    <div className="mx-auto max-w-md rounded-[26px] border border-[#e7d7c3] bg-white/96 p-3 shadow-[0_24px_60px_rgba(15,23,42,0.18)] backdrop-blur">
+                <div className="fixed inset-x-0 bottom-0 z-40 px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-3 lg:hidden">
+                    <div
+                        className={`mx-auto max-w-md rounded-[24px] border border-slate-200/80 bg-white/96 p-3 backdrop-blur transition-all duration-300 ${
+                            showFloatingCheckout
+                                ? "translate-y-0 opacity-100 shadow-[0_24px_60px_rgba(15,23,42,0.18)]"
+                                : "translate-y-24 opacity-0 pointer-events-none shadow-none"
+                        }`}
+                    >
                         <div className="flex items-center gap-3">
-                            <div className="min-w-0 flex-1 rounded-2xl bg-[#fff8f1] px-3 py-2.5">
-                                <p className="text-[11px] uppercase tracking-[0.2em] text-[#8f6a44]">
-                                    Ringkasan Pesanan
+                            <div className="min-w-0 flex-1 rounded-2xl bg-slate-50 px-3 py-2.5">
+                                <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">
+                                    Pesanan Anda
                                 </p>
                                 <p className="mt-1 truncate text-sm font-semibold text-slate-900">
-                                    {cartItems.length} item • {formatPrice(grandTotal)}
+                                    {cartItems.length} item •{" "}
+                                    {formatPrice(grandTotal)}
+                                </p>
+                                <p className="mt-0.5 text-[11px] text-slate-500">
+                                    Scroll ke keranjang atau buka tab checkout
                                 </p>
                             </div>
                             <button
                                 type="button"
-                                onClick={scrollToCheckout}
-                                className="inline-flex shrink-0 items-center justify-center rounded-2xl bg-[#b8572f] px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-[#b8572f]/20"
+                                onClick={openCheckoutView}
+                                className="inline-flex shrink-0 items-center justify-center rounded-2xl bg-[linear-gradient(135deg,_#0f172a_0%,_#0f3b68_100%)] px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-slate-900/20"
                             >
-                                Lihat Checkout
+                                Lihat
                             </button>
                         </div>
                     </div>

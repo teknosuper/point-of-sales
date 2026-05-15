@@ -132,7 +132,14 @@ class PublicTableOrderController extends Controller
         $table = $this->resolveTable($qrToken);
 
         $validated = $request->validate([
-            'no_telp' => ['required', 'string', 'max:50'],
+            'no_telp' => [
+                'required',
+                'string',
+                'max:20',
+                'regex:/^(?:\\+62|62|0)[0-9]{8,13}$/',
+            ],
+        ], [
+            'no_telp.regex' => 'Format nomor hape tidak valid. Gunakan angka saja, misalnya 0812xxxxxxx atau 62812xxxxxxx.',
         ]);
 
         $customer = Customer::query()
