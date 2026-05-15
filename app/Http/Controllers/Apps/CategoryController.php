@@ -10,6 +10,8 @@ use Inertia\Inertia;
 
 class CategoryController extends Controller
 {
+    private const IMAGE_DIRECTORY = 'public/categories';
+
     /**
      * Display a listing of the resource.
      *
@@ -91,24 +93,28 @@ class CategoryController extends Controller
         /**
          * validate
          */
-        $request->validate([
-            'image' => 'required|image|mimes:jpeg,jpg,png|max:2048',
-            'name' => 'required',
-            'description' => 'required',
+        $validated = $request->validate([
+            'image' => ['required', 'image', 'mimes:jpeg,jpg,png,webp', 'max:2048'],
+            'name' => ['required', 'string', 'max:255'],
+            'description' => ['required', 'string'],
+        ], [
+            'image.required' => 'Gambar kategori wajib dipilih.',
+            'image.image' => 'File yang diunggah harus berupa gambar.',
+            'image.mimes' => 'Format gambar harus jpeg, jpg, png, atau webp.',
+            'image.max' => 'Ukuran gambar maksimal 2MB.',
+            'name.required' => 'Nama kategori wajib diisi.',
+            'description.required' => 'Deskripsi kategori wajib diisi.',
         ]);
 
-        // upload image
         $image = $request->file('image');
-        $image->storeAs('public/category', $image->hashName());
+        $image->storeAs(self::IMAGE_DIRECTORY, $image->hashName());
 
-        // create category
         Category::create([
             'image' => $image->hashName(),
-            'name' => $request->name,
-            'description' => $request->description,
+            'name' => $validated['name'],
+            'description' => $validated['description'],
         ]);
 
-        // redirect
         return to_route('categories.index');
     }
 
@@ -133,39 +139,35 @@ class CategoryController extends Controller
      */
     public function update(Request $request, Category $category)
     {
-        /**
-         * validate
-         */
-        $request->validate([
-            'name' => 'required',
-            'description' => 'required',
+        $validated = $request->validate([
+            'image' => ['nullable', 'image', 'mimes:jpeg,jpg,png,webp', 'max:2048'],
+            'name' => ['required', 'string', 'max:255'],
+            'description' => ['required', 'string'],
+        ], [
+            'image.image' => 'File yang diunggah harus berupa gambar.',
+            'image.mimes' => 'Format gambar harus jpeg, jpg, png, atau webp.',
+            'image.max' => 'Ukuran gambar maksimal 2MB.',
+            'name.required' => 'Nama kategori wajib diisi.',
+            'description.required' => 'Deskripsi kategori wajib diisi.',
         ]);
 
-        // check image update
         if ($request->file('image')) {
-
-            // remove old image
-            Storage::disk('local')->delete('public/category/'.basename($category->image));
-
-            // upload new image
+            $this->deleteCategoryImage($category->getRawOriginal('image'));
             $image = $request->file('image');
-            $image->storeAs('public/category', $image->hashName());
+            $image->storeAs(self::IMAGE_DIRECTORY, $image->hashName());
 
-            // update category with new image
             $category->update([
                 'image' => $image->hashName(),
-                'name' => $request->name,
-                'description' => $request->description,
+                'name' => $validated['name'],
+                'description' => $validated['description'],
+            ]);
+        } else {
+            $category->update([
+                'name' => $validated['name'],
+                'description' => $validated['description'],
             ]);
         }
 
-        // update category without image
-        $category->update([
-            'name' => $request->name,
-            'description' => $request->description,
-        ]);
-
-        // redirect
         return to_route('categories.index');
     }
 
@@ -177,16 +179,23 @@ class CategoryController extends Controller
      */
     public function destroy($id)
     {
-        // find by ID
         $category = Category::findOrFail($id);
-
-        // remove image
-        Storage::disk('local')->delete('public/category/'.basename($category->image));
-
-        // delete
+        $this->deleteCategoryImage($category->getRawOriginal('image'));
         $category->delete();
-
-        // redirect
         return to_route('categories.index');
+    }
+
+    private function deleteCategoryImage(?string $image): void
+    {
+        if (blank($image)) {
+            return;
+        }
+
+        $filename = basename($image);
+
+        Storage::disk('local')->delete([
+            'public/category/'.$filename,
+            'public/categories/'.$filename,
+        ]);
     }
 }

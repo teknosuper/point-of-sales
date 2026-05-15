@@ -303,9 +303,12 @@ export default function Edit({
                                     value={data.sku}
                                     onChange={(e) => setData("sku", e.target.value)}
                                     errors={errors.sku}
-                                    placeholder="SKU unik"
+                                    placeholder="Kosongkan untuk generate otomatis"
                                     disabled={!canManageCatalog}
                                 />
+                                <p className="-mt-2 text-xs text-slate-500 dark:text-slate-400">
+                                    Jika dikosongkan, SKU akan dibuat otomatis dari barcode atau nama produk.
+                                </p>
                                 <Input
                                     type="text"
                                     label="Nama Produk"

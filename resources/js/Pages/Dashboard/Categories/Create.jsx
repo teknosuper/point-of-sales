@@ -11,6 +11,14 @@ import {
     IconPhoto,
 } from "@tabler/icons-react";
 
+const IMAGE_MAX_SIZE = 2 * 1024 * 1024;
+const ALLOWED_IMAGE_TYPES = [
+    "image/jpeg",
+    "image/jpg",
+    "image/png",
+    "image/webp",
+];
+
 export default function Create() {
     const { errors } = usePage().props;
 
@@ -21,18 +29,71 @@ export default function Create() {
     });
 
     const [imagePreview, setImagePreview] = useState(null);
+    const [localErrors, setLocalErrors] = useState({});
+    const [selectedImageName, setSelectedImageName] = useState("");
 
     const handleImageChange = (e) => {
         const file = e.target.files[0];
-        if (file) {
-            setData("image", file);
-            setImagePreview(URL.createObjectURL(file));
+
+        if (!file) {
+            setData("image", "");
+            setSelectedImageName("");
+            setLocalErrors((current) => ({ ...current, image: "" }));
+            return;
         }
+
+        if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+            setData("image", "");
+            setSelectedImageName("");
+            setLocalErrors((current) => ({
+                ...current,
+                image: "Format gambar harus jpeg, jpg, png, atau webp.",
+            }));
+            return;
+        }
+
+        if (file.size > IMAGE_MAX_SIZE) {
+            setData("image", "");
+            setSelectedImageName("");
+            setLocalErrors((current) => ({
+                ...current,
+                image: "Ukuran gambar maksimal 2MB.",
+            }));
+            return;
+        }
+
+        setLocalErrors((current) => ({ ...current, image: "" }));
+        setSelectedImageName(file.name);
+        setData("image", file);
+        setImagePreview(URL.createObjectURL(file));
     };
 
     const submit = (e) => {
         e.preventDefault();
+
+        const nextErrors = {};
+
+        if (!String(data.name || "").trim()) {
+            nextErrors.name = "Nama kategori wajib diisi.";
+        }
+
+        if (!String(data.description || "").trim()) {
+            nextErrors.description = "Deskripsi kategori wajib diisi.";
+        }
+
+        if (!data.image || !selectedImageName) {
+            nextErrors.image = "Gambar kategori wajib dipilih.";
+        }
+
+        setLocalErrors(nextErrors);
+
+        if (Object.keys(nextErrors).length > 0) {
+            toast.error("Periksa kembali form kategori.");
+            return;
+        }
+
         post(route("categories.store"), {
+            forceFormData: true,
             onSuccess: () => toast.success("Kategori berhasil ditambahkan"),
             onError: () => toast.error("Gagal menyimpan kategori"),
         });
@@ -83,9 +144,17 @@ export default function Create() {
                                 <Input
                                     type="file"
                                     onChange={handleImageChange}
-                                    errors={errors.image}
-                                    accept="image/*"
+                                    errors={localErrors.image || errors.image}
+                                    accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
                                 />
+                                <div className="mt-2 space-y-1 text-xs text-slate-500">
+                                    <p>
+                                        {selectedImageName
+                                            ? `File dipilih: ${selectedImageName}`
+                                            : "Belum ada gambar dipilih."}
+                                    </p>
+                                    <p>Format: JPG, PNG, WEBP. Maksimal 2MB.</p>
+                                </div>
                             </div>
 
                             {/* Info */}
@@ -94,7 +163,7 @@ export default function Create() {
                                     type="text"
                                     label="Nama Kategori"
                                     placeholder="Masukkan nama"
-                                    errors={errors.name}
+                                    errors={localErrors.name || errors.name}
                                     onChange={(e) =>
                                         setData("name", e.target.value)
                                     }
@@ -103,7 +172,10 @@ export default function Create() {
                                 <Textarea
                                     label="Deskripsi"
                                     placeholder="Deskripsi kategori"
-                                    errors={errors.description}
+                                    errors={
+                                        localErrors.description ||
+                                        errors.description
+                                    }
                                     onChange={(e) =>
                                         setData("description", e.target.value)
                                     }

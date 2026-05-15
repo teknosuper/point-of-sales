@@ -6,6 +6,7 @@ use App\Support\ImagePlaceholder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Storage;
 
 class Category extends Model
 {
@@ -55,6 +56,20 @@ class Category extends Model
             return ImagePlaceholder::category($attributes['name'] ?? 'Kategori');
         }
 
-        return asset('storage/categories/'.$value);
+        $normalized = trim($value);
+
+        if (str_starts_with($normalized, 'http://') || str_starts_with($normalized, 'https://') || str_starts_with($normalized, '/storage/')) {
+            return $normalized;
+        }
+
+        if (Storage::disk('public')->exists('categories/'.$normalized)) {
+            return asset('storage/categories/'.$normalized);
+        }
+
+        if (Storage::disk('public')->exists('category/'.$normalized)) {
+            return asset('storage/category/'.$normalized);
+        }
+
+        return ImagePlaceholder::category($attributes['name'] ?? 'Kategori');
     }
 }

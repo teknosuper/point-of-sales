@@ -200,8 +200,11 @@ export default function Create({ categories, tenantOutlets = [] }) {
                                     value={data.sku}
                                     onChange={(e) => setData("sku", e.target.value)}
                                     errors={errors.sku}
-                                    placeholder="Masukkan SKU unik"
+                                    placeholder="Kosongkan untuk generate otomatis"
                                 />
+                                <p className="-mt-2 text-xs text-slate-500">
+                                    Jika dikosongkan, SKU akan dibuat otomatis dari barcode atau nama produk.
+                                </p>
                                 <Input
                                     type="text"
                                     label="Nama Produk"

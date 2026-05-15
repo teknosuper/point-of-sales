@@ -17,6 +17,15 @@
     }
 }
 
+@keyframes global-loading-indeterminate {
+    0% {
+        transform: translateX(-100%);
+    }
+    100% {
+        transform: translateX(320%);
+    }
+}
+
 @keyframes global-loading-pulse {
     0%,
     100% {
@@ -75,6 +84,15 @@
 
 .global-loading-dot {
     animation: global-loading-pulse 0.9s ease-in-out infinite;
+}
+
+.global-loading-indeterminate {
+    position: relative;
+}
+
+.global-loading-indeterminate-bar {
+    width: 34%;
+    animation: global-loading-indeterminate 1.05s ease-in-out infinite;
 }
 
 .pwa-startup-orb {

@@ -6,9 +6,15 @@ const MIN_VISIBLE_MS = 300;
 export default function GlobalLoadingIndicator() {
     const [visible, setVisible] = useState(false);
     const [progress, setProgress] = useState(0);
+    const [hasDeterminateProgress, setHasDeterminateProgress] = useState(false);
     const [label, setLabel] = useState("Memproses permintaan...");
+    const [detail, setDetail] = useState(
+        "Menunggu respons server dan render halaman selesai."
+    );
     const startedAtRef = useRef(0);
     const hideTimerRef = useRef(null);
+    const hasDeterminateProgressRef = useRef(false);
+    const phaseTimerRef = useRef(null);
 
     useEffect(() => {
         const clearHideTimer = () => {
@@ -18,23 +24,67 @@ export default function GlobalLoadingIndicator() {
             }
         };
 
+        const clearPhaseTimer = () => {
+            if (phaseTimerRef.current) {
+                window.clearInterval(phaseTimerRef.current);
+                phaseTimerRef.current = null;
+            }
+        };
+
         const begin = (nextLabel = "Memuat halaman...") => {
             clearHideTimer();
+            clearPhaseTimer();
             startedAtRef.current = Date.now();
             setLabel(nextLabel);
-            setProgress(12);
+            setProgress(0);
+            setDetail("Menghubungkan ke server...");
+            hasDeterminateProgressRef.current = false;
+            setHasDeterminateProgress(false);
             setVisible(true);
+
+            phaseTimerRef.current = window.setInterval(() => {
+                const elapsed = Date.now() - startedAtRef.current;
+
+                if (hasDeterminateProgressRef.current) {
+                    setDetail("Progress ditampilkan dari permintaan yang sedang berjalan.");
+                    return;
+                }
+
+                if (elapsed < 700) {
+                    setDetail("Menghubungkan ke server...");
+                    return;
+                }
+
+                if (elapsed < 1800) {
+                    setDetail("Menunggu respons server...");
+                    return;
+                }
+
+                if (elapsed < 3200) {
+                    setDetail("Merender halaman dan menyiapkan komponen...");
+                    return;
+                }
+
+                setDetail("Masih diproses. Permintaan ini memakan waktu lebih lama dari biasanya.");
+            }, 180);
         };
 
         const complete = () => {
             const elapsed = Date.now() - startedAtRef.current;
             const delay = Math.max(0, MIN_VISIBLE_MS - elapsed);
 
-            setProgress(100);
+            clearPhaseTimer();
+            if (hasDeterminateProgressRef.current) {
+                setProgress(100);
+            }
+            setDetail("Menyelesaikan tampilan...");
 
             hideTimerRef.current = window.setTimeout(() => {
                 setVisible(false);
                 setProgress(0);
+                setDetail("Menunggu respons server dan render halaman selesai.");
+                hasDeterminateProgressRef.current = false;
+                setHasDeterminateProgress(false);
             }, delay + 180);
         };
 
@@ -45,10 +95,11 @@ export default function GlobalLoadingIndicator() {
 
         const unbindProgress = router.on("progress", (event) => {
             const percentage = Number(event?.detail?.progress?.percentage ?? 0);
-            if (percentage > 0) {
+            if (Number.isFinite(percentage) && percentage > 0) {
+                hasDeterminateProgressRef.current = true;
+                setHasDeterminateProgress(true);
+                setDetail("Progress ditampilkan dari permintaan yang sedang berjalan.");
                 setProgress(Math.min(percentage, 92));
-            } else {
-                setProgress((current) => Math.max(current, 35));
             }
         });
 
@@ -68,6 +119,7 @@ export default function GlobalLoadingIndicator() {
 
         return () => {
             clearHideTimer();
+            clearPhaseTimer();
             unbindStart();
             unbindProgress();
             unbindFinish();
@@ -93,19 +145,31 @@ export default function GlobalLoadingIndicator() {
                             {label}
                         </p>
                         <p className="text-xs text-slate-500 dark:text-slate-400">
-                            Sistem sedang memproses permintaan Anda.
+                            {detail}
                         </p>
                     </div>
-                    <span className="ml-auto text-sm font-bold text-primary-600 dark:text-primary-300">
-                        {Math.max(0, Math.min(100, Math.round(progress)))}%
-                    </span>
+                    {hasDeterminateProgress ? (
+                        <span className="ml-auto text-sm font-bold text-primary-600 dark:text-primary-300">
+                            {Math.max(0, Math.min(100, Math.round(progress)))}%
+                        </span>
+                    ) : (
+                        <span className="ml-auto text-xs font-semibold uppercase tracking-[0.22em] text-slate-400 dark:text-slate-500">
+                            Loading
+                        </span>
+                    )}
                 </div>
 
                 <div className="h-2.5 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800">
-                    <div
-                        className="global-loading-bar h-full bg-gradient-to-r from-primary-500 via-sky-500 to-primary-600 transition-[width] duration-200 ease-out"
-                        style={{ width: `${progress}%` }}
-                    />
+                    {hasDeterminateProgress ? (
+                        <div
+                            className="global-loading-bar h-full bg-gradient-to-r from-primary-500 via-sky-500 to-primary-600 transition-[width] duration-200 ease-out"
+                            style={{ width: `${progress}%` }}
+                        />
+                    ) : (
+                        <div className="global-loading-indeterminate h-full w-full overflow-hidden">
+                            <div className="global-loading-indeterminate-bar h-full rounded-full bg-gradient-to-r from-primary-500 via-sky-500 to-primary-600" />
+                        </div>
+                    )}
                 </div>
             </div>
         </div>

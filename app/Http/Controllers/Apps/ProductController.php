@@ -15,6 +15,7 @@ use App\Services\StockMutationService;
 use Illuminate\Http\Request;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Inertia\Inertia;
 
 class ProductController extends Controller
@@ -294,9 +295,9 @@ class ProductController extends Controller
         /**
          * validate
          */
-        $request->validate([
+        $validated = $request->validate([
             'barcode' => 'required|unique:products,barcode',
-            'sku' => 'required|unique:products,sku',
+            'sku' => 'nullable|unique:products,sku',
             'title' => 'required',
             'description' => 'required',
             'category_id' => 'required',
@@ -309,6 +310,13 @@ class ProductController extends Controller
             'sell_price' => 'required',
             'stock' => 'required|integer|min:0',
         ]);
+
+        $validated['sku'] = $this->generateUniqueSku(
+            $validated['sku'] ?? null,
+            $validated['barcode'] ?? null,
+            $validated['title'] ?? null,
+        );
+
         // upload image
         $image = $request->file('image');
         $image->storeAs('public/products', $image->hashName());
@@ -316,16 +324,16 @@ class ProductController extends Controller
         // create product
         $product = Product::create([
             'image' => $image->hashName(),
-            'barcode' => $request->barcode,
-            'sku' => $request->sku,
-            'title' => $request->title,
-            'description' => $request->description,
-            'category_id' => $request->category_id,
+            'barcode' => $validated['barcode'],
+            'sku' => $validated['sku'],
+            'title' => $validated['title'],
+            'description' => $validated['description'],
+            'category_id' => $validated['category_id'],
             'tenant_outlet_id' => $request->integer('tenant_outlet_id') ?: null,
             'supports_modifiers' => $request->boolean('supports_modifiers'),
-            'buy_price' => $request->buy_price,
-            'sell_price' => $request->sell_price,
-            'stock' => $request->stock,
+            'buy_price' => $validated['buy_price'],
+            'sell_price' => $validated['sell_price'],
+            'stock' => $validated['stock'],
         ]);
 
         $this->stockMutationService->recordInitialStock($product, $request->user()?->id);
@@ -450,7 +458,7 @@ class ProductController extends Controller
          */
         $validated = $request->validate([
             'barcode' => 'required|unique:products,barcode,'.$product->id,
-            'sku' => 'required|unique:products,sku,'.$product->id,
+            'sku' => 'nullable|unique:products,sku,'.$product->id,
             'title' => 'required',
             'description' => 'required',
             'category_id' => 'required',
@@ -462,6 +470,13 @@ class ProductController extends Controller
             'buy_price' => 'nullable',
             'sell_price' => 'nullable',
         ]);
+
+        $validated['sku'] = $this->generateUniqueSku(
+            $validated['sku'] ?? $product->sku,
+            $validated['barcode'] ?? $product->barcode,
+            $validated['title'] ?? $product->title,
+            $product->id
+        );
 
         if (! $canManageCatalog) {
             $validated['barcode'] = $product->barcode;
@@ -532,6 +547,40 @@ class ProductController extends Controller
 
         // redirect
         return to_route('products.index');
+    }
+
+    private function generateUniqueSku(
+        ?string $requestedSku,
+        ?string $barcode,
+        ?string $title,
+        ?int $ignoreProductId = null
+    ): string {
+        $base = Str::of($requestedSku ?: $barcode ?: $title ?: 'SKU')
+            ->upper()
+            ->ascii()
+            ->replaceMatches('/[^A-Z0-9]+/', '-')
+            ->trim('-')
+            ->substr(0, 40)
+            ->value();
+
+        if ($base === '') {
+            $base = 'SKU';
+        }
+
+        $candidate = $base;
+        $suffix = 1;
+
+        while (
+            Product::query()
+                ->when($ignoreProductId, fn ($query) => $query->where('id', '!=', $ignoreProductId))
+                ->where('sku', $candidate)
+                ->exists()
+        ) {
+            $candidate = Str::limit($base, 36, '').'-'.$suffix;
+            $suffix++;
+        }
+
+        return $candidate;
     }
 
     /**
