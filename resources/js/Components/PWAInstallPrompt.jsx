@@ -33,7 +33,7 @@ export default function PWAInstallPrompt() {
     if (!canShow) return null;
 
     return (
-        <div className="fixed bottom-4 right-4 z-[80] max-w-sm rounded-2xl border border-primary-200 bg-white p-4 shadow-xl dark:border-primary-900/40 dark:bg-slate-900 print:hidden">
+        <div className="fixed inset-x-4 bottom-4 z-[80] max-w-sm rounded-2xl border border-primary-200 bg-white p-4 shadow-xl sm:left-auto sm:right-4 sm:inset-x-auto dark:border-primary-900/40 dark:bg-slate-900 print:hidden">
             <button
                 type="button"
                 onClick={() => setDismissed(true)}
