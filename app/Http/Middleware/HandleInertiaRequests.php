@@ -52,10 +52,19 @@ class HandleInertiaRequests extends Middleware
             $userId = $request->user()->id;
 
             if (Schema::hasTable('outlets')) {
-                $availableOutlets = $request->user()
+                $availableOutletsQuery = $request->user()
                     ->outlets()
                     ->active()
-                    ->ordered()
+                    ->ordered();
+
+                if ($request->user()->isKitchenWorkspace() && $request->user()->preferredKitchenStation?->outlet_id) {
+                    $availableOutletsQuery->where(
+                        'outlets.id',
+                        (int) $request->user()->preferredKitchenStation->outlet_id
+                    );
+                }
+
+                $availableOutlets = $availableOutletsQuery
                     ->get()
                     ->map(fn (Outlet $outlet) => [
                         'id' => $outlet->id,

@@ -26,6 +26,7 @@ class KitchenDisplayController extends Controller
         $outlet = $this->outletResolver->resolve($request, $request->user());
         abort_if(! $outlet, 404, 'Outlet aktif tidak ditemukan.');
         $kioskMode = $request->boolean('kiosk');
+        $filters = $this->filtersPayload($request);
 
         $stations = KitchenStation::query()
             ->with(['devices' => fn ($query) => $query->where('is_active', true)->orderByDesc('is_primary')->orderBy('name')])
@@ -38,17 +39,16 @@ class KitchenDisplayController extends Controller
         $stations = $this->filterStationsForKitchenUser($request, $stations);
 
         $activeStation = $stations->first();
-        $statusFilter = $this->statusFilter($request);
         $selectedDevice = $activeStation ? $this->resolveDevice($activeStation, $request->integer('device_id')) : null;
 
         return Inertia::render('Dashboard/Kitchen/Index', [
             'stations' => $stations->map(fn (KitchenStation $station) => $this->stationPayload($station))->values(),
             'activeStation' => $activeStation ? $this->stationPayload($activeStation) : null,
-            'tickets' => $activeStation ? $this->ticketPayloads($activeStation, $statusFilter) : [],
+            'tickets' => $activeStation ? $this->ticketPayloads($activeStation, $filters) : $this->emptyTicketPayload(),
             'refreshMeta' => $this->refreshMeta(),
             'kioskMode' => $kioskMode,
             'filters' => [
-                'status' => $statusFilter,
+                ...$filters,
                 'device_id' => $selectedDevice?->id,
             ],
             'selectedDevice' => $selectedDevice ? $this->devicePayload($selectedDevice) : null,
@@ -95,6 +95,7 @@ class KitchenDisplayController extends Controller
         $outlet = $this->outletResolver->resolve($request, $request->user());
         abort_if(! $outlet, 404);
         $kioskMode = $request->boolean('kiosk');
+        $filters = $this->filtersPayload($request);
 
         $stations = KitchenStation::query()
             ->with(['devices' => fn ($query) => $query->where('is_active', true)->orderByDesc('is_primary')->orderBy('name')])
@@ -106,17 +107,16 @@ class KitchenDisplayController extends Controller
         $stations = $this->filterStationsForKitchenUser($request, $stations);
         $kitchenStation = $stations->firstWhere('slug', $stationSlug);
         abort_if(! $kitchenStation, 404);
-        $statusFilter = $this->statusFilter($request);
         $selectedDevice = $this->resolveDevice($kitchenStation, $request->integer('device_id'));
 
         return Inertia::render('Dashboard/Kitchen/Index', [
             'stations' => $stations->map(fn (KitchenStation $station) => $this->stationPayload($station))->values(),
             'activeStation' => $this->stationPayload($kitchenStation),
-            'tickets' => $this->ticketPayloads($kitchenStation, $statusFilter),
+            'tickets' => $this->ticketPayloads($kitchenStation, $filters),
             'refreshMeta' => $this->refreshMeta(),
             'kioskMode' => $kioskMode,
             'filters' => [
-                'status' => $statusFilter,
+                ...$filters,
                 'device_id' => $selectedDevice?->id,
             ],
             'selectedDevice' => $selectedDevice ? $this->devicePayload($selectedDevice) : null,
@@ -131,6 +131,7 @@ class KitchenDisplayController extends Controller
     {
         $outlet = $this->outletResolver->resolve($request, $request->user());
         abort_if(! $outlet, 404);
+        $filters = $this->filtersPayload($request);
 
         $station = KitchenStation::query()
             ->with(['devices' => fn ($query) => $query->where('is_active', true)->orderByDesc('is_primary')->orderBy('name')])
@@ -147,15 +148,14 @@ class KitchenDisplayController extends Controller
             404
         );
 
-        $statusFilter = $this->statusFilter($request);
         $selectedDevice = $this->resolveDevice($station, $request->integer('device_id'));
 
         return response()->json([
             'activeStation' => $this->stationPayload($station),
-            'tickets' => $this->ticketPayloads($station, $statusFilter),
+            'tickets' => $this->ticketPayloads($station, $filters),
             'refreshMeta' => $this->refreshMeta(),
             'filters' => [
-                'status' => $statusFilter,
+                ...$filters,
                 'device_id' => $selectedDevice?->id,
             ],
             'selectedDevice' => $selectedDevice ? $this->devicePayload($selectedDevice) : null,
@@ -196,9 +196,9 @@ class KitchenDisplayController extends Controller
         $this->ensureKitchenAccess($request, $kitchenTicket);
 
         $kitchenTicket->forceFill([
-            'status' => 'completed',
+            'status' => 'ready',
             'acknowledged_at' => $kitchenTicket->acknowledged_at ?? now(),
-            'completed_at' => now(),
+            'ready_at' => now(),
         ])->save();
 
         $kitchenTicket->items()->update([
@@ -208,7 +208,7 @@ class KitchenDisplayController extends Controller
 
         $kitchenTicket->events()->create([
             'user_id' => $request->user()?->id,
-            'event' => 'ticket.completed',
+            'event' => 'ticket.ready',
             'payload' => [
                 'station_id' => $kitchenTicket->kitchen_station_id,
             ],
@@ -235,7 +235,65 @@ class KitchenDisplayController extends Controller
                 'ready_at' => now(),
             ]);
 
-        return back()->with('success', 'Ticket dapur selesai.');
+        return back()->with('success', 'Ticket dapur siap diantar / diambil.');
+    }
+
+    public function deliver(Request $request, KitchenTicket $kitchenTicket): RedirectResponse
+    {
+        $this->ensureKitchenAccess($request, $kitchenTicket);
+
+        $kitchenTicket->forceFill([
+            'status' => 'completed',
+            'ready_at' => $kitchenTicket->ready_at ?? now(),
+            'completed_at' => now(),
+        ])->save();
+
+        $detailIds = $kitchenTicket->items()
+            ->pluck('transaction_detail_id')
+            ->filter()
+            ->map(fn ($id) => (int) $id)
+            ->values();
+
+        if ($detailIds->isNotEmpty()) {
+            TransactionTenantAllocation::query()
+                ->with('items:id,transaction_tenant_allocation_id,transaction_detail_id')
+                ->where('transaction_id', $kitchenTicket->transaction_id)
+                ->whereIn('waiter_status', ['ready', 'assigned', 'picked_up', 'pending'])
+                ->get()
+                ->each(function (TransactionTenantAllocation $allocation) use ($detailIds, $request) {
+                    $allocationDetailIds = $allocation->items
+                        ->pluck('transaction_detail_id')
+                        ->filter()
+                        ->map(fn ($id) => (int) $id)
+                        ->values();
+
+                    if (
+                        $allocationDetailIds->isNotEmpty() &&
+                        $allocationDetailIds->every(
+                            fn (int $detailId) => $detailIds->contains($detailId)
+                        )
+                    ) {
+                        $allocation->forceFill([
+                            'waiter_id' => $allocation->waiter_id ?: $request->user()?->id,
+                            'waiter_status' => 'delivered',
+                            'ready_at' => $allocation->ready_at ?? now(),
+                            'delivered_at' => now(),
+                        ])->save();
+                    }
+                });
+        }
+
+        $kitchenTicket->events()->create([
+            'user_id' => $request->user()?->id,
+            'event' => 'ticket.delivered_direct',
+            'payload' => [
+                'station_id' => $kitchenTicket->kitchen_station_id,
+                'delivered_by' => 'kitchen',
+            ],
+            'created_at' => now(),
+        ]);
+
+        return back()->with('success', 'Pesanan ditandai sudah diambil / diserahkan.');
     }
 
     public function dispatch(Request $request, KitchenTicket $kitchenTicket): RedirectResponse|JsonResponse
@@ -344,6 +402,7 @@ class KitchenDisplayController extends Controller
     {
         $pendingCount = $station->kitchenTickets()->where('status', 'pending')->count();
         $acknowledgedCount = $station->kitchenTickets()->where('status', 'acknowledged')->count();
+        $readyCount = $station->kitchenTickets()->where('status', 'ready')->count();
         $completedCount = $station->kitchenTickets()->where('status', 'completed')->count();
 
         return [
@@ -355,6 +414,7 @@ class KitchenDisplayController extends Controller
             'station_type' => $station->station_type,
             'pending_count' => $pendingCount,
             'acknowledged_count' => $acknowledgedCount,
+            'ready_count' => $readyCount,
             'completed_count' => $completedCount,
             'devices' => $station->devices->map(fn ($device) => [
                 ...$this->devicePayload($device),
@@ -362,25 +422,52 @@ class KitchenDisplayController extends Controller
         ];
     }
 
-    private function ticketPayloads(KitchenStation $station, string $statusFilter = 'active'): array
+    private function ticketPayloads(KitchenStation $station, array $filters): array
     {
+        $statusFilter = $filters['status'] ?? 'active';
+        $search = trim((string) ($filters['q'] ?? ''));
+        $perPage = (int) ($filters['per_page'] ?? 15);
+        $sort = ($filters['sort'] ?? 'oldest') === 'newest' ? 'newest' : 'oldest';
+
         $query = KitchenTicket::query()
             ->with(['transaction.customer:id,name', 'items'])
             ->where('outlet_id', $station->outlet_id)
-            ->where('kitchen_station_id', $station->id)
-            ->latest('fired_at')
-            ->limit(50);
+            ->where('kitchen_station_id', $station->id);
 
         match ($statusFilter) {
             'pending' => $query->where('status', 'pending'),
             'acknowledged' => $query->where('status', 'acknowledged'),
+            'ready' => $query->where('status', 'ready'),
             'completed' => $query->where('status', 'completed'),
-            default => $query->whereIn('status', ['pending', 'acknowledged']),
+            default => $query->whereIn('status', ['pending', 'acknowledged', 'ready']),
         };
 
-        return $query
-            ->get()
-            ->map(function (KitchenTicket $ticket) {
+        if ($search !== '') {
+            $query->where(function ($builder) use ($search) {
+                $builder
+                    ->where('ticket_number', 'like', "%{$search}%")
+                    ->orWhereHas('transaction', function ($transactionQuery) use ($search) {
+                        $transactionQuery
+                            ->where('invoice', 'like', "%{$search}%")
+                            ->orWhereHas('customer', fn ($customerQuery) => $customerQuery->where('name', 'like', "%{$search}%"));
+                    })
+                    ->orWhereHas('items', function ($itemQuery) use ($search) {
+                        $itemQuery
+                            ->where('product_title', 'like', "%{$search}%")
+                            ->orWhere('notes', 'like', "%{$search}%");
+                    });
+            });
+        }
+
+        if ($sort === 'newest') {
+            $query->orderByDesc('fired_at')->orderByDesc('id');
+        } else {
+            $query->orderBy('fired_at')->orderBy('id');
+        }
+
+        $tickets = $query
+            ->paginate($perPage)
+            ->through(function (KitchenTicket $ticket) {
                 $latestDispatchEvent = $ticket->events()
                     ->whereIn('event', ['ticket.dispatch_queued', 'ticket.dispatched', 'ticket.dispatch_failed'])
                     ->latest('created_at')
@@ -392,6 +479,7 @@ class KitchenDisplayController extends Controller
                     'status' => $ticket->status,
                     'fired_at' => optional($ticket->fired_at)?->toIso8601String(),
                     'acknowledged_at' => optional($ticket->acknowledged_at)?->toIso8601String(),
+                    'ready_at' => optional($ticket->ready_at)?->toIso8601String(),
                     'completed_at' => optional($ticket->completed_at)?->toIso8601String(),
                     'invoice' => $ticket->transaction?->invoice,
                     'customer_name' => $ticket->transaction?->customer?->name,
@@ -419,9 +507,19 @@ class KitchenDisplayController extends Controller
                         'notes' => $item->notes,
                     ])->values(),
                 ];
-            })
-            ->values()
-            ->all();
+            });
+
+        return [
+            'data' => $tickets->items(),
+            'meta' => [
+                'current_page' => $tickets->currentPage(),
+                'last_page' => $tickets->lastPage(),
+                'per_page' => $tickets->perPage(),
+                'total' => $tickets->total(),
+                'from' => $tickets->firstItem(),
+                'to' => $tickets->lastItem(),
+            ],
+        ];
     }
 
     private function statusFilter(Request $request): string
@@ -429,9 +527,41 @@ class KitchenDisplayController extends Controller
         return match ((string) $request->query('status', 'active')) {
             'pending' => 'pending',
             'acknowledged' => 'acknowledged',
+            'ready' => 'ready',
             'completed' => 'completed',
             default => 'active',
         };
+    }
+
+    private function filtersPayload(Request $request): array
+    {
+        $perPage = (int) $request->integer('per_page', 15);
+        $perPage = in_array($perPage, [10, 15, 25, 50], true) ? $perPage : 15;
+        $sort = (string) $request->query('sort', 'oldest');
+        $sort = in_array($sort, ['oldest', 'newest'], true) ? $sort : 'oldest';
+
+        return [
+            'status' => $this->statusFilter($request),
+            'q' => trim((string) $request->query('q', '')),
+            'page' => max(1, (int) $request->integer('page', 1)),
+            'per_page' => $perPage,
+            'sort' => $sort,
+        ];
+    }
+
+    private function emptyTicketPayload(): array
+    {
+        return [
+            'data' => [],
+            'meta' => [
+                'current_page' => 1,
+                'last_page' => 1,
+                'per_page' => 15,
+                'total' => 0,
+                'from' => null,
+                'to' => null,
+            ],
+        ];
     }
 
     private function refreshMeta(): array

@@ -41,7 +41,93 @@ import React from "react";
 
 export default function Menu() {
     // define use page
-    const { url } = usePage();
+    const page = usePage();
+    const { url } = page;
+    const { auth } = page.props;
+    const isKitchenWorkspace = auth?.user?.preferred_workspace === "kitchen";
+
+    if (isKitchenWorkspace) {
+        return [
+            {
+                title: "Ringkasan",
+                details: [
+                    {
+                        title: "Dashboard",
+                        href: route("dashboard"),
+                        active: url === "/dashboard",
+                        icon: <IconLayout2 size={20} strokeWidth={1.5} />,
+                        permissions: hasAnyPermission(["dashboard-access"]),
+                    },
+                    {
+                        title: "Setup PWA & Perangkat",
+                        href: route("guides.pwa-setup"),
+                        active: url.startsWith("/dashboard/guides/pwa-setup"),
+                        icon: <IconDeviceMobile size={20} strokeWidth={1.5} />,
+                        permissions: hasAnyPermission(["dashboard-access"]),
+                    },
+                ],
+            },
+            {
+                title: "Operasional Dapur",
+                details: [
+                    {
+                        title: "Layar Dapur",
+                        href: route("kitchen.index"),
+                        active: url.startsWith("/dashboard/kitchen"),
+                        icon: <IconClipboardCheck size={20} strokeWidth={1.5} />,
+                        permissions: hasAnyPermission(["dashboard-access"]),
+                    },
+                    {
+                        title: "Papan Antar",
+                        href: route("waiter-board.index"),
+                        active: url.startsWith("/dashboard/waiter-board"),
+                        icon: <IconSpeakerphone size={20} strokeWidth={1.5} />,
+                        permissions: hasAnyPermission(["waiter-board-access"]),
+                    },
+                    {
+                        title: "Operasional Dapur & Printer",
+                        href: route("settings.kitchen-devices.index"),
+                        active: url === "/dashboard/settings/kitchen-devices",
+                        icon: <IconSpeakerphone size={20} strokeWidth={1.5} />,
+                        permissions: hasAnyPermission(["dashboard-access"]),
+                    },
+                ],
+            },
+            {
+                title: "Master & Stok",
+                details: [
+                    {
+                        title: "Kategori",
+                        href: route("categories.index"),
+                        active: url === "/dashboard/categories",
+                        icon: <IconFolder size={20} strokeWidth={1.5} />,
+                        permissions: hasAnyPermission(["categories-access"]),
+                    },
+                    {
+                        title: "Produk",
+                        href: route("products.index"),
+                        active: url === "/dashboard/products",
+                        icon: <IconBox size={20} strokeWidth={1.5} />,
+                        permissions: hasAnyPermission(["products-access"]),
+                    },
+                    {
+                        title: "Stock Opname",
+                        href: route("stock-opnames.index"),
+                        active: url.startsWith("/dashboard/stock-opnames"),
+                        icon: <IconFileDescription size={20} strokeWidth={1.5} />,
+                        permissions: hasAnyPermission(["stock-opnames-access"]),
+                    },
+                    {
+                        title: "Mutasi Stok",
+                        href: route("stock-mutations.index"),
+                        active: url.startsWith("/dashboard/stock-mutations"),
+                        icon: <IconChartArrowsVertical size={20} strokeWidth={1.5} />,
+                        permissions: hasAnyPermission(["stock-mutations-access"]),
+                    },
+                ],
+            },
+        ];
+    }
 
     // define menu navigations
     const menuNavigation = [

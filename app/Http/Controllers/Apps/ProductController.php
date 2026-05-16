@@ -14,6 +14,7 @@ use App\Services\OutletResolver;
 use App\Services\StockMutationService;
 use Illuminate\Http\Request;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
@@ -33,6 +34,7 @@ class ProductController extends Controller
      */
     public function index(Request $request)
     {
+        $isKitchenWorkspace = $request->user()?->isKitchenWorkspace() ?? false;
         $activeOutletId = $this->outletResolver->resolve($request)?->id;
 
         $filters = [
@@ -50,7 +52,7 @@ class ProductController extends Controller
             $filters['per_page'] = 10;
         }
 
-        $products = Product::query()
+        $products = $this->applyWorkspaceProductScope(Product::query(), $request)
             ->with([
                 'category:id,name',
                 'tenantOutlet:id,name,code',
@@ -116,43 +118,63 @@ class ProductController extends Controller
             ->withQueryString()
             ->through(fn (Product $product) => $this->productIndexPayload($product, $activeOutletId));
 
-        $tenantOutlets = Outlet::active()->ordered()->get(['id', 'name', 'code', 'outlet_type']);
+        $tenantOutlets = $isKitchenWorkspace
+            ? collect()
+            : Outlet::active()->ordered()->get(['id', 'name', 'code', 'outlet_type']);
         $tenantOutletIds = $tenantOutlets
             ->where('outlet_type', 'tenant')
             ->pluck('id');
 
-        $setupStatus = [
-            'tenant_outlets_count' => $tenantOutletIds->count(),
-            'products_with_tenant_count' => Product::query()->whereNotNull('tenant_outlet_id')->count(),
-            'products_without_tenant_count' => Product::query()->whereNull('tenant_outlet_id')->count(),
-            'products_with_station_mapping_count' => ProductKitchenStationMapping::query()
-                ->where('is_active', true)
-                ->distinct('product_id')
-                ->count('product_id'),
-            'products_without_station_mapping_count' => Product::query()
-                ->whereDoesntHave('kitchenStationMappings', fn ($query) => $query->where('is_active', true))
-                ->count(),
-        ];
+        $setupStatus = $isKitchenWorkspace
+            ? [
+                'tenant_outlets_count' => 0,
+                'products_with_tenant_count' => 0,
+                'products_without_tenant_count' => 0,
+                'products_with_station_mapping_count' => 0,
+                'products_without_station_mapping_count' => 0,
+                'needs_tenant_mapping' => false,
+                'needs_station_mapping' => false,
+            ]
+            : [
+                'tenant_outlets_count' => $tenantOutletIds->count(),
+                'products_with_tenant_count' => Product::query()->whereNotNull('tenant_outlet_id')->count(),
+                'products_without_tenant_count' => Product::query()->whereNull('tenant_outlet_id')->count(),
+                'products_with_station_mapping_count' => ProductKitchenStationMapping::query()
+                    ->where('is_active', true)
+                    ->distinct('product_id')
+                    ->count('product_id'),
+                'products_without_station_mapping_count' => Product::query()
+                    ->whereDoesntHave('kitchenStationMappings', fn ($query) => $query->where('is_active', true))
+                    ->count(),
+            ];
 
-        $setupStatus['needs_tenant_mapping'] = $setupStatus['tenant_outlets_count'] > 0
-            && $setupStatus['products_without_tenant_count'] > 0;
-        $setupStatus['needs_station_mapping'] = $setupStatus['products_without_station_mapping_count'] > 0;
+        if (! $isKitchenWorkspace) {
+            $setupStatus['needs_tenant_mapping'] = $setupStatus['tenant_outlets_count'] > 0
+                && $setupStatus['products_without_tenant_count'] > 0;
+            $setupStatus['needs_station_mapping'] = $setupStatus['products_without_station_mapping_count'] > 0;
+        }
 
         return Inertia::render('Dashboard/Products/Index', [
             'products' => $products,
             'filters' => $filters,
             'setupStatus' => $setupStatus,
+            'workspace' => [
+                'is_kitchen' => $isKitchenWorkspace,
+                'active_outlet_id' => $activeOutletId,
+            ],
             'meta' => [
                 'per_page_options' => $allowedPerPage,
                 'categories' => Category::query()->orderBy('name')->get(['id', 'name']),
                 'tenantOutlets' => $tenantOutlets,
-                'kitchenStations' => KitchenStation::query()
-                    ->with('outlet:id,name,code')
-                    ->where('is_active', true)
-                    ->orderBy('outlet_id')
-                    ->orderBy('sort_order')
-                    ->orderBy('name')
-                    ->get(['id', 'outlet_id', 'name', 'code']),
+                'kitchenStations' => $isKitchenWorkspace
+                    ? []
+                    : KitchenStation::query()
+                        ->with('outlet:id,name,code')
+                        ->where('is_active', true)
+                        ->orderBy('outlet_id')
+                        ->orderBy('sort_order')
+                        ->orderBy('name')
+                        ->get(['id', 'outlet_id', 'name', 'code']),
             ],
         ]);
     }
@@ -356,14 +378,21 @@ class ProductController extends Controller
      * @param  int  $id
      * @return \Illuminate\Http\Response
      */
-    public function edit(Product $product)
+    public function edit(Request $request, Product $product)
     {
+        $product = $this->resolveWorkspaceProduct($product, $request);
+        $activeOutletId = $this->outletResolver->resolve($request)?->id;
+
         // get categories
         $categories = Category::all();
         $product->load(['outletStocks.outlet', 'modifierOptions']);
 
         $outletStocks = Outlet::active()
             ->ordered()
+            ->when(
+                $request->user()?->isKitchenWorkspace() && $activeOutletId,
+                fn ($query) => $query->where('id', $activeOutletId)
+            )
             ->get(['id', 'name', 'code', 'outlet_type'])
             ->map(function (Outlet $outlet) use ($product) {
                 /** @var ProductOutletStock|null $existingStock */
@@ -386,7 +415,9 @@ class ProductController extends Controller
         return Inertia::render('Dashboard/Products/Edit', [
             'product' => $product,
             'categories' => $categories,
-            'tenantOutlets' => Outlet::active()->ordered()->get(['id', 'name', 'code']),
+            'tenantOutlets' => $request->user()?->isKitchenWorkspace()
+                ? []
+                : Outlet::active()->ordered()->get(['id', 'name', 'code']),
             'outletStocks' => $outletStocks,
             'capabilities' => [
                 'can_manage_catalog' => request()->user()?->can('products-create') ?? false,
@@ -397,6 +428,9 @@ class ProductController extends Controller
 
     public function updateOutletStocks(Request $request, Product $product)
     {
+        $product = $this->resolveWorkspaceProduct($product, $request);
+        $activeOutletId = $this->outletResolver->resolve($request)?->id;
+
         $data = $request->validate([
             'notes' => ['nullable', 'string', 'max:255'],
             'outlet_stocks' => ['required', 'array', 'min:1'],
@@ -407,6 +441,11 @@ class ProductController extends Controller
 
         foreach ($data['outlet_stocks'] as $row) {
             $outletId = (int) $row['outlet_id'];
+
+            if ($request->user()?->isKitchenWorkspace() && $activeOutletId && $outletId !== $activeOutletId) {
+                abort(403, 'Akun dapur hanya dapat memperbarui stok outlet aktif.');
+            }
+
             $targetStock = (int) $row['stock'];
             $reorderLevel = isset($row['reorder_level']) ? (int) $row['reorder_level'] : 0;
 
@@ -436,6 +475,52 @@ class ProductController extends Controller
         return back()->with('success', 'Stok outlet produk berhasil diperbarui.');
     }
 
+    public function updateDailyStock(Request $request, Product $product): RedirectResponse
+    {
+        $product = $this->resolveWorkspaceProduct($product, $request);
+        $activeOutlet = $this->outletResolver->resolve($request, $request->user());
+
+        if (! $activeOutlet) {
+            return back()->with('error', 'Outlet aktif tidak ditemukan untuk pembaruan stok harian.');
+        }
+
+        $data = $request->validate([
+            'stock' => ['required', 'integer', 'min:0'],
+            'notes' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $existingStock = ProductOutletStock::query()->firstWhere([
+            'outlet_id' => $activeOutlet->id,
+            'product_id' => $product->id,
+        ]);
+
+        $this->stockMutationService->setPhysicalStockForOutlet(
+            product: $product,
+            outletId: (int) $activeOutlet->id,
+            stockAfter: (int) $data['stock'],
+            referenceType: 'product_daily_adjustment',
+            referenceId: $product->id,
+            notes: $data['notes'] ?: 'Adjustment stok harian dari daftar produk.',
+            userId: $request->user()?->id,
+        );
+
+        ProductOutletStock::query()->updateOrCreate(
+            [
+                'outlet_id' => $activeOutlet->id,
+                'product_id' => $product->id,
+            ],
+            [
+                'stock' => (int) $data['stock'],
+                'reorder_level' => $existingStock?->reorder_level !== null
+                    ? (int) $existingStock->reorder_level
+                    : 0,
+                'last_counted_at' => now(),
+            ]
+        );
+
+        return back()->with('success', 'Stok harian produk berhasil diperbarui.');
+    }
+
     /**
      * Update the specified resource in storage.
      *
@@ -444,6 +529,7 @@ class ProductController extends Controller
      */
     public function update(Request $request, Product $product)
     {
+        $product = $this->resolveWorkspaceProduct($product, $request);
         $canManageCatalog = $request->user()?->can('products-create') ?? false;
         $canManagePricing = $request->user()?->can('products-pricing-update') ?? false;
 
@@ -593,6 +679,7 @@ class ProductController extends Controller
     {
         // find by ID
         $product = Product::findOrFail($id);
+        $this->resolveWorkspaceProduct($product, request());
         $before = $this->productAuditPayload($product);
 
         // remove image
@@ -693,6 +780,52 @@ class ProductController extends Controller
     private function rejectStockOnlyUpdate(): RedirectResponse
     {
         return back()->with('error', 'Perubahan katalog dan harga produk hanya boleh dilakukan admin. Gunakan bagian stok outlet untuk menambah atau mengurangi stok.');
+    }
+
+    private function applyWorkspaceProductScope(Builder $query, Request $request): Builder
+    {
+        $user = $request->user();
+
+        if (! $user?->isKitchenWorkspace()) {
+            return $query;
+        }
+
+        $activeOutletId = $this->outletResolver->resolve($request, $user)?->id;
+        $preferredStationId = (int) ($user->preferred_kitchen_station_id ?? 0);
+
+        if ($preferredStationId <= 0 && ! $activeOutletId) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        return $query->whereHas('kitchenStationMappings', function (Builder $mappingQuery) use ($preferredStationId, $activeOutletId) {
+            $mappingQuery
+                ->where('is_active', true)
+                ->when(
+                    $preferredStationId > 0,
+                    fn (Builder $query) => $query->where('kitchen_station_id', $preferredStationId)
+                )
+                ->when(
+                    $preferredStationId <= 0 && $activeOutletId,
+                    fn (Builder $query) => $query->whereHas(
+                        'kitchenStation',
+                        fn (Builder $stationQuery) => $stationQuery
+                            ->where('outlet_id', $activeOutletId)
+                            ->where('is_active', true)
+                    )
+                );
+        });
+    }
+
+    private function resolveWorkspaceProduct(Product $product, Request $request): Product
+    {
+        $isVisible = $this->applyWorkspaceProductScope(
+            Product::query()->whereKey($product->id),
+            $request
+        )->exists();
+
+        abort_unless($isVisible, 404);
+
+        return $product;
     }
 
     private function productIndexPayload(Product $product, ?int $activeOutletId = null): array

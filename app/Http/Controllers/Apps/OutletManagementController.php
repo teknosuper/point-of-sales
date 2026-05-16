@@ -19,6 +19,21 @@ class OutletManagementController extends Controller
 {
     public function index(Request $request)
     {
+        $user = $request->user();
+
+        if ($user?->isKitchenWorkspace()) {
+            return redirect()
+                ->route('settings.kitchen-devices.index')
+                ->with('warning', 'Akun dapur tidak memakai manajemen outlet penuh. Gunakan menu operasional dapur.');
+        }
+
+        $lockedKitchenOutletId = $user?->isKitchenWorkspace() && $user->preferredKitchenStation?->outlet_id
+            ? (int) $user->preferredKitchenStation->outlet_id
+            : null;
+        $accessibleOutletIds = $user && ! $user->isSuperAdmin()
+            ? $user->outlets()->pluck('outlets.id')->map(fn ($id) => (int) $id)
+            : null;
+
         $filters = [
             'search' => trim((string) $request->input('search', '')),
             'status' => (string) $request->input('status', ''),
@@ -35,6 +50,11 @@ class OutletManagementController extends Controller
         $outlets = Outlet::query()
             ->with(['users:id,name,email'])
             ->withCount(['users', 'transactions', 'kitchenStations'])
+            ->when($lockedKitchenOutletId, fn ($query) => $query->where('id', $lockedKitchenOutletId))
+            ->when(
+                ! $lockedKitchenOutletId && $accessibleOutletIds,
+                fn ($query) => $query->whereIn('id', $accessibleOutletIds)
+            )
             ->when($filters['search'] !== '', function ($query) use ($filters) {
                 $search = $filters['search'];
                 $query->where(function ($innerQuery) use ($search) {
@@ -59,15 +79,28 @@ class OutletManagementController extends Controller
             ->paginate($filters['per_page'])
             ->withQueryString();
 
+        $summaryOutletQuery = Outlet::query()
+            ->when($lockedKitchenOutletId, fn ($query) => $query->where('id', $lockedKitchenOutletId))
+            ->when(
+                ! $lockedKitchenOutletId && $accessibleOutletIds,
+                fn ($query) => $query->whereIn('id', $accessibleOutletIds)
+            );
+
+        $tenantOutletIds = (clone $summaryOutletQuery)
+            ->where('outlet_type', 'tenant')
+            ->pluck('id');
+
         $summary = [
-            'total' => Outlet::count(),
-            'active' => Outlet::where('is_active', true)->count(),
-            'inactive' => Outlet::where('is_active', false)->count(),
-            'default' => Outlet::where('is_default', true)->count(),
-            'main' => Outlet::where('outlet_type', 'main')->count(),
-            'tenant' => Outlet::where('outlet_type', 'tenant')->count(),
-            'warehouse' => Outlet::where('outlet_type', 'warehouse')->count(),
-            'tenant_products' => Product::whereNotNull('tenant_outlet_id')->count(),
+            'total' => (clone $summaryOutletQuery)->count(),
+            'active' => (clone $summaryOutletQuery)->where('is_active', true)->count(),
+            'inactive' => (clone $summaryOutletQuery)->where('is_active', false)->count(),
+            'default' => (clone $summaryOutletQuery)->where('is_default', true)->count(),
+            'main' => (clone $summaryOutletQuery)->where('outlet_type', 'main')->count(),
+            'tenant' => (clone $summaryOutletQuery)->where('outlet_type', 'tenant')->count(),
+            'warehouse' => (clone $summaryOutletQuery)->where('outlet_type', 'warehouse')->count(),
+            'tenant_products' => $tenantOutletIds->isNotEmpty()
+                ? Product::whereIn('tenant_outlet_id', $tenantOutletIds)->count()
+                : 0,
         ];
 
         $setupStatus = [
@@ -100,6 +133,26 @@ class OutletManagementController extends Controller
 
     public function show(Request $request, Outlet $outlet)
     {
+        $user = $request->user();
+
+        if ($user?->isKitchenWorkspace()) {
+            return redirect()
+                ->route('settings.kitchen-devices.index')
+                ->with('warning', 'Akun dapur tidak memakai detail outlet penuh. Gunakan menu operasional dapur.');
+        }
+
+        if ($user && ! $user->isSuperAdmin()) {
+            $lockedKitchenOutletId = $user->isKitchenWorkspace() && $user->preferredKitchenStation?->outlet_id
+                ? (int) $user->preferredKitchenStation->outlet_id
+                : null;
+
+            if ($lockedKitchenOutletId) {
+                abort_unless((int) $outlet->id === $lockedKitchenOutletId, 403);
+            } else {
+                abort_unless($user->hasAccessToOutlet((int) $outlet->id), 403);
+            }
+        }
+
         $filters = [
             'start_date' => $request->input('start_date'),
             'end_date' => $request->input('end_date'),

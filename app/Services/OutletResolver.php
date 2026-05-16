@@ -19,6 +19,13 @@ class OutletResolver
         $requestedOutletId = $request?->session()->get('active_outlet_id');
 
         if ($user) {
+            if ($user->isKitchenWorkspace() && $user->preferredKitchenStation?->outlet_id) {
+                return $user->outlets()
+                    ->where('outlets.id', (int) $user->preferredKitchenStation->outlet_id)
+                    ->active()
+                    ->first();
+            }
+
             if ($requestedOutletId) {
                 $matchedOutlet = $user->outlets()
                     ->where('outlets.id', $requestedOutletId)

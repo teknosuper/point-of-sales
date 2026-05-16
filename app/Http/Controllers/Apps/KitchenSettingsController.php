@@ -8,6 +8,8 @@ use App\Models\KitchenStationDevice;
 use App\Models\Outlet;
 use App\Models\PrintJob;
 use App\Models\ProductKitchenStationMapping;
+use App\Models\Setting;
+use App\Services\OutletResolver;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
@@ -23,10 +25,19 @@ class KitchenSettingsController extends Controller
         KitchenStationDevice::PRINT_PROFILE_BRIDGE,
     ];
 
+    public function __construct(
+        private readonly OutletResolver $outletResolver
+    ) {}
+
     public function index(Request $request)
     {
+        $user = $request->user();
+        $lockedKitchenOutletId = $user?->isKitchenWorkspace() && $user->preferredKitchenStation?->outlet_id
+            ? (int) $user->preferredKitchenStation->outlet_id
+            : null;
+
         $filters = [
-            'outlet_id' => $request->input('outlet_id', ''),
+            'outlet_id' => $lockedKitchenOutletId ?: $request->input('outlet_id', ''),
             'status' => $request->input('status', ''),
         ];
 
@@ -84,9 +95,15 @@ class KitchenSettingsController extends Controller
         return Inertia::render('Dashboard/KitchenSettings/Index', [
             'stations' => $stations->map(fn (KitchenStation $station) => $this->stationPayload($station, $latestDeviceJobs))->values(),
             'filters' => $filters,
-            'outlets' => Outlet::active()->ordered()->get(['id', 'name', 'code']),
+            'outlets' => Outlet::active()
+                ->ordered()
+                ->when($lockedKitchenOutletId, fn ($query) => $query->where('id', $lockedKitchenOutletId))
+                ->get(['id', 'name', 'code']),
             'printProfiles' => KitchenStationDevice::printProfiles(),
             'setupStatus' => $setupStatus,
+            'operationalSettings' => $this->operationalSettingsPayload(
+                $lockedKitchenOutletId ?: ($filters['outlet_id'] !== '' ? (int) $filters['outlet_id'] : null)
+            ),
             'recentPrintJobs' => PrintJob::query()
                 ->with([
                     'device:id,name,kitchen_station_id',
@@ -123,6 +140,50 @@ class KitchenSettingsController extends Controller
                 'preset_outlet_id' => $request->input('outlet_id'),
             ],
         ]);
+    }
+
+    public function updateOperational(Request $request)
+    {
+        $user = $request->user();
+        $lockedKitchenOutletId = $user?->isKitchenWorkspace() && $user->preferredKitchenStation?->outlet_id
+            ? (int) $user->preferredKitchenStation->outlet_id
+            : null;
+
+        $data = $request->validate([
+            'outlet_id' => ['nullable', 'integer', 'exists:outlets,id'],
+            'is_open' => ['required', 'boolean'],
+            'open_time' => ['nullable', 'date_format:H:i'],
+            'close_time' => ['nullable', 'date_format:H:i'],
+            'notes' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $outletId = $lockedKitchenOutletId ?: (int) ($data['outlet_id'] ?: 0);
+        abort_if($outletId <= 0, 422, 'Outlet operasional tidak ditemukan.');
+
+        if (! $lockedKitchenOutletId) {
+            abort_unless($user?->hasAccessToOutlet($outletId), 403);
+        }
+
+        Setting::setMany([
+            'daily_store_open' => [
+                'value' => $data['is_open'] ? '1' : '0',
+                'description' => 'Status buka toko hari ini',
+            ],
+            'daily_store_open_time' => [
+                'value' => $data['open_time'] ?: '',
+                'description' => 'Jam buka toko hari ini',
+            ],
+            'daily_store_close_time' => [
+                'value' => $data['close_time'] ?: '',
+                'description' => 'Jam tutup toko hari ini',
+            ],
+            'daily_store_notes' => [
+                'value' => trim((string) ($data['notes'] ?? '')),
+                'description' => 'Catatan operasional toko hari ini',
+            ],
+        ], $outletId);
+
+        return back()->with('success', 'Operasional outlet hari ini berhasil diperbarui.');
     }
 
     public function accessSheet(Request $request, KitchenStation $station): Response
@@ -311,6 +372,17 @@ class KitchenSettingsController extends Controller
         ]);
 
         return back()->with('success', 'Device dapur berhasil diperbarui.');
+    }
+
+    private function operationalSettingsPayload(?int $outletId): array
+    {
+        return [
+            'outlet_id' => $outletId,
+            'is_open' => Setting::getBool('daily_store_open', true, $outletId),
+            'open_time' => (string) Setting::get('daily_store_open_time', '08:00', $outletId),
+            'close_time' => (string) Setting::get('daily_store_close_time', '22:00', $outletId),
+            'notes' => (string) Setting::get('daily_store_notes', '', $outletId),
+        ];
     }
 
     public function testDevice(KitchenStationDevice $device)

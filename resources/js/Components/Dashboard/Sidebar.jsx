@@ -10,7 +10,7 @@ import {
     setFallbackImage,
 } from "@/Utils/imagePlaceholder";
 
-export default function Sidebar({ sidebarOpen }) {
+export default function Sidebar({ sidebarOpen, hideWhenCollapsed = false }) {
     const { auth, storeProfile, activeOutlet, availableOutlets } = usePage().props;
     const menuNavigation = Menu();
 
@@ -24,8 +24,16 @@ export default function Sidebar({ sidebarOpen }) {
     return (
         <div
             className={`
-                ${sidebarOpen ? "translate-x-0 w-[260px]" : "-translate-x-full w-[260px]"}
-                md:translate-x-0 ${sidebarOpen ? "md:w-[260px]" : "md:w-[80px]"}
+                ${
+                    hideWhenCollapsed
+                        ? sidebarOpen
+                            ? "translate-x-0 w-[260px] md:w-[260px]"
+                            : "-translate-x-full w-[260px] md:w-0 md:border-r-0"
+                        : sidebarOpen
+                          ? "translate-x-0 w-[260px]"
+                          : "-translate-x-full w-[260px]"
+                }
+                ${hideWhenCollapsed ? "" : "md:translate-x-0"} ${hideWhenCollapsed ? "" : sidebarOpen ? "md:w-[260px]" : "md:w-[80px]"}
                 fixed md:relative inset-y-0 left-0 z-40
                 flex h-screen flex-col overflow-hidden md:sticky md:top-0 md:self-stretch md:shrink-0
                 border-r border-slate-200 dark:border-slate-800

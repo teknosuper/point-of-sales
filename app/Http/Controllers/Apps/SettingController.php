@@ -31,6 +31,7 @@ class SettingController extends Controller
 
         $settings = [
             'monthly_sales_target' => Setting::get('monthly_sales_target', 0, $outletId),
+            'monthly_profit_target' => Setting::get('monthly_profit_target', 0, $outletId),
         ];
 
         return Inertia::render('Dashboard/Settings/Target', [
@@ -43,16 +44,23 @@ class SettingController extends Controller
      */
     public function updateTarget(Request $request)
     {
-        $request->validate([
+        $validated = $request->validate([
             'monthly_sales_target' => 'required|numeric|min:0',
+            'monthly_profit_target' => 'required|numeric|min:0',
         ]);
 
-        Setting::set(
-            'monthly_sales_target',
-            $request->monthly_sales_target,
-            'Target penjualan bulanan',
-            $this->resolvedOutlet($request)?->id
-        );
+        $outletId = $this->resolvedOutlet($request)?->id;
+
+        Setting::setMany([
+            'monthly_sales_target' => [
+                'value' => $validated['monthly_sales_target'],
+                'description' => 'Target penjualan bulanan',
+            ],
+            'monthly_profit_target' => [
+                'value' => $validated['monthly_profit_target'],
+                'description' => 'Target keuntungan bulanan',
+            ],
+        ], $outletId);
 
         return back()->with('success', 'Target berhasil disimpan');
     }

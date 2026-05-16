@@ -17,6 +17,18 @@ import {
     IconTrash,
 } from "@tabler/icons-react";
 
+const previewAutoSku = (sku, barcode, title) => {
+    const source = String(sku || barcode || title || "SKU")
+        .toUpperCase()
+        .normalize("NFKD")
+        .replace(/[^\x00-\x7F]/g, "")
+        .replace(/[^A-Z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 40);
+
+    return source || "SKU";
+};
+
 export default function Create({ categories, tenantOutlets = [] }) {
     const { errors } = usePage().props;
 
@@ -37,6 +49,7 @@ export default function Create({ categories, tenantOutlets = [] }) {
 
     const [selectedCategory, setSelectedCategory] = useState(null);
     const [imagePreview, setImagePreview] = useState(null);
+    const autoSkuPreview = previewAutoSku(data.sku, data.barcode, data.title);
 
     const setSelectedCategoryHandler = (value) => {
         setSelectedCategory(value);
@@ -204,6 +217,10 @@ export default function Create({ categories, tenantOutlets = [] }) {
                                 />
                                 <p className="-mt-2 text-xs text-slate-500">
                                     Jika dikosongkan, SKU akan dibuat otomatis dari barcode atau nama produk.
+                                    Preview:{" "}
+                                    <span className="font-semibold text-slate-700">
+                                        {autoSkuPreview}
+                                    </span>
                                 </p>
                                 <Input
                                     type="text"

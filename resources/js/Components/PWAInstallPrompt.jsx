@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
     IconArrowRight,
     IconDeviceMobile,
@@ -16,7 +16,22 @@ export default function PWAInstallPrompt() {
         shouldShowInstallEntry,
     } = usePwaInstall();
 
+    useEffect(() => {
+        if (typeof window === "undefined") {
+            return;
+        }
+
+        setDismissed(window.localStorage.getItem("pwaInstallPromptDismissed") === "true");
+    }, []);
+
     const canShow = useMemo(() => {
+        if (typeof window !== "undefined") {
+            const pathname = window.location?.pathname || "";
+            if (/^\/order\/table\//.test(pathname) || pathname.startsWith("/dashboard/guides/pwa-setup")) {
+                return false;
+            }
+        }
+
         if (dismissed || !shouldShowInstallEntry) return false;
         return true;
     }, [dismissed, shouldShowInstallEntry]);
@@ -30,13 +45,21 @@ export default function PWAInstallPrompt() {
         window.location.href = route("guides.pwa-setup");
     };
 
+    const handleDismiss = () => {
+        setDismissed(true);
+
+        if (typeof window !== "undefined") {
+            window.localStorage.setItem("pwaInstallPromptDismissed", "true");
+        }
+    };
+
     if (!canShow) return null;
 
     return (
         <div className="fixed inset-x-4 bottom-4 z-[80] max-w-sm rounded-2xl border border-primary-200 bg-white p-4 shadow-xl sm:left-auto sm:right-4 sm:inset-x-auto dark:border-primary-900/40 dark:bg-slate-900 print:hidden">
             <button
                 type="button"
-                onClick={() => setDismissed(true)}
+                onClick={handleDismiss}
                 className="absolute right-3 top-3 rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200"
                 aria-label="Tutup"
             >

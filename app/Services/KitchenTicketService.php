@@ -3,12 +3,13 @@
 namespace App\Services;
 
 use App\Models\KitchenStationDevice;
+use App\Models\KitchenStation;
 use App\Models\KitchenTicket;
 use App\Models\ProductKitchenStationMapping;
 use App\Models\Transaction;
 use App\Models\TransactionDetail;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Str;
+use Illuminate\Support\Carbon;
 
 class KitchenTicketService
 {
@@ -124,12 +125,35 @@ class KitchenTicketService
 
     private function generateTicketNumber(Transaction $transaction, int $stationId): string
     {
-        return Str::upper(sprintf(
-            'KT-%s-%s-%s',
-            $transaction->outlet_id,
-            $stationId,
-            Str::random(8)
-        ));
+        $station = KitchenStation::query()->find($stationId);
+        $stationCode = strtoupper(trim((string) ($station?->code ?: "DPR{$stationId}")));
+        $stationCode = preg_replace('/[^A-Z0-9]/', '', $stationCode) ?: "DPR{$stationId}";
+        $date = Carbon::now()->format('dmy');
+        $prefix = "{$stationCode}-{$date}";
+
+        $latestTodayTicket = KitchenTicket::query()
+            ->where('kitchen_station_id', $stationId)
+            ->whereDate('created_at', Carbon::today())
+            ->where('ticket_number', 'like', $prefix.'%')
+            ->latest('id')
+            ->value('ticket_number');
+
+        $sequence = 1;
+
+        if ($latestTodayTicket && preg_match('/(\d{3,})$/', $latestTodayTicket, $matches)) {
+            $sequence = ((int) $matches[1]) + 1;
+        }
+
+        do {
+            $ticketNumber = sprintf('%s%03d', $prefix, $sequence);
+            $sequence++;
+        } while (
+            KitchenTicket::query()
+                ->where('ticket_number', $ticketNumber)
+                ->exists()
+        );
+
+        return $ticketNumber;
     }
 
     private function buildItemNotes(TransactionDetail $detail): ?string

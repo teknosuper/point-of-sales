@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Apps;
 
 use App\Http\Controllers\Controller;
+use App\Models\KitchenTicket;
 use App\Models\TransactionTenantAllocation;
 use App\Models\User;
 use App\Services\OutletResolver;
@@ -188,6 +189,49 @@ class WaiterBoardController extends Controller
             'waiter_status' => 'delivered',
             'delivered_at' => now(),
         ])->save();
+
+        $deliveredDetailIds = $allocation->items()
+            ->pluck('transaction_detail_id')
+            ->filter()
+            ->map(fn ($id) => (int) $id)
+            ->values();
+
+        if ($deliveredDetailIds->isNotEmpty()) {
+            KitchenTicket::query()
+                ->with('items:id,kitchen_ticket_id,transaction_detail_id')
+                ->where('transaction_id', $allocation->transaction_id)
+                ->where('status', 'ready')
+                ->get()
+                ->each(function (KitchenTicket $ticket) use ($deliveredDetailIds) {
+                    $ticketDetailIds = $ticket->items
+                        ->pluck('transaction_detail_id')
+                        ->filter()
+                        ->map(fn ($id) => (int) $id)
+                        ->values();
+
+                    if (
+                        $ticketDetailIds->isNotEmpty() &&
+                        $ticketDetailIds->every(
+                            fn (int $detailId) => $deliveredDetailIds->contains($detailId)
+                        )
+                    ) {
+                        $ticket->forceFill([
+                            'status' => 'completed',
+                            'completed_at' => now(),
+                        ])->save();
+
+                        $ticket->events()->create([
+                            'user_id' => $allocation->waiter_id,
+                            'event' => 'ticket.delivered',
+                            'payload' => [
+                                'transaction_tenant_allocation_id' => $allocation->id,
+                                'waiter_id' => $allocation->waiter_id,
+                            ],
+                            'created_at' => now(),
+                        ]);
+                    }
+                });
+        }
 
         return back()->with('success', 'Pesanan berhasil diantar.');
     }

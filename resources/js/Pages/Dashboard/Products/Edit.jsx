@@ -18,6 +18,18 @@ import {
 } from "@tabler/icons-react";
 import { getProductImageUrl } from "@/Utils/imageUrl";
 
+const previewAutoSku = (sku, barcode, title) => {
+    const source = String(sku || barcode || title || "SKU")
+        .toUpperCase()
+        .normalize("NFKD")
+        .replace(/[^\x00-\x7F]/g, "")
+        .replace(/[^A-Z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 40);
+
+    return source || "SKU";
+};
+
 export default function Edit({
     categories,
     product,
@@ -32,19 +44,19 @@ export default function Edit({
 
     const { data, setData, post, processing } = useForm({
         image: "",
-        barcode: product.barcode,
-        sku: product.sku,
-        title: product.title,
-        category_id: product.category_id,
-        tenant_outlet_id: product.tenant_outlet_id || "",
+        barcode: product.barcode ?? "",
+        sku: product.sku ?? "",
+        title: product.title ?? "",
+        category_id: product.category_id ?? "",
+        tenant_outlet_id: product.tenant_outlet_id ?? "",
         supports_modifiers: !!product.supports_modifiers,
         modifier_options: (product.modifier_options || []).map((option) => ({
             name: option.name || "",
             price: option.price ?? "",
         })),
-        description: product.description,
-        buy_price: product.buy_price,
-        sell_price: product.sell_price,
+        description: product.description ?? "",
+        buy_price: product.buy_price ?? "",
+        sell_price: product.sell_price ?? "",
         _method: "PUT",
     });
     const {
@@ -72,7 +84,7 @@ export default function Edit({
                 categories.find((cat) => cat.id === product.category_id)
             );
         }
-    }, [product.category_id]);
+    }, [categories, product.category_id]);
 
     const modifierSummary = useMemo(
         () =>
@@ -85,6 +97,7 @@ export default function Edit({
                 .join(", "),
         [product.modifier_options]
     );
+    const autoSkuPreview = previewAutoSku(data.sku, data.barcode, data.title);
 
     const setSelectedCategoryHandler = (value) => {
         setSelectedCategory(value);
@@ -308,6 +321,10 @@ export default function Edit({
                                 />
                                 <p className="-mt-2 text-xs text-slate-500 dark:text-slate-400">
                                     Jika dikosongkan, SKU akan dibuat otomatis dari barcode atau nama produk.
+                                    Preview:{" "}
+                                    <span className="font-semibold text-slate-700 dark:text-slate-200">
+                                        {autoSkuPreview}
+                                    </span>
                                 </p>
                                 <Input
                                     type="text"

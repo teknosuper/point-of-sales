@@ -21,6 +21,7 @@ class KitchenTicket extends Model
         'notes',
         'fired_at',
         'acknowledged_at',
+        'ready_at',
         'completed_at',
     ];
 
@@ -31,6 +32,7 @@ class KitchenTicket extends Model
         'kitchen_station_id' => 'integer',
         'fired_at' => 'datetime',
         'acknowledged_at' => 'datetime',
+        'ready_at' => 'datetime',
         'completed_at' => 'datetime',
     ];
 

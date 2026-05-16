@@ -137,6 +137,9 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
     Route::post('products/bulk-mapping', [ProductController::class, 'bulkMapping'])
         ->middleware(['permission:products-edit', 'step_up'])
         ->name('products.bulk-mapping');
+    Route::patch('products/{product}/daily-stock', [ProductController::class, 'updateDailyStock'])
+        ->middleware('permission:products-edit')
+        ->name('products.daily-stock.update');
     Route::patch('products/{product}/outlet-stocks', [ProductController::class, 'updateOutletStocks'])
         ->middleware(['permission:products-edit', 'step_up'])
         ->name('products.outlet-stocks.update');
@@ -269,6 +272,7 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
     Route::post('/kitchen/tickets/{kitchenTicket}/fail-dispatch', [KitchenDisplayController::class, 'failDispatch'])->middleware(['permission:dashboard-access', 'outlet_access'])->name('kitchen.tickets.fail-dispatch');
     Route::post('/kitchen/tickets/{kitchenTicket}/acknowledge', [KitchenDisplayController::class, 'acknowledge'])->middleware(['permission:dashboard-access', 'outlet_access'])->name('kitchen.tickets.acknowledge');
     Route::post('/kitchen/tickets/{kitchenTicket}/complete', [KitchenDisplayController::class, 'complete'])->middleware(['permission:dashboard-access', 'outlet_access'])->name('kitchen.tickets.complete');
+    Route::post('/kitchen/tickets/{kitchenTicket}/deliver', [KitchenDisplayController::class, 'deliver'])->middleware(['permission:dashboard-access', 'outlet_access'])->name('kitchen.tickets.deliver');
     Route::post('/transactions/{transaction}/share-campaign', [CrmCampaignController::class, 'shareTransaction'])->middleware(['permission:crm-campaigns-create', 'outlet_access'])->name('transactions.share-campaign');
     Route::get('/transactions/history/{transaction}/sales-return/create', [SalesReturnController::class, 'create'])->middleware(['permission:sales-returns-create', 'outlet_access'])->name('sales-returns.create');
     Route::post('/transactions/history/{transaction}/sales-return', [SalesReturnController::class, 'store'])->middleware(['permission:sales-returns-create', 'outlet_access'])->name('sales-returns.store');
@@ -334,6 +338,7 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
     Route::get('/settings/store', [\App\Http\Controllers\Apps\SettingController::class, 'storeProfile'])->middleware('permission:dashboard-access')->name('settings.store');
     Route::post('/settings/store', [\App\Http\Controllers\Apps\SettingController::class, 'updateStoreProfile'])->middleware('permission:dashboard-access')->name('settings.store.update');
     Route::get('/settings/kitchen-devices', [KitchenSettingsController::class, 'index'])->middleware(['permission:dashboard-access', 'outlet_access'])->name('settings.kitchen-devices.index');
+    Route::post('/settings/kitchen-operations', [KitchenSettingsController::class, 'updateOperational'])->middleware(['permission:dashboard-access', 'outlet_access'])->name('settings.kitchen-operations.update');
     Route::get('/settings/kitchen-stations/{station}/access-sheet', [KitchenSettingsController::class, 'accessSheet'])->middleware(['permission:dashboard-access', 'outlet_access'])->name('settings.kitchen-stations.access-sheet');
     Route::post('/settings/kitchen-stations', [KitchenSettingsController::class, 'storeStation'])->middleware(['permission:dashboard-access', 'step_up', 'outlet_access'])->name('settings.kitchen-stations.store');
     Route::put('/settings/kitchen-stations/{station}', [KitchenSettingsController::class, 'updateStation'])->middleware(['permission:dashboard-access', 'step_up', 'outlet_access'])->name('settings.kitchen-stations.update');

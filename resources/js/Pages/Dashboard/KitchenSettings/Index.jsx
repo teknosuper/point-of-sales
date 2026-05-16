@@ -48,14 +48,22 @@ const printProfileDescriptions = {
     local_bridge: "Laravel queue dan printer agent lokal yang mengeksekusi cetak.",
 };
 
-export default function Index({ stations = [], filters = {}, outlets = [], printProfiles = {}, setupStatus = {}, ui = {}, recentPrintJobs = [] }) {
-    const { flash } = usePage().props;
+export default function Index({ stations = [], filters = {}, outlets = [], printProfiles = {}, setupStatus = {}, ui = {}, recentPrintJobs = [], operationalSettings = {} }) {
+    const { flash, auth, activeOutlet } = usePage().props;
+    const isKitchenWorkspace = auth?.user?.preferred_workspace === "kitchen";
     const [selectedOutlet, setSelectedOutlet] = useState(filters?.outlet_id || "");
     const [issuesOnly, setIssuesOnly] = useState(false);
     const [editingStation, setEditingStation] = useState(null);
     const [editingDevice, setEditingDevice] = useState(null);
     const stationForm = useForm(defaultStation);
     const deviceForm = useForm(defaultDevice);
+    const operationsForm = useForm({
+        outlet_id: operationalSettings?.outlet_id ? String(operationalSettings.outlet_id) : "",
+        is_open: Boolean(operationalSettings?.is_open ?? true),
+        open_time: operationalSettings?.open_time || "08:00",
+        close_time: operationalSettings?.close_time || "22:00",
+        notes: operationalSettings?.notes || "",
+    });
 
     useEffect(() => {
         if (flash?.success) toast.success(flash.success);
@@ -68,6 +76,22 @@ export default function Index({ stations = [], filters = {}, outlets = [], print
             stationForm.setData("outlet_id", String(ui.preset_outlet_id));
         }
     }, [ui?.preset_outlet_id]);
+
+    useEffect(() => {
+        operationsForm.setData({
+            outlet_id: operationalSettings?.outlet_id ? String(operationalSettings.outlet_id) : "",
+            is_open: Boolean(operationalSettings?.is_open ?? true),
+            open_time: operationalSettings?.open_time || "08:00",
+            close_time: operationalSettings?.close_time || "22:00",
+            notes: operationalSettings?.notes || "",
+        });
+    }, [
+        operationalSettings?.outlet_id,
+        operationalSettings?.is_open,
+        operationalSettings?.open_time,
+        operationalSettings?.close_time,
+        operationalSettings?.notes,
+    ]);
 
     const filteredStations = useMemo(
         () =>
@@ -198,6 +222,13 @@ export default function Index({ stations = [], filters = {}, outlets = [], print
         );
     };
 
+    const submitOperations = (event) => {
+        event.preventDefault();
+        operationsForm.post(route("settings.kitchen-operations.update"), {
+            preserveScroll: true,
+        });
+    };
+
     return (
         <>
             <Head title="Operasional Dapur & Printer" />
@@ -210,6 +241,107 @@ export default function Index({ stations = [], filters = {}, outlets = [], print
                     <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                         Kelola operasional dapur di dalam outlet: stasiun dapur, layar antrean, dan printer thermal per stasiun.
                     </p>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+                    <div className="mb-4">
+                        <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+                            Operasional Outlet Hari Ini
+                        </h2>
+                        <p className="text-sm text-slate-500 dark:text-slate-400">
+                            Atur status buka toko, jam operasional, dan catatan harian untuk outlet dapur ini.
+                        </p>
+                        {activeOutlet?.name ? (
+                            <p className="mt-2 text-xs font-medium uppercase tracking-[0.16em] text-primary-600 dark:text-primary-300">
+                                Outlet aktif: {activeOutlet.name}
+                            </p>
+                        ) : null}
+                    </div>
+
+                    <form onSubmit={submitOperations} className="grid gap-4 lg:grid-cols-4">
+                        {!isKitchenWorkspace ? (
+                            <div>
+                                <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                    Outlet
+                                </label>
+                                <select
+                                    value={operationsForm.data.outlet_id}
+                                    onChange={(event) => operationsForm.setData("outlet_id", event.target.value)}
+                                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
+                                >
+                                    <option value="">Pilih outlet</option>
+                                    {outlets.map((outlet) => (
+                                        <option key={outlet.id} value={String(outlet.id)}>
+                                            {outlet.name}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                        ) : null}
+
+                        <div>
+                            <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                Status toko
+                            </label>
+                            <div className="flex h-11 items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800">
+                                <input
+                                    id="daily_store_open"
+                                    type="checkbox"
+                                    checked={operationsForm.data.is_open}
+                                    onChange={(event) => operationsForm.setData("is_open", event.target.checked)}
+                                />
+                                <label htmlFor="daily_store_open" className="text-slate-700 dark:text-slate-200">
+                                    {operationsForm.data.is_open ? "Toko buka hari ini" : "Toko ditutup hari ini"}
+                                </label>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                Jam buka
+                            </label>
+                            <input
+                                type="time"
+                                value={operationsForm.data.open_time}
+                                onChange={(event) => operationsForm.setData("open_time", event.target.value)}
+                                className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
+                            />
+                        </div>
+
+                        <div>
+                            <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                Jam tutup
+                            </label>
+                            <input
+                                type="time"
+                                value={operationsForm.data.close_time}
+                                onChange={(event) => operationsForm.setData("close_time", event.target.value)}
+                                className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
+                            />
+                        </div>
+
+                        <div className="lg:col-span-3">
+                            <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                Catatan hari ini
+                            </label>
+                            <input
+                                value={operationsForm.data.notes}
+                                onChange={(event) => operationsForm.setData("notes", event.target.value)}
+                                placeholder="Contoh: Tutup lebih awal karena stok habis / maintenance"
+                                className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
+                            />
+                        </div>
+
+                        <div className="flex items-end">
+                            <button
+                                type="submit"
+                                disabled={operationsForm.processing}
+                                className="w-full rounded-xl bg-primary-500 px-4 py-2.5 text-sm font-medium text-white"
+                            >
+                                {operationsForm.processing ? "Menyimpan..." : "Simpan Operasional"}
+                            </button>
+                        </div>
+                    </form>
                 </div>
 
                 <details className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
@@ -288,16 +420,18 @@ export default function Index({ stations = [], filters = {}, outlets = [], print
                     </div>
                 ) : null}
 
-                <div>
-                    <Link
-                        href={route("guides.outlet-kitchen")}
-                        className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
-                    >
-                        Buka Panduan Lengkap Outlet, Tenant & Dapur
-                    </Link>
-                </div>
+                {!isKitchenWorkspace ? (
+                    <div>
+                        <Link
+                            href={route("guides.outlet-kitchen")}
+                            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                        >
+                            Buka Panduan Lengkap Outlet, Tenant & Dapur
+                        </Link>
+                    </div>
+                ) : null}
 
-                {selectedOutletRecord ? (
+                {selectedOutletRecord && !isKitchenWorkspace ? (
                     <div className="flex flex-wrap gap-2">
                         <Link
                             href={route("outlets.show", selectedOutletRecord.id)}
@@ -316,6 +450,7 @@ export default function Index({ stations = [], filters = {}, outlets = [], print
 
                 <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
                     <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                        {!isKitchenWorkspace ? (
                         <div>
                             <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
                                 Filter outlet
@@ -333,6 +468,16 @@ export default function Index({ stations = [], filters = {}, outlets = [], print
                                 ))}
                             </select>
                         </div>
+                        ) : (
+                        <div>
+                            <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                Outlet operasional
+                            </label>
+                            <div className="flex h-11 items-center rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                                {selectedOutletRecord?.name || activeOutlet?.name || "Outlet aktif"}
+                            </div>
+                        </div>
+                        )}
                         <button
                             type="button"
                             onClick={() => setIssuesOnly((value) => !value)}
@@ -353,6 +498,7 @@ export default function Index({ stations = [], filters = {}, outlets = [], print
                             <select
                                 value={stationForm.data.outlet_id}
                                 onChange={(event) => stationForm.setData("outlet_id", event.target.value)}
+                                disabled={isKitchenWorkspace}
                                 className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
                             >
                                 <option value="">Pilih outlet</option>

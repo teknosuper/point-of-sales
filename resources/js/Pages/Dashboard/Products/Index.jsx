@@ -44,6 +44,21 @@ const defaultFilters = {
 const castFilterValue = (value, fallback = "") =>
     value === null || value === undefined ? fallback : String(value);
 
+const compactFilters = (filters = {}) =>
+    Object.fromEntries(
+        Object.entries(filters).filter(([, value]) => {
+            if (value === null || value === undefined) {
+                return false;
+            }
+
+            if (typeof value === "string") {
+                return value !== "";
+            }
+
+            return true;
+        })
+    );
+
 function OutletStockSummary({ product, activeOutletName = "Outlet aktif" }) {
     const outletStocks = product.outlet_stock_summary ?? [];
     const outletStockCount = Number(product.outlet_stock_count ?? 0);
@@ -89,6 +104,8 @@ function ProductCard({
     canSelect = false,
     canUpdate,
     canDelete,
+    canUpdateDailyStock = false,
+    onDailyStockUpdate,
     activeOutletName,
     showCostAsPrimary = false,
     showSellPrice = true,
@@ -254,13 +271,28 @@ function ProductCard({
                             activeOutletName={activeOutletName}
                         />
                     </div>
+                    {canUpdateDailyStock ? (
+                        <button
+                            type="button"
+                            onClick={() => onDailyStockUpdate?.(product)}
+                            className="mt-3 inline-flex w-full items-center justify-center rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 transition hover:bg-emerald-100 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-300 dark:hover:bg-emerald-950/50"
+                        >
+                            Update Stok Hari Ini
+                        </button>
+                    ) : null}
                 </div>
             </div>
         </div>
     );
 }
 
-export default function Index({ products, filters = {}, setupStatus = {}, meta = {} }) {
+export default function Index({
+    products,
+    filters = {},
+    setupStatus = {},
+    meta = {},
+    workspace = {},
+}) {
     const { can } = useAuthorization();
     const { activeOutlet, auth } = usePage().props;
     const [viewMode, setViewMode] = useState("grid");
@@ -273,6 +305,11 @@ export default function Index({ products, filters = {}, setupStatus = {}, meta =
         tenant_outlet_id: "",
         apply_kitchen: true,
         kitchen_station_id: "",
+    });
+    const [dailyStockModalProduct, setDailyStockModalProduct] = useState(null);
+    const [dailyStockForm, setDailyStockForm] = useState({
+        stock: "",
+        notes: "",
     });
     const [filterData, setFilterData] = useState({
         ...defaultFilters,
@@ -307,8 +344,13 @@ export default function Index({ products, filters = {}, setupStatus = {}, meta =
     const canDeleteProducts = can("products-delete");
     const canManagePricing = can("products-pricing-update");
     const canManageCatalog = canCreateProducts;
-    const isKitchenWorkspace = auth?.user?.preferred_workspace === "kitchen";
+    const isKitchenWorkspace =
+        workspace?.is_kitchen === true || auth?.user?.preferred_workspace === "kitchen";
+    const canUpdateDailyStock = canEditProducts && Boolean(activeOutlet?.id);
     const showCostAsPrimary = isKitchenWorkspace || !canManagePricing;
+    const categories = meta?.categories ?? [];
+    const tenantOutlets = meta?.tenantOutlets ?? [];
+    const kitchenStations = meta?.kitchenStations ?? [];
 
     const hasActiveFilters = useMemo(
         () =>
@@ -323,6 +365,85 @@ export default function Index({ products, filters = {}, setupStatus = {}, meta =
             ),
         [filterData]
     );
+
+    const activeFilterChips = useMemo(() => {
+        const chips = [];
+
+        if (filterData.search) {
+            chips.push({
+                key: "search",
+                label: `Cari: ${filterData.search}`,
+            });
+        }
+
+        if (filterData.category_id) {
+            const matchedCategory = categories.find(
+                (category) => String(category.id) === String(filterData.category_id)
+            );
+            chips.push({
+                key: "category_id",
+                label: `Kategori: ${matchedCategory?.name || filterData.category_id}`,
+            });
+        }
+
+        if (filterData.tenant_outlet_id && !isKitchenWorkspace) {
+            const matchedOutlet = tenantOutlets.find(
+                (outlet) => String(outlet.id) === String(filterData.tenant_outlet_id)
+            );
+            chips.push({
+                key: "tenant_outlet_id",
+                label:
+                    filterData.tenant_outlet_id === "unassigned"
+                        ? "Tenant: Global"
+                        : `Tenant: ${matchedOutlet?.name || filterData.tenant_outlet_id}`,
+            });
+        }
+
+        if (filterData.stock_status) {
+            const stockStatusLabel = {
+                out: "Stok habis",
+                low: "Stok menipis",
+                ready: "Stok aman",
+            };
+
+            chips.push({
+                key: "stock_status",
+                label: stockStatusLabel[filterData.stock_status] || filterData.stock_status,
+            });
+        }
+
+        if (filterData.mapping_status && !isKitchenWorkspace) {
+            const mappingLabel = {
+                tenant_missing: "Tenant belum",
+                kitchen_missing: "Dapur belum",
+                ready: "Siap operasional",
+            };
+
+            chips.push({
+                key: "mapping_status",
+                label: mappingLabel[filterData.mapping_status] || filterData.mapping_status,
+            });
+        }
+
+        if (filterData.sort !== "latest") {
+            const sortLabel = {
+                oldest: "Terlama",
+                title_asc: "Nama A-Z",
+                title_desc: "Nama Z-A",
+                price_low: "Harga termurah",
+                price_high: "Harga tertinggi",
+                stock_low: "Stok terendah",
+                stock_high: "Stok tertinggi",
+            };
+
+            chips.push({
+                key: "sort",
+                label: `Urut: ${sortLabel[filterData.sort] || filterData.sort}`,
+            });
+        }
+
+        return chips;
+    }, [categories, filterData, isKitchenWorkspace, tenantOutlets]);
 
     const handlePrintSingleBarcode = (product) => {
         setSingleProductBarcode(product);
@@ -372,18 +493,27 @@ export default function Index({ products, filters = {}, setupStatus = {}, meta =
 
     const applyFilters = (event) => {
         event.preventDefault();
-        router.get(route("products.index"), filterData, {
+        router.get(route("products.index"), compactFilters(filterData), {
             preserveScroll: true,
-            preserveState: true,
+            preserveState: false,
         });
         setShowFilters(false);
     };
 
+    const submitQuickSearch = (event) => {
+        event.preventDefault();
+        router.get(route("products.index"), compactFilters(filterData), {
+            preserveScroll: true,
+            preserveState: false,
+        });
+    };
+
     const resetFilters = () => {
         setFilterData(defaultFilters);
-        router.get(route("products.index"), defaultFilters, {
-            preserveScroll: true,
-            preserveState: true,
+        setShowFilters(false);
+        router.get(route("products.index"), {}, {
+            preserveScroll: false,
+            preserveState: false,
             replace: true,
         });
     };
@@ -395,9 +525,9 @@ export default function Index({ products, filters = {}, setupStatus = {}, meta =
         };
 
         setFilterData(nextFilters);
-        router.get(route("products.index"), nextFilters, {
+        router.get(route("products.index"), compactFilters(nextFilters), {
             preserveScroll: true,
-            preserveState: true,
+            preserveState: false,
         });
     };
 
@@ -409,9 +539,9 @@ export default function Index({ products, filters = {}, setupStatus = {}, meta =
         };
 
         setFilterData(nextFilters);
-        router.get(route("products.index"), nextFilters, {
+        router.get(route("products.index"), compactFilters(nextFilters), {
             preserveScroll: true,
-            preserveState: true,
+            preserveState: false,
         });
     };
 
@@ -422,9 +552,6 @@ export default function Index({ products, filters = {}, setupStatus = {}, meta =
     const currentPage = Number(products?.current_page ?? 1);
     const perPage = Number(products?.per_page ?? 10);
     const perPageOptions = meta?.per_page_options ?? [10, 25, 50, 100];
-    const categories = meta?.categories ?? [];
-    const tenantOutlets = meta?.tenantOutlets ?? [];
-    const kitchenStations = meta?.kitchenStations ?? [];
     const activeOutletName = activeOutlet?.code || activeOutlet?.name || "Outlet aktif";
 
     const submitBulkMapping = () => {
@@ -448,6 +575,44 @@ export default function Index({ products, filters = {}, setupStatus = {}, meta =
         );
     };
 
+    const openDailyStockModal = (product) => {
+        setDailyStockModalProduct(product);
+        setDailyStockForm({
+            stock: String(product.active_outlet_stock ?? product.stock ?? 0),
+            notes: "",
+        });
+    };
+
+    const closeDailyStockModal = () => {
+        setDailyStockModalProduct(null);
+        setDailyStockForm({
+            stock: "",
+            notes: "",
+        });
+    };
+
+    const submitDailyStockUpdate = (event) => {
+        event.preventDefault();
+
+        if (!dailyStockModalProduct) {
+            return;
+        }
+
+        router.patch(
+            route("products.daily-stock.update", dailyStockModalProduct.id),
+            {
+                stock: Number(dailyStockForm.stock || 0),
+                notes: dailyStockForm.notes,
+            },
+            {
+                preserveScroll: true,
+                onSuccess: () => {
+                    closeDailyStockModal();
+                },
+            }
+        );
+    };
+
     return (
         <>
             <Head title="Produk" />
@@ -459,19 +624,23 @@ export default function Index({ products, filters = {}, setupStatus = {}, meta =
                             Produk
                         </h1>
                         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                            Menampilkan {from || 0}-{to || 0} dari {total} produk.
+                            {isKitchenWorkspace
+                                ? `Menampilkan produk dapur Anda: ${from || 0}-${to || 0} dari ${total} produk.`
+                                : `Menampilkan ${from || 0}-${to || 0} dari ${total} produk.`}
                         </p>
                     </div>
 
                     <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
-                        <button
-                            onClick={handlePrintAllBarcodes}
-                            className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 sm:w-auto"
-                            type="button"
-                        >
-                            <IconBarcode size={18} />
-                            Cetak All Barcode
-                        </button>
+                        {!isKitchenWorkspace ? (
+                            <button
+                                onClick={handlePrintAllBarcodes}
+                                className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 sm:w-auto"
+                                type="button"
+                            >
+                                <IconBarcode size={18} />
+                                Cetak All Barcode
+                            </button>
+                        ) : null}
 
                         <Link
                             href={route("products.menu-book")}
@@ -494,7 +663,7 @@ export default function Index({ products, filters = {}, setupStatus = {}, meta =
                             Filter
                         </button>
 
-                        {canCreateProducts ? (
+                        {canCreateProducts && !isKitchenWorkspace ? (
                             <Button
                                 type="link"
                                 icon={<IconCirclePlus size={18} strokeWidth={1.5} />}
@@ -506,41 +675,158 @@ export default function Index({ products, filters = {}, setupStatus = {}, meta =
                     </div>
                 </div>
 
-                <div className="grid gap-4 lg:grid-cols-2">
-                    <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-100">
-                        <p className="font-semibold">Halaman ini untuk katalog dan mapping produk</p>
-                        <p className="mt-1 text-blue-800 dark:text-blue-200">
-                            Setelah outlet, tenant, dan kitchen siap, halaman produk dipakai untuk memastikan setiap produk terhubung ke tenant yang benar dan siap diarahkan ke station dapur yang tepat.
-                        </p>
+                <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+                    <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                        <form onSubmit={submitQuickSearch} className="flex flex-1 flex-col gap-3 sm:flex-row">
+                            <div className="relative flex-1">
+                                <input
+                                    type="text"
+                                    value={filterData.search}
+                                    onChange={(event) =>
+                                        handleChange("search", event.target.value)
+                                    }
+                                    className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 pr-11 text-sm text-slate-700 outline-none transition focus:border-primary-300 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                                    placeholder="Cari nama produk, barcode, SKU, atau deskripsi..."
+                                />
+                                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-4 text-slate-400">
+                                    <IconSearch size={18} />
+                                </div>
+                            </div>
+                            <div className="flex gap-2">
+                                <button
+                                    type="submit"
+                                    className="inline-flex items-center justify-center rounded-2xl bg-primary-500 px-4 py-3 text-sm font-semibold text-white transition hover:bg-primary-600"
+                                >
+                                    Cari
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowFilters((value) => !value)}
+                                    className={`inline-flex items-center justify-center rounded-2xl border px-4 py-3 text-sm font-medium transition ${
+                                        showFilters || hasActiveFilters
+                                            ? "border-primary-200 bg-primary-50 text-primary-700 dark:border-primary-800 dark:bg-primary-950/50 dark:text-primary-300"
+                                            : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                                    }`}
+                                >
+                                    Pencarian Lanjutan
+                                </button>
+                            </div>
+                        </form>
+
+                        <div className="flex flex-wrap items-center gap-3">
+                            <div className="flex items-center gap-2">
+                                <label className="text-sm text-slate-500 dark:text-slate-400">
+                                    Rows:
+                                </label>
+                                <select
+                                    value={String(perPage)}
+                                    onChange={(event) => applyPerPage(event.target.value)}
+                                    className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-primary-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                >
+                                    {perPageOptions.map((option) => (
+                                        <option key={option} value={String(option)}>
+                                            {option}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <button
+                                onClick={() => setViewMode("grid")}
+                                className={`rounded-lg p-2.5 transition-colors ${
+                                    viewMode === "grid"
+                                        ? "bg-primary-100 text-primary-600 dark:bg-primary-900/50 dark:text-primary-400"
+                                        : "text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                                }`}
+                                title="Grid View"
+                                type="button"
+                            >
+                                <IconLayoutGrid size={20} />
+                            </button>
+                            <button
+                                onClick={() => setViewMode("list")}
+                                className={`rounded-lg p-2.5 transition-colors ${
+                                    viewMode === "list"
+                                        ? "bg-primary-100 text-primary-600 dark:bg-primary-900/50 dark:text-primary-400"
+                                        : "text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                                }`}
+                                title="List View"
+                                type="button"
+                            >
+                                <IconList size={20} />
+                            </button>
+                        </div>
                     </div>
-                    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100">
-                        <p className="font-semibold">Jika foodcourt aktif, mapping tenant wajib diperhatikan</p>
-                        <p className="mt-1 text-amber-800 dark:text-amber-200">
-                            Produk yang belum dipetakan ke tenant akan terlihat sebagai <span className="font-semibold">Global</span> dan belum cocok untuk settlement tenant foodcourt.
-                        </p>
-                    </div>
+
+                    {activeFilterChips.length > 0 ? (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                            {activeFilterChips.map((chip) => (
+                                <span
+                                    key={chip.key}
+                                    className="rounded-full border border-primary-200 bg-primary-50 px-3 py-1 text-xs font-medium text-primary-700 dark:border-primary-900/40 dark:bg-primary-950/30 dark:text-primary-300"
+                                >
+                                    {chip.label}
+                                </span>
+                            ))}
+                            <button
+                                type="button"
+                                onClick={resetFilters}
+                                className="rounded-full border border-slate-200 px-3 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                            >
+                                Reset
+                            </button>
+                        </div>
+                    ) : null}
                 </div>
 
+                {isKitchenWorkspace ? (
+                    <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-100">
+                        <p className="font-semibold">Mode dapur aktif</p>
+                        <p className="mt-1 text-emerald-800 dark:text-emerald-200">
+                            Halaman ini hanya menampilkan produk yang terhubung ke station dapur Anda. Gunakan aksi <span className="font-semibold">Update Stok Hari Ini</span> untuk menyesuaikan stok outlet aktif tanpa membuka form admin produk.
+                        </p>
+                    </div>
+                ) : (
+                    <div className="grid gap-4 lg:grid-cols-2">
+                        <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-100">
+                            <p className="font-semibold">Halaman ini untuk katalog dan mapping produk</p>
+                            <p className="mt-1 text-blue-800 dark:text-blue-200">
+                                Setelah outlet, tenant, dan kitchen siap, halaman produk dipakai untuk memastikan setiap produk terhubung ke tenant yang benar dan siap diarahkan ke station dapur yang tepat.
+                            </p>
+                        </div>
+                        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100">
+                            <p className="font-semibold">Jika foodcourt aktif, mapping tenant wajib diperhatikan</p>
+                            <p className="mt-1 text-amber-800 dark:text-amber-200">
+                                Produk yang belum dipetakan ke tenant akan terlihat sebagai <span className="font-semibold">Global</span> dan belum cocok untuk settlement tenant foodcourt.
+                            </p>
+                        </div>
+                    </div>
+                )}
+
                 <div className="flex flex-wrap gap-2">
-                    <Link
-                        href={route("guides.setup-wizard")}
-                        className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
-                    >
-                        Wizard Setup
-                    </Link>
-                    <Link
-                        href={route("guides.outlet-kitchen")}
-                        className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
-                    >
-                        Panduan Lengkap
-                    </Link>
-                    {can("outlets-access") ? (
-                        <Link
-                            href={route("outlets.index")}
-                            className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
-                        >
-                            Outlet & Tenant
-                        </Link>
+                    {!isKitchenWorkspace ? (
+                        <>
+                            <Link
+                                href={route("guides.setup-wizard")}
+                                className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                            >
+                                Wizard Setup
+                            </Link>
+                            <Link
+                                href={route("guides.outlet-kitchen")}
+                                className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                            >
+                                Panduan Lengkap
+                            </Link>
+                            {can("outlets-access") ? (
+                                <Link
+                                    href={route("outlets.index")}
+                                    className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                                >
+                                    Outlet & Tenant
+                                </Link>
+                            ) : null}
+                        </>
                     ) : null}
                     <Link
                         href={route("settings.kitchen-devices.index")}
@@ -550,6 +836,7 @@ export default function Index({ products, filters = {}, setupStatus = {}, meta =
                     </Link>
                 </div>
 
+                {!isKitchenWorkspace ? (
                 <div className="flex flex-wrap gap-2">
                     <button
                         type="button"
@@ -594,7 +881,9 @@ export default function Index({ products, filters = {}, setupStatus = {}, meta =
                         </button>
                     ) : null}
                 </div>
+                ) : null}
 
+                {!isKitchenWorkspace ? (
                 <div className="grid gap-4 lg:grid-cols-4">
                     {[
                         {
@@ -634,8 +923,9 @@ export default function Index({ products, filters = {}, setupStatus = {}, meta =
                         </div>
                     ))}
                 </div>
+                ) : null}
 
-                {setupStatus.needs_tenant_mapping || setupStatus.needs_station_mapping ? (
+                {!isKitchenWorkspace && (setupStatus.needs_tenant_mapping || setupStatus.needs_station_mapping) ? (
                     <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100">
                         <p className="font-semibold">Mapping produk masih belum lengkap</p>
                         <div className="mt-2 space-y-1 text-amber-800 dark:text-amber-200">
@@ -693,6 +983,7 @@ export default function Index({ products, filters = {}, setupStatus = {}, meta =
                                     </select>
                                 </div>
 
+                                {!isKitchenWorkspace ? (
                                 <div>
                                     <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
                                         Tenant Outlet
@@ -713,6 +1004,7 @@ export default function Index({ products, filters = {}, setupStatus = {}, meta =
                                         ))}
                                     </select>
                                 </div>
+                                ) : null}
 
                                 <div>
                                     <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
@@ -732,6 +1024,7 @@ export default function Index({ products, filters = {}, setupStatus = {}, meta =
                                     </select>
                                 </div>
 
+                                {!isKitchenWorkspace ? (
                                 <div>
                                     <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
                                         Status Mapping
@@ -749,6 +1042,7 @@ export default function Index({ products, filters = {}, setupStatus = {}, meta =
                                         <option value="ready">Siap operasional</option>
                                     </select>
                                 </div>
+                                ) : null}
 
                                 <div>
                                     <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
@@ -845,50 +1139,14 @@ export default function Index({ products, filters = {}, setupStatus = {}, meta =
                                 Cetak Terpilih ({selectedProducts.length})
                             </button>
                         ) : null}
-
-                        <div className="flex items-center gap-2">
-                            <label className="text-sm text-slate-500 dark:text-slate-400">
-                                Rows:
-                            </label>
-                            <select
-                                value={String(perPage)}
-                                onChange={(event) => applyPerPage(event.target.value)}
-                                className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-primary-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-                            >
-                                {perPageOptions.map((option) => (
-                                    <option key={option} value={String(option)}>
-                                        {option}
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
-
-                        <button
-                            onClick={() => setViewMode("grid")}
-                            className={`rounded-lg p-2.5 transition-colors ${
-                                viewMode === "grid"
-                                    ? "bg-primary-100 text-primary-600 dark:bg-primary-900/50 dark:text-primary-400"
-                                    : "text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
-                            }`}
-                            title="Grid View"
-                            type="button"
-                        >
-                            <IconLayoutGrid size={20} />
-                        </button>
-                        <button
-                            onClick={() => setViewMode("list")}
-                            className={`rounded-lg p-2.5 transition-colors ${
-                                viewMode === "list"
-                                    ? "bg-primary-100 text-primary-600 dark:bg-primary-900/50 dark:text-primary-400"
-                                    : "text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
-                            }`}
-                            title="List View"
-                            type="button"
-                        >
-                            <IconList size={20} />
-                        </button>
                     </div>
                 </div>
+
+                {products.last_page !== 1 ? (
+                    <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-900">
+                        <Pagination links={products.links} />
+                    </div>
+                ) : null}
 
                 {canManageCatalog && selectedProducts.length > 0 ? (
                     <div className="rounded-2xl border border-primary-200 bg-primary-50 p-5 dark:border-primary-900/40 dark:bg-primary-950/20">
@@ -1009,6 +1267,8 @@ export default function Index({ products, filters = {}, setupStatus = {}, meta =
                                     canSelect={canManageCatalog}
                                     canUpdate={canEditProducts}
                                     canDelete={canDeleteProducts}
+                                    canUpdateDailyStock={canUpdateDailyStock}
+                                    onDailyStockUpdate={openDailyStockModal}
                                     activeOutletName={activeOutletName}
                                     showCostAsPrimary={showCostAsPrimary}
                                     showSellPrice={canManagePricing}
@@ -1152,6 +1412,15 @@ export default function Index({ products, filters = {}, setupStatus = {}, meta =
                                             </Table.Td>
                                             <Table.Td>
                                                 <div className="flex gap-2">
+                                                    {canUpdateDailyStock ? (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => openDailyStockModal(product)}
+                                                            className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-2 text-xs font-medium text-emerald-700 transition hover:bg-emerald-100 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-300 dark:hover:bg-emerald-950/50"
+                                                        >
+                                                            Stok Hari Ini
+                                                        </button>
+                                                    ) : null}
                                                     <button
                                                         type="button"
                                                         onClick={() => handlePrintSingleBarcode(product)}
@@ -1221,6 +1490,97 @@ export default function Index({ products, filters = {}, setupStatus = {}, meta =
                     products={selectedProducts}
                     singleProduct={singleProductBarcode}
                 />
+
+                {dailyStockModalProduct ? (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 px-4 py-6">
+                        <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-900">
+                            <div className="flex items-start justify-between gap-4">
+                                <div>
+                                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-500">
+                                        Update Stok Harian
+                                    </p>
+                                    <h3 className="mt-1 text-lg font-semibold text-slate-900 dark:text-white">
+                                        {dailyStockModalProduct.title}
+                                    </h3>
+                                    <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                        Outlet aktif: {activeOutletName}
+                                    </p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={closeDailyStockModal}
+                                    className="rounded-xl border border-slate-200 p-2 text-slate-500 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                                >
+                                    <IconX size={18} />
+                                </button>
+                            </div>
+
+                            <form onSubmit={submitDailyStockUpdate} className="mt-5 space-y-4">
+                                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/50">
+                                    <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                        Stok saat ini
+                                    </p>
+                                    <p className="mt-1 text-2xl font-bold text-slate-900 dark:text-white">
+                                        {dailyStockModalProduct.active_outlet_stock ?? dailyStockModalProduct.stock ?? 0}
+                                    </p>
+                                </div>
+
+                                <div>
+                                    <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                        Stok fisik hari ini
+                                    </label>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        value={dailyStockForm.stock}
+                                        onChange={(event) =>
+                                            setDailyStockForm((prev) => ({
+                                                ...prev,
+                                                stock: event.target.value,
+                                            }))
+                                        }
+                                        className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-700 outline-none transition focus:border-emerald-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                        required
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                        Catatan
+                                    </label>
+                                    <textarea
+                                        value={dailyStockForm.notes}
+                                        onChange={(event) =>
+                                            setDailyStockForm((prev) => ({
+                                                ...prev,
+                                                notes: event.target.value,
+                                            }))
+                                        }
+                                        rows={3}
+                                        className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-emerald-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                        placeholder="Contoh: stok pagi, restock, atau koreksi fisik."
+                                    />
+                                </div>
+
+                                <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                                    <button
+                                        type="button"
+                                        onClick={closeDailyStockModal}
+                                        className="inline-flex items-center justify-center rounded-2xl border border-slate-200 px-4 py-3 text-sm font-medium text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                                    >
+                                        Batal
+                                    </button>
+                                    <button
+                                        type="submit"
+                                        className="inline-flex items-center justify-center rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-600"
+                                    >
+                                        Simpan Stok Hari Ini
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                ) : null}
             </div>
         </>
     );

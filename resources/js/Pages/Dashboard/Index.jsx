@@ -203,7 +203,9 @@ export default function Dashboard({
     todaySales = 0,
     todayProfit = 0,
     monthlyTarget = 0,
+    monthlyProfitTarget = 0,
     currentMonthSales = 0,
+    currentMonthProfit = 0,
     topProducts = [],
     slowMovingProducts = [],
     recentTransactions = [],
@@ -474,7 +476,7 @@ export default function Dashboard({
                 </div>
 
                 {/* Main Stat Cards - Reorganized */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
                     <StatCard
                         title="Penjualan Hari Ini"
                         value={formatCurrency(todaySales)}
@@ -491,10 +493,16 @@ export default function Dashboard({
                         trend="up"
                     />
                     <TargetCard
-                        title="Target Bulan Ini"
+                        title="Target Penjualan"
                         current={currentMonthSales}
                         target={monthlyTarget}
                         icon={IconTarget}
+                    />
+                    <TargetCard
+                        title="Target Keuntungan"
+                        current={currentMonthProfit}
+                        target={monthlyProfitTarget}
+                        icon={IconTrendingUp}
                     />
                     <StatCard
                         title="Transaksi Hari Ini"
