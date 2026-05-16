@@ -9,10 +9,12 @@ use App\Models\Outlet;
 use App\Models\PrintJob;
 use App\Models\ProductKitchenStationMapping;
 use App\Models\Setting;
+use App\Models\User;
 use App\Services\OutletResolver;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -99,6 +101,11 @@ class KitchenSettingsController extends Controller
                 ->ordered()
                 ->when($lockedKitchenOutletId, fn ($query) => $query->where('id', $lockedKitchenOutletId))
                 ->get(['id', 'name', 'code']),
+            'outletUsers' => $this->outletUserOptions(
+                $lockedKitchenOutletId
+                    ? collect([$lockedKitchenOutletId])
+                    : Outlet::active()->ordered()->pluck('id')
+            ),
             'printProfiles' => KitchenStationDevice::printProfiles(),
             'setupStatus' => $setupStatus,
             'operationalSettings' => $this->operationalSettingsPayload(
@@ -155,6 +162,7 @@ class KitchenSettingsController extends Controller
             'open_time' => ['nullable', 'date_format:H:i'],
             'close_time' => ['nullable', 'date_format:H:i'],
             'notes' => ['nullable', 'string', 'max:255'],
+            'cashier_base_settlement_recipient_user_id' => ['nullable', 'integer', 'exists:users,id'],
         ]);
 
         $outletId = $lockedKitchenOutletId ?: (int) ($data['outlet_id'] ?: 0);
@@ -162,6 +170,20 @@ class KitchenSettingsController extends Controller
 
         if (! $lockedKitchenOutletId) {
             abort_unless($user?->hasAccessToOutlet($outletId), 403);
+        }
+
+        $recipientUserId = (int) ($data['cashier_base_settlement_recipient_user_id'] ?? 0);
+        if ($recipientUserId > 0) {
+            $recipientExists = User::query()
+                ->whereKey($recipientUserId)
+                ->whereHas('outlets', fn ($query) => $query->where('outlets.id', $outletId))
+                ->exists();
+
+            if (! $recipientExists) {
+                throw ValidationException::withMessages([
+                    'cashier_base_settlement_recipient_user_id' => 'Penerima setoran harus memiliki akses ke outlet ini.',
+                ]);
+            }
         }
 
         Setting::setMany([
@@ -180,6 +202,10 @@ class KitchenSettingsController extends Controller
             'daily_store_notes' => [
                 'value' => trim((string) ($data['notes'] ?? '')),
                 'description' => 'Catatan operasional toko hari ini',
+            ],
+            'cashier_base_settlement_recipient_user_id' => [
+                'value' => $recipientUserId > 0 ? (string) $recipientUserId : '',
+                'description' => 'User penerima setoran dasar kasir harian',
             ],
         ], $outletId);
 
@@ -232,6 +258,7 @@ class KitchenSettingsController extends Controller
             'code' => ['nullable', 'string', 'max:30'],
             'station_type' => ['nullable', 'string', 'max:30'],
             'display_mode' => ['nullable', 'string', 'max:30'],
+            'processing_mode' => ['nullable', 'string', 'in:auto,manual'],
             'sort_order' => ['nullable', 'integer', 'min:0'],
             'is_active' => ['nullable', 'boolean'],
         ]);
@@ -241,6 +268,7 @@ class KitchenSettingsController extends Controller
             'slug' => Str::slug($data['name']),
             'station_type' => $data['station_type'] ?? 'kitchen',
             'display_mode' => $data['display_mode'] ?? 'screen',
+            'processing_mode' => $data['processing_mode'] ?? 'auto',
             'sort_order' => (int) ($data['sort_order'] ?? 0),
             'is_active' => (bool) ($data['is_active'] ?? true),
         ]);
@@ -256,6 +284,7 @@ class KitchenSettingsController extends Controller
             'code' => ['nullable', 'string', 'max:30'],
             'station_type' => ['nullable', 'string', 'max:30'],
             'display_mode' => ['nullable', 'string', 'max:30'],
+            'processing_mode' => ['nullable', 'string', 'in:auto,manual'],
             'sort_order' => ['nullable', 'integer', 'min:0'],
             'is_active' => ['nullable', 'boolean'],
         ]);
@@ -265,11 +294,30 @@ class KitchenSettingsController extends Controller
             'slug' => Str::slug($data['name']),
             'station_type' => $data['station_type'] ?? 'kitchen',
             'display_mode' => $data['display_mode'] ?? 'screen',
+            'processing_mode' => $data['processing_mode'] ?? 'auto',
             'sort_order' => (int) ($data['sort_order'] ?? 0),
             'is_active' => (bool) ($data['is_active'] ?? false),
         ]);
 
         return back()->with('success', 'Station dapur berhasil diperbarui.');
+    }
+
+    public function updateStationProcessingMode(Request $request, KitchenStation $station)
+    {
+        $data = $request->validate([
+            'processing_mode' => ['required', 'string', 'in:auto,manual'],
+        ]);
+
+        $station->update([
+            'processing_mode' => $data['processing_mode'],
+        ]);
+
+        return back()->with(
+            'success',
+            $data['processing_mode'] === 'auto'
+                ? 'Mode proses station diubah ke otomatis.'
+                : 'Mode proses station diubah ke manual.'
+        );
     }
 
     public function storeDevice(Request $request, KitchenStation $station)
@@ -376,13 +424,43 @@ class KitchenSettingsController extends Controller
 
     private function operationalSettingsPayload(?int $outletId): array
     {
+        $recipientUserId = Setting::getInt('cashier_base_settlement_recipient_user_id', 0, $outletId);
+        $recipientUser = $recipientUserId > 0
+            ? User::query()->select('id', 'name')->find($recipientUserId)
+            : null;
+
         return [
             'outlet_id' => $outletId,
             'is_open' => Setting::getBool('daily_store_open', true, $outletId),
             'open_time' => (string) Setting::get('daily_store_open_time', '08:00', $outletId),
             'close_time' => (string) Setting::get('daily_store_close_time', '22:00', $outletId),
             'notes' => (string) Setting::get('daily_store_notes', '', $outletId),
+            'cashier_base_settlement_recipient_user_id' => $recipientUserId > 0 ? $recipientUserId : null,
+            'cashier_base_settlement_recipient_name' => $recipientUser?->name,
         ];
+    }
+
+    private function outletUserOptions(Collection $outletIds): array
+    {
+        if ($outletIds->isEmpty()) {
+            return [];
+        }
+
+        return Outlet::query()
+            ->with(['users:id,name'])
+            ->whereIn('id', $outletIds->filter()->values())
+            ->get(['id'])
+            ->mapWithKeys(fn (Outlet $outlet) => [
+                (string) $outlet->id => $outlet->users
+                    ->sortBy('name')
+                    ->values()
+                    ->map(fn (User $user) => [
+                        'id' => $user->id,
+                        'name' => $user->name,
+                    ])
+                    ->all(),
+            ])
+            ->all();
     }
 
     public function testDevice(KitchenStationDevice $device)
@@ -529,6 +607,7 @@ class KitchenSettingsController extends Controller
 
         return [
             ...$station->toArray(),
+            'processing_mode' => $station->processing_mode ?: 'auto',
             'devices' => $devices,
             'shortcut_urls' => [
                 'entry_url' => route('kitchen.entry', ['stationSlug' => $station->slug]),

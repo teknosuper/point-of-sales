@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\CashierShift;
 use App\Models\SalesReturn;
 use App\Models\Transaction;
+use App\Models\TransactionDetail;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
@@ -114,6 +115,29 @@ class CashierShiftService
             'registered_transactions_count' => $registeredTransactionsCount,
             'sales_returns_count' => $salesReturnsCount,
             'expected_cash' => $expectedCash,
+        ];
+    }
+
+    public function calculateBaseSettlementSummary(CashierShift $shift): array
+    {
+        $paidTransactions = Transaction::query()
+            ->where('cashier_shift_id', $shift->id)
+            ->where('payment_status', 'paid');
+
+        $grossSalesTotal = (int) ((clone $paidTransactions)->sum('grand_total') ?? 0);
+        $transactionIds = (clone $paidTransactions)->pluck('id');
+        $baseSalesTotal = $transactionIds->isNotEmpty()
+            ? (int) (TransactionDetail::query()
+                ->whereIn('transaction_id', $transactionIds)
+                ->selectRaw('COALESCE(SUM(base_unit_price * qty), 0) as total_base_value')
+                ->value('total_base_value') ?? 0)
+            : 0;
+
+        return [
+            'paid_transactions_count' => (int) $transactionIds->count(),
+            'gross_sales_total' => $grossSalesTotal,
+            'base_sales_total' => $baseSalesTotal,
+            'markup_total' => max(0, $grossSalesTotal - $baseSalesTotal),
         ];
     }
 

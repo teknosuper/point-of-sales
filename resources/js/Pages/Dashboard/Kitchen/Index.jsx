@@ -248,6 +248,16 @@ export default function KitchenIndex({
     };
 
     const handleAcknowledge = (ticketId) => {
+        if ((boardState.activeStation?.processing_mode || "auto") === "manual") {
+            const confirmed = window.confirm(
+                "Mulai proses ticket ini sekarang?"
+            );
+
+            if (!confirmed) {
+                return;
+            }
+        }
+
         router.post(route("kitchen.tickets.acknowledge", ticketId), {}, {
             preserveScroll: true,
         });
@@ -263,6 +273,39 @@ export default function KitchenIndex({
         router.post(route("kitchen.tickets.deliver", ticketId), {}, {
             preserveScroll: true,
         });
+    };
+
+    const handleToggleProcessingMode = () => {
+        if (!boardState.activeStation?.id) {
+            return;
+        }
+
+        const nextMode =
+            (boardState.activeStation?.processing_mode || "auto") === "manual"
+                ? "auto"
+                : "manual";
+        const confirmed = window.confirm(
+            nextMode === "auto"
+                ? "Ubah station ini ke mode proses otomatis?"
+                : "Ubah station ini ke mode proses manual?"
+        );
+
+        if (!confirmed) {
+            return;
+        }
+
+        router.patch(
+            route(
+                "settings.kitchen-stations.processing-mode.update",
+                boardState.activeStation.id
+            ),
+            {
+                processing_mode: nextMode,
+            },
+            {
+                preserveScroll: true,
+            }
+        );
     };
 
     const handleDispatch = (ticketId) => {
@@ -564,6 +607,21 @@ export default function KitchenIndex({
                         <div className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
                             Auto refresh {boardState.refreshMeta?.interval_seconds || 15} dtk
                         </div>
+                        {!kioskMode && selectedStation ? (
+                            <button
+                                type="button"
+                                onClick={handleToggleProcessingMode}
+                                className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-medium transition ${
+                                    (selectedStation.processing_mode || "auto") === "manual"
+                                        ? "border-amber-200 bg-amber-50 text-amber-700 hover:border-amber-300 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300"
+                                        : "border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-300 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-300"
+                                }`}
+                            >
+                                {(selectedStation.processing_mode || "auto") === "manual"
+                                    ? "Ubah ke Auto"
+                                    : "Ubah ke Manual"}
+                            </button>
+                        ) : null}
                         <button
                             type="button"
                             onClick={() => setShowGuideModal(true)}
@@ -606,6 +664,33 @@ export default function KitchenIndex({
                                     )}
                                 </div>
                             </div>
+
+                            <div className="flex flex-wrap items-center gap-2">
+                                <span
+                                    className={`rounded-full px-3 py-1.5 text-xs font-semibold ${
+                                        (selectedStation.processing_mode || "auto") === "manual"
+                                            ? "bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300"
+                                            : "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300"
+                                    }`}
+                                >
+                                    {(selectedStation.processing_mode || "auto") === "manual"
+                                        ? "Mode proses manual"
+                                        : "Mode proses otomatis"}
+                                </span>
+                                <span className="text-xs text-slate-500 dark:text-slate-400">
+                                    {(selectedStation.processing_mode || "auto") === "manual"
+                                        ? "Ticket menunggu perlu diklik dan dikonfirmasi sebelum masuk proses."
+                                        : "Ticket menunggu akan otomatis masuk ke status diproses saat board aktif."}
+                                </span>
+                            </div>
+
+                            {(selectedStation.processing_mode || "auto") === "manual" ? (
+                                <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200">
+                                    Station ini sedang memakai mode manual. Ticket baru tidak akan otomatis diproses sampai tombol
+                                    <span className="mx-1 font-semibold">Mulai Proses</span>
+                                    ditekan.
+                                </div>
+                            ) : null}
 
                             <div className="flex flex-wrap gap-2">
                                 {[
@@ -954,7 +1039,8 @@ export default function KitchenIndex({
                                                         </td>
                                                         <td className="px-4 py-4">
                                                             <div className="flex min-w-[260px] flex-col gap-2">
-                                                                {ticket.status === "pending" ? (
+                                                                {ticket.status === "pending" &&
+                                                                (boardState.activeStation?.processing_mode || "auto") === "manual" ? (
                                                                     <button
                                                                         type="button"
                                                                         onClick={() => handleAcknowledge(ticket.id)}
@@ -1075,7 +1161,10 @@ export default function KitchenIndex({
                                     Mulai Proses
                                 </p>
                                 <p className="mt-1">
-                                    Ambil tiket dari status menunggu ke diproses saat dapur mulai mengerjakan.
+                                    Mode manual: ambil tiket dari status menunggu ke diproses saat dapur mulai mengerjakan.
+                                </p>
+                                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                                    Jika station memakai mode otomatis, langkah ini tidak perlu ditekan karena sistem akan memproses ticket masuk secara otomatis.
                                 </p>
                             </div>
                             <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 dark:border-slate-700 dark:bg-slate-950/40">

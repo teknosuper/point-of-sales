@@ -14,6 +14,7 @@ use App\Models\User;
 use Carbon\Carbon;
 use App\Services\OutletResolver;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Inertia\Inertia;
 
 class SalesReportController extends Controller
@@ -73,7 +74,7 @@ class SalesReportController extends Controller
 
         $tenantAllocationBaseQuery = $this->applyAllocationFilters(
             TransactionTenantAllocation::query()
-                ->with(['tenantOutlet:id,name,code,commission_rate_percent', 'transaction:id,invoice,created_at,payment_status'])
+                ->with(['tenantOutlet:id,name,code,commission_rate_percent', 'transaction:id,invoice,created_at,payment_status', 'validatedBy:id,name'])
                 ->select('transaction_tenant_allocations.*')
                 ->selectSub(
                     TransactionTenantAllocationItem::query()
@@ -153,6 +154,7 @@ class SalesReportController extends Controller
         $summary['registered_customer_count'] = max(0, $summary['orders_count'] - $summary['walk_in_count']);
         $tenantSummary['management_fee_total'] = (int) round($tenantMetricAllocations->sum('management_fee_total'));
         $tenantSummary['tenant_payout_total'] = (int) round($tenantMetricAllocations->sum('tenant_payout_total'));
+        $dailyRecap = $this->buildAllocationDailyRecap($tenantMetricAllocations);
 
         return Inertia::render('Dashboard/Reports/Sales', [
             'transactions' => $transactions,
@@ -172,6 +174,7 @@ class SalesReportController extends Controller
                 ],
                 'top_tenants' => $topTenants,
                 'allocations' => $tenantAllocations,
+                'daily_recap' => $dailyRecap,
             ],
             'filters' => $filters,
             'cashiers' => User::select('id', 'name')->orderBy('name')->get(),
@@ -242,7 +245,7 @@ class SalesReportController extends Controller
 
         $allocations = $this->applyAllocationFilters(
             TransactionTenantAllocation::query()
-                ->with(['tenantOutlet:id,name,code,commission_rate_percent', 'transaction:id,invoice,created_at,payment_status'])
+                ->with(['tenantOutlet:id,name,code,commission_rate_percent', 'transaction:id,invoice,created_at,payment_status', 'validatedBy:id,name'])
                 ->select('transaction_tenant_allocations.*')
                 ->selectSub(
                     TransactionTenantAllocationItem::query()
@@ -282,8 +285,15 @@ class SalesReportController extends Controller
                 'payment_status',
                 'settlement_status',
                 'settled_at',
+                'validated_by',
+                'validated_at',
                 'payout_reference',
                 'payout_paid_at',
+                'payout_cash_amount',
+                'payout_transfer_amount',
+                'payout_other_amount',
+                'payout_other_label',
+                'payout_recipient_name',
                 'payout_notes',
             ]);
 
@@ -310,8 +320,15 @@ class SalesReportController extends Controller
                     (string) ($allocation->payment_status ?? ''),
                     $allocation->settled_at ? 'settled' : 'outstanding',
                     optional($allocation->settled_at)?->format('Y-m-d H:i:s'),
+                    (string) ($allocation->validatedBy?->name ?? ''),
+                    optional($allocation->validated_at)?->format('Y-m-d H:i:s'),
                     (string) ($allocation->payout_reference ?? ''),
                     optional($allocation->payout_paid_at)?->format('Y-m-d H:i:s'),
+                    (int) ($allocation->payout_cash_amount ?? 0),
+                    (int) ($allocation->payout_transfer_amount ?? 0),
+                    (int) ($allocation->payout_other_amount ?? 0),
+                    (string) ($allocation->payout_other_label ?? ''),
+                    (string) ($allocation->payout_recipient_name ?? ''),
                     (string) ($allocation->payout_notes ?? ''),
                 ]);
             }
@@ -335,7 +352,7 @@ class SalesReportController extends Controller
 
         $baseQuery = $this->applyAllocationFilters(
             TransactionTenantAllocation::query()
-                ->with(['transaction:id,invoice,created_at,payment_status', 'tenantOutlet:id,name,code,commission_rate_percent'])
+                ->with(['transaction:id,invoice,created_at,payment_status', 'tenantOutlet:id,name,code,commission_rate_percent', 'validatedBy:id,name'])
                 ->select('transaction_tenant_allocations.*')
                 ->selectSub(
                     TransactionTenantAllocationItem::query()
@@ -365,6 +382,7 @@ class SalesReportController extends Controller
         $summary['margin_percentage'] = $summary['revenue_total'] > 0
             ? round(($summary['profit_total'] / $summary['revenue_total']) * 100, 2)
             : 0.0;
+        $dailyRecap = $this->buildAllocationDailyRecap($metricAllocations);
 
         return Inertia::render('Dashboard/Reports/TenantStatement', [
             'tenantOutlet' => [
@@ -375,6 +393,7 @@ class SalesReportController extends Controller
             ],
             'summary' => $summary,
             'allocations' => $allocations,
+            'dailyRecap' => $dailyRecap,
             'filters' => [
                 'start_date' => $filters['start_date'],
                 'end_date' => $filters['end_date'],
@@ -396,7 +415,7 @@ class SalesReportController extends Controller
 
         $allocations = $this->applyAllocationFilters(
             TransactionTenantAllocation::query()
-                ->with(['transaction:id,invoice,created_at,payment_status', 'tenantOutlet:id,name,code,commission_rate_percent'])
+                ->with(['transaction:id,invoice,created_at,payment_status', 'tenantOutlet:id,name,code,commission_rate_percent', 'validatedBy:id,name'])
                 ->select('transaction_tenant_allocations.*')
                 ->selectSub(
                     TransactionTenantAllocationItem::query()
@@ -430,8 +449,15 @@ class SalesReportController extends Controller
                 'tenant_payout_total',
                 'settlement_status',
                 'settled_at',
+                'validated_by',
+                'validated_at',
                 'payout_reference',
                 'payout_paid_at',
+                'payout_cash_amount',
+                'payout_transfer_amount',
+                'payout_other_amount',
+                'payout_other_label',
+                'payout_recipient_name',
                 'payout_notes',
             ]);
 
@@ -449,8 +475,15 @@ class SalesReportController extends Controller
                     (int) ($allocation->tenant_payout_total ?? 0),
                     $allocation->settled_at ? 'settled' : 'outstanding',
                     optional($allocation->settled_at)?->format('Y-m-d H:i:s'),
+                    (string) ($allocation->validatedBy?->name ?? ''),
+                    optional($allocation->validated_at)?->format('Y-m-d H:i:s'),
                     (string) ($allocation->payout_reference ?? ''),
                     optional($allocation->payout_paid_at)?->format('Y-m-d H:i:s'),
+                    (int) ($allocation->payout_cash_amount ?? 0),
+                    (int) ($allocation->payout_transfer_amount ?? 0),
+                    (int) ($allocation->payout_other_amount ?? 0),
+                    (string) ($allocation->payout_other_label ?? ''),
+                    (string) ($allocation->payout_recipient_name ?? ''),
                     (string) ($allocation->payout_notes ?? ''),
                 ]);
             }
@@ -463,46 +496,169 @@ class SalesReportController extends Controller
 
     public function settleTenantAllocation(Request $request, TransactionTenantAllocation $allocation)
     {
-        $activeOutletId = $this->outletResolver->resolve($request, $request->user())?->id;
-
-        if ($activeOutletId && (int) $allocation->outlet_id !== (int) $activeOutletId) {
-            abort(404);
-        }
+        $allocation = $this->resolveAllocationForSettlement($request, $allocation);
 
         $validated = $request->validate([
             'payout_reference' => ['nullable', 'string', 'max:100'],
             'payout_notes' => ['nullable', 'string', 'max:500'],
             'payout_paid_at' => ['nullable', 'date'],
+            'payout_cash_amount' => ['nullable', 'numeric', 'min:0'],
+            'payout_transfer_amount' => ['nullable', 'numeric', 'min:0'],
+            'payout_other_amount' => ['nullable', 'numeric', 'min:0'],
+            'payout_other_label' => ['nullable', 'string', 'max:60'],
+            'payout_recipient_name' => ['required', 'string', 'max:120'],
         ]);
+
+        $cashAmount = (int) round((float) ($validated['payout_cash_amount'] ?? 0));
+        $transferAmount = (int) round((float) ($validated['payout_transfer_amount'] ?? 0));
+        $otherAmount = (int) round((float) ($validated['payout_other_amount'] ?? 0));
+        $totalPayoutBreakdown = $cashAmount + $transferAmount + $otherAmount;
+        $expectedPayout = (int) ($allocation->tenant_payout_total ?? 0);
+
+        if ($totalPayoutBreakdown !== $expectedPayout) {
+            return back()->withErrors([
+                'payout_cash_amount' => 'Total payout cash/transfer/lainnya harus sama dengan payout tenant.',
+            ]);
+        }
+
+        if ($otherAmount > 0 && blank($validated['payout_other_label'] ?? null)) {
+            return back()->withErrors([
+                'payout_other_label' => 'Isi keterangan metode lainnya bila nominal lainnya dipakai.',
+            ]);
+        }
 
         $allocation->forceFill([
             'settled_at' => Carbon::now(),
+            'validated_by' => $request->user()?->id,
+            'validated_at' => Carbon::now(),
             'payout_reference' => $validated['payout_reference'] ?? null,
             'payout_notes' => $validated['payout_notes'] ?? null,
             'payout_paid_at' => isset($validated['payout_paid_at'])
                 ? Carbon::parse($validated['payout_paid_at'])
                 : Carbon::now(),
+            'payout_cash_amount' => $cashAmount,
+            'payout_transfer_amount' => $transferAmount,
+            'payout_other_amount' => $otherAmount,
+            'payout_other_label' => $validated['payout_other_label'] ?? null,
+            'payout_recipient_name' => trim((string) $validated['payout_recipient_name']),
         ])->save();
 
-        return back()->with('success', "Settlement tenant {$allocation->allocation_number} ditandai selesai.");
+        return back()->with('success', "Settlement tenant {$allocation->allocation_number} berhasil divalidasi.");
     }
 
     public function unsettleTenantAllocation(Request $request, TransactionTenantAllocation $allocation)
     {
-        $activeOutletId = $this->outletResolver->resolve($request, $request->user())?->id;
-
-        if ($activeOutletId && (int) $allocation->outlet_id !== (int) $activeOutletId) {
-            abort(404);
-        }
+        $allocation = $this->resolveAllocationForSettlement($request, $allocation);
 
         $allocation->forceFill([
             'settled_at' => null,
+            'validated_by' => null,
+            'validated_at' => null,
             'payout_reference' => null,
             'payout_notes' => null,
             'payout_paid_at' => null,
+            'payout_cash_amount' => 0,
+            'payout_transfer_amount' => 0,
+            'payout_other_amount' => 0,
+            'payout_other_label' => null,
+            'payout_recipient_name' => null,
         ])->save();
 
         return back()->with('success', "Settlement tenant {$allocation->allocation_number} dibuka kembali.");
+    }
+
+    public function printTenantAllocationReceipt(Request $request, TransactionTenantAllocation $allocation)
+    {
+        $allocation = $this->resolveAllocationForSettlement($request, $allocation);
+        abort_if(! $allocation->settled_at, 404, 'Settlement tenant belum divalidasi.');
+
+        return response()->view('print.tenant_settlement_receipt', [
+            'allocation' => $allocation,
+            'autoprint' => $request->boolean('autoprint'),
+        ]);
+    }
+
+    public function printTenantSettlementBatch(Request $request)
+    {
+        $outletId = $this->outletResolver->resolve($request, $request->user())?->id;
+        $filters = [
+            'start_date' => $request->input('start_date'),
+            'end_date' => $request->input('end_date'),
+            'invoice' => $request->input('invoice'),
+            'cashier_id' => $request->input('cashier_id'),
+            'customer_id' => $request->input('customer_id'),
+            'tenant_outlet_id' => $request->input('tenant_outlet_id'),
+            'settlement_status' => $request->input('settlement_status'),
+            'outlet_id' => $outletId,
+        ];
+
+        $allocations = $this->applyAllocationFilters(
+            TransactionTenantAllocation::query()
+                ->with([
+                    'tenantOutlet:id,name,code,commission_rate_percent',
+                    'transaction:id,invoice,created_at,payment_status',
+                    'validatedBy:id,name',
+                ])
+                ->select('transaction_tenant_allocations.*')
+                ->selectSub(
+                    TransactionTenantAllocationItem::query()
+                        ->selectRaw('COALESCE(SUM(base_unit_price * qty), 0)')
+                        ->whereColumn('transaction_tenant_allocation_id', 'transaction_tenant_allocations.id'),
+                    'cost_total'
+                )
+                ->withSum('items as total_items', 'qty')
+                ->orderByDesc('created_at'),
+            $filters
+        )->get();
+        $allocations = $this->appendAllocationMetrics($allocations);
+
+        $summary = [
+            'allocation_count' => $allocations->count(),
+            'tenant_count' => $allocations->pluck('tenant_outlet_id')->filter()->unique()->count(),
+            'revenue_total' => (int) $allocations->sum('grand_total'),
+            'cost_total' => (int) $allocations->sum('cost_total'),
+            'profit_total' => (int) $allocations->sum('profit_total'),
+            'management_fee_total' => (int) round($allocations->sum('management_fee_total')),
+            'tenant_payout_total' => (int) round($allocations->sum('tenant_payout_total')),
+            'settled_total' => (int) $allocations->filter(fn ($allocation) => filled($allocation->settled_at))->sum('tenant_payout_total'),
+            'outstanding_total' => (int) $allocations->filter(fn ($allocation) => blank($allocation->settled_at))->sum('tenant_payout_total'),
+        ];
+
+        return response()->view('print.tenant_settlement_batch', [
+            'allocations' => $allocations,
+            'summary' => $summary,
+            'filters' => $filters,
+            'autoprint' => $request->boolean('autoprint'),
+        ]);
+    }
+
+    protected function resolveAllocationForSettlement(Request $request, TransactionTenantAllocation $allocation): TransactionTenantAllocation
+    {
+        $activeOutletId = $this->outletResolver->resolve($request, $request->user())?->id;
+
+        $query = TransactionTenantAllocation::query()
+            ->with([
+                'tenantOutlet:id,name,code,commission_rate_percent',
+                'transaction:id,invoice,created_at,payment_status,payment_method',
+                'validatedBy:id,name',
+            ])
+            ->select('transaction_tenant_allocations.*')
+            ->selectSub(
+                TransactionTenantAllocationItem::query()
+                    ->selectRaw('COALESCE(SUM(base_unit_price * qty), 0)')
+                    ->whereColumn('transaction_tenant_allocation_id', 'transaction_tenant_allocations.id'),
+                'cost_total'
+            )
+            ->withSum('items as total_items', 'qty')
+            ->whereKey($allocation->id);
+
+        if ($activeOutletId) {
+            $query->where('outlet_id', $activeOutletId);
+        }
+
+        $resolved = $query->firstOrFail();
+
+        return $this->appendAllocationMetrics(collect([$resolved]))->first();
     }
 
     protected function appendAllocationMetrics($allocations)
@@ -529,8 +685,43 @@ class SalesReportController extends Controller
             $allocation->setAttribute('margin_percentage', $revenueTotal > 0
                 ? round(($profitTotal / $revenueTotal) * 100, 2)
                 : 0.0);
+            $allocation->setAttribute(
+                'payout_breakdown_total',
+                (int) ($allocation->payout_cash_amount ?? 0)
+                + (int) ($allocation->payout_transfer_amount ?? 0)
+                + (int) ($allocation->payout_other_amount ?? 0)
+            );
 
             return $allocation;
         });
+    }
+
+    protected function buildAllocationDailyRecap(Collection $allocations): Collection
+    {
+        return $allocations
+            ->groupBy(function ($allocation) {
+                return optional($allocation->transaction?->created_at)->format('Y-m-d') ?: 'tanpa-tanggal';
+            })
+            ->map(function ($rows, $date) {
+                $settledRows = $rows->filter(fn ($allocation) => filled($allocation->settled_at));
+                $outstandingRows = $rows->filter(fn ($allocation) => blank($allocation->settled_at));
+
+                return [
+                    'date' => $date,
+                    'label' => $date !== 'tanpa-tanggal'
+                        ? Carbon::parse($date)->translatedFormat('d M Y')
+                        : 'Tanpa tanggal',
+                    'allocations_count' => $rows->count(),
+                    'tenant_count' => $rows->pluck('tenant_outlet_id')->filter()->unique()->count(),
+                    'revenue_total' => (int) $rows->sum('grand_total'),
+                    'profit_total' => (int) $rows->sum('profit_total'),
+                    'management_fee_total' => (int) round($rows->sum('management_fee_total')),
+                    'tenant_payout_total' => (int) round($rows->sum('tenant_payout_total')),
+                    'settled_payout_total' => (int) round($settledRows->sum('tenant_payout_total')),
+                    'outstanding_payout_total' => (int) round($outstandingRows->sum('tenant_payout_total')),
+                ];
+            })
+            ->sortByDesc('date')
+            ->values();
     }
 }

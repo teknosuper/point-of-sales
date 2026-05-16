@@ -17,6 +17,7 @@ class KitchenStation extends Model
         'code',
         'station_type',
         'display_mode',
+        'processing_mode',
         'is_active',
         'sort_order',
     ];

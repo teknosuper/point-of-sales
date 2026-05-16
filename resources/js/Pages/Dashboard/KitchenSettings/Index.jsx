@@ -9,6 +9,7 @@ const defaultStation = {
     code: "",
     station_type: "kitchen",
     display_mode: "screen",
+    processing_mode: "auto",
     sort_order: 0,
     is_active: true,
 };
@@ -48,7 +49,7 @@ const printProfileDescriptions = {
     local_bridge: "Laravel queue dan printer agent lokal yang mengeksekusi cetak.",
 };
 
-export default function Index({ stations = [], filters = {}, outlets = [], printProfiles = {}, setupStatus = {}, ui = {}, recentPrintJobs = [], operationalSettings = {} }) {
+export default function Index({ stations = [], filters = {}, outlets = [], outletUsers = {}, printProfiles = {}, setupStatus = {}, ui = {}, recentPrintJobs = [], operationalSettings = {} }) {
     const { flash, auth, activeOutlet } = usePage().props;
     const isKitchenWorkspace = auth?.user?.preferred_workspace === "kitchen";
     const [selectedOutlet, setSelectedOutlet] = useState(filters?.outlet_id || "");
@@ -63,6 +64,9 @@ export default function Index({ stations = [], filters = {}, outlets = [], print
         open_time: operationalSettings?.open_time || "08:00",
         close_time: operationalSettings?.close_time || "22:00",
         notes: operationalSettings?.notes || "",
+        cashier_base_settlement_recipient_user_id: operationalSettings?.cashier_base_settlement_recipient_user_id
+            ? String(operationalSettings.cashier_base_settlement_recipient_user_id)
+            : "",
     });
 
     useEffect(() => {
@@ -84,6 +88,9 @@ export default function Index({ stations = [], filters = {}, outlets = [], print
             open_time: operationalSettings?.open_time || "08:00",
             close_time: operationalSettings?.close_time || "22:00",
             notes: operationalSettings?.notes || "",
+            cashier_base_settlement_recipient_user_id: operationalSettings?.cashier_base_settlement_recipient_user_id
+                ? String(operationalSettings.cashier_base_settlement_recipient_user_id)
+                : "",
         });
     }, [
         operationalSettings?.outlet_id,
@@ -91,6 +98,7 @@ export default function Index({ stations = [], filters = {}, outlets = [], print
         operationalSettings?.open_time,
         operationalSettings?.close_time,
         operationalSettings?.notes,
+        operationalSettings?.cashier_base_settlement_recipient_user_id,
     ]);
 
     const filteredStations = useMemo(
@@ -112,6 +120,11 @@ export default function Index({ stations = [], filters = {}, outlets = [], print
         () => outlets.find((outlet) => String(outlet.id) === String(selectedOutlet)) || null,
         [outlets, selectedOutlet]
     );
+    const operationTargetOutletId = operationsForm.data.outlet_id || selectedOutlet || ui?.preset_outlet_id || "";
+    const availableSettlementRecipients = useMemo(
+        () => outletUsers?.[String(operationTargetOutletId)] || [],
+        [operationTargetOutletId, outletUsers]
+    );
 
     const startStationEdit = (station) => {
         setEditingStation(station.id);
@@ -121,6 +134,7 @@ export default function Index({ stations = [], filters = {}, outlets = [], print
             code: station.code || "",
             station_type: station.station_type || "kitchen",
             display_mode: station.display_mode || "screen",
+            processing_mode: station.processing_mode || "auto",
             sort_order: Number(station.sort_order ?? 0),
             is_active: Boolean(station.is_active),
         });
@@ -330,6 +344,37 @@ export default function Index({ stations = [], filters = {}, outlets = [], print
                                 placeholder="Contoh: Tutup lebih awal karena stok habis / maintenance"
                                 className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
                             />
+                        </div>
+
+                        <div>
+                            <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                Penerima setoran dasar kasir
+                            </label>
+                            <select
+                                value={operationsForm.data.cashier_base_settlement_recipient_user_id}
+                                onChange={(event) =>
+                                    operationsForm.setData(
+                                        "cashier_base_settlement_recipient_user_id",
+                                        event.target.value
+                                    )
+                                }
+                                className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
+                            >
+                                <option value="">Belum diatur</option>
+                                {availableSettlementRecipients.map((user) => (
+                                    <option key={user.id} value={String(user.id)}>
+                                        {user.name}
+                                    </option>
+                                ))}
+                            </select>
+                            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                                Kasir akan melihat user ini sebagai tujuan permintaan setoran harian berbasis harga beli / nilai dasar.
+                            </p>
+                            {operationalSettings?.cashier_base_settlement_recipient_name ? (
+                                <p className="mt-2 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                                    Saat ini: {operationalSettings.cashier_base_settlement_recipient_name}
+                                </p>
+                            ) : null}
                         </div>
 
                         <div className="flex items-end">
@@ -548,6 +593,20 @@ export default function Index({ stations = [], filters = {}, outlets = [], print
                                 <option value="printer">Printer</option>
                             </select>
                         </div>
+                        <div>
+                            <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">Mode Proses Ticket</label>
+                            <select
+                                value={stationForm.data.processing_mode}
+                                onChange={(event) => stationForm.setData("processing_mode", event.target.value)}
+                                className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
+                            >
+                                <option value="auto">Otomatis proses</option>
+                                <option value="manual">Perlu klik proses</option>
+                            </select>
+                            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                                Default direkomendasikan otomatis. Mode manual akan meminta konfirmasi saat tombol proses ditekan.
+                            </p>
+                        </div>
                         <div className="flex items-end gap-3">
                             <button
                                 type="submit"
@@ -578,7 +637,7 @@ export default function Index({ stations = [], filters = {}, outlets = [], print
                                         {station.name} • {station.outlet?.name}
                                     </h2>
                                     <p className="text-sm text-slate-500 dark:text-slate-400">
-                                        {station.code || "-"} • {station.station_type} • {station.display_mode}
+                                        {station.code || "-"} • {station.station_type} • {station.display_mode} • {station.processing_mode === "manual" ? "manual proses" : "auto proses"}
                                     </p>
                                     <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                                         Device sehat: {station.operational_summary?.healthy_count || 0} • Bermasalah: {station.operational_summary?.issue_count || 0}

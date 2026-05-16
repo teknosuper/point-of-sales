@@ -22,6 +22,7 @@ import {
     IconCheck,
     IconClock,
     IconFileDownload,
+    IconPrinter,
 } from "@tabler/icons-react";
 
 // Summary Card Component
@@ -74,6 +75,17 @@ const formatCurrency = (value = 0) =>
 const castFilterString = (value) =>
     typeof value === "number" ? String(value) : value ?? "";
 
+const defaultSettlementForm = {
+    payout_reference: "",
+    payout_notes: "",
+    payout_paid_at: "",
+    payout_cash_amount: "",
+    payout_transfer_amount: "",
+    payout_other_amount: "",
+    payout_other_label: "",
+    payout_recipient_name: "",
+};
+
 const Sales = ({
     transactions,
     summary,
@@ -83,6 +95,11 @@ const Sales = ({
     customers,
     tenantOutlets = [],
 }) => {
+    const [settlementModal, setSettlementModal] = useState({
+        open: false,
+        allocation: null,
+    });
+    const [settlementForm, setSettlementForm] = useState(defaultSettlementForm);
     const [showFilters, setShowFilters] = useState(false);
     const [filterData, setFilterData] = useState({
         ...defaultFilterState,
@@ -157,35 +174,86 @@ const Sales = ({
         Object.entries(filterData).filter(([, value]) => value !== "")
     ).toString();
 
-    const settleAllocation = (allocation) => {
-        const payoutReference = window.prompt(
-            `Referensi payout untuk ${allocation.allocation_number} (opsional):`,
-            allocation.payout_reference ?? ""
-        );
+    const openSettlementModal = (allocation) => {
+        setSettlementModal({
+            open: true,
+            allocation,
+        });
+        setSettlementForm({
+            payout_reference: allocation.payout_reference ?? "",
+            payout_notes: allocation.payout_notes ?? "",
+            payout_paid_at: allocation.payout_paid_at
+                ? new Date(allocation.payout_paid_at).toISOString().slice(0, 16)
+                : "",
+            payout_cash_amount: String(allocation.payout_cash_amount ?? 0),
+            payout_transfer_amount: String(allocation.payout_transfer_amount ?? 0),
+            payout_other_amount: String(allocation.payout_other_amount ?? 0),
+            payout_other_label: allocation.payout_other_label ?? "",
+            payout_recipient_name: allocation.payout_recipient_name ?? allocation.tenant_outlet?.name ?? "",
+        });
+    };
 
-        if (payoutReference === null) {
-            return;
-        }
+    const closeSettlementModal = () => {
+        setSettlementModal({
+            open: false,
+            allocation: null,
+        });
+        setSettlementForm(defaultSettlementForm);
+    };
 
-        const payoutNotes = window.prompt(
-            `Catatan payout untuk ${allocation.allocation_number} (opsional):`,
-            allocation.payout_notes ?? ""
-        );
+    const settlementBreakdownTotal =
+        Number(settlementForm.payout_cash_amount || 0) +
+        Number(settlementForm.payout_transfer_amount || 0) +
+        Number(settlementForm.payout_other_amount || 0);
+    const settlementExpectedTotal = Number(
+        settlementModal.allocation?.tenant_payout_total || 0
+    );
+    const settlementDifference =
+        settlementBreakdownTotal - settlementExpectedTotal;
 
-        if (payoutNotes === null) {
-            return;
-        }
+    const submitSettlement = (event) => {
+        event.preventDefault();
+        if (!settlementModal.allocation) return;
 
         router.patch(
-            route("reports.sales.tenant-allocations.settle", allocation.id),
+            route(
+                "reports.sales.tenant-allocations.settle",
+                settlementModal.allocation.id
+            ),
+            settlementForm,
             {
-                payout_reference: payoutReference,
-                payout_notes: payoutNotes,
-            },
+                preserveScroll: true,
+                onSuccess: () => closeSettlementModal(),
+            }
+        );
+    };
+
+    const printSettlementReceipt = (allocation) => {
+        window.open(
+            route("reports.sales.tenant-allocations.receipt", {
+                allocation: allocation.id,
+                autoprint: 1,
+            }),
+            "_blank",
+            "noopener,noreferrer"
+        );
+    };
+
+    const unsettleAllocation = (allocation) => {
+        router.patch(
+            route("reports.sales.tenant-allocations.unsettle", allocation.id),
+            {},
             {
                 preserveScroll: true,
             }
         );
+    };
+
+    const updateSettlementField = (field, value) => {
+        setSettlementForm((prev) => ({
+            ...prev,
+            [field]: value,
+        }));
     };
 
     const applyFilters = (e) => {
@@ -250,6 +318,7 @@ const Sales = ({
     };
     const topTenants = tenantSettlement?.top_tenants ?? [];
     const tenantAllocations = tenantSettlement?.allocations ?? [];
+    const dailyRecap = tenantSettlement?.daily_recap ?? [];
 
     const summaryCards = [
         {
@@ -304,7 +373,7 @@ const Sales = ({
 
             <div className="space-y-6">
                 {/* Header */}
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
                     <div>
                         <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
                             <IconTrendingUp
@@ -317,27 +386,38 @@ const Sales = ({
                             Analisis dan ringkasan penjualan
                         </p>
                     </div>
-                    <button
-                        onClick={() => setShowFilters(!showFilters)}
-                        className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border text-sm font-medium transition-colors ${
-                            showFilters || hasActiveFilters
-                                ? "bg-primary-50 border-primary-200 text-primary-700 dark:bg-primary-950/50 dark:border-primary-800 dark:text-primary-400"
-                                : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-                        }`}
-                    >
-                        <IconFilter size={18} />
-                        <span>Filter</span>
-                        {hasActiveFilters && (
-                            <span className="w-2 h-2 rounded-full bg-primary-500"></span>
-                        )}
-                    </button>
-                    <a
-                        href={`${route("reports.sales.tenant-settlement.export")}${exportQuery ? `?${exportQuery}` : ""}`}
-                        className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200"
-                    >
-                        <IconFileDownload size={18} />
-                        Export Settlement CSV
-                    </a>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <button
+                            onClick={() => setShowFilters(!showFilters)}
+                            className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border text-sm font-medium transition-colors ${
+                                showFilters || hasActiveFilters
+                                    ? "bg-primary-50 border-primary-200 text-primary-700 dark:bg-primary-950/50 dark:border-primary-800 dark:text-primary-400"
+                                    : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                            }`}
+                        >
+                            <IconFilter size={18} />
+                            <span>Filter</span>
+                            {hasActiveFilters && (
+                                <span className="w-2 h-2 rounded-full bg-primary-500"></span>
+                            )}
+                        </button>
+                        <a
+                            href={`${route("reports.sales.tenant-settlement.export")}${exportQuery ? `?${exportQuery}` : ""}`}
+                            className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200"
+                        >
+                            <IconFileDownload size={18} />
+                            Export Settlement CSV
+                        </a>
+                        <a
+                            href={`${route("reports.sales.tenant-settlement.print")}${exportQuery ? `?${exportQuery}&autoprint=1` : "?autoprint=1"}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                        >
+                            <IconPrinter size={18} />
+                            Cetak Batch Settlement
+                        </a>
+                    </div>
                 </div>
 
                 {/* Summary Cards */}
@@ -532,6 +612,52 @@ const Sales = ({
                             </div>
                         )}
                     </div>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+                    <div className="mb-4">
+                        <h2 className="text-base font-semibold text-slate-900 dark:text-white">
+                            Rekap Settlement Harian
+                        </h2>
+                        <p className="text-sm text-slate-500 dark:text-slate-400">
+                            Ringkasan payout tenant per hari berdasarkan filter aktif.
+                        </p>
+                    </div>
+
+                    {dailyRecap.length > 0 ? (
+                        <div className="overflow-x-auto">
+                            <table className="w-full">
+                                <thead>
+                                    <tr className="border-b border-slate-100 dark:border-slate-800">
+                                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Tanggal</th>
+                                        <th className="px-4 py-3 text-center text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Tenant</th>
+                                        <th className="px-4 py-3 text-center text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Allocation</th>
+                                        <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Revenue</th>
+                                        <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Payout</th>
+                                        <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Settled</th>
+                                        <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Outstanding</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                    {dailyRecap.map((row) => (
+                                        <tr key={row.date}>
+                                            <td className="px-4 py-3 text-sm font-medium text-slate-900 dark:text-white">{row.label}</td>
+                                            <td className="px-4 py-3 text-center text-sm text-slate-600 dark:text-slate-300">{row.tenant_count}</td>
+                                            <td className="px-4 py-3 text-center text-sm text-slate-600 dark:text-slate-300">{row.allocations_count}</td>
+                                            <td className="px-4 py-3 text-right text-sm text-slate-900 dark:text-white">{formatCurrency(row.revenue_total)}</td>
+                                            <td className="px-4 py-3 text-right text-sm font-semibold text-teal-600 dark:text-teal-300">{formatCurrency(row.tenant_payout_total)}</td>
+                                            <td className="px-4 py-3 text-right text-sm font-semibold text-emerald-600 dark:text-emerald-300">{formatCurrency(row.settled_payout_total)}</td>
+                                            <td className="px-4 py-3 text-right text-sm font-semibold text-amber-600 dark:text-amber-300">{formatCurrency(row.outstanding_payout_total)}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    ) : (
+                        <div className="rounded-xl bg-slate-50 px-4 py-6 text-sm text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">
+                            Belum ada rekap settlement harian untuk filter ini.
+                        </div>
+                    )}
                 </div>
 
                 {/* Filters Panel */}
@@ -776,6 +902,256 @@ const Sales = ({
                     <Pagination links={paginationLinks} />
                 )}
 
+                {settlementModal.open ? (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-4">
+                        <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl dark:bg-slate-900">
+                            <div className="flex items-start justify-between gap-4">
+                                <div>
+                                    <h2 className="text-xl font-semibold text-slate-900 dark:text-white">
+                                        Validasi Settlement Tenant
+                                    </h2>
+                                    <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                        {settlementModal.allocation?.allocation_number} •{" "}
+                                        {settlementModal.allocation?.tenant_outlet?.name ||
+                                            settlementModal.allocation?.tenant_outlet?.code}
+                                    </p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={closeSettlementModal}
+                                    className="rounded-2xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                                >
+                                    Tutup
+                                </button>
+                            </div>
+
+                            <div className="mt-5 grid gap-4 md:grid-cols-3">
+                                <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-800/60">
+                                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                                        Payout Tenant
+                                    </p>
+                                    <p className="mt-2 text-lg font-bold text-slate-900 dark:text-white">
+                                        {formatCurrency(
+                                            settlementModal.allocation?.tenant_payout_total ?? 0
+                                        )}
+                                    </p>
+                                </div>
+                                <div className="rounded-2xl bg-amber-50 p-4 dark:bg-amber-950/20">
+                                    <p className="text-xs font-semibold uppercase tracking-wide text-amber-500">
+                                        Revenue Tenant
+                                    </p>
+                                    <p className="mt-2 text-lg font-bold text-amber-700 dark:text-amber-300">
+                                        {formatCurrency(
+                                            settlementModal.allocation?.grand_total ?? 0
+                                        )}
+                                    </p>
+                                </div>
+                                <div className="rounded-2xl bg-emerald-50 p-4 dark:bg-emerald-950/20">
+                                    <p className="text-xs font-semibold uppercase tracking-wide text-emerald-500">
+                                        Management Fee
+                                    </p>
+                                    <p className="mt-2 text-lg font-bold text-emerald-700 dark:text-emerald-300">
+                                        {formatCurrency(
+                                            settlementModal.allocation?.management_fee_total ?? 0
+                                        )}
+                                    </p>
+                                </div>
+                            </div>
+
+                            <form onSubmit={submitSettlement} className="mt-6 space-y-5">
+                                <div className="grid gap-4 md:grid-cols-2">
+                                    <div>
+                                        <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                            Penerima uang
+                                        </label>
+                                        <input
+                                            value={settlementForm.payout_recipient_name}
+                                            onChange={(e) =>
+                                                updateSettlementField(
+                                                    "payout_recipient_name",
+                                                    e.target.value
+                                                )
+                                            }
+                                            className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
+                                            placeholder="Nama tenant / PIC penerima"
+                                            required
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                            Tanggal bayar
+                                        </label>
+                                        <input
+                                            type="datetime-local"
+                                            value={settlementForm.payout_paid_at}
+                                            onChange={(e) =>
+                                                updateSettlementField(
+                                                    "payout_paid_at",
+                                                    e.target.value
+                                                )
+                                            }
+                                            className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="grid gap-4 md:grid-cols-3">
+                                    <div>
+                                        <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                            Cash
+                                        </label>
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            value={settlementForm.payout_cash_amount}
+                                            onChange={(e) =>
+                                                updateSettlementField(
+                                                    "payout_cash_amount",
+                                                    e.target.value
+                                                )
+                                            }
+                                            className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                            Transfer
+                                        </label>
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            value={settlementForm.payout_transfer_amount}
+                                            onChange={(e) =>
+                                                updateSettlementField(
+                                                    "payout_transfer_amount",
+                                                    e.target.value
+                                                )
+                                            }
+                                            className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                            Lainnya
+                                        </label>
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            value={settlementForm.payout_other_amount}
+                                            onChange={(e) =>
+                                                updateSettlementField(
+                                                    "payout_other_amount",
+                                                    e.target.value
+                                                )
+                                            }
+                                            className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="grid gap-4 md:grid-cols-2">
+                                    <div>
+                                        <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                            Label metode lainnya
+                                        </label>
+                                        <input
+                                            value={settlementForm.payout_other_label}
+                                            onChange={(e) =>
+                                                updateSettlementField(
+                                                    "payout_other_label",
+                                                    e.target.value
+                                                )
+                                            }
+                                            className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
+                                            placeholder="Contoh: E-wallet / Giro"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                            Referensi payout
+                                        </label>
+                                        <input
+                                            value={settlementForm.payout_reference}
+                                            onChange={(e) =>
+                                                updateSettlementField(
+                                                    "payout_reference",
+                                                    e.target.value
+                                                )
+                                            }
+                                            className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
+                                            placeholder="Nomor transfer / referensi admin"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                        Catatan settlement
+                                    </label>
+                                    <textarea
+                                        value={settlementForm.payout_notes}
+                                        onChange={(e) =>
+                                            updateSettlementField(
+                                                "payout_notes",
+                                                e.target.value
+                                            )
+                                        }
+                                        rows={3}
+                                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm dark:border-slate-700 dark:bg-slate-800"
+                                        placeholder="Contoh: Pembayaran gabungan cash dan transfer sesuai permintaan tenant"
+                                    />
+                                </div>
+
+                                <div
+                                    className={`rounded-2xl border px-4 py-3 text-sm ${
+                                        settlementDifference === 0
+                                            ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-300"
+                                            : "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300"
+                                    }`}
+                                >
+                                    Total metode bayar:{" "}
+                                    <span className="font-semibold">
+                                        {formatCurrency(settlementBreakdownTotal)}
+                                    </span>
+                                    {" • "}
+                                    Target payout:{" "}
+                                    <span className="font-semibold">
+                                        {formatCurrency(settlementExpectedTotal)}
+                                    </span>
+                                    {settlementDifference !== 0 ? (
+                                        <>
+                                            {" • "}
+                                            Selisih{" "}
+                                            <span className="font-semibold">
+                                                {formatCurrency(
+                                                    Math.abs(settlementDifference)
+                                                )}
+                                            </span>
+                                        </>
+                                    ) : null}
+                                </div>
+
+                                <div className="flex flex-wrap items-center justify-end gap-3">
+                                    <button
+                                        type="button"
+                                        onClick={closeSettlementModal}
+                                        className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-medium text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                                    >
+                                        Batal
+                                    </button>
+                                    <button
+                                        type="submit"
+                                        disabled={settlementDifference !== 0}
+                                        className="rounded-2xl bg-primary-600 px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                                    >
+                                        Validasi & Simpan Settlement
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                ) : null}
+
                 <div className="rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 overflow-hidden">
                     <div className="border-b border-slate-100 px-5 py-4 dark:border-slate-800">
                         <h2 className="text-base font-semibold text-slate-900 dark:text-white">
@@ -954,19 +1330,13 @@ const Sales = ({
                                                                 : "Outstanding"}
                                                         </span>
                                                         <button
+                                                            type="button"
                                                             onClick={() =>
                                                                 isSettled
-                                                                    ? router.patch(
-                                                                          route(
-                                                                              "reports.sales.tenant-allocations.unsettle",
-                                                                              allocation.id
-                                                                          ),
-                                                                          {},
-                                                                          {
-                                                                              preserveScroll: true,
-                                                                          }
+                                                                    ? unsettleAllocation(
+                                                                          allocation
                                                                       )
-                                                                    : settleAllocation(
+                                                                    : openSettlementModal(
                                                                           allocation
                                                                       )
                                                             }
@@ -978,11 +1348,43 @@ const Sales = ({
                                                         >
                                                             {isSettled
                                                                 ? "Buka Lagi"
-                                                                : "Tandai Settled"}
+                                                                : "Validasi & Bayar"}
                                                         </button>
+                                                        {isSettled ? (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() =>
+                                                                    printSettlementReceipt(
+                                                                        allocation
+                                                                    )
+                                                                }
+                                                                className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 transition-colors hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-950/60"
+                                                            >
+                                                                <IconPrinter size={12} />
+                                                                Cetak Bukti
+                                                            </button>
+                                                        ) : null}
                                                         {allocation.payout_reference ? (
                                                             <p className="max-w-[140px] text-center text-[11px] text-slate-500 dark:text-slate-400">
                                                                 Ref: {allocation.payout_reference}
+                                                            </p>
+                                                        ) : null}
+                                                        {allocation.validated_by ? (
+                                                            <p className="max-w-[160px] text-center text-[11px] text-slate-500 dark:text-slate-400">
+                                                                Validasi: {allocation.validated_by?.name || "-"}
+                                                            </p>
+                                                        ) : null}
+                                                        {isSettled ? (
+                                                            <p className="max-w-[160px] text-center text-[11px] text-slate-500 dark:text-slate-400">
+                                                                Cash {formatCurrency(allocation.payout_cash_amount ?? 0)}
+                                                                <br />
+                                                                Transfer {formatCurrency(allocation.payout_transfer_amount ?? 0)}
+                                                                {Number(allocation.payout_other_amount ?? 0) > 0 ? (
+                                                                    <>
+                                                                        <br />
+                                                                        {(allocation.payout_other_label || "Lainnya")} {formatCurrency(allocation.payout_other_amount ?? 0)}
+                                                                    </>
+                                                                ) : null}
                                                             </p>
                                                         ) : null}
                                                     </div>

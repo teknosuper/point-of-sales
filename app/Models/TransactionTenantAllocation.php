@@ -31,9 +31,16 @@ class TransactionTenantAllocation extends Model
         'picked_up_at',
         'delivered_at',
         'settled_at',
+        'validated_by',
+        'validated_at',
         'payout_reference',
         'payout_notes',
         'payout_paid_at',
+        'payout_cash_amount',
+        'payout_transfer_amount',
+        'payout_other_amount',
+        'payout_other_label',
+        'payout_recipient_name',
         'notes',
     ];
 
@@ -44,6 +51,7 @@ class TransactionTenantAllocation extends Model
         'cashier_id' => 'integer',
         'cashier_shift_id' => 'integer',
         'waiter_id' => 'integer',
+        'validated_by' => 'integer',
         'subtotal' => 'integer',
         'promo_discount_total' => 'integer',
         'manual_discount_total' => 'integer',
@@ -54,7 +62,11 @@ class TransactionTenantAllocation extends Model
         'picked_up_at' => 'datetime',
         'delivered_at' => 'datetime',
         'settled_at' => 'datetime',
+        'validated_at' => 'datetime',
         'payout_paid_at' => 'datetime',
+        'payout_cash_amount' => 'integer',
+        'payout_transfer_amount' => 'integer',
+        'payout_other_amount' => 'integer',
     ];
 
     public function transaction()
@@ -70,6 +82,11 @@ class TransactionTenantAllocation extends Model
     public function waiter()
     {
         return $this->belongsTo(User::class, 'waiter_id');
+    }
+
+    public function validatedBy()
+    {
+        return $this->belongsTo(User::class, 'validated_by');
     }
 
     public function items()

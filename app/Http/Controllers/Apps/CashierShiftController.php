@@ -7,6 +7,7 @@ use App\Http\Requests\CloseCashierShiftRequest;
 use App\Http\Requests\ConfirmPasswordForForceCloseRequest;
 use App\Http\Requests\StoreCashierShiftRequest;
 use App\Models\CashierShift;
+use App\Models\Setting;
 use App\Models\User;
 use App\Services\AuditLogService;
 use App\Services\CashierShiftService;
@@ -174,6 +175,11 @@ class CashierShiftController extends Controller
     private function transformShift(CashierShift $shift): array
     {
         $summary = $this->cashierShiftService->calculateSummary($shift);
+        $baseSettlement = $this->cashierShiftService->calculateBaseSettlementSummary($shift);
+        $recipientUserId = Setting::getInt('cashier_base_settlement_recipient_user_id', 0, $shift->outlet_id);
+        $recipientUser = $recipientUserId > 0
+            ? User::query()->select('id', 'name')->find($recipientUserId)
+            : null;
 
         return [
             'id' => $shift->id,
@@ -194,8 +200,16 @@ class CashierShiftController extends Controller
             'walk_in_transactions_count' => $summary['walk_in_transactions_count'],
             'registered_transactions_count' => $summary['registered_transactions_count'],
             'sales_returns_count' => $shift->isOpen() ? $summary['sales_returns_count'] : (int) $shift->sales_returns_count,
+            'paid_transactions_count' => (int) $baseSettlement['paid_transactions_count'],
+            'gross_sales_total' => (int) $baseSettlement['gross_sales_total'],
+            'base_sales_total' => (int) $baseSettlement['base_sales_total'],
+            'markup_total' => (int) $baseSettlement['markup_total'],
             'notes' => $shift->notes,
             'close_notes' => $shift->close_notes,
+            'settlement_recipient' => $recipientUser ? [
+                'id' => $recipientUser->id,
+                'name' => $recipientUser->name,
+            ] : null,
             'user' => $shift->user ? [
                 'id' => $shift->user->id,
                 'name' => $shift->user->name,

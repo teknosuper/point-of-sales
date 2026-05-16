@@ -43,6 +43,7 @@ function MetricCard({ title, value, icon: Icon }) {
 export default function Show({ cashierShift, canForceClose = false }) {
     const { auth, errors } = usePage().props;
     const { can } = useAuthorization();
+    const isKitchenWorkspace = auth?.user?.preferred_workspace === "kitchen";
     const [actualCash, setActualCash] = useState(
         cashierShift.actual_cash !== null ? String(cashierShift.actual_cash) : ""
     );
@@ -137,7 +138,12 @@ export default function Show({ cashierShift, canForceClose = false }) {
                     <MetricCard title="Modal Awal" value={formatCurrency(cashierShift.opening_cash)} icon={IconWallet} />
                     <MetricCard title="Expected Cash" value={formatCurrency(cashierShift.expected_cash)} icon={IconCashBanknote} />
                     <MetricCard title="Penjualan Tunai" value={formatCurrency(cashierShift.cash_sales_total)} icon={IconReceipt} />
+                    <MetricCard title="Nilai Dasar Lunas" value={formatCurrency(cashierShift.base_sales_total)} icon={IconCashBanknote} />
+                    {!isKitchenWorkspace ? (
+                        <MetricCard title="Markup Owner" value={formatCurrency(cashierShift.markup_total)} icon={IconWallet} />
+                    ) : null}
                     <MetricCard title="Refund Tunai" value={formatCurrency(cashierShift.cash_refund_total)} icon={IconRotateClockwise2} />
+                    <MetricCard title="Transaksi Lunas" value={Number(cashierShift.paid_transactions_count || 0).toLocaleString("id-ID")} icon={IconReceipt} />
                     <MetricCard title="Transaksi Walk-in" value={walkInTransactions.toLocaleString("id-ID")} icon={IconReceipt} />
                     <MetricCard title="Customer Terdaftar" value={registeredTransactions.toLocaleString("id-ID")} icon={IconReceipt} />
                 </div>
@@ -203,6 +209,27 @@ export default function Show({ cashierShift, canForceClose = false }) {
                                     {registeredTransactions} transaksi, sekitar {registeredShare}% dari total shift.
                                 </p>
                             </div>
+                            <div className="rounded-2xl bg-emerald-50 p-4 dark:bg-emerald-950/20">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">Setoran Dasar Kasir</p>
+                                <p className="mt-2 text-sm text-emerald-900 dark:text-emerald-100">
+                                    Kasir bisa meminta <span className="font-semibold">{formatCurrency(cashierShift.base_sales_total)}</span> berdasarkan transaksi lunas pada shift ini.
+                                </p>
+                                <p className="mt-2 text-xs text-emerald-800 dark:text-emerald-200">
+                                    Penerima setoran:{" "}
+                                    <span className="font-semibold">
+                                        {cashierShift.settlement_recipient?.name || "Belum diatur admin"}
+                                    </span>
+                                </p>
+                            </div>
+                            {!isKitchenWorkspace ? (
+                                <div className="rounded-2xl bg-amber-50 p-4 dark:bg-amber-950/20">
+                                    <p className="text-xs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">Markup Owner</p>
+                                    <p className="mt-2 text-sm text-amber-900 dark:text-amber-100">
+                                        Selisih dari harga beli ke harga jual pada shift ini adalah{" "}
+                                        <span className="font-semibold">{formatCurrency(cashierShift.markup_total)}</span>.
+                                    </p>
+                                </div>
+                            ) : null}
                             <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-800/60">
                                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Catatan Shift</p>
                                 <p className="mt-2 text-sm text-slate-700 dark:text-slate-300">{cashierShift.notes || "Tidak ada catatan pembukaan."}</p>

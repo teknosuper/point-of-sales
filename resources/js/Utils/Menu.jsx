@@ -65,6 +65,20 @@ export default function Menu() {
                         icon: <IconDeviceMobile size={20} strokeWidth={1.5} />,
                         permissions: hasAnyPermission(["dashboard-access"]),
                     },
+                    {
+                        title: "Statistik Penjualan",
+                        href: route("workspace-sales.index"),
+                        active: url.startsWith("/dashboard/workspace-sales"),
+                        icon: <IconChartBar size={20} strokeWidth={1.5} />,
+                        permissions: hasAnyPermission(["dashboard-access"]),
+                    },
+                    {
+                        title: "Setoran Kasir",
+                        href: route("cashier-settlements.index"),
+                        active: url.startsWith("/dashboard/cashier-settlements"),
+                        icon: <IconWallet size={20} strokeWidth={1.5} />,
+                        permissions: hasAnyPermission(["dashboard-access"]),
+                    },
                 ],
             },
             {
@@ -155,6 +169,13 @@ export default function Menu() {
                     icon: <IconDeviceMobile size={20} strokeWidth={1.5} />,
                     permissions: hasAnyPermission(["dashboard-access"]),
                 },
+                {
+                    title: "Statistik Penjualan",
+                    href: route("workspace-sales.index"),
+                    active: url.startsWith("/dashboard/workspace-sales"),
+                    icon: <IconChartBar size={20} strokeWidth={1.5} />,
+                    permissions: hasAnyPermission(["dashboard-access"]),
+                },
             ],
         },
         {
@@ -223,6 +244,13 @@ export default function Menu() {
                             : false,
                     icon: <IconClockHour6 size={20} strokeWidth={1.5} />,
                     permissions: hasAnyPermission(["transactions-access"]),
+                },
+                {
+                    title: "Setoran Kasir",
+                    href: route("cashier-settlements.index"),
+                    active: url.startsWith("/dashboard/cashier-settlements"),
+                    icon: <IconWallet size={20} strokeWidth={1.5} />,
+                    permissions: hasAnyPermission(["dashboard-access"]),
                 },
                 {
                     title: "Pesanan QR Meja",

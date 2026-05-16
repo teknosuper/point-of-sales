@@ -39,6 +39,7 @@ class KitchenDisplayController extends Controller
         $stations = $this->filterStationsForKitchenUser($request, $stations);
 
         $activeStation = $stations->first();
+        $this->autoAcknowledgePendingTickets($activeStation, $request->user()?->id);
         $selectedDevice = $activeStation ? $this->resolveDevice($activeStation, $request->integer('device_id')) : null;
 
         return Inertia::render('Dashboard/Kitchen/Index', [
@@ -107,6 +108,7 @@ class KitchenDisplayController extends Controller
         $stations = $this->filterStationsForKitchenUser($request, $stations);
         $kitchenStation = $stations->firstWhere('slug', $stationSlug);
         abort_if(! $kitchenStation, 404);
+        $this->autoAcknowledgePendingTickets($kitchenStation, $request->user()?->id);
         $selectedDevice = $this->resolveDevice($kitchenStation, $request->integer('device_id'));
 
         return Inertia::render('Dashboard/Kitchen/Index', [
@@ -147,6 +149,7 @@ class KitchenDisplayController extends Controller
             && (int) $preferredStationId !== (int) $station->id,
             404
         );
+        $this->autoAcknowledgePendingTickets($station, $request->user()?->id);
 
         $selectedDevice = $this->resolveDevice($station, $request->integer('device_id'));
 
@@ -411,6 +414,7 @@ class KitchenDisplayController extends Controller
             'slug' => $station->slug,
             'code' => $station->code,
             'display_mode' => $station->display_mode,
+            'processing_mode' => $station->processing_mode ?: 'auto',
             'station_type' => $station->station_type,
             'pending_count' => $pendingCount,
             'acknowledged_count' => $acknowledgedCount,
@@ -520,6 +524,41 @@ class KitchenDisplayController extends Controller
                 'to' => $tickets->lastItem(),
             ],
         ];
+    }
+
+    private function autoAcknowledgePendingTickets(?KitchenStation $station, ?int $userId = null): void
+    {
+        if (! $station || ($station->processing_mode ?: 'auto') !== 'auto') {
+            return;
+        }
+
+        $pendingTickets = KitchenTicket::query()
+            ->with('items')
+            ->where('outlet_id', $station->outlet_id)
+            ->where('kitchen_station_id', $station->id)
+            ->where('status', 'pending')
+            ->get();
+
+        foreach ($pendingTickets as $ticket) {
+            $ticket->forceFill([
+                'status' => 'acknowledged',
+                'acknowledged_at' => $ticket->acknowledged_at ?? now(),
+            ])->save();
+
+            $ticket->items()->where('status', 'pending')->update([
+                'status' => 'acknowledged',
+            ]);
+
+            $ticket->events()->create([
+                'user_id' => $userId,
+                'event' => 'ticket.auto_acknowledged',
+                'payload' => [
+                    'station_id' => $ticket->kitchen_station_id,
+                    'mode' => 'auto',
+                ],
+                'created_at' => now(),
+            ]);
+        }
     }
 
     private function statusFilter(Request $request): string

@@ -9,6 +9,7 @@ import {
     IconChartBar,
     IconDownload,
     IconFilter,
+    IconPrinter,
     IconReceipt2,
 } from "@tabler/icons-react";
 
@@ -51,6 +52,7 @@ export default function TenantStatement({
     tenantOutlet,
     summary,
     allocations,
+    dailyRecap = [],
     filters,
 }) {
     const [filterData, setFilterData] = useState({
@@ -140,6 +142,15 @@ export default function TenantStatement({
                             <IconDownload size={18} />
                             Export CSV
                         </Link>
+                        <a
+                            href={`${route("reports.sales.tenant-settlement.print")}?tenant_outlet_id=${tenantOutlet.id}${exportQuery ? `&${exportQuery}&autoprint=1` : "&autoprint=1"}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                        >
+                            <IconPrinter size={18} />
+                            Cetak Batch
+                        </a>
                         <button
                             onClick={() => setShowFilters((value) => !value)}
                             className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
@@ -186,6 +197,49 @@ export default function TenantStatement({
                         icon={<IconCash size={18} />}
                         tone="emerald"
                     />
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+                    <div className="mb-4">
+                        <h2 className="text-base font-semibold text-slate-900 dark:text-white">
+                            Rekap Harian Tenant
+                        </h2>
+                        <p className="text-sm text-slate-500 dark:text-slate-400">
+                            Ringkasan payout dan outstanding tenant per hari.
+                        </p>
+                    </div>
+                    {dailyRecap.length > 0 ? (
+                        <div className="overflow-x-auto">
+                            <table className="w-full">
+                                <thead>
+                                    <tr className="border-b border-slate-100 dark:border-slate-800">
+                                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Tanggal</th>
+                                        <th className="px-4 py-3 text-center text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Allocation</th>
+                                        <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Revenue</th>
+                                        <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Payout</th>
+                                        <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Settled</th>
+                                        <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Outstanding</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                    {dailyRecap.map((row) => (
+                                        <tr key={row.date}>
+                                            <td className="px-4 py-3 text-sm font-medium text-slate-900 dark:text-white">{row.label}</td>
+                                            <td className="px-4 py-3 text-center text-sm text-slate-600 dark:text-slate-300">{row.allocations_count}</td>
+                                            <td className="px-4 py-3 text-right text-sm text-slate-900 dark:text-white">{formatCurrency(row.revenue_total)}</td>
+                                            <td className="px-4 py-3 text-right text-sm font-semibold text-teal-600 dark:text-teal-300">{formatCurrency(row.tenant_payout_total)}</td>
+                                            <td className="px-4 py-3 text-right text-sm font-semibold text-emerald-600 dark:text-emerald-300">{formatCurrency(row.settled_payout_total)}</td>
+                                            <td className="px-4 py-3 text-right text-sm font-semibold text-amber-600 dark:text-amber-300">{formatCurrency(row.outstanding_payout_total)}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    ) : (
+                        <div className="rounded-xl bg-slate-50 px-4 py-6 text-sm text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">
+                            Belum ada rekap harian pada filter ini.
+                        </div>
+                    )}
                 </div>
 
                 {showFilters && (
