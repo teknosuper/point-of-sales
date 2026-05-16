@@ -98,16 +98,17 @@ export default function Index({
     recipientOptions = [],
     defaultRecipientId = null,
     canApprove = false,
+    canCreateRequest = false,
     wallet = null,
 }) {
     const { auth, errors } = usePage().props;
     const isKitchenWorkspace = auth?.user?.preferred_workspace === "kitchen";
     const requestPanelTitle = isKitchenWorkspace
         ? "Ajukan Penarikan Dana Tenant"
-        : "Ajukan Setoran Kasir";
+        : "Approval Penarikan Tenant";
     const requestPanelDescription = isKitchenWorkspace
         ? "Pemilik tenant dapat melihat saldo hasil penjualan yang sudah selesai diantar, lalu mengajukan pencairan ke owner outlet."
-        : "Pilih shift kasir Anda. Nominal pengajuan otomatis mengikuti nilai dasar transaksi lunas.";
+        : "Admin outlet hanya meninjau, menyetujui, atau menolak pengajuan yang dibuat tenant. Admin tidak membuat pengajuan dari halaman ini.";
     const shiftFieldLabel = isKitchenWorkspace
         ? "Shift Penjualan"
         : "Shift Kasir";
@@ -298,26 +299,26 @@ export default function Index({
 
     return (
         <>
-            <Head title="Riwayat Setoran Kasir" />
+            <Head title={isKitchenWorkspace ? "Penarikan Dana Tenant" : "Approval Penarikan Tenant"} />
 
             <div className="space-y-6">
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                     <div>
                         <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900 dark:text-white">
                             <IconUserDollar size={28} className="text-primary-500" />
-                            {isKitchenWorkspace ? "Penarikan Dana Tenant" : "Riwayat Setoran Kasir"}
+                            {isKitchenWorkspace ? "Penarikan Dana Tenant" : "Approval Penarikan Tenant"}
                         </h1>
                         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                             {isKitchenWorkspace
                                 ? "Tenant owner mengajukan pencairan dana, lalu owner outlet melakukan approval dan pembayaran."
-                                : "Kasir mengajukan setoran dasar dari shift, admin memvalidasi dan memberi hasil setoran."}
+                                : "Owner outlet memeriksa, menyetujui, atau menolak pengajuan pencairan yang dibuat tenant."}
                         </p>
                     </div>
                 </div>
 
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                    <SummaryCard title="Menunggu Approval" value={String(summary?.pending_count ?? 0)} description="Pengajuan pending" icon={<IconClockHour4 size={20} />} tone="amber" />
-                    <SummaryCard title="Disetujui" value={String(summary?.approved_count ?? 0)} description="Pengajuan approved" icon={<IconCheck size={20} />} tone="emerald" />
+                    <SummaryCard title="Menunggu Approval" value={String(summary?.pending_count ?? 0)} description="Pengajuan yang belum divalidasi" icon={<IconClockHour4 size={20} />} tone="amber" />
+                    <SummaryCard title="Disetujui" value={String(summary?.approved_count ?? 0)} description="Pengajuan yang sudah dibayar" icon={<IconCheck size={20} />} tone="emerald" />
                     <SummaryCard title="Total Diminta" value={formatCurrency(summary?.requested_total ?? 0)} description="Nominal pengajuan" icon={<IconReceipt2 size={20} />} tone="blue" />
                     <SummaryCard title="Total Disetujui" value={formatCurrency(summary?.approved_total ?? 0)} description="Nominal sudah dibayar" icon={<IconCashBanknote size={20} />} tone="slate" />
                 </div>
@@ -331,7 +332,7 @@ export default function Index({
                     </div>
                 ) : null}
 
-                <div className="grid gap-6 xl:grid-cols-[0.95fr,1.05fr]">
+                <div className={`grid gap-6 ${canCreateRequest ? "xl:grid-cols-[0.95fr,1.05fr]" : "xl:grid-cols-[0.7fr,1.3fr]"}`}>
                     <div className="rounded-3xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
                         <div className="mb-4">
                             <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
@@ -341,6 +342,7 @@ export default function Index({
                                 {requestPanelDescription}
                             </p>
                         </div>
+                        {canCreateRequest ? (
                         <form onSubmit={submitRequest} className="space-y-4">
                             {isKitchenWorkspace ? (
                                 <div className="grid gap-3 md:grid-cols-2">
@@ -575,6 +577,40 @@ export default function Index({
                                 {submitRequestLabel}
                             </button>
                         </form>
+                        ) : (
+                        <div className="space-y-4">
+                            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-100">
+                                <p className="font-semibold">Pengajuan hanya dibuat oleh tenant</p>
+                                <p className="mt-1 text-emerald-800 dark:text-emerald-200">
+                                    Untuk menghindari fraud, admin tidak bisa membuat request penarikan dari halaman ini. Admin hanya memvalidasi pengajuan yang masuk dari akun tenant / dapur.
+                                </p>
+                            </div>
+                            <div className="grid gap-3 md:grid-cols-2">
+                                <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-800/60">
+                                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                                        Alur Aman
+                                    </p>
+                                    <p className="mt-2 text-sm font-medium text-slate-900 dark:text-white">
+                                        Tenant ajukan, admin approve
+                                    </p>
+                                    <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                                        Admin cukup memeriksa nominal, lampiran, dan metode pembayaran sebelum menyetujui pencairan.
+                                    </p>
+                                </div>
+                                <div className="rounded-2xl bg-blue-50 p-4 dark:bg-blue-950/20">
+                                    <p className="text-xs font-semibold uppercase tracking-wide text-blue-500">
+                                        Fokus Admin
+                                    </p>
+                                    <p className="mt-2 text-sm font-medium text-blue-900 dark:text-blue-100">
+                                        Review, approve, cetak bukti
+                                    </p>
+                                    <p className="mt-2 text-xs text-blue-700 dark:text-blue-200">
+                                        Gunakan tabel riwayat di kanan untuk meninjau request, menolak jika perlu, dan menyimpan bukti pembayaran.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                        )}
                     </div>
 
                     <div className="rounded-3xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
@@ -593,7 +629,7 @@ export default function Index({
                                             }))
                                         }
                                         className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 pr-10 text-sm dark:border-slate-700 dark:bg-slate-800"
-                                        placeholder="Nomor request, kasir, penerima..."
+                                        placeholder={canCreateRequest ? "Nomor request, penerima..." : "Nomor request, pengaju, penerima..."}
                                     />
                                     <span className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-4 text-slate-400">
                                         <IconSearch size={16} />
@@ -622,7 +658,7 @@ export default function Index({
                             </div>
                             <div>
                                 <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                    Kasir
+                                    {canCreateRequest ? "Akun" : "Pengaju"}
                                 </label>
                                 <select
                                     value={filterData.cashier_id}
@@ -705,7 +741,7 @@ export default function Index({
                                 <thead>
                                     <tr className="border-b border-slate-100 dark:border-slate-800">
                                         <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Request</th>
-                                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Kasir</th>
+                                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Pengaju</th>
                                         <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Nilai Dasar</th>
                                         <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Diminta</th>
                                         <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Disetujui</th>
@@ -722,7 +758,7 @@ export default function Index({
                                                     {row.business_date || "-"} • {formatDateTime(row.created_at)}
                                                 </div>
                                                 <div className="text-xs text-slate-500 dark:text-slate-400">
-                                            Shift #{row.cashier_shift?.id || "-"}
+                                                    {row.cashier_shift?.id ? `Shift #${row.cashier_shift.id}` : "Pengajuan tenant"}
                                                 </div>
                                                 {row.requested_notes ? (
                                                     <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
@@ -823,9 +859,10 @@ export default function Index({
                 </div>
 
                 {approvalModal.open ? (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-4">
-                        <div className="w-full max-w-2xl rounded-3xl bg-white p-6 shadow-2xl dark:bg-slate-900">
-                            <div className="flex items-start justify-between gap-3">
+                    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/55 p-4">
+                        <div className="flex min-h-full items-center justify-center py-2">
+                            <div className="flex w-full max-w-2xl max-h-[calc(100vh-2rem)] flex-col overflow-hidden rounded-3xl bg-white shadow-2xl dark:bg-slate-900">
+                            <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-6 py-5 dark:border-slate-800">
                                 <div>
                                     <h2 className="text-xl font-semibold text-slate-900 dark:text-white">
                                         {approvalModal.mode === "approve"
@@ -842,7 +879,8 @@ export default function Index({
                             </div>
 
                             {approvalModal.mode === "approve" ? (
-                                <form onSubmit={submitApprove} className="mt-5 space-y-4">
+                                <form onSubmit={submitApprove} className="flex min-h-0 flex-1 flex-col">
+                                    <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-5">
                                     <div className="grid gap-4 md:grid-cols-2">
                                         <div>
                                             <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">Nominal Approve</label>
@@ -919,8 +957,9 @@ export default function Index({
                                     <div className={`rounded-2xl border px-4 py-3 text-sm ${approvalBreakdownTotal === approvalTarget ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-300" : "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300"}`}>
                                         Total pembayaran: <span className="font-semibold">{formatCurrency(approvalBreakdownTotal)}</span> • Target approval: <span className="font-semibold">{formatCurrency(approvalTarget)}</span>
                                     </div>
+                                    </div>
 
-                                    <div className="flex justify-end gap-3">
+                                    <div className="sticky bottom-0 flex justify-end gap-3 border-t border-slate-200 bg-white px-6 py-4 dark:border-slate-800 dark:bg-slate-900">
                                         <button type="button" onClick={closeModal} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-medium text-slate-600 dark:border-slate-700 dark:text-slate-300">
                                             Batal
                                         </button>
@@ -930,12 +969,14 @@ export default function Index({
                                     </div>
                                 </form>
                             ) : (
-                                <form onSubmit={submitReject} className="mt-5 space-y-4">
+                                <form onSubmit={submitReject} className="flex min-h-0 flex-1 flex-col">
+                                    <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-5">
                                     <div>
                                         <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">Alasan Penolakan</label>
                                         <textarea value={rejectionReason} onChange={(e) => setRejectionReason(e.target.value)} rows={4} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm dark:border-slate-700 dark:bg-slate-800" required />
                                     </div>
-                                    <div className="flex justify-end gap-3">
+                                    </div>
+                                    <div className="sticky bottom-0 flex justify-end gap-3 border-t border-slate-200 bg-white px-6 py-4 dark:border-slate-800 dark:bg-slate-900">
                                         <button type="button" onClick={closeModal} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-medium text-slate-600 dark:border-slate-700 dark:text-slate-300">
                                             Batal
                                         </button>
@@ -945,6 +986,7 @@ export default function Index({
                                     </div>
                                 </form>
                             )}
+                        </div>
                         </div>
                     </div>
                 ) : null}

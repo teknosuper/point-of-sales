@@ -35,6 +35,7 @@ import {
     IconTruckDelivery,
     IconTruckReturn,
     IconSpeakerphone,
+    IconLock,
 } from "@tabler/icons-react";
 import hasAnyPermission from "./Permission";
 import React from "react";
@@ -77,6 +78,13 @@ export default function Menu() {
                         href: route("cashier-settlements.index"),
                         active: url.startsWith("/dashboard/cashier-settlements"),
                         icon: <IconWallet size={20} strokeWidth={1.5} />,
+                        permissions: hasAnyPermission(["dashboard-access"]),
+                    },
+                    {
+                        title: "Ganti Password",
+                        href: route("account.password.edit"),
+                        active: url.startsWith("/dashboard/account/password"),
+                        icon: <IconLock size={20} strokeWidth={1.5} />,
                         permissions: hasAnyPermission(["dashboard-access"]),
                     },
                 ],
@@ -539,6 +547,13 @@ export default function Menu() {
                     href: route("settings.target"),
                     active: url === "/dashboard/settings/target",
                     icon: <IconChartInfographic size={20} strokeWidth={1.5} />,
+                    permissions: hasAnyPermission(["dashboard-access"]),
+                },
+                {
+                    title: "Ganti Password",
+                    href: route("account.password.edit"),
+                    active: url.startsWith("/dashboard/account/password"),
+                    icon: <IconLock size={20} strokeWidth={1.5} />,
                     permissions: hasAnyPermission(["dashboard-access"]),
                 },
             ],

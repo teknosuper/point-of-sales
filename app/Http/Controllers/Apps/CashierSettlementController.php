@@ -123,6 +123,7 @@ class CashierSettlementController extends Controller
             'recipientOptions' => $recipientOptions,
             'defaultRecipientId' => $defaultRecipientId > 0 ? $defaultRecipientId : null,
             'canApprove' => $canApprove,
+            'canCreateRequest' => $isKitchenWorkspace,
             'wallet' => $wallet,
         ]);
     }
@@ -133,12 +134,13 @@ class CashierSettlementController extends Controller
         $outlet = $this->outletResolver->resolve($request, $user);
         abort_if(! $outlet, 404, 'Outlet aktif tidak ditemukan.');
         $isKitchenWorkspace = $user?->isKitchenWorkspace() ?? false;
+        abort_unless($isKitchenWorkspace, 403, 'Pengajuan hanya bisa dibuat oleh tenant / dapur. Admin hanya dapat melakukan approval.');
 
         $data = $request->validate([
-            'cashier_shift_id' => [$isKitchenWorkspace ? 'nullable' : 'required', 'integer', 'exists:cashier_shifts,id'],
+            'cashier_shift_id' => ['nullable', 'integer', 'exists:cashier_shifts,id'],
             'recipient_user_id' => ['nullable', 'integer', 'exists:users,id'],
             'requested_notes' => ['nullable', 'string', 'max:500'],
-            'requested_amount' => [$isKitchenWorkspace ? 'required' : 'nullable', 'numeric', 'min:1'],
+            'requested_amount' => ['required', 'numeric', 'min:1'],
             'request_proof_photos' => ['nullable', 'array', 'max:6'],
             'request_proof_photos.*' => ['image', 'mimes:jpeg,jpg,png,webp', 'max:2048'],
         ]);
@@ -165,47 +167,21 @@ class CashierSettlementController extends Controller
             'status' => CashierSettlementRequest::STATUS_PENDING,
         ];
 
-        if ($isKitchenWorkspace) {
-            $wallet = $this->buildKitchenWalletSummary($user, $outlet->id);
-            $requestedAmount = (int) round((float) ($data['requested_amount'] ?? 0));
+        $wallet = $this->buildKitchenWalletSummary($user, $outlet->id);
+        $requestedAmount = (int) round((float) ($data['requested_amount'] ?? 0));
 
-            abort_if($requestedAmount <= 0, 422, 'Nominal penarikan harus lebih dari nol.');
-            abort_if($requestedAmount > (int) ($wallet['available_balance'] ?? 0), 422, 'Nominal penarikan melebihi saldo tersedia tenant.');
+        abort_if($requestedAmount <= 0, 422, 'Nominal penarikan harus lebih dari nol.');
+        abort_if($requestedAmount > (int) ($wallet['available_balance'] ?? 0), 422, 'Nominal penarikan melebihi saldo tersedia tenant.');
 
-            $settlement = CashierSettlementRequest::create([
-                ...$settlementAttributes,
-                'cashier_shift_id' => null,
-                'business_date' => now()->toDateString(),
-                'gross_sales_total' => (int) ($wallet['tenant_sales_total'] ?? 0),
-                'base_sales_total' => (int) ($wallet['base_total'] ?? 0),
-                'markup_total' => 0,
-                'requested_amount' => $requestedAmount,
-            ]);
-        } else {
-            $shift = CashierShift::query()
-                ->where('outlet_id', $outlet->id)
-                ->where('user_id', $user->id)
-                ->findOrFail($data['cashier_shift_id']);
-
-            $existing = CashierSettlementRequest::query()
-                ->where('cashier_shift_id', $shift->id)
-                ->whereNotIn('status', [CashierSettlementRequest::STATUS_REJECTED, CashierSettlementRequest::STATUS_CANCELLED])
-                ->exists();
-            abort_if($existing, 422, 'Shift ini sudah memiliki pengajuan setoran yang masih aktif.');
-
-            $settlementSummary = $this->cashierShiftService->calculateBaseSettlementSummary($shift);
-            abort_if(($settlementSummary['base_sales_total'] ?? 0) <= 0, 422, 'Shift ini belum memiliki nilai dasar lunas yang bisa diajukan.');
-
-            $settlement = CashierSettlementRequest::create([
-                ...$settlementAttributes,
-                'cashier_shift_id' => $shift->id,
-                'business_date' => optional($shift->opened_at ?? now())->toDateString(),
-                'gross_sales_total' => (int) $settlementSummary['gross_sales_total'],
-                'base_sales_total' => (int) $settlementSummary['base_sales_total'],
-                'markup_total' => (int) $settlementSummary['markup_total'],
-                'requested_amount' => (int) $settlementSummary['base_sales_total'],
-            ]);
-        }
+        $settlement = CashierSettlementRequest::create([
+            ...$settlementAttributes,
+            'cashier_shift_id' => null,
+            'business_date' => now()->toDateString(),
+            'gross_sales_total' => (int) ($wallet['tenant_sales_total'] ?? 0),
+            'base_sales_total' => (int) ($wallet['base_total'] ?? 0),
+            'markup_total' => 0,
+            'requested_amount' => $requestedAmount,
+        ]);
 
         $this->auditLogService->log(
             event: 'cashier_settlement.requested',

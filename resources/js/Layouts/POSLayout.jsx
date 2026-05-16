@@ -321,11 +321,11 @@ export default function POSLayout({ children }) {
                                 </span>
                             </Link>
                             <Link
-                                href={route("profile.edit")}
+                                href={route("account.password.edit")}
                                 className="flex items-center gap-3 px-4 py-3 rounded-xl text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800 transition-colors"
                             >
                                 <IconUser size={20} />
-                                <span className="font-medium">Profil</span>
+                                <span className="font-medium">Ganti Password</span>
                             </Link>
                             <hr className="border-slate-200 dark:border-slate-700" />
                             <button

@@ -78,6 +78,9 @@ Route::get('/order/status/{accessToken}', [PublicTableOrderController::class, 's
 
 Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
     Route::get('/', [DashboardController::class, 'index'])->middleware(['auth', 'permission:dashboard-access'])->name('dashboard');
+    Route::get('/account/password', function () {
+        return Inertia::render('Dashboard/Account/Password');
+    })->middleware('permission:dashboard-access')->name('account.password.edit');
     Route::post('/outlet-context', [OutletContextController::class, 'update'])->name('outlets.switch');
     Route::get('/permissions', [PermissionController::class, 'index'])->middleware('permission:permissions-access')->name('permissions.index');
     Route::get('/guides/outlet-kitchen', [OperationsGuideController::class, 'outletKitchen'])->middleware('permission:dashboard-access')->name('guides.outlet-kitchen');
