@@ -11,6 +11,7 @@ use App\Models\ProductKitchenStationMapping;
 use App\Models\Setting;
 use App\Models\User;
 use App\Services\OutletResolver;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
@@ -34,6 +35,7 @@ class KitchenSettingsController extends Controller
     public function index(Request $request)
     {
         $user = $request->user();
+        $lockedKitchenStationId = $this->preferredKitchenStationId($user);
         $lockedKitchenOutletId = $user?->isKitchenWorkspace() && $user->preferredKitchenStation?->outlet_id
             ? (int) $user->preferredKitchenStation->outlet_id
             : null;
@@ -43,7 +45,10 @@ class KitchenSettingsController extends Controller
             'status' => $request->input('status', ''),
         ];
 
-        $stations = KitchenStation::query()
+        $stations = $this->applyKitchenWorkspaceStationScope(
+            KitchenStation::query(),
+            $user
+        )
             ->with(['outlet:id,name,code', 'devices'])
             ->when($filters['outlet_id'] !== '', fn ($query) => $query->where('outlet_id', $filters['outlet_id']))
             ->when($filters['status'] !== '', function ($query) use ($filters) {
@@ -67,16 +72,21 @@ class KitchenSettingsController extends Controller
             ->groupBy('kitchen_station_device_id')
             ->map(fn (Collection $jobs) => $jobs->first());
 
-        $stationBaseQuery = KitchenStation::query()
+        $stationBaseQuery = $this->applyKitchenWorkspaceStationScope(
+            KitchenStation::query(),
+            $user
+        )
             ->when($filters['outlet_id'] !== '', fn ($query) => $query->where('outlet_id', $filters['outlet_id']));
 
         $deviceBaseQuery = KitchenStationDevice::query()
+            ->when($lockedKitchenStationId, fn ($query) => $query->where('kitchen_station_id', $lockedKitchenStationId))
             ->when($filters['outlet_id'] !== '', function ($query) use ($filters) {
                 $query->whereHas('kitchenStation', fn ($builder) => $builder->where('outlet_id', $filters['outlet_id']));
             });
 
         $mappingBaseQuery = ProductKitchenStationMapping::query()
             ->where('is_active', true)
+            ->when($lockedKitchenStationId, fn ($query) => $query->where('kitchen_station_id', $lockedKitchenStationId))
             ->when($filters['outlet_id'] !== '', function ($query) use ($filters) {
                 $query->whereHas('kitchenStation', fn ($builder) => $builder->where('outlet_id', $filters['outlet_id']));
             });
@@ -120,6 +130,9 @@ class KitchenSettingsController extends Controller
                     'kitchenTicket.transaction:id,invoice',
                 ])
                 ->where('job_type', PrintJob::TYPE_KITCHEN_TICKET)
+                ->when($lockedKitchenStationId, function ($query) use ($lockedKitchenStationId) {
+                    $query->whereHas('device', fn ($builder) => $builder->where('kitchen_station_id', $lockedKitchenStationId));
+                })
                 ->when($filters['outlet_id'] !== '', fn ($query) => $query->where('outlet_id', $filters['outlet_id']))
                 ->latest()
                 ->limit(12)
@@ -142,7 +155,7 @@ class KitchenSettingsController extends Controller
                 ])
                 ->values(),
             'ui' => [
-                'show_station_form' => $request->boolean('station_create'),
+                'show_station_form' => ! $user?->isKitchenWorkspace() && $request->boolean('station_create'),
                 'show_device_form' => $request->boolean('device_create'),
                 'preset_outlet_id' => $request->input('outlet_id'),
             ],
@@ -214,6 +227,7 @@ class KitchenSettingsController extends Controller
 
     public function accessSheet(Request $request, KitchenStation $station): Response
     {
+        $this->authorizeKitchenWorkspaceStation($request->user(), $station);
         $station->loadMissing(['outlet:id,name,code', 'devices']);
 
         return Inertia::render('Dashboard/KitchenSettings/AccessSheet', [
@@ -252,6 +266,8 @@ class KitchenSettingsController extends Controller
 
     public function storeStation(Request $request)
     {
+        abort_if($request->user()?->isKitchenWorkspace(), 403, 'Akun dapur hanya boleh mengelola station miliknya sendiri.');
+
         $data = $request->validate([
             'outlet_id' => ['required', 'exists:outlets,id'],
             'name' => ['required', 'string', 'max:100'],
@@ -278,6 +294,8 @@ class KitchenSettingsController extends Controller
 
     public function updateStation(Request $request, KitchenStation $station)
     {
+        $this->authorizeKitchenWorkspaceStation($request->user(), $station);
+
         $data = $request->validate([
             'outlet_id' => ['required', 'exists:outlets,id'],
             'name' => ['required', 'string', 'max:100'],
@@ -288,6 +306,10 @@ class KitchenSettingsController extends Controller
             'sort_order' => ['nullable', 'integer', 'min:0'],
             'is_active' => ['nullable', 'boolean'],
         ]);
+
+        if ($request->user()?->isKitchenWorkspace()) {
+            $data['outlet_id'] = (int) $station->outlet_id;
+        }
 
         $station->update([
             ...$data,
@@ -304,6 +326,8 @@ class KitchenSettingsController extends Controller
 
     public function updateStationProcessingMode(Request $request, KitchenStation $station)
     {
+        $this->authorizeKitchenWorkspaceStation($request->user(), $station);
+
         $data = $request->validate([
             'processing_mode' => ['required', 'string', 'in:auto,manual'],
         ]);
@@ -322,6 +346,8 @@ class KitchenSettingsController extends Controller
 
     public function storeDevice(Request $request, KitchenStation $station)
     {
+        $this->authorizeKitchenWorkspaceStation($request->user(), $station);
+
         $data = $request->validate([
             'name' => ['required', 'string', 'max:100'],
             'device_type' => ['required', 'string', 'max:30'],
@@ -371,6 +397,8 @@ class KitchenSettingsController extends Controller
 
     public function updateDevice(Request $request, KitchenStationDevice $device)
     {
+        $this->authorizeKitchenWorkspaceDevice($request->user(), $device);
+
         $data = $request->validate([
             'name' => ['required', 'string', 'max:100'],
             'device_type' => ['required', 'string', 'max:30'],
@@ -465,6 +493,8 @@ class KitchenSettingsController extends Controller
 
     public function testDevice(KitchenStationDevice $device)
     {
+        $this->authorizeKitchenWorkspaceDevice(request()->user(), $device);
+
         $meta = $device->meta ?? [];
         $profile = $meta['print_profile'] ?? $this->defaultPrintProfile($device->connection_driver, $device->device_type);
         $meta['last_test'] = [
@@ -481,6 +511,8 @@ class KitchenSettingsController extends Controller
 
     public function healthCheckDevice(KitchenStationDevice $device)
     {
+        $this->authorizeKitchenWorkspaceDevice(request()->user(), $device);
+
         $meta = $device->meta ?? [];
         $profile = $meta['print_profile'] ?? $this->defaultPrintProfile($device->connection_driver, $device->device_type);
         $status = 'warning';
@@ -525,6 +557,8 @@ class KitchenSettingsController extends Controller
 
     public function toggleDevice(KitchenStationDevice $device)
     {
+        $this->authorizeKitchenWorkspaceDevice(request()->user(), $device);
+
         $nextStatus = ! $device->is_active;
 
         if ($nextStatus && $device->is_primary) {
@@ -581,6 +615,52 @@ class KitchenSettingsController extends Controller
             ->exists();
 
         abort_if(! $exists, 422, 'Fallback device harus berasal dari station yang sama.');
+    }
+
+    private function preferredKitchenStationId(?User $user): ?int
+    {
+        if (! $user?->isKitchenWorkspace()) {
+            return null;
+        }
+
+        $stationId = (int) ($user->preferred_kitchen_station_id ?? 0);
+
+        return $stationId > 0 ? $stationId : null;
+    }
+
+    private function applyKitchenWorkspaceStationScope(Builder $query, ?User $user): Builder
+    {
+        $preferredStationId = $this->preferredKitchenStationId($user);
+
+        if (! $user?->isKitchenWorkspace()) {
+            return $query;
+        }
+
+        if (! $preferredStationId) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        return $query->whereKey($preferredStationId);
+    }
+
+    private function authorizeKitchenWorkspaceStation(?User $user, KitchenStation $station): void
+    {
+        if (! $user?->isKitchenWorkspace()) {
+            return;
+        }
+
+        abort_unless((int) $station->id === (int) $this->preferredKitchenStationId($user), 403);
+    }
+
+    private function authorizeKitchenWorkspaceDevice(?User $user, KitchenStationDevice $device): void
+    {
+        if (! $user?->isKitchenWorkspace()) {
+            return;
+        }
+
+        $device->loadMissing('kitchenStation:id');
+
+        abort_unless((int) $device->kitchen_station_id === (int) $this->preferredKitchenStationId($user), 403);
     }
 
     private function stationPayload(KitchenStation $station, Collection $latestDeviceJobs): array
