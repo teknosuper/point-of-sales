@@ -155,7 +155,7 @@ export default function Index({
     const [selectedCustomer, setSelectedCustomer] = useState(WALK_IN_CUSTOMER);
     const [openAddCustomerModalSignal, setOpenAddCustomerModalSignal] =
         useState(0);
-    const [orderType, setOrderType] = useState("take_away");
+    const [orderType, setOrderType] = useState("dine_in");
     const [selectedTableId, setSelectedTableId] = useState("");
     const [isTablePickerModalOpen, setIsTablePickerModalOpen] =
         useState(false);
@@ -211,11 +211,7 @@ export default function Index({
                 "pos:offline-banner-expanded"
             );
 
-            if (stored !== null) {
-                return stored === "1";
-            }
-
-            return window.innerWidth >= 1280;
+            return stored === "1";
         }
     );
     const [prefersPrintOpenLabel, setPrefersPrintOpenLabel] = useState(false);
@@ -2612,14 +2608,15 @@ export default function Index({
                 </div>
 
                 {(isOfflineMode || offlineQueueCount > 0) && (
-                    <div className="border-b border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200 lg:absolute lg:inset-x-0 lg:top-0 lg:z-10">
-                        <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="border-b border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200 lg:absolute lg:inset-x-0 lg:top-0 lg:z-10 lg:px-4 lg:py-3 max-h-[40vh] overflow-y-auto">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
                             <div className="min-w-0 flex-1">
-                                <p className="font-semibold">
+                                <p className="font-semibold text-xs sm:text-sm">
                                     {isOfflineMode
                                         ? "Mode kasir offline aktif"
                                         : "Menunggu sinkronisasi transaksi offline"}
                                 </p>
+                                {isOfflineBannerExpanded && (
                                 <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
                                     {!isBrowserOnline
                                         ? "Perangkat tidak terhubung ke internet. Hanya transaksi tunai yang bisa diproses lokal."
@@ -2627,6 +2624,9 @@ export default function Index({
                                         ? "Internet ada, tetapi server sedang tidak merespons. Transaksi tunai tetap disimpan lokal."
                                         : `${offlineQueueCount} transaksi offline menunggu sinkronisasi ke server.`}
                                 </p>
+                                )}
+                                {isOfflineBannerExpanded && (
+                                <>
                                 <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
                                     <span
                                         className={`rounded-full px-2.5 py-1 font-semibold ${
@@ -2678,8 +2678,11 @@ export default function Index({
                                         Perangkat {offlineDeviceCheckFreshness.label}
                                     </span>
                                 </div>
+                                </>
+                                )}
                             </div>
                             <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                                {isOfflineBannerExpanded && (
                                 <button
                                     type="button"
                                     onClick={refreshOfflinePreparation}
@@ -2690,6 +2693,7 @@ export default function Index({
                                         ? "Menyegarkan..."
                                         : "Segarkan"}
                                 </button>
+                                )}
                                 <button
                                     type="button"
                                     onClick={() =>
@@ -2716,7 +2720,7 @@ export default function Index({
                                         {offlineQueueCount} antrean
                                     </span>
                                 )}
-                                {!isOfflineMode && offlineQueueCount > 0 && (
+                                {isOfflineBannerExpanded && !isOfflineMode && offlineQueueCount > 0 && (
                                     <button
                                         type="button"
                                         onClick={syncOfflineQueue}
@@ -2726,7 +2730,7 @@ export default function Index({
                                         Sync Sekarang
                                     </button>
                                 )}
-                                {(offlineQueueCount > 0 ||
+                                {isOfflineBannerExpanded && (offlineQueueCount > 0 ||
                                     offlineHistory.length > 0) && (
                                     <button
                                         type="button"

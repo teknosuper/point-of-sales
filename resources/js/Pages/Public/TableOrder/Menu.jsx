@@ -69,6 +69,7 @@ export default function Menu({ table, outlet, products = [], identity }) {
     const [showOrderGuide, setShowOrderGuide] = useState(false);
     const [showCustomerHistory, setShowCustomerHistory] = useState(false);
     const [showFloatingCheckout, setShowFloatingCheckout] = useState(false);
+    const [sidebarOpen, setSidebarOpen] = useState(false);
     const customer = identity?.customer || null;
     const pendingPhone = identity?.pending_phone || "";
     const recentOrders = customer?.recent_orders || [];
@@ -534,6 +535,120 @@ export default function Menu({ table, outlet, products = [], identity }) {
         <>
             <Head title={`Order ${table.name}`} />
 
+            {/* Sidebar overlay */}
+            {sidebarOpen ? (
+                <div className="fixed inset-0 z-[60] bg-black/40 backdrop-blur-sm" onClick={() => setSidebarOpen(false)} />
+            ) : null}
+
+            {/* Sidebar */}
+            <div className={`fixed inset-y-0 left-0 z-[70] w-[300px] max-w-[85vw] transform bg-white shadow-2xl transition-transform duration-300 ease-in-out ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}>
+                <div className="flex h-full flex-col overflow-hidden">
+                    {/* Sidebar header */}
+                    <div className="flex items-center justify-between border-b border-slate-200 px-4 py-4">
+                        <div>
+                            <p className="text-sm font-bold text-slate-900">Menu</p>
+                            <p className="text-xs text-slate-500">Meja {table.code || table.name}</p>
+                        </div>
+                        <button type="button" onClick={() => setSidebarOpen(false)} className="rounded-xl p-2 text-slate-500 hover:bg-slate-100">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6L6 18"/><path d="M6 6l12 12"/></svg>
+                        </button>
+                    </div>
+
+                    {/* Sidebar content */}
+                    <div className="flex-1 overflow-y-auto px-4 py-4">
+                        {/* Info Meja */}
+                        <div className="mb-4 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Info Meja</p>
+                            <p className="mt-1 text-sm font-semibold text-slate-900">Meja {table.code || table.name}</p>
+                            <p className="text-xs text-slate-500">Kapasitas {table.capacity || 0} kursi</p>
+                        </div>
+
+                        {/* Customer info */}
+                        {customer ? (
+                            <div className="mb-4 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                                <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Pelanggan</p>
+                                <p className="mt-1 text-sm font-semibold text-slate-900">{customer.name || "Pelanggan"}</p>
+                                {customer.no_telp ? <p className="text-xs text-slate-500">{customer.no_telp}</p> : null}
+                                {customer.loyalty_points ? <p className="mt-1 text-xs text-emerald-600 font-medium">{customer.loyalty_points} poin loyalti</p> : null}
+                            </div>
+                        ) : null}
+
+                        {/* History pesanan */}
+                        <div className="mb-4">
+                            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Riwayat Pesanan</p>
+                            {recentOrders.length > 0 ? (
+                                <div className="space-y-2">
+                                    {recentOrders.map((order) => (
+                                        <div key={order.id} className="rounded-xl border border-slate-200 bg-white p-3">
+                                            <div className="flex items-start justify-between gap-2">
+                                                <div className="min-w-0">
+                                                    <p className="truncate text-sm font-medium text-slate-800">{order.order_number}</p>
+                                                    <span className="mt-1 inline-block rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                                                        {orderStatusLabel[order.status] || order.status}
+                                                    </span>
+                                                </div>
+                                                <p className="shrink-0 text-sm font-semibold text-slate-800">{formatPrice(order.grand_total)}</p>
+                                            </div>
+                                            {order.access_token ? (
+                                                <Link href={route("table-order.status", order.access_token)} className="mt-2 inline-flex text-xs font-medium text-sky-700">
+                                                    Lihat status →
+                                                </Link>
+                                            ) : null}
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : recentTransactions.length > 0 ? (
+                                <div className="space-y-2">
+                                    {recentTransactions.map((transaction) => (
+                                        <div key={transaction.id} className="rounded-xl border border-slate-200 bg-white p-3">
+                                            <div className="flex items-start justify-between gap-2">
+                                                <div className="min-w-0">
+                                                    <p className="truncate text-sm font-medium text-slate-800">{transaction.invoice}</p>
+                                                    <p className="text-xs capitalize text-slate-500">{transaction.payment_status}</p>
+                                                </div>
+                                                <p className="shrink-0 text-sm font-semibold text-slate-800">{formatPrice(transaction.grand_total)}</p>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <p className="rounded-xl border border-dashed border-slate-200 px-3 py-4 text-center text-xs text-slate-400">Belum ada riwayat pesanan.</p>
+                            )}
+                        </div>
+
+                        {/* Outlet info */}
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Outlet</p>
+                            <p className="mt-1 text-sm font-semibold text-slate-900">{outlet?.name || storeProfile?.name || "Outlet"}</p>
+                            <p className="text-xs text-slate-500">Pembayaran di kasir</p>
+                        </div>
+                    </div>
+
+                    {/* Sidebar footer */}
+                    {customer ? (
+                        <div className="border-t border-slate-200 px-4 py-3">
+                            <button
+                                type="button"
+                                onClick={() => { logoutForm.post(route("table-order.logout", table.qr_token), { preserveScroll: true }); setSidebarOpen(false); }}
+                                className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+                            >
+                                Keluar akun
+                            </button>
+                        </div>
+                    ) : null}
+                </div>
+            </div>
+
+            {/* Sidebar toggle button */}
+            <button
+                type="button"
+                onClick={() => setSidebarOpen(true)}
+                className="fixed left-3 top-3 z-50 flex h-10 w-10 items-center justify-center rounded-full border border-slate-200/80 bg-white/95 shadow-lg shadow-slate-900/10 backdrop-blur sm:left-5 sm:top-5"
+                aria-label="Buka menu"
+            >
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-slate-700"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h16"/></svg>
+            </button>
+
             <div className="min-h-screen overflow-x-hidden bg-[radial-gradient(circle_at_top,_rgba(14,165,233,0.12),_transparent_26%),radial-gradient(circle_at_top_right,_rgba(16,185,129,0.08),_transparent_34%),linear-gradient(180deg,_#eef4ff_0%,_#f8fafc_22%,_#f8fafc_100%)] text-slate-900">
                 <div
                     className={`mx-auto max-w-7xl overflow-x-hidden px-3 py-4 sm:px-5 sm:py-6 lg:px-6 ${
@@ -570,55 +685,13 @@ export default function Menu({ table, outlet, products = [], identity }) {
                                         </p>
                                     </div>
                                 </div>
-                                <h1 className="mt-4 max-w-3xl text-[1.9rem] font-black leading-tight tracking-[-0.04em] text-white sm:text-[2.35rem]">
-                                    Pesan dari meja dengan alur yang cepat dan mudah dipahami.
-                                </h1>
-                                <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300 sm:text-[15px]">
-                                    Pilih menu, tambah catatan bila perlu, lalu kirim ringkasan order ke kasir. Pembayaran dilakukan di kasir dan pesanan diteruskan ke dapur otomatis.
-                                </p>
-                                <div className="mt-4 flex flex-wrap gap-2">
+                                <div className="mt-3 flex flex-wrap items-center gap-2">
                                     <span className="rounded-full border border-white/12 bg-white/10 px-3 py-1.5 text-xs font-semibold text-white">
                                         Meja {table.code || table.name}
                                     </span>
                                     <span className="rounded-full border border-emerald-400/20 bg-emerald-400/12 px-3 py-1.5 text-xs font-semibold text-emerald-100">
                                         Bayar di kasir
                                     </span>
-                                    <span className="rounded-full border border-sky-400/20 bg-sky-400/12 px-3 py-1.5 text-xs font-semibold text-sky-100">
-                                        Dapur otomatis
-                                    </span>
-                                </div>
-                            </div>
-                            <div className="grid w-full min-w-0 grid-cols-2 gap-3 sm:max-w-sm lg:min-w-[300px]">
-                                <div className="rounded-[22px] border border-white/10 bg-white/10 px-4 py-3 backdrop-blur">
-                                    <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-300">
-                                        Meja
-                                    </p>
-                                    <p className="mt-1 text-base font-semibold text-white sm:text-lg">
-                                        {table.code || table.name}
-                                    </p>
-                                </div>
-                                <div className="rounded-[22px] border border-white/10 bg-white/10 px-4 py-3 backdrop-blur">
-                                    <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-300">
-                                        Kapasitas
-                                    </p>
-                                    <p className="mt-1 text-base font-semibold text-white sm:text-lg">
-                                        {table.capacity || 0} Kursi
-                                    </p>
-                                </div>
-                                <div className="col-span-2 min-w-0 rounded-[22px] border border-white/10 bg-white/10 px-4 py-3 backdrop-blur">
-                                    <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                                        <div>
-                                            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-300">
-                                                Ringkas
-                                            </p>
-                                            <p className="mt-1 text-sm font-medium text-white">
-                                                Pilih menu, kirim order, lalu bayar di kasir.
-                                            </p>
-                                        </div>
-                                        <span className="inline-flex shrink-0 self-start rounded-full bg-white px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-slate-900 sm:self-auto">
-                                            Fast flow
-                                        </span>
-                                    </div>
                                 </div>
                             </div>
                         </div>
