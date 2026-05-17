@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Head, router, usePage } from "@inertiajs/react";
+import toast from "react-hot-toast";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import KitchenLayout from "@/Layouts/KitchenLayout";
 import Pagination from "@/Components/Dashboard/Pagination";
@@ -40,6 +41,7 @@ const defaultFilters = {
 };
 
 const defaultApprovalForm = {
+    password: "",
     approved_amount: "",
     approved_cash_amount: "",
     approved_transfer_amount: "",
@@ -101,8 +103,13 @@ export default function Index({
     canCreateRequest = false,
     wallet = null,
 }) {
-    const { auth, errors } = usePage().props;
+    const { auth, errors, flash } = usePage().props;
     const isKitchenWorkspace = auth?.user?.preferred_workspace === "kitchen";
+
+    useEffect(() => {
+        if (flash?.success) toast.success(flash.success);
+        if (flash?.error) toast.error(flash.error);
+    }, [flash]);
     const requestPanelTitle = isKitchenWorkspace
         ? "Ajukan Penarikan Dana Tenant"
         : "Approval Penarikan Tenant";
@@ -149,6 +156,7 @@ export default function Index({
     });
     const [approvalForm, setApprovalForm] = useState(defaultApprovalForm);
     const [rejectionReason, setRejectionReason] = useState("");
+    const [rejectionPassword, setRejectionPassword] = useState("");
 
     useEffect(() => {
         setFilterData({
@@ -218,16 +226,20 @@ export default function Index({
             request,
             mode: "approve",
         });
+        const requestedAmount = Number(request.requested_amount) || 0;
+        const now = new Date();
+        const localIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}T${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
         setApprovalForm({
-            approved_amount: String(request.requested_amount || 0),
-            approved_cash_amount: String(request.requested_amount || 0),
+            password: "",
+            approved_amount: String(requestedAmount),
+            approved_cash_amount: String(requestedAmount),
             approved_transfer_amount: "0",
             approved_other_amount: "0",
             approved_other_label: "",
             recipient_name: request.recipient_name || request.recipient_user?.name || "",
             approval_reference: "",
             approval_notes: "",
-            paid_at: "",
+            paid_at: localIso,
             approval_proof_photos: [],
         });
         setRejectionReason("");
@@ -241,6 +253,7 @@ export default function Index({
         });
         setApprovalForm(defaultApprovalForm);
         setRejectionReason("");
+        setRejectionPassword("");
     };
 
     const closeModal = () => {
@@ -251,24 +264,45 @@ export default function Index({
         });
         setApprovalForm(defaultApprovalForm);
         setRejectionReason("");
+        setRejectionPassword("");
     };
 
     const approvalBreakdownTotal =
-        Number(approvalForm.approved_cash_amount || 0) +
-        Number(approvalForm.approved_transfer_amount || 0) +
-        Number(approvalForm.approved_other_amount || 0);
-    const approvalTarget = Number(approvalForm.approved_amount || 0);
+        Number(approvalForm.approved_cash_amount) +
+        Number(approvalForm.approved_transfer_amount) +
+        Number(approvalForm.approved_other_amount);
+    const approvalTarget = Number(approvalForm.approved_amount);
 
     const submitApprove = (event) => {
         event.preventDefault();
         if (!approvalModal.request) return;
-        router.patch(
+
+        const formData = new FormData();
+        formData.append('_method', 'PATCH');
+        formData.append('password', approvalForm.password);
+        formData.append('approved_amount', approvalForm.approved_amount);
+        formData.append('approved_cash_amount', approvalForm.approved_cash_amount);
+        formData.append('approved_transfer_amount', approvalForm.approved_transfer_amount);
+        formData.append('approved_other_amount', approvalForm.approved_other_amount);
+        formData.append('approved_other_label', approvalForm.approved_other_label || '');
+        formData.append('recipient_name', approvalForm.recipient_name);
+        formData.append('approval_reference', approvalForm.approval_reference || '');
+        formData.append('approval_notes', approvalForm.approval_notes || '');
+        formData.append('paid_at', approvalForm.paid_at || '');
+        if (approvalForm.approval_proof_photos?.length) {
+            approvalForm.approval_proof_photos.forEach((file, index) => {
+                formData.append(`approval_proof_photos[${index}]`, file);
+            });
+        }
+
+        router.post(
             route("cashier-settlements.approve", approvalModal.request.id),
-            approvalForm,
+            formData,
             {
                 preserveScroll: true,
                 forceFormData: true,
                 onSuccess: () => closeModal(),
+                onError: () => setApprovalForm((prev) => ({ ...prev, password: "" })),
             }
         );
     };
@@ -278,10 +312,11 @@ export default function Index({
         if (!approvalModal.request) return;
         router.patch(
             route("cashier-settlements.reject", approvalModal.request.id),
-            { rejection_reason: rejectionReason },
+            { rejection_reason: rejectionReason, password: rejectionPassword },
             {
                 preserveScroll: true,
                 onSuccess: () => closeModal(),
+                onError: () => setRejectionPassword(""),
             }
         );
     };
@@ -319,7 +354,7 @@ export default function Index({
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                     <SummaryCard title="Menunggu Approval" value={String(summary?.pending_count ?? 0)} description="Pengajuan yang belum divalidasi" icon={<IconClockHour4 size={20} />} tone="amber" />
                     <SummaryCard title="Disetujui" value={String(summary?.approved_count ?? 0)} description="Pengajuan yang sudah dibayar" icon={<IconCheck size={20} />} tone="emerald" />
-                    <SummaryCard title="Total Diminta" value={formatCurrency(summary?.requested_total ?? 0)} description="Nominal pengajuan" icon={<IconReceipt2 size={20} />} tone="blue" />
+                    <SummaryCard title="Total Pending" value={formatCurrency(summary?.requested_total ?? 0)} description="Nominal pengajuan yang menunggu approval" icon={<IconReceipt2 size={20} />} tone="blue" />
                     <SummaryCard title="Total Disetujui" value={formatCurrency(summary?.approved_total ?? 0)} description="Nominal sudah dibayar" icon={<IconCashBanknote size={20} />} tone="slate" />
                 </div>
 
@@ -742,8 +777,8 @@ export default function Index({
                                     <tr className="border-b border-slate-100 dark:border-slate-800">
                                         <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Request</th>
                                         <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Pengaju</th>
-                                        <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Nilai Dasar</th>
-                                        <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Diminta</th>
+                                        <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Penjualan Tenant</th>
+                                        <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Diajukan</th>
                                         <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Disetujui</th>
                                         <th className="px-4 py-3 text-center text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Status</th>
                                         <th className="px-4 py-3 text-center text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Aksi</th>
@@ -957,6 +992,16 @@ export default function Index({
                                     <div className={`rounded-2xl border px-4 py-3 text-sm ${approvalBreakdownTotal === approvalTarget ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-300" : "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300"}`}>
                                         Total pembayaran: <span className="font-semibold">{formatCurrency(approvalBreakdownTotal)}</span> • Target approval: <span className="font-semibold">{formatCurrency(approvalTarget)}</span>
                                     </div>
+
+                                    <div>
+                                        <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">Konfirmasi Password</label>
+                                        <input type="password" autoComplete="new-password" value={approvalForm.password} onChange={(e) => setApprovalForm((prev) => ({ ...prev, password: e.target.value }))} className={`h-11 w-full rounded-xl border bg-slate-50 px-4 text-sm dark:bg-slate-800 ${errors?.password ? "border-rose-300 dark:border-rose-800" : "border-slate-200 dark:border-slate-700"}`} placeholder="Masukkan password Anda" required />
+                                        {errors?.password ? (
+                                            <p className="mt-1 text-xs text-rose-600 dark:text-rose-300">{errors.password}</p>
+                                        ) : (
+                                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Masukkan password akun Anda untuk mengkonfirmasi approval.</p>
+                                        )}
+                                    </div>
                                     </div>
 
                                     <div className="sticky bottom-0 flex justify-end gap-3 border-t border-slate-200 bg-white px-6 py-4 dark:border-slate-800 dark:bg-slate-900">
@@ -974,6 +1019,15 @@ export default function Index({
                                     <div>
                                         <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">Alasan Penolakan</label>
                                         <textarea value={rejectionReason} onChange={(e) => setRejectionReason(e.target.value)} rows={4} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm dark:border-slate-700 dark:bg-slate-800" required />
+                                    </div>
+                                    <div>
+                                        <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">Konfirmasi Password</label>
+                                        <input type="password" autoComplete="new-password" value={rejectionPassword} onChange={(e) => setRejectionPassword(e.target.value)} className={`h-11 w-full rounded-xl border bg-slate-50 px-4 text-sm dark:bg-slate-800 ${errors?.password ? "border-rose-300 dark:border-rose-800" : "border-slate-200 dark:border-slate-700"}`} placeholder="Masukkan password Anda" required />
+                                        {errors?.password ? (
+                                            <p className="mt-1 text-xs text-rose-600 dark:text-rose-300">{errors.password}</p>
+                                        ) : (
+                                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Masukkan password akun Anda untuk mengkonfirmasi penolakan.</p>
+                                        )}
                                     </div>
                                     </div>
                                     <div className="sticky bottom-0 flex justify-end gap-3 border-t border-slate-200 bg-white px-6 py-4 dark:border-slate-800 dark:bg-slate-900">

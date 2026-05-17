@@ -17,6 +17,7 @@ use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -80,8 +81,8 @@ class CashierSettlementController extends Controller
             'pending_count' => $summaryQuery->where('status', CashierSettlementRequest::STATUS_PENDING)->count(),
             'approved_count' => $summaryQuery->where('status', CashierSettlementRequest::STATUS_APPROVED)->count(),
             'rejected_count' => $summaryQuery->where('status', CashierSettlementRequest::STATUS_REJECTED)->count(),
-            'requested_total' => (int) $summaryQuery->sum('requested_amount'),
-            'approved_total' => (int) $summaryQuery->sum('approved_amount'),
+            'requested_total' => (int) $summaryQuery->where('status', CashierSettlementRequest::STATUS_PENDING)->sum('requested_amount'),
+            'approved_total' => (int) $summaryQuery->where('status', CashierSettlementRequest::STATUS_APPROVED)->sum('approved_amount'),
         ];
 
         $cashierOptions = $canApprove
@@ -211,6 +212,7 @@ class CashierSettlementController extends Controller
         abort_if($settlement->status !== CashierSettlementRequest::STATUS_PENDING, 422, 'Pengajuan ini tidak lagi menunggu approval.');
 
         $data = $request->validate([
+            'password' => ['required', 'string'],
             'approved_amount' => ['required', 'numeric', 'min:0'],
             'approved_cash_amount' => ['nullable', 'numeric', 'min:0'],
             'approved_transfer_amount' => ['nullable', 'numeric', 'min:0'],
@@ -223,6 +225,10 @@ class CashierSettlementController extends Controller
             'approval_proof_photos' => ['nullable', 'array', 'max:6'],
             'approval_proof_photos.*' => ['image', 'mimes:jpeg,jpg,png,webp', 'max:2048'],
         ]);
+
+        if (! Hash::check($data['password'], $approver->password)) {
+            return back()->withErrors(['password' => 'Password tidak sesuai.']);
+        }
 
         $approvedAmount = (int) round((float) $data['approved_amount']);
         $cashAmount = (int) round((float) ($data['approved_cash_amount'] ?? 0));
@@ -281,8 +287,13 @@ class CashierSettlementController extends Controller
         abort_if($settlement->status !== CashierSettlementRequest::STATUS_PENDING, 422, 'Pengajuan ini tidak lagi menunggu approval.');
 
         $data = $request->validate([
+            'password' => ['required', 'string'],
             'rejection_reason' => ['required', 'string', 'max:500'],
         ]);
+
+        if (! Hash::check($data['password'], $approver->password)) {
+            return back()->withErrors(['password' => 'Password tidak sesuai.']);
+        }
 
         $before = $this->settlementAuditPayload($settlement);
 
@@ -480,7 +491,6 @@ class CashierSettlementController extends Controller
             );
 
         $allocationIds = (clone $allocationQuery)->pluck('id');
-        $tenantSalesTotal = (int) ((clone $allocationQuery)->sum('grand_total') ?? 0);
         $baseTotal = (int) (TransactionTenantAllocationItem::query()
             ->whereIn('transaction_tenant_allocation_id', $allocationIds)
             ->selectRaw('COALESCE(SUM(base_unit_price * qty), 0) as total_base')
@@ -500,11 +510,11 @@ class CashierSettlementController extends Controller
             ->where('status', CashierSettlementRequest::STATUS_PENDING)
             ->sum('requested_amount');
 
-        $receivableTotal = max(0, $tenantSalesTotal - $approvedTotal);
-        $availableBalance = max(0, $tenantSalesTotal - $approvedTotal - $pendingTotal);
+        $receivableTotal = max(0, $baseTotal - $approvedTotal);
+        $availableBalance = max(0, $baseTotal - $approvedTotal - $pendingTotal);
 
         return [
-            'tenant_sales_total' => $tenantSalesTotal,
+            'tenant_sales_total' => $baseTotal,
             'base_total' => $baseTotal,
             'approved_total' => $approvedTotal,
             'pending_total' => $pendingTotal,

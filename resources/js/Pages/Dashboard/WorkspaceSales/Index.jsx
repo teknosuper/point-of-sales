@@ -78,9 +78,9 @@ export default function WorkspaceSalesIndex({
 }) {
     const { auth } = usePage().props;
     const isKitchenWorkspace =
-        meta?.metric_mode === "base_cost" || auth?.user?.preferred_workspace === "kitchen";
-    const primaryMetricLabel = isKitchenWorkspace ? "Harga Jual Tenant" : "Penjualan";
-    const primaryContextLabel = isKitchenWorkspace ? "nilai settlement tenant yang sudah selesai diantar" : "penjualan operasional";
+        meta?.metric_mode === "base_cost" || meta?.metric_mode === "tenant_sales" || auth?.user?.preferred_workspace === "kitchen";
+    const primaryMetricLabel = isKitchenWorkspace ? "Penjualan Tenant" : "Penjualan";
+    const primaryContextLabel = isKitchenWorkspace ? "penjualan murni tenant (tanpa markup owner)" : "penjualan operasional";
     const settlementRecipientLabel = meta?.settlement_recipient?.name || "Admin / owner belum diatur";
     const [showFilters, setShowFilters] = useState(false);
     const [filterData, setFilterData] = useState({
@@ -375,7 +375,7 @@ export default function WorkspaceSalesIndex({
                                 </h2>
                                 <p className="mt-1 text-sm text-emerald-900 dark:text-emerald-100">
                                     Laporan ini hanya menghitung transaksi tenant yang sudah <span className="font-semibold">selesai diantar / diambil pelanggan</span>.
-                                    Angka utama untuk settlement adalah <span className="font-semibold">Harga Jual Tenant</span>. Nilai dasar tetap ditampilkan sebagai acuan internal tenant.
+                                    Angka yang ditampilkan adalah <span className="font-semibold">penjualan murni tenant</span> (tanpa markup owner outlet).
                                 </p>
                                 <p className="text-sm text-emerald-900 dark:text-emerald-100">
                                     Pembayaran pelanggan tetap dipisah jelas:
@@ -628,8 +628,7 @@ export default function WorkspaceSalesIndex({
                                         <th className="px-4 py-3">Bayar</th>
                                         <th className="px-4 py-3">Status</th>
                                         {isKitchenWorkspace ? <th className="px-4 py-3">Status Antar</th> : null}
-                                        {isKitchenWorkspace ? <th className="px-4 py-3 text-right">Nilai Dasar</th> : null}
-                                        <th className="px-4 py-3 text-right">{isKitchenWorkspace ? "Harga Jual Tenant" : "Total"}</th>
+                                        <th className="px-4 py-3 text-right">{isKitchenWorkspace ? "Penjualan Tenant" : "Total"}</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -655,11 +654,6 @@ export default function WorkspaceSalesIndex({
                                                     <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
                                                         {row.service_status_label || "-"}
                                                     </span>
-                                                </td>
-                                            ) : null}
-                                            {isKitchenWorkspace ? (
-                                                <td className="px-4 py-3 text-right font-semibold text-emerald-600 dark:text-emerald-400">
-                                                    {formatCurrency(row.base_total)}
                                                 </td>
                                             ) : null}
                                             <td className="px-4 py-3 text-right font-semibold text-primary-600 dark:text-primary-400">

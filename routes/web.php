@@ -179,8 +179,8 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
     Route::post('cashier-shifts/{cashierShift}/close', [CashierShiftController::class, 'close'])->middleware('permission:cashier-shifts-close')->name('cashier-shifts.close');
     Route::get('cashier-settlements', [CashierSettlementController::class, 'index'])->middleware(['permission:dashboard-access', 'outlet_access'])->name('cashier-settlements.index');
     Route::post('cashier-settlements', [CashierSettlementController::class, 'store'])->middleware(['permission:dashboard-access', 'outlet_access'])->name('cashier-settlements.store');
-    Route::patch('cashier-settlements/{cashierSettlement}/approve', [CashierSettlementController::class, 'approve'])->middleware(['permission:dashboard-access', 'step_up', 'outlet_access'])->name('cashier-settlements.approve');
-    Route::patch('cashier-settlements/{cashierSettlement}/reject', [CashierSettlementController::class, 'reject'])->middleware(['permission:dashboard-access', 'step_up', 'outlet_access'])->name('cashier-settlements.reject');
+    Route::patch('cashier-settlements/{cashierSettlement}/approve', [CashierSettlementController::class, 'approve'])->middleware(['permission:dashboard-access', 'outlet_access'])->name('cashier-settlements.approve');
+    Route::patch('cashier-settlements/{cashierSettlement}/reject', [CashierSettlementController::class, 'reject'])->middleware(['permission:dashboard-access', 'outlet_access'])->name('cashier-settlements.reject');
     Route::get('cashier-settlements/{cashierSettlement}/receipt', [CashierSettlementController::class, 'receipt'])->middleware(['permission:dashboard-access', 'outlet_access'])->name('cashier-settlements.receipt');
     Route::resource('customers', CustomerController::class)
         ->middlewareFor(['index', 'show'], 'permission:customers-access')

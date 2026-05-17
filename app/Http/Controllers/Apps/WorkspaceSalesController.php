@@ -238,8 +238,8 @@ class WorkspaceSalesController extends Controller
 
         $filteredAllocationIds = (clone $allocationBaseQuery)->pluck('id');
         $filteredBaseTotals = $this->baseTotalsByAllocationIds($filteredAllocationIds);
-        $filteredTenantSalesTotal = (int) ((clone $allocationBaseQuery)->sum('grand_total') ?? 0);
-        $filteredBaseTotal = $this->sumBaseValueForAllocationIds($filteredAllocationIds);
+        $filteredTenantSalesTotal = $this->sumBaseValueForAllocationIds($filteredAllocationIds);
+        $filteredBaseTotal = $filteredTenantSalesTotal;
 
         $transactions = (clone $allocationBaseQuery)
             ->latest('delivered_at')
@@ -247,7 +247,6 @@ class WorkspaceSalesController extends Controller
             ->withQueryString()
             ->through(function (TransactionTenantAllocation $allocation) use ($filteredBaseTotals) {
                 $baseTotal = (int) ($filteredBaseTotals[$allocation->id] ?? 0);
-                $tenantSaleTotal = (int) $allocation->grand_total;
                 $transaction = $allocation->transaction;
 
                 return [
@@ -261,11 +260,11 @@ class WorkspaceSalesController extends Controller
                     'payment_method_label' => $this->humanizePaymentMethod($transaction?->payment_method),
                     'payment_status' => $transaction?->payment_status ?? $allocation->payment_status,
                     'payment_status_label' => $this->humanizePaymentStatus($transaction?->payment_status ?? $allocation->payment_status),
-                    'tenant_sale_total' => $tenantSaleTotal,
+                    'tenant_sale_total' => $baseTotal,
                     'base_total' => $baseTotal,
                     'service_status' => $allocation->waiter_status,
                     'service_status_label' => $this->humanizeServiceStatus($allocation->waiter_status),
-                    'settlement_reference_total' => $tenantSaleTotal,
+                    'settlement_reference_total' => $baseTotal,
                     'created_at' => optional($transaction?->getRawOriginal('created_at'))
                         ? Carbon::parse($transaction->getRawOriginal('created_at'))->toIso8601String()
                         : null,
@@ -283,8 +282,8 @@ class WorkspaceSalesController extends Controller
                 fn (Builder $query) => $query->whereRaw('1 = 0')
             )
             ->whereDate('delivered_at', Carbon::today());
-        $todayTenantSales = (int) ((clone $todayAllocations)->sum('grand_total') ?? 0);
-        $todayBaseTotal = $this->sumBaseValueFromAllocationQuery(clone $todayAllocations);
+        $todayTenantSales = $this->sumBaseValueFromAllocationQuery(clone $todayAllocations);
+        $todayBaseTotal = $todayTenantSales;
         $todayOrders = (clone $todayAllocations)->count();
         $todayCashCount = (clone $todayAllocations)->whereHas('transaction', fn (Builder $query) => $query->where('payment_method', 'cash'))->count();
         $todayNonCashCount = max(0, $todayOrders - $todayCashCount);
@@ -299,8 +298,8 @@ class WorkspaceSalesController extends Controller
                 fn (Builder $query) => $query->whereRaw('1 = 0')
             )
             ->whereDate('delivered_at', Carbon::yesterday());
-        $yesterdayTenantSales = (int) ((clone $yesterdayAllocations)->sum('grand_total') ?? 0);
-        $yesterdayBaseTotal = $this->sumBaseValueFromAllocationQuery(clone $yesterdayAllocations);
+        $yesterdayTenantSales = $this->sumBaseValueFromAllocationQuery(clone $yesterdayAllocations);
+        $yesterdayBaseTotal = $yesterdayTenantSales;
         $yesterdayOrders = (clone $yesterdayAllocations)->count();
 
         $monthAllocations = TransactionTenantAllocation::query()
@@ -314,8 +313,8 @@ class WorkspaceSalesController extends Controller
             )
             ->whereMonth('delivered_at', Carbon::now()->month)
             ->whereYear('delivered_at', Carbon::now()->year);
-        $monthTenantSales = (int) ((clone $monthAllocations)->sum('grand_total') ?? 0);
-        $monthBaseTotal = $this->sumBaseValueFromAllocationQuery(clone $monthAllocations);
+        $monthTenantSales = $this->sumBaseValueFromAllocationQuery(clone $monthAllocations);
+        $monthBaseTotal = $monthTenantSales;
         $monthOrders = (clone $monthAllocations)->count();
 
         $paymentBreakdown = $this->buildTenantPaymentBreakdown($outletId, $tenantOutletIds, $filters);
@@ -677,17 +676,18 @@ class WorkspaceSalesController extends Controller
     {
         return $this->applyKitchenAllocationFilters(
             TransactionTenantAllocation::query()
-                ->where('outlet_id', $outletId)
-                ->where('waiter_status', 'delivered')
-                ->whereNotNull('delivered_at')
+                ->join('transaction_tenant_allocation_items', 'transaction_tenant_allocation_items.transaction_tenant_allocation_id', '=', 'transaction_tenant_allocations.id')
+                ->where('transaction_tenant_allocations.outlet_id', $outletId)
+                ->where('transaction_tenant_allocations.waiter_status', 'delivered')
+                ->whereNotNull('transaction_tenant_allocations.delivered_at')
                 ->when(
                     $tenantOutletIds->isNotEmpty(),
-                    fn (Builder $query) => $query->whereIn('tenant_outlet_id', $tenantOutletIds->all()),
+                    fn (Builder $query) => $query->whereIn('transaction_tenant_allocations.tenant_outlet_id', $tenantOutletIds->all()),
                     fn (Builder $query) => $query->whereRaw('1 = 0')
                 ),
             $filters
         )
-            ->selectRaw('DATE(delivered_at) as day, COUNT(*) as orders_count, COALESCE(SUM(grand_total), 0) as total_value')
+            ->selectRaw('DATE(transaction_tenant_allocations.delivered_at) as day, COUNT(DISTINCT transaction_tenant_allocations.id) as orders_count, COALESCE(SUM(transaction_tenant_allocation_items.base_unit_price * transaction_tenant_allocation_items.qty), 0) as total_value')
             ->groupBy('day')
             ->orderBy('day')
             ->limit(14)
@@ -704,16 +704,17 @@ class WorkspaceSalesController extends Controller
     private function buildTenantHourlyTrend(int $outletId, Collection $tenantOutletIds): Collection
     {
         return TransactionTenantAllocation::query()
-            ->where('outlet_id', $outletId)
-            ->where('waiter_status', 'delivered')
-            ->whereNotNull('delivered_at')
+            ->join('transaction_tenant_allocation_items', 'transaction_tenant_allocation_items.transaction_tenant_allocation_id', '=', 'transaction_tenant_allocations.id')
+            ->where('transaction_tenant_allocations.outlet_id', $outletId)
+            ->where('transaction_tenant_allocations.waiter_status', 'delivered')
+            ->whereNotNull('transaction_tenant_allocations.delivered_at')
             ->when(
                 $tenantOutletIds->isNotEmpty(),
-                fn (Builder $query) => $query->whereIn('tenant_outlet_id', $tenantOutletIds->all()),
+                fn (Builder $query) => $query->whereIn('transaction_tenant_allocations.tenant_outlet_id', $tenantOutletIds->all()),
                 fn (Builder $query) => $query->whereRaw('1 = 0')
             )
-            ->whereDate('delivered_at', Carbon::today())
-            ->selectRaw('HOUR(delivered_at) as hour_of_day, COUNT(*) as orders_count, COALESCE(SUM(grand_total), 0) as total_value')
+            ->whereDate('transaction_tenant_allocations.delivered_at', Carbon::today())
+            ->selectRaw('HOUR(transaction_tenant_allocations.delivered_at) as hour_of_day, COUNT(DISTINCT transaction_tenant_allocations.id) as orders_count, COALESCE(SUM(transaction_tenant_allocation_items.base_unit_price * transaction_tenant_allocation_items.qty), 0) as total_value')
             ->groupBy('hour_of_day')
             ->orderBy('hour_of_day')
             ->get()
@@ -731,6 +732,7 @@ class WorkspaceSalesController extends Controller
         return $this->applyKitchenAllocationFilters(
             TransactionTenantAllocation::query()
                 ->join('transactions', 'transactions.id', '=', 'transaction_tenant_allocations.transaction_id')
+                ->join('transaction_tenant_allocation_items', 'transaction_tenant_allocation_items.transaction_tenant_allocation_id', '=', 'transaction_tenant_allocations.id')
                 ->where('transaction_tenant_allocations.outlet_id', $outletId)
                 ->where('transaction_tenant_allocations.waiter_status', 'delivered')
                 ->whereNotNull('transaction_tenant_allocations.delivered_at')
@@ -741,7 +743,7 @@ class WorkspaceSalesController extends Controller
                 ),
             $filters
         )
-            ->selectRaw('COALESCE(transactions.payment_method, "lainnya") as payment_method, COUNT(*) as orders_count, COALESCE(SUM(transaction_tenant_allocations.grand_total), 0) as total_value')
+            ->selectRaw('COALESCE(transactions.payment_method, "lainnya") as payment_method, COUNT(DISTINCT transaction_tenant_allocations.id) as orders_count, COALESCE(SUM(transaction_tenant_allocation_items.base_unit_price * transaction_tenant_allocation_items.qty), 0) as total_value')
             ->groupBy('transactions.payment_method')
             ->orderByDesc('total_value')
             ->get()
@@ -762,7 +764,7 @@ class WorkspaceSalesController extends Controller
         return TransactionTenantAllocationItem::query()
             ->with('product:id,title')
             ->whereIn('transaction_tenant_allocation_id', $allocationIds)
-            ->selectRaw('product_id, SUM(qty) as total_qty, COALESCE(SUM(line_total), 0) as total_value')
+            ->selectRaw('product_id, SUM(qty) as total_qty, COALESCE(SUM(base_unit_price * qty), 0) as total_value')
             ->groupBy('product_id')
             ->orderByDesc('total_qty')
             ->limit(6)
