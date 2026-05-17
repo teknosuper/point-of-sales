@@ -25,10 +25,13 @@ use App\Services\OutletResolver;
 use App\Services\Payments\PaymentGatewayManager;
 use App\Services\PricingService;
 use App\Services\StockMutationService;
+use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\Response;
@@ -907,6 +910,13 @@ class TransactionController extends Controller
      */
     public function store(Request $request, PaymentGatewayManager $paymentGatewayManager)
     {
+        $perfStartNs = hrtime(true);
+        $perfMarks = [];
+        $markPerf = static function (string $label) use (&$perfMarks) {
+            $perfMarks[] = [$label, hrtime(true)];
+        };
+        $shouldPerfLog = $request->boolean('perf') || $request->headers->get('x-debug-perf') === '1';
+
         $validatedMeta = $request->validate([
             'order_type' => ['nullable', 'in:dine_in,take_away'],
             'table_id' => ['nullable', 'exists:dining_tables,id'],
@@ -957,16 +967,39 @@ class TransactionController extends Controller
         $voucher = $request->filled('customer_voucher_id')
             ? CustomerVoucher::find($request->integer('customer_voucher_id'))
             : null;
-        $cartScope = Cart::with('product', 'modifiers')
-            ->where('cashier_id', auth()->id())
-            ->when($outlet, fn ($query) => $query->where('outlet_id', $outlet->id))
-            ->active();
 
-        $checkoutCarts = $cartScope->get();
+        /** @var Lock|null $storeLock */
+        $storeLock = null;
+        try {
+            $lockKey = sprintf(
+                'pos:transactions:store:%s:%s',
+                (string) auth()->id(),
+                (string) ($outlet?->id ?? 'global')
+            );
+            $storeLock = Cache::lock($lockKey, 30);
+            if (! $storeLock->get()) {
+                $message = 'Proses simpan sebelumnya masih berjalan. Tunggu beberapa detik lalu coba lagi.';
 
-        if ($checkoutCarts->isEmpty()) {
-            return $this->transactionStoreErrorResponse($request, 'Keranjang kosong.');
+                return $request->expectsJson()
+                    ? response()->json(['message' => $message], Response::HTTP_TOO_MANY_REQUESTS)
+                    : redirect()->route('transactions.index')->with('error', $message);
+            }
+        } catch (\Throwable) {
+            // If cache locks are not supported, continue without a lock.
         }
+
+        try {
+            $cartScope = Cart::with('product', 'modifiers')
+                ->where('cashier_id', auth()->id())
+                ->when($outlet, fn ($query) => $query->where('outlet_id', $outlet->id))
+                ->active();
+
+            $checkoutCarts = $cartScope->get();
+            $markPerf('carts_loaded');
+
+            if ($checkoutCarts->isEmpty()) {
+                return $this->transactionStoreErrorResponse($request, 'Keranjang kosong.');
+            }
 
         $cartSignature = $checkoutCarts
             ->map(fn (Cart $cart) => $cart->id.':'.$cart->product_id.':'.$cart->qty.':'.$cart->price)
@@ -990,8 +1023,8 @@ class TransactionController extends Controller
         $redeemedPoints = (int) data_get($checkoutPreview, 'summary.applied_redeem_points', 0);
         $changeAmount = $isCashPayment ? max(0, $cashAmount - $grandTotal) : 0;
 
-        $transaction = DB::transaction(function () use (
-            $request,
+            $transaction = DB::transaction(function () use (
+                $request,
             $invoice,
             $cashAmount,
             $paymentGateway,
@@ -1012,25 +1045,32 @@ class TransactionController extends Controller
             $voucherDiscount,
             $loyaltyDiscount,
             $appliedManualDiscount,
-            $grandTotal,
-            $redeemedPoints,
-            $changeAmount
-        ) {
-            $activeShift = $this->cashierShiftService->requireActiveShiftForUser(
-                auth()->user()->id,
-                $outlet?->id,
-                lockForUpdate: true
-            );
+                $grandTotal,
+                $redeemedPoints,
+                $changeAmount,
+                &$perfMarks,
+                $markPerf,
+                $shouldPerfLog
+            ) {
+                $shiftStart = hrtime(true);
+                $activeShift = $this->cashierShiftService->requireActiveShiftForUser(
+                    auth()->user()->id,
+                    $outlet?->id
+                );
+                $shiftMs = (hrtime(true) - $shiftStart) / 1e6;
+                $perfMarks[] = ['shift_locked_ms', $shiftMs];
+                $markPerf('shift_locked');
 
-            $carts = Cart::with('product', 'modifiers')
-                ->where('cashier_id', auth()->user()->id)
-                ->when($outlet, fn ($query) => $query->where('outlet_id', $outlet->id))
-                ->active()
-                ->get();
+                $carts = Cart::with('product', 'modifiers')
+                    ->where('cashier_id', auth()->user()->id)
+                    ->when($outlet, fn ($query) => $query->where('outlet_id', $outlet->id))
+                    ->active()
+                    ->get();
+                $markPerf('carts_reloaded');
 
-            if ($carts->isEmpty()) {
-                abort(422, 'Keranjang kosong.');
-            }
+                if ($carts->isEmpty()) {
+                    abort(422, 'Keranjang kosong.');
+                }
 
             $currentSignature = $carts
                 ->map(fn (Cart $cart) => $cart->id.':'.$cart->product_id.':'.$cart->qty.':'.$cart->price)
@@ -1040,24 +1080,26 @@ class TransactionController extends Controller
 
             // If carts changed between pre-checkout preview and the transactional save,
             // recompute pricing inside the transaction to avoid mismatched totals.
-            if ($currentSignature !== $cartSignature) {
-                $pricingPreview = $this->pricingService->previewCart($carts, $customer, outletId: $outlet?->id);
-                $checkoutPreview = $this->loyaltyService->previewCheckout($pricingPreview, $customer, [
-                    'manual_discount' => $manualDiscount,
-                    'shipping_cost' => $shippingCost,
-                    'redeem_points' => $requestedRedeemPoints,
-                    'voucher' => $voucher,
-                ], outletId: $outlet?->id);
+                if ($currentSignature !== $cartSignature) {
+                    $pricingPreview = $this->pricingService->previewCart($carts, $customer, outletId: $outlet?->id);
+                    $checkoutPreview = $this->loyaltyService->previewCheckout($pricingPreview, $customer, [
+                        'manual_discount' => $manualDiscount,
+                        'shipping_cost' => $shippingCost,
+                        'redeem_points' => $requestedRedeemPoints,
+                        'voucher' => $voucher,
+                    ], outletId: $outlet?->id);
 
-                $pricingItems = collect($pricingPreview['items']);
-                $subtotalAfterPromo = (int) data_get($pricingPreview, 'summary.subtotal_after_promo', 0);
-                $voucherDiscount = (int) data_get($checkoutPreview, 'summary.voucher_discount_total', 0);
-                $loyaltyDiscount = (int) data_get($checkoutPreview, 'summary.loyalty_discount_total', 0);
-                $appliedManualDiscount = (int) data_get($checkoutPreview, 'summary.manual_discount_total', 0);
-                $grandTotal = (int) data_get($checkoutPreview, 'summary.grand_total', 0);
-                $redeemedPoints = (int) data_get($checkoutPreview, 'summary.applied_redeem_points', 0);
-                $changeAmount = $isCashPayment ? max(0, $cashAmount - $grandTotal) : 0;
-            }
+                    $pricingItems = collect($pricingPreview['items']);
+                    $subtotalAfterPromo = (int) data_get($pricingPreview, 'summary.subtotal_after_promo', 0);
+                    $voucherDiscount = (int) data_get($checkoutPreview, 'summary.voucher_discount_total', 0);
+                    $loyaltyDiscount = (int) data_get($checkoutPreview, 'summary.loyalty_discount_total', 0);
+                    $appliedManualDiscount = (int) data_get($checkoutPreview, 'summary.manual_discount_total', 0);
+                    $grandTotal = (int) data_get($checkoutPreview, 'summary.grand_total', 0);
+                    $redeemedPoints = (int) data_get($checkoutPreview, 'summary.applied_redeem_points', 0);
+                    $changeAmount = $isCashPayment ? max(0, $cashAmount - $grandTotal) : 0;
+
+                    $markPerf('pricing_recomputed');
+                }
 
             if ($orderType === 'dine_in') {
                 if (! $tableId) {
@@ -1074,7 +1116,7 @@ class TransactionController extends Controller
                 }
             }
 
-            $transaction = Transaction::create([
+                $transaction = Transaction::create([
                 'cashier_id' => auth()->user()->id,
                 'cashier_shift_id' => $activeShift->id,
                 'outlet_id' => $outlet?->id,
@@ -1095,9 +1137,10 @@ class TransactionController extends Controller
                 'payment_method' => $isPayLater ? 'pay_later' : ($paymentGateway ?: 'cash'),
                 'payment_status' => $isCashPayment ? 'paid' : ($isPayLater ? 'unpaid' : 'pending'),
                 'bank_account_id' => $paymentGateway === 'bank_transfer' ? $request->bank_account_id : null,
-            ]);
+                ]);
+                $markPerf('transaction_created');
 
-            foreach ($carts as $cart) {
+                foreach ($carts as $cart) {
                 $pricingItem = $pricingItems->firstWhere('cart_id', $cart->id);
                 $lineTotal = (int) data_get($pricingItem, 'line_total', $cart->price);
                 $linePromoDiscount = (int) data_get($pricingItem, 'line_discount_total', 0);
@@ -1143,24 +1186,27 @@ class TransactionController extends Controller
                 ]);
 
                 $product = $cart->product;
-                $this->stockMutationService->decrementForTransactionDetail(
-                    $product,
-                    $transaction,
-                    $detail,
-                    (int) $cart->qty,
-                    auth()->id()
-                );
-            }
+                    $this->stockMutationService->decrementForTransactionDetail(
+                        $product,
+                        $transaction,
+                        $detail,
+                        (int) $cart->qty,
+                        auth()->id()
+                    );
+                }
+                $markPerf('details_saved');
 
-            Cart::where('cashier_id', auth()->user()->id)
-                ->when($outlet, fn ($query) => $query->where('outlet_id', $outlet->id))
-                ->active()
-                ->delete();
+                Cart::where('cashier_id', auth()->user()->id)
+                    ->when($outlet, fn ($query) => $query->where('outlet_id', $outlet->id))
+                    ->active()
+                    ->delete();
+                $markPerf('carts_deleted');
 
-            $this->loyaltyService->finalizeTransaction($transaction, $customer, $checkoutPreview);
+                $this->loyaltyService->finalizeTransaction($transaction, $customer, $checkoutPreview);
+                $markPerf('loyalty_finalized');
 
-            if ($isPayLater) {
-                Receivable::create([
+                if ($isPayLater) {
+                    Receivable::create([
                     'outlet_id' => $outlet?->id,
                     'customer_id' => $request->customer_id,
                     'transaction_id' => $transaction->id,
@@ -1172,12 +1218,15 @@ class TransactionController extends Controller
                 ]);
             }
 
-            return $transaction->fresh(['customer', 'waiter', 'diningTable']);
-        });
+                return $transaction->fresh(['customer', 'waiter', 'diningTable']);
+            });
+            $markPerf('db_transaction_committed');
 
-        $sideEffectTransaction = $transaction->fresh(['details.product.kitchenStationMappings', 'details.modifiers']);
-        $this->foodcourtTenantAllocationService->rebuildForTransaction($sideEffectTransaction);
-        $this->kitchenTicketService->createForTransaction($sideEffectTransaction);
+            $sideEffectTransaction = $transaction->fresh(['details.product.kitchenStationMappings', 'details.modifiers']);
+            $this->foodcourtTenantAllocationService->rebuildForTransaction($sideEffectTransaction);
+            $markPerf('tenant_allocation');
+            $this->kitchenTicketService->createForTransaction($sideEffectTransaction);
+            $markPerf('kitchen_tickets');
 
         $paymentWarning = null;
 
@@ -1194,7 +1243,7 @@ class TransactionController extends Controller
             }
         }
 
-        $transaction->load([
+            $transaction->load([
             'details.product',
             'details.modifiers',
             'details.pricingRule',
@@ -1207,39 +1256,59 @@ class TransactionController extends Controller
             'kitchenTickets.kitchenStation',
             'tenantAllocations.tenantOutlet:id,name,code',
             'tenantAllocations.items.product:id,title',
-        ]);
+            ]);
+            $markPerf('response_loaded');
 
-        if ($request->expectsJson()) {
-            return response()->json([
-                'message' => 'Transaksi berhasil disimpan.',
-                'warning' => $paymentWarning,
-                'data' => [
-                    'transaction' => $transaction,
-                    'print_url' => route('transactions.print', [
-                        'invoice' => $transaction->invoice,
-                        'embedded' => 1,
-                    ], false),
-                    'receipt_print_url' => route('transactions.print', [
-                        'invoice' => $transaction->invoice,
-                        'embedded' => 1,
-                        'autoprint' => 1,
-                        'mode' => 'thermal58',
-                    ], false),
-                    'receipt_pdf_url' => route('pdf.transactions.receipt', [
-                        'invoice' => $transaction->invoice,
-                        'size' => '58',
-                    ], false),
-                ],
-            ], Response::HTTP_CREATED);
+            $totalMs = (hrtime(true) - $perfStartNs) / 1e6;
+            if ($shouldPerfLog || $totalMs >= 5000) {
+                Log::warning('pos.store.perf', [
+                    'invoice' => $invoice,
+                    'user_id' => auth()->id(),
+                    'outlet_id' => $outlet?->id,
+                    'total_ms' => (int) round($totalMs),
+                    'marks' => $perfMarks,
+                ]);
+            }
+
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'message' => 'Transaksi berhasil disimpan.',
+                    'warning' => $paymentWarning,
+                    'data' => [
+                        'transaction' => $transaction,
+                        'print_url' => route('transactions.print', [
+                            'invoice' => $transaction->invoice,
+                            'embedded' => 1,
+                        ], false),
+                        'receipt_print_url' => route('transactions.print', [
+                            'invoice' => $transaction->invoice,
+                            'embedded' => 1,
+                            'autoprint' => 1,
+                            'mode' => 'thermal58',
+                        ], false),
+                        'receipt_pdf_url' => route('pdf.transactions.receipt', [
+                            'invoice' => $transaction->invoice,
+                            'size' => '58',
+                        ], false),
+                    ],
+                ], Response::HTTP_CREATED);
+            }
+
+            if ($paymentWarning) {
+                return redirect()
+                    ->route('transactions.print', $transaction->invoice)
+                    ->with('error', $paymentWarning);
+            }
+
+            return to_route('transactions.print', $transaction->invoice);
+        } finally {
+            if ($storeLock) {
+                try {
+                    $storeLock->release();
+                } catch (\Throwable) {
+                }
+            }
         }
-
-        if ($paymentWarning) {
-            return redirect()
-                ->route('transactions.print', $transaction->invoice)
-                ->with('error', $paymentWarning);
-        }
-
-        return to_route('transactions.print', $transaction->invoice);
     }
 
     public function health(Request $request): JsonResponse
@@ -1296,12 +1365,29 @@ class TransactionController extends Controller
             ? Customer::find($validated['customer_id'])
             : null;
 
-        $transaction = DB::transaction(function () use ($validated, $outlet, $orderType, $tableId, $customer) {
-            $activeShift = $this->cashierShiftService->requireActiveShiftForUser(
-                auth()->id(),
-                $outlet?->id,
-                lockForUpdate: true
+        /** @var Lock|null $syncLock */
+        $syncLock = null;
+        try {
+            $lockKey = sprintf(
+                'pos:transactions:sync-offline:%s:%s',
+                (string) auth()->id(),
+                (string) ($outlet?->id ?? 'global')
             );
+            $syncLock = Cache::lock($lockKey, 30);
+            if (! $syncLock->get()) {
+                return response()->json([
+                    'message' => 'Sinkronisasi offline sedang berjalan. Coba lagi sebentar.',
+                ], Response::HTTP_TOO_MANY_REQUESTS);
+            }
+        } catch (\Throwable) {
+        }
+
+        try {
+            $transaction = DB::transaction(function () use ($validated, $outlet, $orderType, $tableId, $customer) {
+                $activeShift = $this->cashierShiftService->requireActiveShiftForUser(
+                    auth()->id(),
+                    $outlet?->id
+                );
 
             $invoice = $validated['offline_reference'];
             if (Transaction::query()->where('invoice', $invoice)->exists()) {
@@ -1387,28 +1473,36 @@ class TransactionController extends Controller
                 'tenantAllocations.tenantOutlet:id,name,code',
                 'tenantAllocations.items.product:id,title',
             ]);
-        });
+            });
 
-        return response()->json([
-            'message' => 'Transaksi offline berhasil disinkronkan.',
-            'data' => [
-                'transaction' => $transaction,
-                'print_url' => route('transactions.print', [
-                    'invoice' => $transaction->invoice,
-                    'embedded' => 1,
-                ], false),
-                'receipt_print_url' => route('transactions.print', [
-                    'invoice' => $transaction->invoice,
-                    'embedded' => 1,
-                    'autoprint' => 1,
-                    'mode' => 'thermal58',
-                ], false),
-                'receipt_pdf_url' => route('pdf.transactions.receipt', [
-                    'invoice' => $transaction->invoice,
-                    'size' => '58',
-                ], false),
-            ],
-        ], Response::HTTP_CREATED);
+            return response()->json([
+                'message' => 'Transaksi offline berhasil disinkronkan.',
+                'data' => [
+                    'transaction' => $transaction,
+                    'print_url' => route('transactions.print', [
+                        'invoice' => $transaction->invoice,
+                        'embedded' => 1,
+                    ], false),
+                    'receipt_print_url' => route('transactions.print', [
+                        'invoice' => $transaction->invoice,
+                        'embedded' => 1,
+                        'autoprint' => 1,
+                        'mode' => 'thermal58',
+                    ], false),
+                    'receipt_pdf_url' => route('pdf.transactions.receipt', [
+                        'invoice' => $transaction->invoice,
+                        'size' => '58',
+                    ], false),
+                ],
+            ], Response::HTTP_CREATED);
+        } finally {
+            if ($syncLock) {
+                try {
+                    $syncLock->release();
+                } catch (\Throwable) {
+                }
+            }
+        }
     }
 
     public function print(Request $request, $invoice)

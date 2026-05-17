@@ -26,17 +26,21 @@ class CashierShiftService
 
     public function requireActiveShiftForUser(int $userId, ?int $outletId = null, bool $lockForUpdate = false): CashierShift
     {
-        $query = CashierShift::query()
+        // Avoid locking a range with ORDER BY ... FOR UPDATE; lock a single row by PK instead.
+        $baseQuery = CashierShift::query()
             ->open()
             ->where('user_id', $userId)
             ->when($outletId, fn ($builder) => $builder->where('outlet_id', $outletId))
             ->latest('opened_at');
 
-        if ($lockForUpdate) {
-            $query->lockForUpdate();
+        if (! $lockForUpdate) {
+            $shift = $baseQuery->first();
+        } else {
+            $shiftId = (clone $baseQuery)->value('id');
+            $shift = $shiftId
+                ? CashierShift::query()->whereKey($shiftId)->lockForUpdate()->first()
+                : null;
         }
-
-        $shift = $query->first();
 
         if (! $shift) {
             throw ValidationException::withMessages([

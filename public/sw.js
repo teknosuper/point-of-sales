@@ -113,12 +113,32 @@ self.addEventListener("message", (event) => {
   if (type !== "WARM_ROUTES") return;
 
   const urls = Array.from(new Set(event.data?.payload?.urls || [])).filter(Boolean);
+  const blockedWarmRoutePatterns = [
+    /\/transactions\/sync-offline$/i,
+    /\/transactions\/store$/i,
+    /\/transactions\/addToCart$/i,
+    /\/transactions\/searchProduct$/i,
+    /\/transactions\/hold$/i,
+    /\/transactions\/[^/]+\/resume$/i,
+    /\/transactions\/[^/]+\/clearHold$/i,
+  ];
 
   const work = caches.open(RUNTIME_CACHE).then(async (cache) => {
     const results = [];
 
     for (const url of urls) {
       try {
+        const parsed = new URL(url, self.location.origin);
+        if (blockedWarmRoutePatterns.some((pattern) => pattern.test(parsed.pathname))) {
+          results.push({
+            url,
+            ok: false,
+            skipped: true,
+            error: "route_not_cacheable",
+          });
+          continue;
+        }
+
         const response = await fetch(url, {
           credentials: "same-origin",
           cache: "no-store",
