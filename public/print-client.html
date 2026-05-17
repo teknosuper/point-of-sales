@@ -5,6 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ESC/POS Print Client</title>
     <script src="https://cdn.jsdelivr.net/npm/@niceles/receipt-printer-encoder@3/dist/receipt-printer-encoder.umd.js"></script>
+    <script>
+        // The UMD bundle exports as window.ReceiptPrinterEncoder
+        // If not found, we'll use a built-in ESC/POS encoder fallback
+        var ReceiptPrinterEncoder = window.ReceiptPrinterEncoder || null;
+    </script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f8fafc; color: #1e293b; padding: 16px; min-height: 100vh; }
@@ -208,20 +213,32 @@
         try {
             setStatus('🖨️ Mencetak...', 'status-printing');
 
-            const encoder = new ReceiptPrinterEncoder({
-                language: 'esc-pos',
-                feedBeforeCut: 1,
-                columns: config.paperWidth,
-            });
+            let byteArray;
 
-            let result;
-            if (job.type === 'receipt') {
-                result = encodeReceipt(encoder, job, config);
+            if (ReceiptPrinterEncoder) {
+                // Use library encoder
+                const encoder = new ReceiptPrinterEncoder({
+                    language: 'esc-pos',
+                    feedBeforeCut: 1,
+                    columns: config.paperWidth,
+                });
+
+                let result;
+                if (job.type === 'receipt') {
+                    result = encodeReceiptLib(encoder, job, config);
+                } else {
+                    result = encodeKitchenTicketLib(encoder, job, config);
+                }
+                byteArray = Array.from(result);
             } else {
-                result = encodeKitchenTicket(encoder, job, config);
+                // Use built-in raw ESC/POS encoder
+                if (job.type === 'receipt') {
+                    byteArray = encodeReceiptRaw(job, config);
+                } else {
+                    byteArray = encodeKitchenTicketRaw(job, config);
+                }
             }
 
-            const byteArray = Array.from(result);
             const payload = {
                 type: "ENCODED_POST_DATA",
                 bytes: byteArray,
@@ -235,7 +252,7 @@
                 log(`✅ Job #${job.id} dikirim ke printer (${job.type})`);
             } else {
                 console.log("ESC/POS Payload:", payload);
-                log(`✅ Job #${job.id} encoded (browser mode — no printer)`);
+                log(`✅ Job #${job.id} encoded (browser mode — no printer connected)`);
             }
 
             // Mark as done
@@ -253,7 +270,138 @@
         }
     }
 
-    function encodeReceipt(encoder, job, config) {
+    // === RAW ESC/POS ENCODER (no library needed) ===
+    const ESC = 0x1B;
+    const GS = 0x1D;
+    const LF = 0x0A;
+
+    function textToBytes(text) {
+        const bytes = [];
+        for (let i = 0; i < text.length; i++) {
+            const code = text.charCodeAt(i);
+            if (code < 128) bytes.push(code);
+            else bytes.push(63); // '?' for non-ASCII
+        }
+        return bytes;
+    }
+
+    function escInit() { return [ESC, 0x40]; }
+    function escAlignCenter() { return [ESC, 0x61, 0x01]; }
+    function escAlignLeft() { return [ESC, 0x61, 0x00]; }
+    function escBoldOn() { return [ESC, 0x45, 0x01]; }
+    function escBoldOff() { return [ESC, 0x45, 0x00]; }
+    function escCut() { return [GS, 0x56, 0x00]; }
+    function escNewline() { return [LF]; }
+    function escFeed(n) { return [ESC, 0x64, n || 1]; }
+
+    function escLine(text) { return [...textToBytes(text), LF]; }
+    function escBoldLine(text) { return [...escBoldOn(), ...textToBytes(text), LF, ...escBoldOff()]; }
+
+    function padRight(str, len) { return (str + ' '.repeat(len)).slice(0, len); }
+    function padLeft(str, len) { return (' '.repeat(len) + str).slice(-len); }
+    function padBetween(left, right, cols) {
+        const space = cols - left.length - right.length;
+        return left + ' '.repeat(Math.max(1, space)) + right;
+    }
+
+    function encodeReceiptRaw(job, config) {
+        const tx = job.transaction || {};
+        const store = job.store || {};
+        const items = tx.items || [];
+        const cols = config.paperWidth;
+        const sep = '-'.repeat(cols);
+        const bytes = [];
+
+        bytes.push(...escInit());
+        bytes.push(...escAlignCenter());
+        if (store.name) bytes.push(...escBoldLine(store.name));
+        if (store.address) bytes.push(...escLine(store.address));
+        if (store.phone) bytes.push(...escLine(store.phone));
+        bytes.push(...escLine(sep));
+
+        bytes.push(...escAlignLeft());
+        if (tx.invoice) bytes.push(...escLine('No: ' + tx.invoice));
+        if (tx.date) bytes.push(...escLine('Tgl: ' + tx.date));
+        if (tx.cashier) bytes.push(...escLine('Kasir: ' + tx.cashier));
+        if (tx.customer && tx.customer !== 'Pelanggan Umum') bytes.push(...escLine('Plg: ' + tx.customer));
+        if (tx.table) bytes.push(...escLine('Meja: ' + tx.table));
+        bytes.push(...escLine(sep));
+
+        items.forEach(item => {
+            bytes.push(...escLine(item.name || 'Item'));
+            bytes.push(...escLine('  ' + (item.qty || 1) + ' x ' + formatMoney(item.price) + ' = ' + formatMoney(item.total)));
+            if (item.modifiers && item.modifiers.length > 0) {
+                item.modifiers.forEach(mod => {
+                    bytes.push(...escLine('  + ' + mod.name + ' ' + formatMoney(mod.price)));
+                });
+            }
+            if (item.notes) bytes.push(...escLine('  * ' + item.notes));
+        });
+
+        bytes.push(...escLine(sep));
+        if (tx.discount && tx.discount > 0) {
+            bytes.push(...escLine(padBetween('Diskon', formatMoney(tx.discount), cols)));
+        }
+        bytes.push(...escBoldLine(padBetween('TOTAL', formatMoney(tx.grand_total || 0), cols)));
+        if (tx.payment_method) {
+            bytes.push(...escLine(padBetween('Bayar', tx.payment_method.toUpperCase(), cols)));
+        }
+
+        bytes.push(...escNewline());
+        bytes.push(...escAlignCenter());
+        bytes.push(...escLine('Terima kasih!'));
+        bytes.push(...escFeed(3));
+        bytes.push(...escCut());
+
+        return bytes;
+    }
+
+    function encodeKitchenTicketRaw(job, config) {
+        const ticket = job.ticket || {};
+        const station = job.station || {};
+        const tx = job.transaction || {};
+        const items = ticket.items || [];
+        const cols = config.paperWidth;
+        const sep = '='.repeat(cols);
+        const bytes = [];
+
+        bytes.push(...escInit());
+        bytes.push(...escAlignCenter());
+        bytes.push(...escBoldLine('KITCHEN ORDER'));
+        if (station.name) bytes.push(...escBoldLine(station.name));
+        bytes.push(...escLine(sep));
+
+        bytes.push(...escAlignLeft());
+        if (ticket.number) bytes.push(...escLine('Ticket: ' + ticket.number));
+        if (tx.invoice) bytes.push(...escLine('Invoice: ' + tx.invoice));
+        if (tx.order_type) bytes.push(...escLine('Order: ' + tx.order_type));
+        if (tx.customer && tx.customer !== 'Pelanggan Umum') bytes.push(...escLine('Customer: ' + tx.customer));
+        if (ticket.created_at) bytes.push(...escLine('Waktu: ' + ticket.created_at));
+        bytes.push(...escLine(sep));
+
+        bytes.push(...escBoldOn());
+        items.forEach(item => {
+            bytes.push(...escLine(item.qty + 'x ' + item.name));
+            if (item.notes) {
+                bytes.push(...escBoldOff());
+                bytes.push(...escLine('   >> ' + item.notes));
+                bytes.push(...escBoldOn());
+            }
+        });
+        bytes.push(...escBoldOff());
+
+        if (ticket.notes) {
+            bytes.push(...escLine(sep));
+            bytes.push(...escLine('Catatan: ' + ticket.notes));
+        }
+
+        bytes.push(...escFeed(3));
+        bytes.push(...escCut());
+
+        return bytes;
+    }
+
+    function encodeReceiptLib(encoder, job, config) {
         const tx = job.transaction || {};
         const store = job.store || {};
         const items = tx.items || [];
@@ -306,7 +454,7 @@
         return encoder.encode();
     }
 
-    function encodeKitchenTicket(encoder, job, config) {
+    function encodeKitchenTicketLib(encoder, job, config) {
         const ticket = job.ticket || {};
         const station = job.station || {};
         const tx = job.transaction || {};

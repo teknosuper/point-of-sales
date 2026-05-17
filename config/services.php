@@ -38,7 +38,7 @@ return [
     ],
 
     'print_bridge' => [
-        'token' => env('PRINT_BRIDGE_TOKEN'),
+        'token' => env('PRINT_BRIDGE_TOKEN', '0000'),
     ],
 
     'slack' => [
