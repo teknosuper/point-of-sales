@@ -11,6 +11,13 @@ class Setting extends Model
 {
     use BelongsToOutlet, HasFactory;
 
+    /**
+     * Request-local cache to avoid repeated setting lookups in the same request.
+     *
+     * @var array<string, mixed>
+     */
+    protected static array $resolvedCache = [];
+
     protected $fillable = [
         'outlet_id',
         'key',
@@ -27,9 +34,46 @@ class Setting extends Model
      */
     public static function get(string $key, $default = null, ?int $outletId = null)
     {
-        $setting = static::queryForKey($key, $outletId)->first();
+        $values = static::getMany([$key => $default], $outletId);
 
-        return $setting ? $setting->value : $default;
+        return $values[$key] ?? $default;
+    }
+
+    public static function getMany(array $defaults, ?int $outletId = null): array
+    {
+        if ($defaults === []) {
+            return [];
+        }
+
+        $resolved = [];
+        $missingKeys = [];
+
+        foreach ($defaults as $key => $default) {
+            $cacheKey = static::cacheKey($key, $outletId);
+
+            if (array_key_exists($cacheKey, static::$resolvedCache)) {
+                $resolved[$key] = static::$resolvedCache[$cacheKey];
+                continue;
+            }
+
+            $missingKeys[$key] = $default;
+        }
+
+        if ($missingKeys !== []) {
+            $rows = static::queryForKeys(array_keys($missingKeys), $outletId)
+                ->get(['key', 'value', 'outlet_id']);
+
+            $grouped = $rows->groupBy('key');
+
+            foreach ($missingKeys as $key => $default) {
+                $row = $grouped->get($key)?->first();
+                $value = $row?->value ?? $default;
+                static::$resolvedCache[static::cacheKey($key, $outletId)] = $value;
+                $resolved[$key] = $value;
+            }
+        }
+
+        return $resolved;
     }
 
     public static function getInt(string $key, int $default = 0, ?int $outletId = null): int
@@ -47,7 +91,7 @@ class Setting extends Model
      */
     public static function set(string $key, $value, ?string $description = null, ?int $outletId = null)
     {
-        return static::updateOrCreate(
+        $setting = static::updateOrCreate(
             static::usesOutletScope()
                 ? ['key' => $key, 'outlet_id' => $outletId]
                 : ['key' => $key],
@@ -57,6 +101,10 @@ class Setting extends Model
                 'description' => $description,
             ]
         );
+
+        unset(static::$resolvedCache[static::cacheKey($key, $outletId)]);
+
+        return $setting;
     }
 
     public static function setMany(array $settings, ?int $outletId = null): void
@@ -92,8 +140,34 @@ class Setting extends Model
         return $query->whereNull('outlet_id');
     }
 
+    private static function queryForKeys(array $keys, ?int $outletId = null)
+    {
+        $query = static::query()->whereIn('key', $keys);
+
+        if (! static::usesOutletScope()) {
+            return $query;
+        }
+
+        if ($outletId !== null) {
+            return $query
+                ->where(function ($builder) use ($outletId) {
+                    $builder
+                        ->where('outlet_id', $outletId)
+                        ->orWhereNull('outlet_id');
+                })
+                ->orderByRaw('CASE WHEN outlet_id = ? THEN 0 ELSE 1 END', [$outletId]);
+        }
+
+        return $query->whereNull('outlet_id');
+    }
+
     private static function usesOutletScope(): bool
     {
         return Schema::hasColumn('settings', 'outlet_id');
+    }
+
+    private static function cacheKey(string $key, ?int $outletId = null): string
+    {
+        return ($outletId ?? 'global').':'.$key;
     }
 }

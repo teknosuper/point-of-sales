@@ -27,12 +27,40 @@ class LoyaltyService
 
     public function settings(?int $outletId = null): array
     {
+        $values = Setting::getMany([
+            'loyalty_enable_earn' => '1',
+            'loyalty_enable_redeem' => '1',
+            'loyalty_earn_rate_amount' => 10000,
+            'loyalty_redeem_point_value' => 100,
+            'loyalty_tier_regular_threshold' => 0,
+            'loyalty_tier_silver_threshold' => 500000,
+            'loyalty_tier_gold_threshold' => 1500000,
+            'loyalty_tier_platinum_threshold' => 3000000,
+        ], $outletId);
+
         return [
-            'enable_earn' => Setting::getBool('loyalty_enable_earn', true, $outletId),
-            'enable_redeem' => Setting::getBool('loyalty_enable_redeem', true, $outletId),
-            'earn_rate_amount' => max(1, Setting::getInt('loyalty_earn_rate_amount', 10000, $outletId)),
-            'redeem_point_value' => max(1, Setting::getInt('loyalty_redeem_point_value', 100, $outletId)),
-            'tiers' => $this->tiers($outletId),
+            'enable_earn' => filter_var($values['loyalty_enable_earn'] ?? '1', FILTER_VALIDATE_BOOL),
+            'enable_redeem' => filter_var($values['loyalty_enable_redeem'] ?? '1', FILTER_VALIDATE_BOOL),
+            'earn_rate_amount' => max(1, (int) ($values['loyalty_earn_rate_amount'] ?? 10000)),
+            'redeem_point_value' => max(1, (int) ($values['loyalty_redeem_point_value'] ?? 100)),
+            'tiers' => [
+                self::TIER_REGULAR => [
+                    'label' => 'Regular',
+                    'minimum_total_spent' => (int) ($values['loyalty_tier_regular_threshold'] ?? 0),
+                ],
+                self::TIER_SILVER => [
+                    'label' => 'Silver',
+                    'minimum_total_spent' => (int) ($values['loyalty_tier_silver_threshold'] ?? 500000),
+                ],
+                self::TIER_GOLD => [
+                    'label' => 'Gold',
+                    'minimum_total_spent' => (int) ($values['loyalty_tier_gold_threshold'] ?? 1500000),
+                ],
+                self::TIER_PLATINUM => [
+                    'label' => 'Platinum',
+                    'minimum_total_spent' => (int) ($values['loyalty_tier_platinum_threshold'] ?? 3000000),
+                ],
+            ],
         ];
     }
 
@@ -374,7 +402,12 @@ class LoyaltyService
         ])->save();
 
         if ($transaction->outlet_id) {
-            $this->customerOutletMetricService->syncForCustomer($customer->fresh(), (int) $transaction->outlet_id);
+            $this->customerOutletMetricService->applyTransaction(
+                $customer->fresh(),
+                $transaction,
+                $earnedPoints,
+                $redeemedPoints
+            );
         }
 
         if ($earnedPoints > 0) {

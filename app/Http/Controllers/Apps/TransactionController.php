@@ -270,6 +270,7 @@ class TransactionController extends Controller
 
     public function previewPricing(Request $request): JsonResponse
     {
+        $outlet = $this->resolveActiveOutlet($request);
         $validated = $request->validate([
             'customer_id' => ['nullable', 'exists:customers,id'],
             'discount' => ['nullable', 'integer', 'min:0'],
@@ -285,14 +286,14 @@ class TransactionController extends Controller
             ? CustomerVoucher::find($validated['customer_voucher_id'])
             : null;
 
-        $carts = Cart::with('product.category', 'modifiers')
+        $carts = Cart::with('product', 'modifiers')
             ->where('cashier_id', $request->user()->id)
-            ->when($this->resolveActiveOutlet($request), fn ($query, $outlet) => $query->where('outlet_id', $outlet->id))
+            ->when($outlet, fn ($query) => $query->where('outlet_id', $outlet->id))
             ->active()
             ->latest()
             ->get();
 
-        $pricingPreview = $this->pricingService->previewCart($carts, $customer, outletId: $this->resolveActiveOutlet($request)?->id);
+        $pricingPreview = $this->pricingService->previewCart($carts, $customer, outletId: $outlet?->id);
 
         return response()->json([
             'success' => true,
@@ -301,7 +302,7 @@ class TransactionController extends Controller
                 'shipping_cost' => (int) ($validated['shipping_cost'] ?? 0),
                 'redeem_points' => (int) ($validated['redeem_points'] ?? 0),
                 'voucher' => $voucher,
-            ], outletId: $this->resolveActiveOutlet($request)?->id),
+            ], outletId: $outlet?->id),
         ]);
     }
 
@@ -956,6 +957,38 @@ class TransactionController extends Controller
         $voucher = $request->filled('customer_voucher_id')
             ? CustomerVoucher::find($request->integer('customer_voucher_id'))
             : null;
+        $cartScope = Cart::with('product', 'modifiers')
+            ->where('cashier_id', auth()->id())
+            ->when($outlet, fn ($query) => $query->where('outlet_id', $outlet->id))
+            ->active();
+
+        $checkoutCarts = $cartScope->get();
+
+        if ($checkoutCarts->isEmpty()) {
+            return $this->transactionStoreErrorResponse($request, 'Keranjang kosong.');
+        }
+
+        $cartSignature = $checkoutCarts
+            ->map(fn (Cart $cart) => $cart->id.':'.$cart->product_id.':'.$cart->qty.':'.$cart->price)
+            ->sort()
+            ->values()
+            ->implode('|');
+
+        $pricingPreview = $this->pricingService->previewCart($checkoutCarts, $customer, outletId: $outlet?->id);
+        $checkoutPreview = $this->loyaltyService->previewCheckout($pricingPreview, $customer, [
+            'manual_discount' => $manualDiscount,
+            'shipping_cost' => $shippingCost,
+            'redeem_points' => $requestedRedeemPoints,
+            'voucher' => $voucher,
+        ], outletId: $outlet?->id);
+        $pricingItems = collect($pricingPreview['items']);
+        $subtotalAfterPromo = (int) data_get($pricingPreview, 'summary.subtotal_after_promo', 0);
+        $voucherDiscount = (int) data_get($checkoutPreview, 'summary.voucher_discount_total', 0);
+        $loyaltyDiscount = (int) data_get($checkoutPreview, 'summary.loyalty_discount_total', 0);
+        $appliedManualDiscount = (int) data_get($checkoutPreview, 'summary.manual_discount_total', 0);
+        $grandTotal = (int) data_get($checkoutPreview, 'summary.grand_total', 0);
+        $redeemedPoints = (int) data_get($checkoutPreview, 'summary.applied_redeem_points', 0);
+        $changeAmount = $isCashPayment ? max(0, $cashAmount - $grandTotal) : 0;
 
         $transaction = DB::transaction(function () use (
             $request,
@@ -971,7 +1004,17 @@ class TransactionController extends Controller
             $voucher,
             $outlet,
             $orderType,
-            $tableId
+            $tableId,
+            $cartSignature,
+            $checkoutPreview,
+            $pricingItems,
+            $subtotalAfterPromo,
+            $voucherDiscount,
+            $loyaltyDiscount,
+            $appliedManualDiscount,
+            $grandTotal,
+            $redeemedPoints,
+            $changeAmount
         ) {
             $activeShift = $this->cashierShiftService->requireActiveShiftForUser(
                 auth()->user()->id,
@@ -989,6 +1032,33 @@ class TransactionController extends Controller
                 abort(422, 'Keranjang kosong.');
             }
 
+            $currentSignature = $carts
+                ->map(fn (Cart $cart) => $cart->id.':'.$cart->product_id.':'.$cart->qty.':'.$cart->price)
+                ->sort()
+                ->values()
+                ->implode('|');
+
+            // If carts changed between pre-checkout preview and the transactional save,
+            // recompute pricing inside the transaction to avoid mismatched totals.
+            if ($currentSignature !== $cartSignature) {
+                $pricingPreview = $this->pricingService->previewCart($carts, $customer, outletId: $outlet?->id);
+                $checkoutPreview = $this->loyaltyService->previewCheckout($pricingPreview, $customer, [
+                    'manual_discount' => $manualDiscount,
+                    'shipping_cost' => $shippingCost,
+                    'redeem_points' => $requestedRedeemPoints,
+                    'voucher' => $voucher,
+                ], outletId: $outlet?->id);
+
+                $pricingItems = collect($pricingPreview['items']);
+                $subtotalAfterPromo = (int) data_get($pricingPreview, 'summary.subtotal_after_promo', 0);
+                $voucherDiscount = (int) data_get($checkoutPreview, 'summary.voucher_discount_total', 0);
+                $loyaltyDiscount = (int) data_get($checkoutPreview, 'summary.loyalty_discount_total', 0);
+                $appliedManualDiscount = (int) data_get($checkoutPreview, 'summary.manual_discount_total', 0);
+                $grandTotal = (int) data_get($checkoutPreview, 'summary.grand_total', 0);
+                $redeemedPoints = (int) data_get($checkoutPreview, 'summary.applied_redeem_points', 0);
+                $changeAmount = $isCashPayment ? max(0, $cashAmount - $grandTotal) : 0;
+            }
+
             if ($orderType === 'dine_in') {
                 if (! $tableId) {
                     abort(422, 'Meja wajib dipilih untuk transaksi dine in.');
@@ -1004,21 +1074,6 @@ class TransactionController extends Controller
                 }
             }
 
-            $pricingPreview = $this->pricingService->previewCart($carts, $customer, outletId: $outlet?->id);
-            $checkoutPreview = $this->loyaltyService->previewCheckout($pricingPreview, $customer, [
-                'manual_discount' => $manualDiscount,
-                'shipping_cost' => $shippingCost,
-                'redeem_points' => $requestedRedeemPoints,
-                'voucher' => $voucher,
-            ], outletId: $outlet?->id);
-            $pricingItems = collect($pricingPreview['items']);
-            $subtotalAfterPromo = (int) data_get($pricingPreview, 'summary.subtotal_after_promo', 0);
-            $voucherDiscount = (int) data_get($checkoutPreview, 'summary.voucher_discount_total', 0);
-            $loyaltyDiscount = (int) data_get($checkoutPreview, 'summary.loyalty_discount_total', 0);
-            $appliedManualDiscount = (int) data_get($checkoutPreview, 'summary.manual_discount_total', 0);
-            $grandTotal = (int) data_get($checkoutPreview, 'summary.grand_total', 0);
-            $changeAmount = $isCashPayment ? max(0, $cashAmount - $grandTotal) : 0;
-
             $transaction = Transaction::create([
                 'cashier_id' => auth()->user()->id,
                 'cashier_shift_id' => $activeShift->id,
@@ -1030,7 +1085,7 @@ class TransactionController extends Controller
                 'cash' => $cashAmount,
                 'change' => $changeAmount,
                 'discount' => $appliedManualDiscount,
-                'loyalty_points_redeemed' => (int) data_get($checkoutPreview, 'summary.applied_redeem_points', 0),
+                'loyalty_points_redeemed' => $redeemedPoints,
                 'loyalty_discount_total' => $loyaltyDiscount,
                 'customer_voucher_discount' => $voucherDiscount,
                 'customer_voucher_code' => data_get($checkoutPreview, 'voucher.code'),
@@ -1104,10 +1159,6 @@ class TransactionController extends Controller
 
             $this->loyaltyService->finalizeTransaction($transaction, $customer, $checkoutPreview);
 
-            $transaction->load(['details.product.kitchenStationMappings']);
-            $this->foodcourtTenantAllocationService->rebuildForTransaction($transaction);
-            $this->kitchenTicketService->createForTransaction($transaction);
-
             if ($isPayLater) {
                 Receivable::create([
                     'outlet_id' => $outlet?->id,
@@ -1123,6 +1174,10 @@ class TransactionController extends Controller
 
             return $transaction->fresh(['customer', 'waiter', 'diningTable']);
         });
+
+        $sideEffectTransaction = $transaction->fresh(['details.product.kitchenStationMappings', 'details.modifiers']);
+        $this->foodcourtTenantAllocationService->rebuildForTransaction($sideEffectTransaction);
+        $this->kitchenTicketService->createForTransaction($sideEffectTransaction);
 
         $paymentWarning = null;
 

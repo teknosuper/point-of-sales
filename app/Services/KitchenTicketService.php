@@ -92,9 +92,7 @@ class KitchenTicketService
                 ->orderByDesc('is_primary')
                 ->orderBy('name')
                 ->get()
-                ->first(function (KitchenStationDevice $device) {
-                    return data_get($device->meta, 'dispatch_mode', 'manual') === 'auto';
-                });
+                ->first(fn (KitchenStationDevice $device) => data_get($device->meta, 'dispatch_mode', 'manual') === 'auto');
 
             if ($autoDispatchDevice) {
                 $printJob = $this->printJobService->queueKitchenTicket($ticket, $autoDispatchDevice, $transaction->cashier_id);
@@ -128,14 +126,16 @@ class KitchenTicketService
         $station = KitchenStation::query()->find($stationId);
         $stationCode = strtoupper(trim((string) ($station?->code ?: "DPR{$stationId}")));
         $stationCode = preg_replace('/[^A-Z0-9]/', '', $stationCode) ?: "DPR{$stationId}";
-        $date = Carbon::now()->format('dmy');
+        $now = Carbon::now();
+        $date = $now->format('dmy');
         $prefix = "{$stationCode}-{$date}";
 
         $latestTodayTicket = KitchenTicket::query()
             ->where('kitchen_station_id', $stationId)
-            ->whereDate('created_at', Carbon::today())
+            ->whereBetween('created_at', [$now->copy()->startOfDay(), $now->copy()->endOfDay()])
             ->where('ticket_number', 'like', $prefix.'%')
-            ->latest('id')
+            ->orderByDesc('created_at')
+            ->orderByDesc('id')
             ->value('ticket_number');
 
         $sequence = 1;

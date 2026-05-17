@@ -292,6 +292,8 @@ export default function Index({
     // Ref for search input to enable keyboard focus
     const searchInputRef = useRef(null);
     const receiptFrameRef = useRef(null);
+    const pricingRequestAbortRef = useRef(null);
+    const pricingRequestTimerRef = useRef(null);
 
     // Set default payment method
     useEffect(() => {
@@ -717,6 +719,12 @@ export default function Index({
 
     useEffect(() => {
         if (localCarts.length === 0) {
+            if (pricingRequestTimerRef.current) {
+                window.clearTimeout(pricingRequestTimerRef.current);
+                pricingRequestTimerRef.current = null;
+            }
+
+            pricingRequestAbortRef.current?.abort?.();
             setPricingPreview({
                 items: [],
                 summary: {
@@ -749,32 +757,52 @@ export default function Index({
         let cancelled = false;
         setIsLoadingPricing(true);
 
-        axios
-            .post(route("transactions.pricing-preview"), {
-                customer_id: selectedCustomer?.is_walk_in ? null : selectedCustomer?.id ?? null,
-                discount,
-                shipping_cost: shipping,
-                redeem_points: Number(redeemPointsInput || 0),
-                customer_voucher_id: selectedVoucherId || null,
-            })
-            .then((response) => {
-                if (!cancelled) {
-                    setPricingPreview(response.data?.data ?? initialPricingPreview);
-                }
-            })
-            .catch(() => {
-                if (!cancelled) {
+        pricingRequestAbortRef.current?.abort?.();
+        const controller = new AbortController();
+        pricingRequestAbortRef.current = controller;
+
+        pricingRequestTimerRef.current = window.setTimeout(() => {
+            axios
+                .post(
+                    route("transactions.pricing-preview"),
+                    {
+                        customer_id: selectedCustomer?.is_walk_in ? null : selectedCustomer?.id ?? null,
+                        discount,
+                        shipping_cost: shipping,
+                        redeem_points: Number(redeemPointsInput || 0),
+                        customer_voucher_id: selectedVoucherId || null,
+                    },
+                    {
+                        signal: controller.signal,
+                    }
+                )
+                .then((response) => {
+                    if (!cancelled) {
+                        setPricingPreview(response.data?.data ?? initialPricingPreview);
+                    }
+                })
+                .catch((error) => {
+                    if (cancelled || error?.code === "ERR_CANCELED") {
+                        return;
+                    }
+
                     toast.error("Gagal memuat promo aktif");
-                }
-            })
-            .finally(() => {
-                if (!cancelled) {
-                    setIsLoadingPricing(false);
-                }
-            });
+                })
+                .finally(() => {
+                    if (!cancelled) {
+                        setIsLoadingPricing(false);
+                    }
+                });
+        }, 250);
 
         return () => {
             cancelled = true;
+            if (pricingRequestTimerRef.current) {
+                window.clearTimeout(pricingRequestTimerRef.current);
+                pricingRequestTimerRef.current = null;
+            }
+
+            controller.abort();
         };
     }, [
         selectedCustomer?.id,

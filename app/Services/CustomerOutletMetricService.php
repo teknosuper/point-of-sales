@@ -40,6 +40,42 @@ class CustomerOutletMetricService
         );
     }
 
+    public function applyTransaction(
+        Customer $customer,
+        Transaction $transaction,
+        int $earnedPoints = 0,
+        int $redeemedPoints = 0
+    ): CustomerOutletMetric {
+        $outletId = (int) $transaction->outlet_id;
+
+        $metric = CustomerOutletMetric::query()->firstOrCreate(
+            [
+                'customer_id' => $customer->id,
+                'outlet_id' => $outletId,
+            ],
+            [
+                'total_spent' => 0,
+                'transaction_count' => 0,
+                'loyalty_points_earned' => 0,
+                'loyalty_points_redeemed' => 0,
+                'loyalty_tier' => LoyaltyService::TIER_REGULAR,
+            ]
+        );
+
+        $nextTotalSpent = (int) $metric->total_spent + (int) $transaction->grand_total;
+
+        $metric->forceFill([
+            'total_spent' => $nextTotalSpent,
+            'transaction_count' => (int) $metric->transaction_count + 1,
+            'loyalty_points_earned' => (int) $metric->loyalty_points_earned + max(0, $earnedPoints),
+            'loyalty_points_redeemed' => (int) $metric->loyalty_points_redeemed + max(0, $redeemedPoints),
+            'loyalty_tier' => $this->resolveTierForTotalSpent($nextTotalSpent, $outletId),
+            'last_purchase_at' => $transaction->created_at,
+        ])->save();
+
+        return $metric->refresh();
+    }
+
     public function syncForCustomers(iterable $customers, int $outletId): void
     {
         foreach ($customers as $customer) {

@@ -9,6 +9,7 @@ use App\Models\PricingRuleBuyGetItem;
 use App\Models\PricingRuleQtyBreak;
 use App\Models\Product;
 use Carbon\CarbonInterface;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Collection;
 
 class PricingService
@@ -20,25 +21,30 @@ class PricingService
     public function getActiveRules(?CarbonInterface $at = null): Collection
     {
         $at = $at ?? now();
+        $cacheBucket = (int) floor($at->getTimestamp() / 30);
 
-        return PricingRule::query()
-            ->with([
-                'product:id,title,sell_price,category_id',
-                'category:id,name',
-                'qtyBreaks',
-                'bundleItems.product:id,title,sell_price,category_id',
-                'buyGetItems.product:id,title,sell_price,category_id',
-            ])
-            ->where('is_active', true)
-            ->where(function ($query) use ($at) {
-                $query->whereNull('starts_at')->orWhere('starts_at', '<=', $at);
-            })
-            ->where(function ($query) use ($at) {
-                $query->whereNull('ends_at')->orWhere('ends_at', '>=', $at);
-            })
-            ->orderByDesc('priority')
-            ->orderBy('id')
-            ->get();
+        return Cache::remember(
+            'pricing-rules:active:'.$cacheBucket,
+            now()->addSeconds(30),
+            fn () => PricingRule::query()
+                ->with([
+                    'product:id,title,sell_price,category_id',
+                    'category:id,name',
+                    'qtyBreaks',
+                    'bundleItems.product:id,title,sell_price,category_id',
+                    'buyGetItems.product:id,title,sell_price,category_id',
+                ])
+                ->where('is_active', true)
+                ->where(function ($query) use ($at) {
+                    $query->whereNull('starts_at')->orWhere('starts_at', '<=', $at);
+                })
+                ->where(function ($query) use ($at) {
+                    $query->whereNull('ends_at')->orWhere('ends_at', '>=', $at);
+                })
+                ->orderByDesc('priority')
+                ->orderBy('id')
+                ->get()
+        );
     }
 
     public function previewCart(iterable $carts, ?Customer $customer = null, ?CarbonInterface $at = null, ?int $outletId = null): array
