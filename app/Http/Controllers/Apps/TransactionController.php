@@ -1087,7 +1087,7 @@ class TransactionController extends Controller
                     'total' => $profits,
                 ]);
 
-                $product = Product::find($cart->product_id);
+                $product = $cart->product;
                 $this->stockMutationService->decrementForTransactionDetail(
                     $product,
                     $transaction,
@@ -1103,8 +1103,10 @@ class TransactionController extends Controller
                 ->delete();
 
             $this->loyaltyService->finalizeTransaction($transaction, $customer, $checkoutPreview);
-            $this->foodcourtTenantAllocationService->rebuildForTransaction($transaction->fresh(['details']));
-            $this->kitchenTicketService->createForTransaction($transaction->fresh(['details.product.kitchenStationMappings']));
+
+            $transaction->load(['details.product.kitchenStationMappings']);
+            $this->foodcourtTenantAllocationService->rebuildForTransaction($transaction);
+            $this->kitchenTicketService->createForTransaction($transaction);
 
             if ($isPayLater) {
                 Receivable::create([

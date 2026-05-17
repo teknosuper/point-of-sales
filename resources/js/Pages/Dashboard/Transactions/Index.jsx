@@ -2459,6 +2459,7 @@ export default function Index({
                     headers: {
                         Accept: "application/json",
                     },
+                    timeout: 25000,
                 }
             );
 
@@ -2470,9 +2471,19 @@ export default function Index({
             resetTransactionForm();
             toast.success("Transaksi berhasil! Struk masuk antrian cetak.");
         } catch (error) {
-            toast.error(
-                error?.response?.data?.message || "Gagal menyimpan transaksi"
-            );
+            if (error?.code === "ECONNABORTED" || error?.message?.includes("timeout")) {
+                toast.error("Koneksi timeout. Cek koneksi internet dan coba lagi.");
+            } else if (error?.response?.status === 500) {
+                toast.error("Server error. Hubungi admin jika masalah berlanjut.");
+            } else if (error?.response?.status === 422) {
+                toast.error(error?.response?.data?.message || "Data tidak valid.");
+            } else if (!error?.response) {
+                toast.error("Tidak dapat terhubung ke server. Cek koneksi internet.");
+            } else {
+                toast.error(
+                    error?.response?.data?.message || "Gagal menyimpan transaksi"
+                );
+            }
         } finally {
             setIsSubmitting(false);
         }
