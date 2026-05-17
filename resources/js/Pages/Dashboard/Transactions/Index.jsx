@@ -58,6 +58,26 @@ const formatPrice = (value = 0) =>
         minimumFractionDigits: 0,
     });
 
+const formatApiErrorMessage = (error, fallbackMessage) => {
+    const responseData = error?.response?.data;
+    const baseMessage =
+        responseData?.message || error?.message || fallbackMessage;
+    const detailMessage =
+        responseData?.details ||
+        responseData?.error?.message ||
+        responseData?.error;
+
+    if (
+        detailMessage &&
+        typeof detailMessage === "string" &&
+        detailMessage !== baseMessage
+    ) {
+        return `${baseMessage}\n${detailMessage}`;
+    }
+
+    return baseMessage;
+};
+
 const resolveFreshnessMeta = (timestamp) => {
     if (!timestamp) {
         return {
@@ -228,6 +248,7 @@ export default function Index({
     const [tableOrderCancelTarget, setTableOrderCancelTarget] = useState(null);
     const [tableOrderCancelReason, setTableOrderCancelReason] = useState("");
     const [isCancellingTableOrder, setIsCancellingTableOrder] = useState(false);
+    const offlineSyncInFlightRef = useRef(false);
     useEffect(() => {
         if (typeof window === "undefined") {
             return;
@@ -2145,82 +2166,120 @@ export default function Index({
     ]);
 
     const syncOfflineQueue = useCallback(async () => {
-        if (isSyncingOfflineQueue || offlineQueue.length === 0 || isOfflineMode) {
+        if (
+            offlineSyncInFlightRef.current ||
+            isSyncingOfflineQueue ||
+            offlineQueue.length === 0 ||
+            isOfflineMode
+        ) {
             return;
         }
 
+        offlineSyncInFlightRef.current = true;
         setIsSyncingOfflineQueue(true);
         const currentQueue = [...offlineQueue];
         const remainingQueue = [];
         const historyEntries = [...offlineHistory];
         let syncedCount = 0;
+        let lockRejected = false;
 
-        for (const offlineTransaction of currentQueue) {
-            try {
-                const response = await axios.post(
-                    route("transactions.sync-offline"),
-                    offlineTransaction,
-                    {
-                        headers: {
-                            Accept: "application/json",
-                        },
-                        timeout: 15000,
-                    }
-                );
-                syncedCount += 1;
-                historyEntries.unshift({
-                    offline_reference: offlineTransaction.offline_reference,
-                    status: "synced",
-                    customer_name: offlineTransaction.customer_name,
-                    grand_total: offlineTransaction.grand_total,
-                    synced_at: new Date().toISOString(),
-                    server_invoice:
-                        response.data?.data?.transaction?.invoice || null,
-                    receipt_print_url:
-                        response.data?.data?.receipt_print_url || null,
-                    receipt_pdf_url:
-                        response.data?.data?.receipt_pdf_url || null,
-                    last_error: null,
-                });
-            } catch (error) {
-                const failedItem = {
-                    ...offlineTransaction,
-                    status:
-                        error?.response?.status === 422 ? "failed" : "pending",
-                    sync_attempts:
-                        Number(offlineTransaction.sync_attempts || 0) + 1,
-                    last_attempt_at: new Date().toISOString(),
-                    last_error:
-                        error?.response?.data?.message ||
-                        "Server belum merespons",
-                };
+        try {
+            for (let index = 0; index < currentQueue.length; index += 1) {
+                const offlineTransaction = currentQueue[index];
 
-                remainingQueue.push(failedItem);
-
-                if (error?.response?.status === 422) {
-                    toast.error(
-                        `Sync offline gagal untuk ${offlineTransaction.offline_reference}`
+                try {
+                    const response = await axios.post(
+                        route("transactions.sync-offline"),
+                        offlineTransaction,
+                        {
+                            headers: {
+                                Accept: "application/json",
+                            },
+                            timeout: 15000,
+                        }
                     );
+                    syncedCount += 1;
+                    historyEntries.unshift({
+                        offline_reference: offlineTransaction.offline_reference,
+                        status: "synced",
+                        customer_name: offlineTransaction.customer_name,
+                        grand_total: offlineTransaction.grand_total,
+                        synced_at: new Date().toISOString(),
+                        server_invoice:
+                            response.data?.data?.transaction?.invoice || null,
+                        receipt_print_url:
+                            response.data?.data?.receipt_print_url || null,
+                        receipt_pdf_url:
+                            response.data?.data?.receipt_pdf_url || null,
+                        last_error: null,
+                    });
+                } catch (error) {
+                    if (error?.response?.status === 429) {
+                        lockRejected = true;
+                        remainingQueue.push(
+                            {
+                                ...offlineTransaction,
+                                status: "pending",
+                                last_error:
+                                    error?.response?.data?.message ||
+                                    "Sinkronisasi lain masih berjalan",
+                            },
+                            ...currentQueue.slice(index + 1)
+                        );
+                        break;
+                    }
+
+                    const failedItem = {
+                        ...offlineTransaction,
+                        status:
+                            error?.response?.status === 422 ? "failed" : "pending",
+                        sync_attempts:
+                            Number(offlineTransaction.sync_attempts || 0) + 1,
+                        last_attempt_at: new Date().toISOString(),
+                        last_error:
+                            error?.response?.data?.message ||
+                            "Server belum merespons",
+                    };
+
+                    remainingQueue.push(failedItem);
+
+                    if (error?.response?.status === 422) {
+                        toast.error(
+                            formatApiErrorMessage(
+                                error,
+                                `Sync offline gagal untuk ${offlineTransaction.offline_reference}`
+                            )
+                        );
+                    }
                 }
             }
+        } finally {
+            saveOfflineTransactionQueue(remainingQueue);
+            saveOfflineTransactionHistory(historyEntries);
+            setOfflineQueue(remainingQueue);
+            setOfflineHistory(historyEntries);
+            setIsSyncingOfflineQueue(false);
+            offlineSyncInFlightRef.current = false;
         }
-
-        saveOfflineTransactionQueue(remainingQueue);
-        saveOfflineTransactionHistory(historyEntries);
-        setOfflineQueue(remainingQueue);
-        setOfflineHistory(historyEntries);
-        setIsSyncingOfflineQueue(false);
 
         if (syncedCount > 0) {
             toast.success(
                 `${syncedCount} transaksi offline berhasil disinkronkan`
             );
         }
+
+        if (lockRejected) {
+            return;
+        }
     }, [isSyncingOfflineQueue, offlineHistory, offlineQueue, isOfflineMode]);
 
     const retrySingleOfflineTransaction = useCallback(
         async (offlineReference) => {
-            if (isOfflineMode || isSyncingOfflineQueue) {
+            if (
+                isOfflineMode ||
+                isSyncingOfflineQueue ||
+                offlineSyncInFlightRef.current
+            ) {
                 return;
             }
 
@@ -2233,6 +2292,7 @@ export default function Index({
                 return;
             }
 
+            offlineSyncInFlightRef.current = true;
             setIsSyncingOfflineQueue(true);
 
             try {
@@ -2276,6 +2336,10 @@ export default function Index({
                     `${offlineTransaction.offline_reference} berhasil disinkronkan`
                 );
             } catch (error) {
+                if (error?.response?.status === 429) {
+                    return;
+                }
+
                 const nextQueue = offlineQueue.map((item) =>
                     item.offline_reference === offlineReference
                         ? {
@@ -2297,11 +2361,14 @@ export default function Index({
                 setOfflineQueue(nextQueue);
                 saveOfflineTransactionQueue(nextQueue);
                 toast.error(
-                    error?.response?.data?.message ||
+                    formatApiErrorMessage(
+                        error,
                         "Sinkronisasi transaksi offline gagal"
+                    )
                 );
             } finally {
                 setIsSyncingOfflineQueue(false);
+                offlineSyncInFlightRef.current = false;
             }
         },
         [isOfflineMode, isSyncingOfflineQueue, offlineHistory, offlineQueue]
@@ -2501,16 +2568,10 @@ export default function Index({
         } catch (error) {
             if (error?.code === "ECONNABORTED" || error?.message?.includes("timeout")) {
                 toast.error("Koneksi timeout. Cek koneksi internet dan coba lagi.");
-            } else if (error?.response?.status === 500) {
-                toast.error("Server error. Hubungi admin jika masalah berlanjut.");
-            } else if (error?.response?.status === 422) {
-                toast.error(error?.response?.data?.message || "Data tidak valid.");
             } else if (!error?.response) {
                 toast.error("Tidak dapat terhubung ke server. Cek koneksi internet.");
             } else {
-                toast.error(
-                    error?.response?.data?.message || "Gagal menyimpan transaksi"
-                );
+                toast.error(formatApiErrorMessage(error, "Gagal menyimpan transaksi"));
             }
         } finally {
             setIsSubmitting(false);

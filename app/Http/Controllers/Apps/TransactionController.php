@@ -1301,6 +1301,21 @@ class TransactionController extends Controller
             }
 
             return to_route('transactions.print', $transaction->invoice);
+        } catch (\Throwable $exception) {
+            $this->logPosException('pos.store.failed', $exception, [
+                'invoice' => $invoice,
+                'user_id' => auth()->id(),
+                'outlet_id' => $outlet?->id,
+                'customer_id' => $customer?->id,
+                'order_type' => $orderType,
+                'cart_items_count' => isset($checkoutCarts) ? $checkoutCarts->count() : null,
+                'payment_gateway' => $paymentGateway,
+                'pay_later' => $isPayLater,
+                'total_ms' => (int) round((hrtime(true) - $perfStartNs) / 1e6),
+                'marks' => $perfMarks,
+            ]);
+
+            return $this->transactionStoreExceptionResponse($request, $exception);
         } finally {
             if ($storeLock) {
                 try {
@@ -1381,6 +1396,8 @@ class TransactionController extends Controller
             }
         } catch (\Throwable) {
         }
+
+        $syncStartNs = hrtime(true);
 
         try {
             $transaction = DB::transaction(function () use ($validated, $outlet, $orderType, $tableId, $customer) {
@@ -1495,6 +1512,19 @@ class TransactionController extends Controller
                     ], false),
                 ],
             ], Response::HTTP_CREATED);
+        } catch (\Throwable $exception) {
+            $this->logPosException('pos.sync_offline.failed', $exception, [
+                'offline_reference' => $validated['offline_reference'] ?? null,
+                'user_id' => auth()->id(),
+                'outlet_id' => $outlet?->id,
+                'customer_id' => $customer?->id,
+                'order_type' => $orderType,
+                'details_count' => count($validated['details'] ?? []),
+                'grand_total' => $validated['grand_total'] ?? null,
+                'total_ms' => (int) round((hrtime(true) - $syncStartNs) / 1e6),
+            ]);
+
+            return $this->transactionExceptionJsonResponse($request, $exception, 'Sinkronisasi transaksi offline gagal.');
         } finally {
             if ($syncLock) {
                 try {
@@ -1547,6 +1577,62 @@ class TransactionController extends Controller
         return redirect()
             ->route('transactions.index')
             ->with('error', $message);
+    }
+
+    private function transactionStoreExceptionResponse(Request $request, \Throwable $exception)
+    {
+        if ($request->expectsJson()) {
+            return $this->transactionExceptionJsonResponse(
+                $request,
+                $exception,
+                'Transaksi gagal disimpan.'
+            );
+        }
+
+        $message = sprintf(
+            'Transaksi gagal disimpan. [%s] %s (%s:%d)',
+            $exception::class,
+            $exception->getMessage(),
+            $exception->getFile(),
+            $exception->getLine()
+        );
+
+        return redirect()
+            ->route('transactions.index')
+            ->with('error', $message);
+    }
+
+    private function transactionExceptionJsonResponse(Request $request, \Throwable $exception, string $message): JsonResponse
+    {
+        $payload = [
+            'message' => $message,
+            'error' => [
+                'type' => $exception::class,
+                'message' => $exception->getMessage(),
+                'file' => $exception->getFile(),
+                'line' => $exception->getLine(),
+            ],
+            'details' => sprintf(
+                '[%s] %s (%s:%d)',
+                $exception::class,
+                $exception->getMessage(),
+                $exception->getFile(),
+                $exception->getLine()
+            ),
+        ];
+
+        return response()->json($payload, Response::HTTP_INTERNAL_SERVER_ERROR);
+    }
+
+    private function logPosException(string $event, \Throwable $exception, array $context = []): void
+    {
+        Log::error($event, array_merge($context, [
+            'exception' => $exception::class,
+            'message' => $exception->getMessage(),
+            'file' => $exception->getFile(),
+            'line' => $exception->getLine(),
+            'trace' => $exception->getTraceAsString(),
+        ]));
     }
 
     /**
