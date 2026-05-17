@@ -5,10 +5,43 @@ namespace App\Services;
 use App\Models\KitchenStationDevice;
 use App\Models\KitchenTicket;
 use App\Models\PrintJob;
+use App\Models\Transaction;
 use Illuminate\Support\Collection;
 
 class PrintJobService
 {
+    public function queueReceipt(Transaction $transaction, ?KitchenStationDevice $device = null, ?int $userId = null): PrintJob
+    {
+        $receiptDevice = $device ?? $this->resolveReceiptDevice($transaction->outlet_id);
+
+        return PrintJob::create([
+            'outlet_id' => $transaction->outlet_id,
+            'transaction_id' => $transaction->id,
+            'kitchen_ticket_id' => null,
+            'kitchen_station_device_id' => $receiptDevice?->id,
+            'job_type' => PrintJob::TYPE_RECEIPT,
+            'status' => PrintJob::STATUS_QUEUED,
+            'copies' => $receiptDevice ? (int) (data_get($receiptDevice->meta, 'print_copies', 1)) : 1,
+            'payload' => [
+                'invoice' => $transaction->invoice,
+                'device_name' => $receiptDevice?->name,
+                'device_type' => $receiptDevice?->device_type,
+                'paper_width' => $receiptDevice ? data_get($receiptDevice->meta, 'paper_width', '58mm') : '58mm',
+            ],
+            'queued_at' => now(),
+            'created_by' => $userId,
+        ]);
+    }
+
+    private function resolveReceiptDevice(int $outletId): ?KitchenStationDevice
+    {
+        return KitchenStationDevice::query()
+            ->whereHas('kitchenStation', fn ($q) => $q->where('outlet_id', $outletId))
+            ->where('is_active', true)
+            ->where('device_type', 'receipt_printer')
+            ->first();
+    }
+
     public function queueKitchenTicket(KitchenTicket $ticket, KitchenStationDevice $device, ?int $userId = null): PrintJob
     {
         return PrintJob::create([

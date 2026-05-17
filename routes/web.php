@@ -350,6 +350,7 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
     Route::post('/settings/target', [\App\Http\Controllers\Apps\SettingController::class, 'updateTarget'])->middleware('permission:dashboard-access')->name('settings.target.update');
     Route::get('/settings/store', [\App\Http\Controllers\Apps\SettingController::class, 'storeProfile'])->middleware('permission:dashboard-access')->name('settings.store');
     Route::post('/settings/store', [\App\Http\Controllers\Apps\SettingController::class, 'updateStoreProfile'])->middleware('permission:dashboard-access')->name('settings.store.update');
+    Route::get('/settings/printer', [\App\Http\Controllers\Apps\PrinterSettingController::class, 'index'])->middleware(['permission:dashboard-access', 'outlet_access'])->name('settings.printer');
     Route::get('/settings/kitchen-devices', [KitchenSettingsController::class, 'index'])->middleware(['permission:dashboard-access', 'outlet_access'])->name('settings.kitchen-devices.index');
     Route::post('/settings/kitchen-operations', [KitchenSettingsController::class, 'updateOperational'])->middleware(['permission:dashboard-access', 'outlet_access'])->name('settings.kitchen-operations.update');
     Route::get('/settings/kitchen-stations/{station}/access-sheet', [KitchenSettingsController::class, 'accessSheet'])->middleware(['permission:dashboard-access', 'outlet_access'])->name('settings.kitchen-stations.access-sheet');

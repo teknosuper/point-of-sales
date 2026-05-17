@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESC/POS Print Client</title>
+    <script src="https://cdn.jsdelivr.net/npm/@niceles/receipt-printer-encoder@3/dist/receipt-printer-encoder.umd.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f8fafc; color: #1e293b; padding: 16px; min-height: 100vh; }
+        .card { background: white; border-radius: 16px; padding: 16px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); border: 1px solid #e2e8f0; }
+        h1 { font-size: 18px; font-weight: 700; margin-bottom: 4px; }
+        h2 { font-size: 14px; font-weight: 600; margin-bottom: 8px; color: #334155; }
+        .subtitle { font-size: 12px; color: #64748b; margin-bottom: 16px; }
+        label { display: block; font-size: 12px; font-weight: 600; color: #475569; margin-bottom: 4px; }
+        input, select { width: 100%; height: 40px; border: 1px solid #e2e8f0; border-radius: 10px; padding: 0 12px; font-size: 13px; background: #f8fafc; margin-bottom: 10px; }
+        button { width: 100%; height: 44px; border: none; border-radius: 12px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+        .btn-primary { background: #2563eb; color: white; }
+        .btn-primary:hover { background: #1d4ed8; }
+        .btn-primary:disabled { background: #94a3b8; cursor: not-allowed; }
+        .btn-danger { background: #ef4444; color: white; }
+        .btn-success { background: #16a34a; color: white; }
+        .status { padding: 8px 12px; border-radius: 10px; font-size: 12px; font-weight: 500; margin-bottom: 8px; }
+        .status-idle { background: #f1f5f9; color: #64748b; }
+        .status-polling { background: #dbeafe; color: #1d4ed8; }
+        .status-printing { background: #dcfce7; color: #16a34a; }
+        .status-error { background: #fee2e2; color: #dc2626; }
+        .log { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px; max-height: 200px; overflow-y: auto; font-size: 11px; font-family: monospace; color: #475569; }
+        .log-entry { padding: 3px 0; border-bottom: 1px solid #f1f5f9; }
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; }
+        .badge-blue { background: #dbeafe; color: #1d4ed8; }
+        .badge-green { background: #dcfce7; color: #16a34a; }
+        .badge-amber { background: #fef3c7; color: #d97706; }
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .stats { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+        .stat { background: #f1f5f9; border-radius: 8px; padding: 8px 12px; flex: 1; min-width: 80px; text-align: center; }
+        .stat-value { font-size: 18px; font-weight: 700; color: #1e293b; }
+        .stat-label { font-size: 10px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>🖨️ ESC/POS Print Client</h1>
+        <p class="subtitle">Hubungkan ke sistem POS untuk auto-print struk & tiket dapur.</p>
+        <div id="statusBar" class="status status-idle">⏸️ Belum terhubung</div>
+    </div>
+
+    <!-- Config -->
+    <div class="card" id="configCard">
+        <h2>Konfigurasi</h2>
+        <label>Base URL Server POS</label>
+        <input type="url" id="baseUrl" placeholder="http://localhost:8000" />
+        <label>Token</label>
+        <input type="text" id="token" value="0000" />
+        <label>Outlet ID</label>
+        <input type="number" id="outletId" value="1" />
+        <label>Jenis Antrian</label>
+        <select id="queueType">
+            <option value="cashier">Struk Kasir (Receipt)</option>
+            <option value="kitchen">Tiket Dapur (Kitchen)</option>
+        </select>
+        <label>Station ID (opsional, untuk dapur)</label>
+        <input type="number" id="stationId" placeholder="Kosongkan untuk semua station" />
+        <label>Lebar Kertas</label>
+        <select id="paperWidth">
+            <option value="32">58mm (32 kolom)</option>
+            <option value="48">80mm (48 kolom)</option>
+        </select>
+        <label>Interval Polling (detik)</label>
+        <input type="number" id="pollInterval" value="3" min="1" max="30" />
+        <div class="grid-2">
+            <button class="btn-primary" id="btnConnect" onclick="startPolling()">▶️ Mulai</button>
+            <button class="btn-danger hidden" id="btnStop" onclick="stopPolling()">⏹️ Stop</button>
+        </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="card hidden" id="statsCard">
+        <h2>Statistik</h2>
+        <div class="stats">
+            <div class="stat">
+                <div class="stat-value" id="statPrinted">0</div>
+                <div class="stat-label">Dicetak</div>
+            </div>
+            <div class="stat">
+                <div class="stat-value" id="statFailed">0</div>
+                <div class="stat-label">Gagal</div>
+            </div>
+            <div class="stat">
+                <div class="stat-value" id="statPolls">0</div>
+                <div class="stat-label">Polls</div>
+            </div>
+        </div>
+        <button class="btn-danger" onclick="stopPolling()">⏹️ Stop Polling</button>
+    </div>
+
+    <!-- Log -->
+    <div class="card">
+        <h2>Log Aktivitas</h2>
+        <div class="log" id="logContainer">
+            <div class="log-entry">Siap digunakan. Isi konfigurasi lalu klik Mulai.</div>
+        </div>
+    </div>
+
+    <script>
+    let pollingTimer = null;
+    let isPolling = false;
+    let stats = { printed: 0, failed: 0, polls: 0 };
+
+    function getConfig() {
+        return {
+            baseUrl: document.getElementById('baseUrl').value.replace(/\/$/, ''),
+            token: document.getElementById('token').value,
+            outletId: document.getElementById('outletId').value,
+            queueType: document.getElementById('queueType').value,
+            stationId: document.getElementById('stationId').value,
+            paperWidth: parseInt(document.getElementById('paperWidth').value),
+            pollInterval: parseInt(document.getElementById('pollInterval').value) * 1000,
+        };
+    }
+
+    function buildPollUrl(config) {
+        let url = `${config.baseUrl}/api/print-queue/${config.queueType}?token=${config.token}&outlet_id=${config.outletId}`;
+        if (config.queueType === 'kitchen' && config.stationId) {
+            url += `&station_id=${config.stationId}`;
+        }
+        return url;
+    }
+
+    function log(message, type = 'info') {
+        const container = document.getElementById('logContainer');
+        const time = new Date().toLocaleTimeString('id-ID');
+        const entry = document.createElement('div');
+        entry.className = 'log-entry';
+        entry.innerHTML = `<span style="color:#94a3b8">[${time}]</span> ${message}`;
+        container.prepend(entry);
+        if (container.children.length > 100) container.removeChild(container.lastChild);
+    }
+
+    function setStatus(text, className) {
+        const bar = document.getElementById('statusBar');
+        bar.textContent = text;
+        bar.className = `status ${className}`;
+    }
+
+    function updateStats() {
+        document.getElementById('statPrinted').textContent = stats.printed;
+        document.getElementById('statFailed').textContent = stats.failed;
+        document.getElementById('statPolls').textContent = stats.polls;
+    }
+
+    function startPolling() {
+        const config = getConfig();
+        if (!config.baseUrl) { alert('Isi Base URL terlebih dahulu'); return; }
+
+        isPolling = true;
+        document.getElementById('btnConnect').classList.add('hidden');
+        document.getElementById('btnStop').classList.remove('hidden');
+        document.getElementById('statsCard').classList.remove('hidden');
+        setStatus('🔄 Polling aktif — menunggu print job...', 'status-polling');
+        log('Polling dimulai: ' + buildPollUrl(config));
+
+        // Save config to localStorage
+        localStorage.setItem('pos-print-config', JSON.stringify(config));
+
+        poll(config);
+    }
+
+    function stopPolling() {
+        isPolling = false;
+        if (pollingTimer) { clearTimeout(pollingTimer); pollingTimer = null; }
+        document.getElementById('btnConnect').classList.remove('hidden');
+        document.getElementById('btnStop').classList.add('hidden');
+        setStatus('⏸️ Polling dihentikan', 'status-idle');
+        log('Polling dihentikan.');
+    }
+
+    async function poll(config) {
+        if (!isPolling) return;
+
+        try {
+            stats.polls++;
+            updateStats();
+
+            const response = await fetch(buildPollUrl(config));
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+            const data = await response.json();
+
+            if (data.jobs && data.jobs.length > 0) {
+                log(`📥 ${data.jobs.length} job diterima`);
+                for (const job of data.jobs) {
+                    await processJob(job, config);
+                }
+            }
+        } catch (err) {
+            log(`❌ Error polling: ${err.message}`, 'error');
+            setStatus('⚠️ Error — retry...', 'status-error');
+        }
+
+        if (isPolling) {
+            pollingTimer = setTimeout(() => poll(config), config.pollInterval);
+        }
+    }
+
+    async function processJob(job, config) {
+        try {
+            setStatus('🖨️ Mencetak...', 'status-printing');
+
+            const encoder = new ReceiptPrinterEncoder({
+                language: 'esc-pos',
+                feedBeforeCut: 1,
+                columns: config.paperWidth,
+            });
+
+            let result;
+            if (job.type === 'receipt') {
+                result = encodeReceipt(encoder, job, config);
+            } else {
+                result = encodeKitchenTicket(encoder, job, config);
+            }
+
+            const byteArray = Array.from(result);
+            const payload = {
+                type: "ENCODED_POST_DATA",
+                bytes: byteArray,
+                length: byteArray.length,
+                timestamp: Date.now(),
+            };
+
+            // Send to Android WebView
+            if (window.ReceiptChannel) {
+                window.ReceiptChannel.postMessage(JSON.stringify(payload));
+                log(`✅ Job #${job.id} dikirim ke printer (${job.type})`);
+            } else {
+                console.log("ESC/POS Payload:", payload);
+                log(`✅ Job #${job.id} encoded (browser mode — no printer)`);
+            }
+
+            // Mark as done
+            await markJobDone(job.id, config);
+            stats.printed++;
+            updateStats();
+            setStatus('🔄 Polling aktif — menunggu print job...', 'status-polling');
+
+        } catch (err) {
+            log(`❌ Gagal cetak job #${job.id}: ${err.message}`);
+            await markJobFailed(job.id, config, err.message);
+            stats.failed++;
+            updateStats();
+            setStatus('🔄 Polling aktif — menunggu print job...', 'status-polling');
+        }
+    }
+
+    function encodeReceipt(encoder, job, config) {
+        const tx = job.transaction || {};
+        const store = job.store || {};
+        const items = tx.items || [];
+        const sep = config.paperWidth === 48 ? '------------------------------------------------' : '--------------------------------';
+
+        encoder.initialize().align('center').bold(true);
+        if (store.name) encoder.text(store.name);
+        encoder.bold(false).newline();
+        if (store.address) encoder.text(store.address).newline();
+        if (store.phone) encoder.text(store.phone).newline();
+        encoder.text(sep).newline();
+
+        encoder.align('left');
+        if (tx.invoice) encoder.text('No: ' + tx.invoice).newline();
+        if (tx.date) encoder.text('Tgl: ' + tx.date).newline();
+        if (tx.cashier) encoder.text('Kasir: ' + tx.cashier).newline();
+        if (tx.customer) encoder.text('Pelanggan: ' + tx.customer).newline();
+        if (tx.table) encoder.text('Meja: ' + tx.table).newline();
+        encoder.text(sep).newline();
+
+        items.forEach(item => {
+            const name = item.name || 'Item';
+            const qty = item.qty || 1;
+            const total = item.total || 0;
+            encoder.text(`${name}`).newline();
+            encoder.text(`  ${qty} x ${formatMoney(item.price)} = ${formatMoney(total)}`).newline();
+            if (item.modifiers && item.modifiers.length > 0) {
+                item.modifiers.forEach(mod => {
+                    encoder.text(`  + ${mod.name} ${formatMoney(mod.price)}`).newline();
+                });
+            }
+            if (item.notes) encoder.text(`  * ${item.notes}`).newline();
+        });
+
+        encoder.text(sep).newline();
+        if (tx.discount && tx.discount > 0) {
+            encoder.text(padLine('Diskon', formatMoney(tx.discount), config.paperWidth)).newline();
+        }
+        encoder.bold(true);
+        encoder.text(padLine('TOTAL', formatMoney(tx.grand_total || 0), config.paperWidth)).newline();
+        encoder.bold(false);
+
+        if (tx.payment_method) {
+            encoder.text(padLine('Bayar', tx.payment_method.toUpperCase(), config.paperWidth)).newline();
+        }
+
+        encoder.newline().align('center').text('Terima kasih!').newline();
+        encoder.cut();
+
+        return encoder.encode();
+    }
+
+    function encodeKitchenTicket(encoder, job, config) {
+        const ticket = job.ticket || {};
+        const station = job.station || {};
+        const tx = job.transaction || {};
+        const items = ticket.items || [];
+        const sep = config.paperWidth === 48 ? '================================================' : '================================';
+
+        encoder.initialize().align('center').bold(true);
+        encoder.text('KITCHEN ORDER').newline();
+        if (station.name) encoder.text(station.name).newline();
+        encoder.bold(false);
+        encoder.text(sep).newline();
+
+        encoder.align('left');
+        if (ticket.number) encoder.text('Ticket: ' + ticket.number).newline();
+        if (tx.invoice) encoder.text('Invoice: ' + tx.invoice).newline();
+        if (tx.order_type) encoder.text('Order: ' + tx.order_type).newline();
+        if (tx.customer) encoder.text('Customer: ' + tx.customer).newline();
+        if (ticket.created_at) encoder.text('Waktu: ' + ticket.created_at).newline();
+        encoder.text(sep).newline();
+
+        encoder.bold(true);
+        items.forEach(item => {
+            encoder.text(`${item.qty}x ${item.name}`).newline();
+            if (item.notes) {
+                encoder.bold(false).text(`   >> ${item.notes}`).newline().bold(true);
+            }
+        });
+        encoder.bold(false);
+
+        if (ticket.notes) {
+            encoder.text(sep).newline();
+            encoder.text('Catatan: ' + ticket.notes).newline();
+        }
+
+        encoder.newline().newline().cut();
+
+        return encoder.encode();
+    }
+
+    function formatMoney(value) {
+        return 'Rp ' + Number(value || 0).toLocaleString('id-ID');
+    }
+
+    function padLine(left, right, cols) {
+        const space = cols - left.length - right.length;
+        return left + ' '.repeat(Math.max(1, space)) + right;
+    }
+
+    async function markJobDone(jobId, config) {
+        try {
+            await fetch(`${config.baseUrl}/api/print-queue/${jobId}/done?token=${config.token}`, { method: 'POST' });
+        } catch (e) { /* silent */ }
+    }
+
+    async function markJobFailed(jobId, config, reason) {
+        try {
+            await fetch(`${config.baseUrl}/api/print-queue/${jobId}/fail?token=${config.token}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ reason: reason || 'Unknown error' }),
+            });
+        } catch (e) { /* silent */ }
+    }
+
+    // Handle response from Android WebView
+    window.onResponsePrintResult = function(data) {
+        const { status, message } = data || {};
+        if (status === 'success') {
+            log('✅ Printer confirm: ' + (message || 'OK'));
+        } else {
+            log('⚠️ Printer response: ' + (message || 'Unknown'));
+        }
+    };
+
+    // Auto-load saved config
+    (function() {
+        try {
+            const saved = JSON.parse(localStorage.getItem('pos-print-config'));
+            if (saved) {
+                if (saved.baseUrl) document.getElementById('baseUrl').value = saved.baseUrl;
+                if (saved.token) document.getElementById('token').value = saved.token;
+                if (saved.outletId) document.getElementById('outletId').value = saved.outletId;
+                if (saved.queueType) document.getElementById('queueType').value = saved.queueType;
+                if (saved.stationId) document.getElementById('stationId').value = saved.stationId;
+                if (saved.paperWidth) document.getElementById('paperWidth').value = saved.paperWidth;
+                if (saved.pollInterval) document.getElementById('pollInterval').value = saved.pollInterval / 1000;
+            }
+        } catch(e) {}
+
+        // Auto-fill from URL params
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('base_url')) document.getElementById('baseUrl').value = params.get('base_url');
+        if (params.get('token')) document.getElementById('token').value = params.get('token');
+        if (params.get('outlet_id')) document.getElementById('outletId').value = params.get('outlet_id');
+        if (params.get('type')) document.getElementById('queueType').value = params.get('type');
+        if (params.get('station_id')) document.getElementById('stationId').value = params.get('station_id');
+        if (params.get('paper')) document.getElementById('paperWidth').value = params.get('paper');
+        if (params.get('autostart') === '1') setTimeout(startPolling, 500);
+    })();
+    </script>
+</body>
+</html>

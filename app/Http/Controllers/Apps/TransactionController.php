@@ -24,6 +24,7 @@ use App\Services\LoyaltyService;
 use App\Services\OutletResolver;
 use App\Services\Payments\PaymentGatewayManager;
 use App\Services\PricingService;
+use App\Services\PrintJobService;
 use App\Services\StockMutationService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -1151,6 +1152,13 @@ class TransactionController extends Controller
             'tenantAllocations.tenantOutlet:id,name,code',
             'tenantAllocations.items.product:id,title',
         ]);
+
+        // Auto-queue receipt print job for ESC/POS print clients
+        try {
+            app(PrintJobService::class)->queueReceipt($transaction, null, $request->user()?->id);
+        } catch (\Throwable $e) {
+            // Silently fail — print queue is non-critical
+        }
 
         if ($request->expectsJson()) {
             return response()->json([

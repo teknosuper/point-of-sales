@@ -36,6 +36,7 @@ import {
     IconTruckReturn,
     IconSpeakerphone,
     IconLock,
+    IconPrinter,
 } from "@tabler/icons-react";
 import hasAnyPermission from "./Permission";
 import React from "react";
@@ -540,6 +541,13 @@ export default function Menu() {
                     href: route("settings.kitchen-devices.index"),
                     active: url === "/dashboard/settings/kitchen-devices",
                     icon: <IconSpeakerphone size={20} strokeWidth={1.5} />,
+                    permissions: hasAnyPermission(["dashboard-access"]),
+                },
+                {
+                    title: "Printer ESC/POS",
+                    href: route("settings.printer"),
+                    active: url === "/dashboard/settings/printer",
+                    icon: <IconPrinter size={20} strokeWidth={1.5} />,
                     permissions: hasAnyPermission(["dashboard-access"]),
                 },
                 {

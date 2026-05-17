@@ -2465,10 +2465,10 @@ export default function Index({
             const receiptData = response.data?.data || null;
             setCompletedTransaction(receiptData);
             setCheckoutWarning(response.data?.warning || "");
-            setCheckoutModalStep("receipt");
+            setCheckoutModalStep(null);
             setIsReceiptFrameReady(false);
             resetTransactionForm();
-            toast.success("Transaksi berhasil!");
+            toast.success("Transaksi berhasil! Struk masuk antrian cetak.");
         } catch (error) {
             toast.error(
                 error?.response?.data?.message || "Gagal menyimpan transaksi"
