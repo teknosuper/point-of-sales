@@ -112,6 +112,7 @@
     let pollingTimer = null;
     let isPolling = false;
     let stats = { printed: 0, failed: 0, polls: 0 };
+    let printedJobIds = new Set(); // Track jobs already sent to printer
 
     function getConfig() {
         return {
@@ -194,9 +195,12 @@
             const data = await response.json();
 
             if (data.jobs && data.jobs.length > 0) {
-                log(`📥 ${data.jobs.length} job diterima`);
-                for (const job of data.jobs) {
-                    await processJob(job, config);
+                const newJobs = data.jobs.filter(job => !printedJobIds.has(job.id));
+                if (newJobs.length > 0) {
+                    log(`📥 ${newJobs.length} job baru diterima`);
+                    for (const job of newJobs) {
+                        await processJob(job, config);
+                    }
                 }
             }
         } catch (err) {
@@ -257,6 +261,7 @@
 
             // Mark as done
             await markJobDone(job.id, config);
+            printedJobIds.add(job.id);
             stats.printed++;
             updateStats();
             setStatus('🔄 Polling aktif — menunggu print job...', 'status-polling');

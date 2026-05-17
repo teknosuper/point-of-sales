@@ -50,7 +50,7 @@ class PrintQueueController extends Controller
                 'device:id,name,device_type,connection_driver,endpoint,meta',
             ])
             ->where('job_type', PrintJob::TYPE_RECEIPT)
-            ->where('status', PrintJob::STATUS_QUEUED)
+            ->whereIn('status', [PrintJob::STATUS_QUEUED, PrintJob::STATUS_PROCESSING])
             ->when($outletId > 0, fn ($q) => $q->where('outlet_id', $outletId))
             ->when($deviceId > 0, fn ($q) => $q->where('kitchen_station_device_id', $deviceId))
             ->orderBy('queued_at')
@@ -65,9 +65,6 @@ class PrintQueueController extends Controller
                 'count' => 0,
             ]);
         }
-
-        // Mark as processing
-        $jobs->each(fn (PrintJob $job) => $this->printJobService->markProcessing($job));
 
         return response()->json([
             'success' => true,
@@ -100,7 +97,7 @@ class PrintQueueController extends Controller
                 'device:id,name,device_type,connection_driver,endpoint,meta',
             ])
             ->where('job_type', PrintJob::TYPE_KITCHEN_TICKET)
-            ->where('status', PrintJob::STATUS_QUEUED)
+            ->whereIn('status', [PrintJob::STATUS_QUEUED, PrintJob::STATUS_PROCESSING])
             ->when($outletId > 0, fn ($q) => $q->where('outlet_id', $outletId))
             ->when($deviceId > 0, fn ($q) => $q->where('kitchen_station_device_id', $deviceId))
             ->when($stationId > 0, fn ($q) => $q->whereHas('kitchenTicket', fn ($sub) => $sub->where('kitchen_station_id', $stationId)))
@@ -116,9 +113,6 @@ class PrintQueueController extends Controller
                 'count' => 0,
             ]);
         }
-
-        // Mark as processing
-        $jobs->each(fn (PrintJob $job) => $this->printJobService->markProcessing($job));
 
         return response()->json([
             'success' => true,
@@ -170,8 +164,8 @@ class PrintQueueController extends Controller
         $baseQuery = PrintJob::query()
             ->when($outletId > 0, fn ($q) => $q->where('outlet_id', $outletId));
 
-        $queuedReceipts = (clone $baseQuery)->where('job_type', PrintJob::TYPE_RECEIPT)->where('status', PrintJob::STATUS_QUEUED)->count();
-        $queuedKitchen = (clone $baseQuery)->where('job_type', PrintJob::TYPE_KITCHEN_TICKET)->where('status', PrintJob::STATUS_QUEUED)->count();
+        $queuedReceipts = (clone $baseQuery)->where('job_type', PrintJob::TYPE_RECEIPT)->whereIn('status', [PrintJob::STATUS_QUEUED, PrintJob::STATUS_PROCESSING])->count();
+        $queuedKitchen = (clone $baseQuery)->where('job_type', PrintJob::TYPE_KITCHEN_TICKET)->whereIn('status', [PrintJob::STATUS_QUEUED, PrintJob::STATUS_PROCESSING])->count();
         $processingCount = (clone $baseQuery)->where('status', PrintJob::STATUS_PROCESSING)->count();
 
         return response()->json([
