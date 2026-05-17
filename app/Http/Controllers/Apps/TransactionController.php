@@ -10,7 +10,6 @@ use App\Models\CustomerVoucher;
 use App\Models\DiningTable;
 use App\Models\Outlet;
 use App\Models\PaymentSetting;
-use App\Models\PrintJob;
 use App\Models\Product;
 use App\Models\ProductOutletStock;
 use App\Models\Receivable;
@@ -1152,24 +1151,6 @@ class TransactionController extends Controller
             'tenantAllocations.tenantOutlet:id,name,code',
             'tenantAllocations.items.product:id,title',
         ]);
-
-        // Auto-queue receipt print job for ESC/POS print clients (non-blocking)
-        try {
-            PrintJob::create([
-                'outlet_id' => $transaction->outlet_id,
-                'transaction_id' => $transaction->id,
-                'kitchen_ticket_id' => null,
-                'kitchen_station_device_id' => null,
-                'job_type' => PrintJob::TYPE_RECEIPT,
-                'status' => PrintJob::STATUS_QUEUED,
-                'copies' => 1,
-                'payload' => ['invoice' => $transaction->invoice, 'paper_width' => '58mm'],
-                'queued_at' => now(),
-                'created_by' => $request->user()?->id,
-            ]);
-        } catch (\Throwable $e) {
-            // Silently fail — print queue is non-critical
-        }
 
         if ($request->expectsJson()) {
             return response()->json([

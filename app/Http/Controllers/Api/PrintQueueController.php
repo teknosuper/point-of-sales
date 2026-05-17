@@ -28,48 +28,86 @@ class PrintQueueController extends Controller
     /**
      * GET /api/print-queue/cashier
      *
-     * Poll for pending cashier receipt print jobs.
-     * Returns the oldest queued receipt job for the given outlet.
+     * Poll for new transactions that need receipt printing.
+     * Uses transactions table directly — no print_jobs insert needed at checkout.
      */
     public function cashier(Request $request): JsonResponse
     {
         $this->authorize($request);
 
         $outletId = (int) $request->query('outlet_id', 0);
-        $deviceId = (int) $request->query('device_id', 0);
+        $lastId = (int) $request->query('last_id', 0);
 
-        $query = PrintJob::query()
+        $query = Transaction::query()
             ->with([
-                'transaction:id,invoice,grand_total,discount,payment_method,payment_status,order_type,customer_id,cashier_id,created_at',
-                'transaction.details:id,transaction_id,product_id,qty,price,unit_price,discount_total,notes',
-                'transaction.details.product:id,title',
-                'transaction.details.modifiers:id,transaction_detail_id,name,unit_price',
-                'transaction.cashier:id,name',
-                'transaction.customer:id,name,no_telp',
-                'transaction.diningTable:id,name,code',
-                'device:id,name,device_type,connection_driver,endpoint,meta',
+                'details:id,transaction_id,product_id,qty,price,unit_price,discount_total,notes',
+                'details.product:id,title',
+                'details.modifiers:id,transaction_detail_id,name,unit_price',
+                'cashier:id,name',
+                'customer:id,name,no_telp',
+                'diningTable:id,name,code',
             ])
-            ->where('job_type', PrintJob::TYPE_RECEIPT)
-            ->whereIn('status', [PrintJob::STATUS_QUEUED, PrintJob::STATUS_PROCESSING])
             ->when($outletId > 0, fn ($q) => $q->where('outlet_id', $outletId))
-            ->when($deviceId > 0, fn ($q) => $q->where('kitchen_station_device_id', $deviceId))
-            ->orderBy('queued_at')
+            ->where('payment_status', 'paid')
+            ->when($lastId > 0, fn ($q) => $q->where('id', '>', $lastId))
+            ->orderBy('id')
             ->limit(5);
 
-        $jobs = $query->get();
+        $transactions = $query->get();
 
-        if ($jobs->isEmpty()) {
+        if ($transactions->isEmpty()) {
             return response()->json([
                 'success' => true,
                 'jobs' => [],
                 'count' => 0,
+                'last_id' => $lastId,
             ]);
         }
 
+        $outletProfile = $outletId > 0 ? \App\Models\Outlet::find($outletId)?->profilePayload() : [];
+
+        $jobs = $transactions->map(fn (Transaction $tx) => [
+            'id' => $tx->id,
+            'type' => 'receipt',
+            'copies' => 1,
+            'paper_width' => '58mm',
+            'store' => [
+                'name' => $outletProfile['name'] ?? '',
+                'address' => $outletProfile['address'] ?? '',
+                'phone' => $outletProfile['phone'] ?? '',
+            ],
+            'transaction' => [
+                'invoice' => $tx->invoice,
+                'date' => $tx->created_at ? \Carbon\Carbon::parse($tx->created_at)->format('d/m/Y H:i') : null,
+                'cashier' => $tx->cashier?->name ?? '-',
+                'customer' => $tx->customer?->name ?? 'Pelanggan Umum',
+                'order_type' => $tx->order_type,
+                'payment_method' => $tx->payment_method,
+                'table' => $tx->diningTable?->name ?? $tx->diningTable?->code ?? null,
+                'subtotal' => (int) ($tx->grand_total + ($tx->discount ?? 0)),
+                'discount' => (int) ($tx->discount ?? 0),
+                'grand_total' => (int) $tx->grand_total,
+                'items' => $tx->details->map(fn ($detail) => [
+                    'name' => $detail->product?->title ?? 'Item',
+                    'qty' => (int) $detail->qty,
+                    'price' => (int) $detail->unit_price,
+                    'total' => (int) $detail->price,
+                    'discount' => (int) ($detail->discount_total ?? 0),
+                    'notes' => $detail->notes,
+                    'modifiers' => $detail->modifiers->map(fn ($mod) => [
+                        'name' => $mod->name,
+                        'price' => (int) $mod->unit_price,
+                    ])->values()->all(),
+                ])->values()->all(),
+            ],
+            'queued_at' => $tx->created_at ? \Carbon\Carbon::parse($tx->created_at)->toIso8601String() : null,
+        ]);
+
         return response()->json([
             'success' => true,
-            'jobs' => $jobs->map(fn (PrintJob $job) => $this->receiptPayload($job))->values(),
+            'jobs' => $jobs->values(),
             'count' => $jobs->count(),
+            'last_id' => $transactions->last()->id,
         ]);
     }
 
