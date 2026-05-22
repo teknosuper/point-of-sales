@@ -57,6 +57,8 @@
             <th>Allocation</th>
             <th>Tenant</th>
             <th>Invoice</th>
+            <th>Promo</th>
+            <th>Revenue</th>
             <th>Payout</th>
             <th>Breakdown</th>
             <th>Status</th>
@@ -77,6 +79,8 @@
                 {{ $allocation->transaction?->invoice ?? '-' }}<br>
                 <span class="muted">{{ $allocation->total_items ?? 0 }} item</span>
             </td>
+            <td>{{ $formatMoney($allocation->total_discount_total ?? 0) }}</td>
+            <td>{{ $formatMoney($allocation->grand_total ?? 0) }}</td>
             <td>{{ $formatMoney($allocation->tenant_payout_total ?? 0) }}</td>
             <td>
                 Cash {{ $formatMoney($allocation->payout_cash_amount ?? 0) }}<br>
@@ -102,7 +106,7 @@
 </table>
 
 <div class="footer">
-    Dokumen ini digunakan sebagai rekap batch settlement tenant sesuai filter laporan yang aktif.
+    Dokumen ini digunakan sebagai rekap batch settlement tenant. Revenue dan payout sudah mengikuti pricing rules tenant yang aktif pada transaksi.
 </div>
 </body>
 </html>

@@ -198,6 +198,9 @@ export default function TenantStatement({
                         tone="emerald"
                     />
                 </div>
+                <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
+                    Nilai revenue tenant sudah mengikuti `pricing rules`. Jika ada promo tenant, nominal payout dan outstanding memakai harga setelah promo, bukan harga dasar sebelum promo.
+                </div>
 
                 <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
                     <div className="mb-4">

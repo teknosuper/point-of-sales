@@ -270,7 +270,9 @@ class SalesReportController extends Controller
                 'tenant_code',
                 'tenant_name',
                 'items_count',
+                'pre_promo_subtotal',
                 'subtotal',
+                'total_discount_total',
                 'promo_discount_total',
                 'voucher_discount_total',
                 'loyalty_discount_total',
@@ -305,7 +307,9 @@ class SalesReportController extends Controller
                     $allocation->tenantOutlet?->code,
                     $allocation->tenantOutlet?->name,
                     (int) ($allocation->total_items ?? 0),
+                    (int) ($allocation->pre_promo_subtotal ?? 0),
                     (int) ($allocation->subtotal ?? 0),
+                    (int) ($allocation->total_discount_total ?? 0),
                     (int) ($allocation->promo_discount_total ?? 0),
                     (int) ($allocation->voucher_discount_total ?? 0),
                     (int) ($allocation->loyalty_discount_total ?? 0),
@@ -441,6 +445,13 @@ class SalesReportController extends Controller
                 'invoice',
                 'transaction_date',
                 'items_count',
+                'pre_promo_subtotal',
+                'subtotal_after_item_promo',
+                'total_discount_total',
+                'promo_discount_total',
+                'voucher_discount_total',
+                'loyalty_discount_total',
+                'manual_discount_total',
                 'revenue_total',
                 'cost_total',
                 'profit_total',
@@ -467,6 +478,13 @@ class SalesReportController extends Controller
                     (string) ($allocation->transaction?->invoice ?? ''),
                     optional($allocation->transaction?->created_at)?->format('Y-m-d H:i:s'),
                     (int) ($allocation->total_items ?? 0),
+                    (int) ($allocation->pre_promo_subtotal ?? 0),
+                    (int) ($allocation->subtotal ?? 0),
+                    (int) ($allocation->total_discount_total ?? 0),
+                    (int) ($allocation->promo_discount_total ?? 0),
+                    (int) ($allocation->voucher_discount_total ?? 0),
+                    (int) ($allocation->loyalty_discount_total ?? 0),
+                    (int) ($allocation->manual_discount_total ?? 0),
                     (int) ($allocation->grand_total ?? 0),
                     (int) ($allocation->cost_total ?? 0),
                     (int) ($allocation->profit_total ?? 0),
@@ -676,12 +694,22 @@ class SalesReportController extends Controller
             $commissionRate = (float) ($allocation->tenantOutlet?->commission_rate_percent ?? 0);
             $managementFeeTotal = (int) round(max(0, $profitTotal) * ($commissionRate / 100));
             $tenantPayoutTotal = $profitTotal - $managementFeeTotal;
+            $promoDiscountTotal = (int) ($allocation->promo_discount_total ?? 0);
+            $subtotal = (int) ($allocation->subtotal ?? 0);
+            $prePromoSubtotal = $subtotal + $promoDiscountTotal;
+            $totalDiscountTotal = $promoDiscountTotal
+                + (int) ($allocation->voucher_discount_total ?? 0)
+                + (int) ($allocation->loyalty_discount_total ?? 0)
+                + (int) ($allocation->manual_discount_total ?? 0);
 
             $allocation->setAttribute('cost_total', $costTotal);
             $allocation->setAttribute('profit_total', $profitTotal);
             $allocation->setAttribute('commission_rate_percent', $commissionRate);
             $allocation->setAttribute('management_fee_total', $managementFeeTotal);
             $allocation->setAttribute('tenant_payout_total', $tenantPayoutTotal);
+            $allocation->setAttribute('pricing_reference_total', $subtotal);
+            $allocation->setAttribute('pre_promo_subtotal', $prePromoSubtotal);
+            $allocation->setAttribute('total_discount_total', $totalDiscountTotal);
             $allocation->setAttribute('margin_percentage', $revenueTotal > 0
                 ? round(($profitTotal / $revenueTotal) * 100, 2)
                 : 0.0);

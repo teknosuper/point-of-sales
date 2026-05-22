@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Head, router, usePage } from "@inertiajs/react";
+import { Head, Link, router, usePage } from "@inertiajs/react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import KitchenLayout from "@/Layouts/KitchenLayout";
 import Pagination from "@/Components/Dashboard/Pagination";
@@ -73,6 +73,9 @@ export default function WorkspaceSalesIndex({
     hourlyTrend = [],
     paymentBreakdown = [],
     topProducts = [],
+    productPerformance = {},
+    tenantPromoBreakdown = [],
+    promoTrend = [],
     cashiers = [],
     meta = {},
 }) {
@@ -82,6 +85,9 @@ export default function WorkspaceSalesIndex({
     const primaryMetricLabel = isKitchenWorkspace ? "Penjualan Tenant" : "Penjualan";
     const primaryContextLabel = isKitchenWorkspace ? "penjualan murni tenant (tanpa markup owner)" : "penjualan operasional";
     const settlementRecipientLabel = meta?.settlement_recipient?.name || "Admin / owner belum diatur";
+    const bestSeller = productPerformance?.best_sellers?.[0] ?? null;
+    const unsoldHint = productPerformance?.unsold_products?.[0] ?? null;
+    const slowMoverHint = productPerformance?.slow_movers?.[0] ?? null;
     const [showFilters, setShowFilters] = useState(false);
     const [filterData, setFilterData] = useState({
         ...defaultFilters,
@@ -101,6 +107,8 @@ export default function WorkspaceSalesIndex({
     const paymentChartInstanceRef = useRef(null);
     const hourlyChartRef = useRef(null);
     const hourlyChartInstanceRef = useRef(null);
+    const promoChartRef = useRef(null);
+    const promoChartInstanceRef = useRef(null);
 
     useEffect(() => {
         setFilterData({
@@ -250,6 +258,44 @@ export default function WorkspaceSalesIndex({
         return () => hourlyChartInstanceRef.current?.destroy();
     }, [hourlyTrend]);
 
+    useEffect(() => {
+        if (!promoChartRef.current) return;
+        promoChartInstanceRef.current?.destroy();
+
+        if (!promoTrend.length || isKitchenWorkspace) return;
+
+        promoChartInstanceRef.current = new Chart(promoChartRef.current, {
+            type: "line",
+            data: {
+                labels: promoTrend.map((item) => item.label),
+                datasets: [
+                    {
+                        label: "Promo Tenant",
+                        data: promoTrend.map((item) => item.promo_total),
+                        borderColor: "#e11d48",
+                        backgroundColor: "rgba(225,29,72,0.14)",
+                        fill: true,
+                        tension: 0.35,
+                    },
+                ],
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    y: {
+                        ticks: {
+                            callback: (value) => `Rp ${Number(value).toLocaleString("id-ID")}`,
+                        },
+                    },
+                },
+            },
+        });
+
+        return () => promoChartInstanceRef.current?.destroy();
+    }, [promoTrend, isKitchenWorkspace]);
+
     const handleChange = (field, value) => {
         setFilterData((prev) => ({
             ...prev,
@@ -366,6 +412,95 @@ export default function WorkspaceSalesIndex({
                     />
                 </div>
 
+                {!isKitchenWorkspace ? (
+                    <div className="grid gap-4 md:grid-cols-3">
+                        <SummaryCard
+                            icon={<IconSparkles size={20} />}
+                            title="Promo Tenant"
+                            value={formatCurrency(summary?.filtered_promo_total ?? 0)}
+                            description="Akumulasi diskon tenant pada filter aktif"
+                            tone="amber"
+                        />
+                        <SummaryCard
+                            icon={<IconReceipt2 size={20} />}
+                            title="Sebelum Promo"
+                            value={formatCurrency(summary?.filtered_pre_discount_total ?? 0)}
+                            description="Nilai transaksi sebelum promo tenant"
+                            tone="slate"
+                        />
+                        <SummaryCard
+                            icon={<IconWallet size={20} />}
+                            title="Setelah Promo"
+                            value={formatCurrency(summary?.filtered_total ?? 0)}
+                            description="Omzet akhir yang masuk laporan admin"
+                            tone="emerald"
+                        />
+                    </div>
+                ) : null}
+
+                {isKitchenWorkspace ? (
+                    <div className="rounded-3xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+                        <div className="mb-4">
+                            <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Insight Cepat</h2>
+                            <p className="text-sm text-slate-500 dark:text-slate-400">Arah tindakan yang bisa langsung dipakai tenant dari data saat ini.</p>
+                        </div>
+                        <div className="grid gap-3 md:grid-cols-3">
+                            <div className="rounded-2xl bg-emerald-50 p-4 dark:bg-emerald-950/20">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-300">Pertahankan</p>
+                                <p className="mt-2 text-sm font-medium text-emerald-900 dark:text-emerald-100">
+                                    {bestSeller ? `${bestSeller.product_title} adalah pendorong utama omzet saat ini.` : "Belum ada best seller pada filter ini."}
+                                </p>
+                            </div>
+                            <div className="rounded-2xl bg-amber-50 p-4 dark:bg-amber-950/20">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-300">Evaluasi</p>
+                                <p className="mt-2 text-sm font-medium text-amber-900 dark:text-amber-100">
+                                    {slowMoverHint ? `${slowMoverHint.product_title} masih terjual rendah. Pertimbangkan bundling atau ubah display.` : "Belum ada produk yang masuk kategori kurang laku."}
+                                </p>
+                            </div>
+                            <div className="rounded-2xl bg-rose-50 p-4 dark:bg-rose-950/20">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-rose-600 dark:text-rose-300">Perlu Aksi</p>
+                                <p className="mt-2 text-sm font-medium text-rose-900 dark:text-rose-100">
+                                    {unsoldHint ? `${unsoldHint.product_title} belum terjual. Cek harga, stok, atau aktifkan promo.` : "Tidak ada produk mati pada filter ini."}
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                ) : null}
+
+                {isKitchenWorkspace ? (
+                    <div className="rounded-3xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+                        <div className="mb-4 flex items-center justify-between gap-3">
+                            <div>
+                                <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Pusat Report Tenant</h2>
+                                <p className="text-sm text-slate-500 dark:text-slate-400">Halaman ini dibuat ringan untuk ringkasan. Breakdown detail dibuka di halaman terpisah.</p>
+                            </div>
+                        </div>
+                        <div className="grid gap-3 md:grid-cols-3">
+                            <Link
+                                href={meta?.detail_routes?.daily || "#"}
+                                className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 transition hover:border-primary-300 hover:bg-primary-50 dark:border-slate-800 dark:bg-slate-950/40"
+                            >
+                                <p className="text-sm font-semibold text-slate-900 dark:text-white">Breakdown Harian</p>
+                                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Lihat berapa terjual per hari, transaksi, rata-rata order, dan tunai vs non tunai.</p>
+                            </Link>
+                            <Link
+                                href={meta?.detail_routes?.hourly || "#"}
+                                className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 transition hover:border-primary-300 hover:bg-primary-50 dark:border-slate-800 dark:bg-slate-950/40"
+                            >
+                                <p className="text-sm font-semibold text-slate-900 dark:text-white">Breakdown Per Jam</p>
+                                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Lihat tenant paling ramai jam berapa dan nilai penjualan di tiap slot waktu.</p>
+                            </Link>
+                            <Link
+                                href={meta?.detail_routes?.products || "#"}
+                                className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 transition hover:border-primary-300 hover:bg-primary-50 dark:border-slate-800 dark:bg-slate-950/40"
+                            >
+                                <p className="text-sm font-semibold text-slate-900 dark:text-white">Breakdown Produk</p>
+                                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Lihat best seller, kurang laku, tidak laku, dan kontribusi omzet per produk.</p>
+                            </Link>
+                        </div>
+                    </div>
+                ) : null}
+
                 {isKitchenWorkspace ? (
                     <div className="rounded-3xl border border-emerald-200 bg-emerald-50/80 p-4 dark:border-emerald-900/40 dark:bg-emerald-950/20">
                         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -390,6 +525,125 @@ export default function WorkspaceSalesIndex({
                                 <div className="rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-sm text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-100">
                                     Hari ini: <span className="font-semibold">{summary?.today_cash_count ?? 0} tunai</span> • <span className="font-semibold">{summary?.today_non_cash_count ?? 0} non tunai</span>
                                 </div>
+                            </div>
+                        </div>
+                    </div>
+                ) : null}
+
+                {isKitchenWorkspace ? (
+                    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                        <SummaryCard
+                            icon={<IconShoppingBag size={20} />}
+                            title="Produk Aktif"
+                            value={Number(productPerformance?.catalog_count ?? 0).toLocaleString("id-ID")}
+                            description="Produk tenant yang terlihat di workspace ini"
+                            tone="slate"
+                        />
+                        <SummaryCard
+                            icon={<IconSparkles size={20} />}
+                            title="Produk Laku"
+                            value={Number(productPerformance?.sold_count ?? 0).toLocaleString("id-ID")}
+                            description="Produk yang terjual pada filter aktif"
+                            tone="emerald"
+                        />
+                        <SummaryCard
+                            icon={<IconDatabaseOff size={20} />}
+                            title="Tidak Laku"
+                            value={Number(productPerformance?.unsold_count ?? 0).toLocaleString("id-ID")}
+                            description="Produk yang belum terjual sama sekali"
+                            tone="amber"
+                        />
+                        <SummaryCard
+                            icon={<IconReceipt2 size={20} />}
+                            title="Rata-rata Order"
+                            value={formatCurrency(summary?.average_order_value ?? 0)}
+                            description="Nilai rata-rata per transaksi tenant"
+                            tone="violet"
+                        />
+                    </div>
+                ) : null}
+
+                {isKitchenWorkspace ? (
+                    <div className="grid gap-4 xl:grid-cols-[1.15fr,0.85fr]">
+                        <div className="rounded-3xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+                            <div className="mb-4 flex items-center gap-2">
+                                <IconSparkles size={20} className="text-emerald-500" />
+                                <div>
+                                    <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Ringkasan Produk Tenant</h2>
+                                    <p className="text-sm text-slate-500 dark:text-slate-400">Mudah dibaca untuk melihat produk pendorong omzet dan produk yang perlu perhatian.</p>
+                                </div>
+                            </div>
+                            <div className="grid gap-3 md:grid-cols-2">
+                                <div className="rounded-2xl bg-emerald-50 p-4 dark:bg-emerald-950/20">
+                                    <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-300">Best Seller</p>
+                                    <p className="mt-2 text-base font-bold text-emerald-900 dark:text-emerald-100">
+                                        {bestSeller?.product_title || "Belum ada"}
+                                    </p>
+                                    <p className="mt-1 text-sm text-emerald-800 dark:text-emerald-200">
+                                        {bestSeller
+                                            ? `${bestSeller.sold_qty} item • ${formatCurrency(bestSeller.sold_value)}`
+                                            : "Belum ada transaksi pada filter ini."}
+                                    </p>
+                                </div>
+                                <div className="rounded-2xl bg-amber-50 p-4 dark:bg-amber-950/20">
+                                    <p className="text-xs font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-300">Produk Tidak Laku</p>
+                                    <p className="mt-2 text-base font-bold text-amber-900 dark:text-amber-100">
+                                        {Number(productPerformance?.unsold_count ?? 0).toLocaleString("id-ID")} produk
+                                    </p>
+                                    <p className="mt-1 text-sm text-amber-800 dark:text-amber-200">
+                                        Gunakan daftar di bawah untuk evaluasi menu, harga, atau stok.
+                                    </p>
+                                </div>
+                                <div className="rounded-2xl bg-blue-50 p-4 dark:bg-blue-950/20">
+                                    <p className="text-xs font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-300">Produk Laku</p>
+                                    <p className="mt-2 text-base font-bold text-blue-900 dark:text-blue-100">
+                                        {Number(productPerformance?.sold_count ?? 0).toLocaleString("id-ID")} produk
+                                    </p>
+                                    <p className="mt-1 text-sm text-blue-800 dark:text-blue-200">
+                                        Dari total {Number(productPerformance?.catalog_count ?? 0).toLocaleString("id-ID")} produk aktif.
+                                    </p>
+                                </div>
+                                <div className="rounded-2xl bg-violet-50 p-4 dark:bg-violet-950/20">
+                                    <p className="text-xs font-semibold uppercase tracking-wide text-violet-600 dark:text-violet-300">Rata-rata Order</p>
+                                    <p className="mt-2 text-base font-bold text-violet-900 dark:text-violet-100">
+                                        {formatCurrency(summary?.average_order_value ?? 0)}
+                                    </p>
+                                    <p className="mt-1 text-sm text-violet-800 dark:text-violet-200">
+                                        Nilai rata-rata dari {summary?.filtered_orders_count ?? 0} transaksi pada filter aktif.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="rounded-3xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+                            <div className="mb-4">
+                                <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Kontribusi Omzet Produk</h2>
+                                <p className="text-sm text-slate-500 dark:text-slate-400">Produk mana yang paling besar menyumbang omzet tenant.</p>
+                            </div>
+                            <div className="space-y-3">
+                                {(productPerformance?.revenue_mix ?? []).length ? (
+                                    productPerformance.revenue_mix.map((product, index) => (
+                                        <div key={`${product.product_id}-${index}`} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/40">
+                                            <div className="flex items-center justify-between gap-3">
+                                                <div>
+                                                    <p className="font-medium text-slate-900 dark:text-white">{product.product_title}</p>
+                                                    <p className="text-xs text-slate-500 dark:text-slate-400">{product.sold_qty} item • {formatCurrency(product.sold_value)}</p>
+                                                </div>
+                                                <p className="text-sm font-semibold text-primary-600 dark:text-primary-400">{product.share_percentage}%</p>
+                                            </div>
+                                            <div className="mt-3 h-2 rounded-full bg-slate-200 dark:bg-slate-800">
+                                                <div
+                                                    className="h-2 rounded-full bg-primary-500"
+                                                    style={{ width: `${Math.min(100, Number(product.share_percentage || 0))}%` }}
+                                                />
+                                            </div>
+                                        </div>
+                                    ))
+                                ) : (
+                                    <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-6 text-sm text-slate-400 dark:border-slate-800">
+                                        Belum ada kontribusi omzet karena belum ada transaksi pada filter ini.
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -568,6 +822,56 @@ export default function WorkspaceSalesIndex({
                     </div>
                 </div>
 
+                {!isKitchenWorkspace ? (
+                    <div className="grid gap-4 xl:grid-cols-[1.15fr,0.85fr]">
+                        <div className="rounded-3xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+                            <div className="mb-3">
+                                <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Tren Promo Tenant</h2>
+                                <p className="text-sm text-slate-500 dark:text-slate-400">Nilai promo tenant per hari pada filter transaksi admin.</p>
+                            </div>
+                            <div className="h-80">
+                                {promoTrend.length ? <canvas ref={promoChartRef} /> : <div className="flex h-full items-center justify-center text-sm text-slate-400">Belum ada data promo tenant.</div>}
+                            </div>
+                        </div>
+                        <div className="rounded-3xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+                            <div className="mb-4 flex items-center gap-2">
+                                <IconSparkles size={20} className="text-rose-500" />
+                                <div>
+                                    <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Breakdown Promo per Tenant</h2>
+                                    <p className="text-sm text-slate-500 dark:text-slate-400">Tenant dengan dampak promo terbesar pada periode aktif.</p>
+                                </div>
+                            </div>
+                            <div className="space-y-3">
+                                {tenantPromoBreakdown.length ? tenantPromoBreakdown.map((tenant, index) => (
+                                    <div key={`${tenant.tenant_outlet_id}-${index}`} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/40">
+                                        <div className="flex items-start justify-between gap-3">
+                                            <div>
+                                                <p className="font-medium text-slate-900 dark:text-white">{tenant.tenant_outlet?.name || tenant.tenant_outlet?.code || `Tenant ${tenant.tenant_outlet_id}`}</p>
+                                                <p className="text-xs text-slate-500 dark:text-slate-400">{tenant.orders_count} transaksi</p>
+                                            </div>
+                                            <p className="text-sm font-semibold text-rose-600 dark:text-rose-400">-{formatCurrency(tenant.promo_total)}</p>
+                                        </div>
+                                        <div className="mt-3 grid gap-2 text-xs text-slate-600 dark:text-slate-400">
+                                            <div className="flex justify-between gap-3">
+                                                <span>Sebelum promo</span>
+                                                <span>{formatCurrency(tenant.pre_promo_subtotal)}</span>
+                                            </div>
+                                            <div className="flex justify-between gap-3">
+                                                <span>Sesudah promo</span>
+                                                <span>{formatCurrency(tenant.after_promo_total)}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )) : (
+                                    <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-6 text-sm text-slate-400 dark:border-slate-800">
+                                        Belum ada promo tenant untuk filter ini.
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                ) : null}
+
                 <div className="grid gap-4 xl:grid-cols-[1.5fr,1fr]">
                     <div className="rounded-3xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
                         <div className="mb-3">
@@ -604,6 +908,96 @@ export default function WorkspaceSalesIndex({
                     </div>
                 </div>
 
+                {isKitchenWorkspace ? (
+                    <div className="grid gap-4 xl:grid-cols-3">
+                        <div className="rounded-3xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+                            <div className="mb-4 flex items-center gap-2">
+                                <IconSparkles size={20} className="text-emerald-500" />
+                                <div>
+                                    <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Best Seller</h2>
+                                    <p className="text-sm text-slate-500 dark:text-slate-400">Produk paling laku pada periode aktif.</p>
+                                </div>
+                            </div>
+                            <div className="space-y-3">
+                                {(productPerformance?.best_sellers ?? []).length ? (
+                                    productPerformance.best_sellers.map((product, index) => (
+                                        <div key={`${product.product_id}-${index}`} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/40">
+                                            <div className="flex items-center justify-between gap-3">
+                                                <div>
+                                                    <p className="font-medium text-slate-900 dark:text-white">{product.product_title}</p>
+                                                    <p className="text-xs text-slate-500 dark:text-slate-400">{product.sold_qty} item terjual</p>
+                                                </div>
+                                                <p className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">{formatCurrency(product.sold_value)}</p>
+                                            </div>
+                                        </div>
+                                    ))
+                                ) : (
+                                    <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-6 text-sm text-slate-400 dark:border-slate-800">
+                                        Belum ada best seller karena belum ada transaksi.
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="rounded-3xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+                            <div className="mb-4 flex items-center gap-2">
+                                <IconChartBar size={20} className="text-amber-500" />
+                                <div>
+                                    <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Kurang Laku</h2>
+                                    <p className="text-sm text-slate-500 dark:text-slate-400">Masih terjual, tapi paling rendah performanya.</p>
+                                </div>
+                            </div>
+                            <div className="space-y-3">
+                                {(productPerformance?.slow_movers ?? []).length ? (
+                                    productPerformance.slow_movers.map((product, index) => (
+                                        <div key={`${product.product_id}-${index}`} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/40">
+                                            <div className="flex items-center justify-between gap-3">
+                                                <div>
+                                                    <p className="font-medium text-slate-900 dark:text-white">{product.product_title}</p>
+                                                    <p className="text-xs text-slate-500 dark:text-slate-400">{product.sold_qty} item • {product.share_percentage}% omzet</p>
+                                                </div>
+                                                <p className="text-sm font-semibold text-amber-600 dark:text-amber-400">{formatCurrency(product.sold_value)}</p>
+                                            </div>
+                                        </div>
+                                    ))
+                                ) : (
+                                    <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-6 text-sm text-slate-400 dark:border-slate-800">
+                                        Belum ada data produk kurang laku.
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="rounded-3xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+                            <div className="mb-4 flex items-center gap-2">
+                                <IconDatabaseOff size={20} className="text-rose-500" />
+                                <div>
+                                    <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Tidak Laku</h2>
+                                    <p className="text-sm text-slate-500 dark:text-slate-400">Produk aktif yang belum terjual sama sekali.</p>
+                                </div>
+                            </div>
+                            <div className="space-y-3">
+                                {(productPerformance?.unsold_products ?? []).length ? (
+                                    productPerformance.unsold_products.map((product, index) => (
+                                        <div key={`${product.product_id}-${index}`} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/40">
+                                            <div className="flex items-center justify-between gap-3">
+                                                <p className="font-medium text-slate-900 dark:text-white">{product.product_title}</p>
+                                                <span className="rounded-full bg-rose-100 px-3 py-1 text-xs font-semibold text-rose-700 dark:bg-rose-950/30 dark:text-rose-300">
+                                                    Belum terjual
+                                                </span>
+                                            </div>
+                                        </div>
+                                    ))
+                                ) : (
+                                    <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-6 text-sm text-slate-400 dark:border-slate-800">
+                                        Semua produk aktif sudah pernah terjual pada filter ini.
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                ) : null}
+
                 <div className="rounded-3xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
                     <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                         <div>
@@ -628,6 +1022,8 @@ export default function WorkspaceSalesIndex({
                                         <th className="px-4 py-3">Bayar</th>
                                         <th className="px-4 py-3">Status</th>
                                         {isKitchenWorkspace ? <th className="px-4 py-3">Status Antar</th> : null}
+                                        {!isKitchenWorkspace ? <th className="px-4 py-3 text-right">Sebelum Promo</th> : null}
+                                        {!isKitchenWorkspace ? <th className="px-4 py-3 text-right">Promo</th> : null}
                                         <th className="px-4 py-3 text-right">{isKitchenWorkspace ? "Penjualan Tenant" : "Total"}</th>
                                     </tr>
                                 </thead>
@@ -654,6 +1050,16 @@ export default function WorkspaceSalesIndex({
                                                     <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
                                                         {row.service_status_label || "-"}
                                                     </span>
+                                                </td>
+                                            ) : null}
+                                            {!isKitchenWorkspace ? (
+                                                <td className="px-4 py-3 text-right text-slate-600 dark:text-slate-300">
+                                                    {formatCurrency(row.pre_discount_total || row.display_total)}
+                                                </td>
+                                            ) : null}
+                                            {!isKitchenWorkspace ? (
+                                                <td className="px-4 py-3 text-right font-medium text-rose-600 dark:text-rose-400">
+                                                    {row.promo_total > 0 ? `- ${formatCurrency(row.promo_total)}` : formatCurrency(0)}
                                                 </td>
                                             ) : null}
                                             <td className="px-4 py-3 text-right font-semibold text-primary-600 dark:text-primary-400">

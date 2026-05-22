@@ -294,6 +294,17 @@ const History = ({ transactions, filters }) => {
                                                     <span className="text-sm font-semibold text-slate-900 dark:text-white">
                                                         {transaction.invoice}
                                                     </span>
+                                                    {Number(
+                                                        transaction.total_discount ||
+                                                            0
+                                                    ) > 0 && (
+                                                        <div className="text-[11px] font-medium text-rose-600 dark:text-rose-400">
+                                                            Promo total{" "}
+                                                            {formatCurrency(
+                                                                transaction.total_discount
+                                                            )}
+                                                        </div>
+                                                    )}
                                                     {transaction.tenant_allocations
                                                         ?.length > 0 && (
                                                         <div className="flex flex-wrap gap-1">
@@ -487,6 +498,16 @@ const History = ({ transactions, filters }) => {
                                             <p className="text-base font-semibold text-slate-900 dark:text-white">
                                                 {transaction.invoice}
                                             </p>
+                                            {Number(
+                                                transaction.total_discount || 0
+                                            ) > 0 && (
+                                                <p className="text-[11px] font-medium text-rose-600 dark:text-rose-400">
+                                                    Promo total{" "}
+                                                    {formatCurrency(
+                                                        transaction.total_discount
+                                                    )}
+                                                </p>
+                                            )}
                                             {transaction.tenant_allocations
                                                 ?.length > 0 && (
                                                 <div className="flex flex-wrap gap-1">

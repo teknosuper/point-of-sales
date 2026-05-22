@@ -728,6 +728,31 @@ export default function Print({
                                                     allocation.tenant_outlet?.name ||
                                                     allocation.tenant_outlet?.code ||
                                                     `Tenant #${allocation.tenant_outlet_id}`;
+                                                const totalDiscount =
+                                                    Number(
+                                                        allocation.promo_discount_total ||
+                                                            0
+                                                    ) +
+                                                    Number(
+                                                        allocation.voucher_discount_total ||
+                                                            0
+                                                    ) +
+                                                    Number(
+                                                        allocation.loyalty_discount_total ||
+                                                            0
+                                                    ) +
+                                                    Number(
+                                                        allocation.manual_discount_total ||
+                                                            0
+                                                    );
+                                                const prePromoSubtotal =
+                                                    Number(
+                                                        allocation.subtotal || 0
+                                                    ) +
+                                                    Number(
+                                                        allocation.promo_discount_total ||
+                                                            0
+                                                    );
                                                 const shippingShare = Math.max(
                                                     0,
                                                     Number(
@@ -771,6 +796,10 @@ export default function Print({
 
                                                         <div className="mt-3 grid gap-2 sm:grid-cols-2 text-xs text-slate-600 dark:text-slate-400">
                                                             <div className="flex justify-between gap-3">
+                                                                <span>Sebelum promo</span>
+                                                                <span>{formatPrice(prePromoSubtotal)}</span>
+                                                            </div>
+                                                            <div className="flex justify-between gap-3">
                                                                 <span>Subtotal</span>
                                                                 <span>{formatPrice(allocation.subtotal)}</span>
                                                             </div>
@@ -789,6 +818,10 @@ export default function Print({
                                                             <div className="flex justify-between gap-3">
                                                                 <span>Diskon manual</span>
                                                                 <span>- {formatPrice(allocation.manual_discount_total)}</span>
+                                                            </div>
+                                                            <div className="flex justify-between gap-3 font-medium text-rose-600 dark:text-rose-400">
+                                                                <span>Total diskon tenant</span>
+                                                                <span>- {formatPrice(totalDiscount)}</span>
                                                             </div>
                                                             {shippingShare > 0 && (
                                                                 <div className="flex justify-between gap-3">

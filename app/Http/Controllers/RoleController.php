@@ -20,13 +20,39 @@ class RoleController extends Controller
      */
     public function index(Request $request)
     {
+        $filters = [
+            'search' => trim((string) $request->input('search', '')),
+            'kind' => (string) $request->input('kind', ''),
+            'per_page' => (int) $request->input('per_page', 12),
+        ];
+
+        $allowedPerPage = [8, 12, 20, 30, 50];
+        if (! in_array($filters['per_page'], $allowedPerPage, true)) {
+            $filters['per_page'] = 12;
+        }
+
         // get all role data
         $roles = Role::query()
             ->with('permissions')
-            ->when(request()->search, fn ($query) => $query->where('name', 'like', '%'.request()->search.'%'))
+            ->when($filters['search'] !== '', fn ($query) => $query->where('name', 'like', '%'.$filters['search'].'%'))
+            ->when($filters['kind'] !== '', function ($query) use ($filters) {
+                match ($filters['kind']) {
+                    'system' => $query->whereIn('name', ['super-admin', 'cashier', 'waiter', 'kitchen-operator']),
+                    'tenant' => $query->where(function ($builder) {
+                        $builder
+                            ->where('name', 'kitchen-operator')
+                            ->orWhere('name', 'pricing-rules-access')
+                            ->orWhere('name', 'products-access')
+                            ->orWhere('name', 'outlets-access');
+                    }),
+                    'pricing' => $query->whereIn('name', ['pricing-rules-access', 'products-access']),
+                    'admin' => $query->whereNotIn('name', ['super-admin', 'cashier', 'waiter', 'kitchen-operator']),
+                    default => null,
+                };
+            })
             ->select('id', 'name')
-            ->latest()
-            ->paginate(7)
+            ->orderBy('name')
+            ->paginate($filters['per_page'])
             ->withQueryString();
 
         // get all permission data
@@ -39,6 +65,8 @@ class RoleController extends Controller
         return Inertia::render('Dashboard/Roles/Index', [
             'roles' => $roles,
             'permissions' => $permissions,
+            'filters' => $filters,
+            'perPageOptions' => $allowedPerPage,
         ]);
     }
 

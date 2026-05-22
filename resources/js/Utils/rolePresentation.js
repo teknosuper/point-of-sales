@@ -42,6 +42,8 @@ const roleDescriptions = {
     cashier: "Fokus pada transaksi kasir dan operasional checkout.",
     waiter: "Fokus pada pengantaran pesanan dari dapur ke pelanggan.",
     "kitchen-operator": "Fokus pada layar dapur, stok, dan buka/tutup toko tenant.",
+    "pricing-rules-access": "Role khusus untuk admin promo tenant atau owner outlet yang mengelola diskon, happy hour, dan bundling.",
+    "products-access": "Role admin katalog dan operasional produk. Cocok untuk kontrol data produk lintas outlet.",
 };
 
 export function roleLabel(name = "") {

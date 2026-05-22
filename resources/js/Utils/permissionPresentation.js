@@ -153,9 +153,17 @@ export function permissionDescription(name = "") {
         case "products-create":
             return "Untuk admin katalog: buat produk baru, ubah identitas produk, tenant mapping, dan topping.";
         case "products-edit":
-            return "Untuk operasional: ubah data produk terbatas dan sesuaikan stok outlet.";
+            return "Untuk operasional harian: sesuaikan stok outlet, status jual, dan perubahan produk non-pricing.";
         case "products-pricing-update":
-            return "Izin khusus untuk mengganti harga beli dan harga jual.";
+            return "Izin khusus admin untuk mengganti harga beli dan harga jual owner outlet.";
+        case "pricing-rules-access":
+            return "Melihat halaman promo, diskon coret, happy hour, bundle, dan buy x get y. Tenant perlu izin ini untuk membuka modul promo outletnya.";
+        case "pricing-rules-create":
+            return "Membuat promo tenant atau owner outlet. Pada workspace tenant, basis harga promo dihitung dari harga beli tenant.";
+        case "pricing-rules-update":
+            return "Mengubah jadwal, scope outlet, jenis diskon, dan detail promo yang sudah dibuat.";
+        case "pricing-rules-delete":
+            return "Menghapus promo yang tidak dipakai lagi. Sebaiknya hanya untuk admin owner atau PIC tenant tepercaya.";
         case "outlets-toggle":
             return "Dipakai untuk menutup atau membuka toko tanpa harus mengubah data outlet lain.";
         case "outlets-update":

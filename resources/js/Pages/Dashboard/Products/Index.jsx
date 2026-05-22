@@ -115,6 +115,13 @@ function ProductCard({
     const tenantReady = Boolean(product.tenant_outlet_id);
     const kitchenReady =
         Number(product.active_kitchen_station_mappings_count ?? 0) > 0;
+    const promoPrice = Number(product.pricing_badge?.promo_price || 0);
+    const promoBasePrice = Number(product.pricing_badge?.base_price || 0);
+    const usesTenantRulePromo =
+        showCostAsPrimary &&
+        product.pricing_badge?.price_basis === "buy_price" &&
+        promoPrice > 0 &&
+        promoPrice < promoBasePrice;
 
     return (
         <div
@@ -248,15 +255,34 @@ function ProductCard({
                 )}
 
                 <div className="mt-2 border-t border-slate-100 pt-2 dark:border-slate-800">
-                    <p className="text-base font-bold text-primary-600 dark:text-primary-400">
-                        {formatCurrency(
-                            showCostAsPrimary ? product.buy_price : product.sell_price
-                        )}
-                    </p>
+                    <div className="flex flex-wrap items-end gap-2">
+                        {usesTenantRulePromo ? (
+                            <p className="text-xs font-semibold text-slate-400 line-through dark:text-slate-500">
+                                {formatCurrency(promoBasePrice)}
+                            </p>
+                        ) : showCostAsPrimary && product.tenant_has_discount ? (
+                            <p className="text-xs font-semibold text-slate-400 line-through dark:text-slate-500">
+                                {formatCurrency(product.buy_price)}
+                            </p>
+                        ) : null}
+                        <p className="text-base font-bold text-primary-600 dark:text-primary-400">
+                            {formatCurrency(
+                                showCostAsPrimary
+                                    ? usesTenantRulePromo
+                                        ? promoPrice
+                                        : product.tenant_effective_price ?? product.buy_price
+                                    : product.sell_price
+                            )}
+                        </p>
+                    </div>
                     <div className="mt-1 flex items-center justify-between">
                         <p className="text-xs text-slate-400 dark:text-slate-500">
                             {showCostAsPrimary
-                                ? `Harga jual: ${formatCurrency(product.sell_price)}`
+                                ? usesTenantRulePromo
+                                    ? product.pricing_badge?.label || `Promo tenant dari harga dasar ${formatCurrency(promoBasePrice)}`
+                                    : product.tenant_has_discount
+                                    ? `Promo tenant dari harga dasar ${formatCurrency(product.buy_price)}`
+                                    : `Harga dasar tenant: ${formatCurrency(product.buy_price)}`
                                 : `Harga beli: ${formatCurrency(product.buy_price)}`}
                         </p>
                         {showSellPrice && product.sell_price > product.buy_price ? (
@@ -1376,12 +1402,43 @@ export default function Index({
                                             </Table.Td>
                                             <Table.Td>
                                                 <div className="space-y-1">
-                                                    <p className="font-semibold text-slate-800 dark:text-slate-100">
-                                                        {formatCurrency(product.buy_price)}
-                                                    </p>
+                                                    <div className="flex flex-wrap items-center gap-2">
+                                                        {showCostAsPrimary &&
+                                                        product.pricing_badge?.price_basis === "buy_price" &&
+                                                        Number(product.pricing_badge?.promo_price || 0) > 0 &&
+                                                        Number(product.pricing_badge?.promo_price || 0) <
+                                                            Number(product.pricing_badge?.base_price || 0) ? (
+                                                            <p className="text-xs font-semibold text-slate-400 line-through dark:text-slate-500">
+                                                                {formatCurrency(product.pricing_badge?.base_price)}
+                                                            </p>
+                                                        ) : showCostAsPrimary && product.tenant_has_discount ? (
+                                                            <p className="text-xs font-semibold text-slate-400 line-through dark:text-slate-500">
+                                                                {formatCurrency(product.buy_price)}
+                                                            </p>
+                                                        ) : null}
+                                                        <p className="font-semibold text-slate-800 dark:text-slate-100">
+                                                            {formatCurrency(
+                                                                showCostAsPrimary
+                                                                    ? product.pricing_badge?.price_basis === "buy_price" &&
+                                                                      Number(product.pricing_badge?.promo_price || 0) > 0 &&
+                                                                      Number(product.pricing_badge?.promo_price || 0) <
+                                                                          Number(product.pricing_badge?.base_price || 0)
+                                                                        ? product.pricing_badge?.promo_price
+                                                                        : product.tenant_effective_price ?? product.buy_price
+                                                                    : product.buy_price
+                                                            )}
+                                                        </p>
+                                                    </div>
                                                     {showCostAsPrimary ? (
                                                         <p className="text-xs text-slate-500 dark:text-slate-400">
-                                                            Harga utama untuk operasional dapur.
+                                                            {product.pricing_badge?.price_basis === "buy_price" &&
+                                                            Number(product.pricing_badge?.promo_price || 0) > 0 &&
+                                                            Number(product.pricing_badge?.promo_price || 0) <
+                                                                Number(product.pricing_badge?.base_price || 0)
+                                                                ? product.pricing_badge?.label || "Promo tenant aktif dari rule outlet."
+                                                                : product.tenant_has_discount
+                                                                ? "Promo tenant aktif dari harga dasar."
+                                                                : "Harga utama untuk operasional dapur."}
                                                         </p>
                                                     ) : null}
                                                 </div>

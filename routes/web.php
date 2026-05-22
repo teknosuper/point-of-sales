@@ -233,6 +233,24 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
     Route::get('workspace-sales', [WorkspaceSalesController::class, 'index'])
         ->middleware(['permission:dashboard-access', 'outlet_access'])
         ->name('workspace-sales.index');
+    Route::get('workspace-sales/daily-breakdown', [WorkspaceSalesController::class, 'dailyBreakdown'])
+        ->middleware(['permission:dashboard-access', 'outlet_access'])
+        ->name('workspace-sales.daily-breakdown');
+    Route::get('workspace-sales/daily-breakdown/export', [WorkspaceSalesController::class, 'exportDailyBreakdown'])
+        ->middleware(['permission:dashboard-access', 'outlet_access'])
+        ->name('workspace-sales.daily-breakdown.export');
+    Route::get('workspace-sales/hourly-breakdown', [WorkspaceSalesController::class, 'hourlyBreakdown'])
+        ->middleware(['permission:dashboard-access', 'outlet_access'])
+        ->name('workspace-sales.hourly-breakdown');
+    Route::get('workspace-sales/hourly-breakdown/export', [WorkspaceSalesController::class, 'exportHourlyBreakdown'])
+        ->middleware(['permission:dashboard-access', 'outlet_access'])
+        ->name('workspace-sales.hourly-breakdown.export');
+    Route::get('workspace-sales/product-breakdown', [WorkspaceSalesController::class, 'productBreakdown'])
+        ->middleware(['permission:dashboard-access', 'outlet_access'])
+        ->name('workspace-sales.product-breakdown');
+    Route::get('workspace-sales/product-breakdown/export', [WorkspaceSalesController::class, 'exportProductBreakdown'])
+        ->middleware(['permission:dashboard-access', 'outlet_access'])
+        ->name('workspace-sales.product-breakdown.export');
 
     // route customer history
     Route::get('/customers/{customer}/history', [CustomerController::class, 'getHistory'])->middleware('permission:transactions-access')->name('customers.history');

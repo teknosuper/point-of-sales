@@ -11,19 +11,172 @@ class PermissionController extends Controller
     /**
      * Display a listing of the resource.
      */
-    public function index()
+    public function index(Request $request)
     {
+        $filters = [
+            'search' => trim((string) $request->input('search', '')),
+            'group' => (string) $request->input('group', ''),
+            'per_page' => (int) $request->input('per_page', 20),
+        ];
+
+        $allowedPerPage = [15, 20, 30, 50, 100];
+        if (! in_array($filters['per_page'], $allowedPerPage, true)) {
+            $filters['per_page'] = 20;
+        }
+
         $permissions = Permission::query()
-            ->when(request()->search, fn ($query) => $query->where('name', 'like', '%'.request()->search.'%'))
+            ->when($filters['search'] !== '', fn ($query) => $query->where('name', 'like', '%'.$filters['search'].'%'))
+            ->when($filters['group'] !== '', fn ($query) => $this->applyGroupFilter($query, $filters['group']))
             ->select('id', 'name')
-            ->latest()
-            ->paginate(7)
+            ->orderBy('name')
+            ->paginate($filters['per_page'])
             ->withQueryString();
+
+        $groupCounts = Permission::query()
+            ->select('id', 'name')
+            ->orderBy('name')
+            ->get()
+            ->map(fn (Permission $permission) => $this->mapPermissionGroup($permission->name))
+            ->countBy()
+            ->map(fn ($count, $group) => [
+                'key' => $group,
+                'count' => $count,
+                'label' => $this->mapPermissionGroupLabel($group),
+            ])
+            ->values()
+            ->sortBy('label', SORT_NATURAL | SORT_FLAG_CASE)
+            ->values();
 
         // render view
         return Inertia::render('Dashboard/Permissions/Index', [
             'permissions' => $permissions,
+            'filters' => $filters,
+            'groupCounts' => $groupCounts,
+            'groupOptions' => $groupCounts->values()->all(),
+            'perPageOptions' => $allowedPerPage,
         ]);
+    }
+
+    private function applyGroupFilter($query, string $group)
+    {
+        return match ($group) {
+            'dashboard' => $query->where('name', 'dashboard-access'),
+            'users' => $query->where('name', 'like', 'users-%'),
+            'roles' => $query->where('name', 'like', 'roles-%'),
+            'permissions' => $query->where('name', 'like', 'permissions-%'),
+            'categories' => $query->where('name', 'like', 'categories-%'),
+            'products' => $query->where('name', 'like', 'products-%'),
+            'pricing' => $query->where('name', 'like', 'pricing-rules-%'),
+            'outlets' => $query->where('name', 'like', 'outlets-%'),
+            'customers' => $query->where(function ($builder) {
+                $builder
+                    ->where('name', 'like', 'customers-%')
+                    ->orWhere('name', 'like', 'customer-vouchers-%')
+                    ->orWhere('name', 'like', 'customer-segments-%')
+                    ->orWhere('name', 'like', 'crm-%');
+            }),
+            'transactions' => $query->where(function ($builder) {
+                $builder
+                    ->where('name', 'like', 'transactions-%')
+                    ->orWhere('name', 'like', 'dining-tables-%');
+            }),
+            'finance' => $query->where(function ($builder) {
+                $builder
+                    ->where('name', 'like', 'receivables-%')
+                    ->orWhere('name', 'like', 'payables-%')
+                    ->orWhere('name', 'like', 'suppliers-%');
+            }),
+            'reports' => $query->where(function ($builder) {
+                $builder
+                    ->where('name', 'like', 'reports-%')
+                    ->orWhere('name', 'like', 'profits-%');
+            }),
+            'settings' => $query->where('name', 'like', 'payment-settings-%'),
+            'inventory' => $query->where(function ($builder) {
+                $builder
+                    ->where('name', 'like', 'stock-opnames-%')
+                    ->orWhere('name', 'like', 'stock-mutations-%');
+            }),
+            'returns' => $query->where('name', 'like', 'sales-returns-%'),
+            'shifts' => $query->where('name', 'like', 'cashier-shifts-%'),
+            'audit' => $query->where('name', 'like', 'audit-logs-%'),
+            'purchasing' => $query->where(function ($builder) {
+                $builder
+                    ->where('name', 'like', 'purchase-orders-%')
+                    ->orWhere('name', 'like', 'goods-receivings-%')
+                    ->orWhere('name', 'like', 'supplier-returns-%');
+            }),
+            'kitchen' => $query->where(function ($builder) {
+                $builder
+                    ->where('name', 'waiter-board-access')
+                    ->orWhere('name', 'table-orders-access')
+                    ->orWhere('name', 'table-orders-approve');
+            }),
+            default => $query,
+        };
+    }
+
+    private function mapPermissionGroup(string $name): string
+    {
+        return match (true) {
+            str_starts_with($name, 'users-') => 'users',
+            str_starts_with($name, 'roles-') => 'roles',
+            str_starts_with($name, 'permissions-') => 'permissions',
+            str_starts_with($name, 'categories-') => 'categories',
+            str_starts_with($name, 'products-') => 'products',
+            str_starts_with($name, 'pricing-rules-') => 'pricing',
+            str_starts_with($name, 'outlets-') => 'outlets',
+            str_starts_with($name, 'customers-'),
+            str_starts_with($name, 'customer-vouchers-'),
+            str_starts_with($name, 'customer-segments-'),
+            str_starts_with($name, 'crm-') => 'customers',
+            str_starts_with($name, 'transactions-'),
+            str_starts_with($name, 'dining-tables-') => 'transactions',
+            str_starts_with($name, 'receivables-'),
+            str_starts_with($name, 'payables-'),
+            str_starts_with($name, 'suppliers-') => 'finance',
+            str_starts_with($name, 'reports-'),
+            str_starts_with($name, 'profits-') => 'reports',
+            str_starts_with($name, 'payment-settings-') => 'settings',
+            str_starts_with($name, 'stock-opnames-'),
+            str_starts_with($name, 'stock-mutations-') => 'inventory',
+            str_starts_with($name, 'sales-returns-') => 'returns',
+            str_starts_with($name, 'cashier-shifts-') => 'shifts',
+            str_starts_with($name, 'audit-logs-') => 'audit',
+            str_starts_with($name, 'purchase-orders-'),
+            str_starts_with($name, 'goods-receivings-'),
+            str_starts_with($name, 'supplier-returns-') => 'purchasing',
+            $name === 'dashboard-access' => 'dashboard',
+            $name === 'waiter-board-access',
+            str_starts_with($name, 'table-orders-') => 'kitchen',
+            default => 'other',
+        };
+    }
+
+    private function mapPermissionGroupLabel(string $group): string
+    {
+        return match ($group) {
+            'dashboard' => 'Dashboard',
+            'users' => 'Pengguna',
+            'roles' => 'Group Akses',
+            'permissions' => 'Daftar Izin',
+            'categories' => 'Kategori',
+            'products' => 'Produk',
+            'pricing' => 'Harga dan Promo',
+            'outlets' => 'Outlet dan Tenant',
+            'customers' => 'Pelanggan dan CRM',
+            'transactions' => 'POS dan Operasional',
+            'finance' => 'Piutang dan Hutang',
+            'reports' => 'Laporan',
+            'settings' => 'Pengaturan',
+            'inventory' => 'Stok dan Gudang',
+            'returns' => 'Retur',
+            'shifts' => 'Shift Kasir',
+            'audit' => 'Audit',
+            'purchasing' => 'Pembelian',
+            'kitchen' => 'Dapur dan Antar',
+            default => 'Lainnya',
+        };
     }
 
     /**

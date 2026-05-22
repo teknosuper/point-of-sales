@@ -203,6 +203,8 @@ class CashierShiftController extends Controller
             'paid_transactions_count' => (int) $baseSettlement['paid_transactions_count'],
             'gross_sales_total' => (int) $baseSettlement['gross_sales_total'],
             'base_sales_total' => (int) $baseSettlement['base_sales_total'],
+            'pricing_discount_total' => (int) $baseSettlement['pricing_discount_total'],
+            'pricing_reference_total' => (int) $baseSettlement['pricing_reference_total'],
             'markup_total' => (int) $baseSettlement['markup_total'],
             'notes' => $shift->notes,
             'close_notes' => $shift->close_notes,

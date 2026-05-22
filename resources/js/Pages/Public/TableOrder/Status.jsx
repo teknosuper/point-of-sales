@@ -50,6 +50,9 @@ export default function Status({ order }) {
                                         <p className="font-medium">
                                             {item.product_title} x{item.qty}
                                         </p>
+                                        <p className="mt-1 text-xs text-slate-500">
+                                            {formatPrice(item.unit_price)} / porsi
+                                        </p>
                                         {item.modifiers?.length ? (
                                             <div className="mt-1 flex flex-wrap gap-2">
                                                 {item.modifiers.map((modifier) => (

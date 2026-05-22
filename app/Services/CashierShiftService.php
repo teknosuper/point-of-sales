@@ -136,11 +136,18 @@ class CashierShiftService
                 ->selectRaw('COALESCE(SUM(base_unit_price * qty), 0) as total_base_value')
                 ->value('total_base_value') ?? 0)
             : 0;
+        $pricingDiscountTotal = $transactionIds->isNotEmpty()
+            ? (int) (TransactionDetail::query()
+                ->whereIn('transaction_id', $transactionIds)
+                ->sum('discount_total') ?? 0)
+            : 0;
 
         return [
             'paid_transactions_count' => (int) $transactionIds->count(),
             'gross_sales_total' => $grossSalesTotal,
             'base_sales_total' => $baseSalesTotal,
+            'pricing_discount_total' => $pricingDiscountTotal,
+            'pricing_reference_total' => max(0, $baseSalesTotal - $pricingDiscountTotal),
             'markup_total' => max(0, $grossSalesTotal - $baseSalesTotal),
         ];
     }

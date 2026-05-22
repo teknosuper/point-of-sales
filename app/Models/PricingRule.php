@@ -37,6 +37,24 @@ class PricingRule extends Model
 
     public const TYPE_FIXED_PRICE = 'fixed_price';
 
+    public const PRICE_BASIS_SELL_PRICE = 'sell_price';
+
+    public const PRICE_BASIS_BUY_PRICE = 'buy_price';
+
+    public const DAY_SUNDAY = 'sun';
+
+    public const DAY_MONDAY = 'mon';
+
+    public const DAY_TUESDAY = 'tue';
+
+    public const DAY_WEDNESDAY = 'wed';
+
+    public const DAY_THURSDAY = 'thu';
+
+    public const DAY_FRIDAY = 'fri';
+
+    public const DAY_SATURDAY = 'sat';
+
     protected $fillable = [
         'name',
         'kind',
@@ -45,12 +63,17 @@ class PricingRule extends Model
         'target_type',
         'product_id',
         'category_id',
+        'outlet_id',
         'customer_scope',
         'eligible_loyalty_tiers',
         'discount_type',
         'discount_value',
+        'price_basis',
         'starts_at',
         'ends_at',
+        'active_days',
+        'daily_start_time',
+        'daily_end_time',
         'preview_quantity_multiplier',
         'notes',
         'created_by',
@@ -62,7 +85,9 @@ class PricingRule extends Model
         'priority' => 'integer',
         'product_id' => 'integer',
         'category_id' => 'integer',
+        'outlet_id' => 'integer',
         'eligible_loyalty_tiers' => 'array',
+        'active_days' => 'array',
         'discount_value' => 'float',
         'created_by' => 'integer',
         'preview_quantity_multiplier' => 'integer',
@@ -78,6 +103,11 @@ class PricingRule extends Model
     public function category()
     {
         return $this->belongsTo(Category::class);
+    }
+
+    public function outlet()
+    {
+        return $this->belongsTo(Outlet::class);
     }
 
     public function creator()

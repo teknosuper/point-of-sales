@@ -67,6 +67,8 @@ class WorkspaceSalesController extends Controller
         $filteredGrossTotal = (int) ((clone $baseQuery)->sum('grand_total') ?? 0);
         $filteredBaseTotal = $this->sumBaseValueForTransactionIds($filteredTransactionIds);
         $filteredMarkupTotal = max(0, $filteredGrossTotal - $filteredBaseTotal);
+        $filteredPromoTotal = $this->sumPromoDiscountsForTransactionIds($filteredTransactionIds);
+        $filteredPreDiscountTotal = max(0, $filteredGrossTotal + $filteredPromoTotal);
 
         $transactions = (clone $baseQuery)
             ->latest('created_at')
@@ -75,6 +77,11 @@ class WorkspaceSalesController extends Controller
             ->through(function (Transaction $transaction) use ($baseTotalsByTransaction, $isKitchenWorkspace) {
                 $baseTotal = (int) ($baseTotalsByTransaction[$transaction->id] ?? 0);
                 $grossTotal = (int) $transaction->grand_total;
+                $promoTotal = (int) ($transaction->details()->sum('discount_total') ?? 0)
+                    + (int) ($transaction->discount ?? 0)
+                    + (int) ($transaction->loyalty_discount_total ?? 0)
+                    + (int) ($transaction->customer_voucher_discount ?? 0);
+                $preDiscountTotal = max(0, $grossTotal + $promoTotal);
 
                 return [
                     'id' => $transaction->id,
@@ -89,6 +96,8 @@ class WorkspaceSalesController extends Controller
                     'payment_status_label' => $this->humanizePaymentStatus($transaction->payment_status),
                     'grand_total' => $grossTotal,
                     'base_total' => $baseTotal,
+                    'promo_total' => $promoTotal,
+                    'pre_discount_total' => $preDiscountTotal,
                     'markup_total' => max(0, $grossTotal - $baseTotal),
                     'display_total' => $isKitchenWorkspace ? $baseTotal : $grossTotal,
                     'created_at' => optional($transaction->getRawOriginal('created_at'))
@@ -110,6 +119,7 @@ class WorkspaceSalesController extends Controller
             ->whereDate('created_at', Carbon::today());
         $todaySales = (int) ((clone $todayTransactions)->sum('grand_total') ?? 0);
         $todayBaseTotal = $this->sumBaseValueFromTransactionQuery(clone $todayTransactions);
+        $todayPromoTotal = $this->sumPromoDiscountsFromTransactionQuery(clone $todayTransactions);
         $todayOrders = (clone $todayTransactions)
             ->count();
 
@@ -118,6 +128,7 @@ class WorkspaceSalesController extends Controller
             ->whereDate('created_at', Carbon::yesterday());
         $yesterdaySales = (int) ((clone $yesterdayTransactions)->sum('grand_total') ?? 0);
         $yesterdayBaseTotal = $this->sumBaseValueFromTransactionQuery(clone $yesterdayTransactions);
+        $yesterdayPromoTotal = $this->sumPromoDiscountsFromTransactionQuery(clone $yesterdayTransactions);
         $yesterdayOrders = (clone $yesterdayTransactions)->count();
 
         $monthTransactions = Transaction::query()
@@ -126,6 +137,7 @@ class WorkspaceSalesController extends Controller
             ->whereYear('created_at', Carbon::now()->year);
         $monthSales = (int) ((clone $monthTransactions)->sum('grand_total') ?? 0);
         $monthBaseTotal = $this->sumBaseValueFromTransactionQuery(clone $monthTransactions);
+        $monthPromoTotal = $this->sumPromoDiscountsFromTransactionQuery(clone $monthTransactions);
         $monthOrders = (clone $monthTransactions)->count();
 
         $trend = $isKitchenWorkspace
@@ -143,6 +155,12 @@ class WorkspaceSalesController extends Controller
         $topProducts = $isKitchenWorkspace
             ? $this->buildBaseTopProducts($filteredTransactionIds)
             : $this->buildGrossTopProducts($filteredTransactionIds);
+        $tenantPromoBreakdown = $isKitchenWorkspace
+            ? collect()
+            : $this->buildAdminTenantPromoBreakdown($outlet->id, $filteredTransactionIds);
+        $promoTrend = $isKitchenWorkspace
+            ? collect()
+            : $this->buildAdminTenantPromoTrend($outlet->id, $filteredTransactionIds);
 
         $cashiers = Transaction::query()
             ->where('outlet_id', $outlet->id)
@@ -171,21 +189,29 @@ class WorkspaceSalesController extends Controller
                 'today_total' => $isKitchenWorkspace ? $todayBaseTotal : $todaySales,
                 'today_sales' => (int) $todaySales,
                 'today_base_total' => $todayBaseTotal,
+                'today_promo_total' => $todayPromoTotal,
+                'today_pre_discount_total' => max(0, $todaySales + $todayPromoTotal),
                 'today_markup_total' => max(0, $todaySales - $todayBaseTotal),
                 'today_orders' => (int) $todayOrders,
                 'yesterday_total' => $isKitchenWorkspace ? $yesterdayBaseTotal : $yesterdaySales,
                 'yesterday_sales' => (int) $yesterdaySales,
                 'yesterday_base_total' => $yesterdayBaseTotal,
+                'yesterday_promo_total' => $yesterdayPromoTotal,
+                'yesterday_pre_discount_total' => max(0, $yesterdaySales + $yesterdayPromoTotal),
                 'yesterday_markup_total' => max(0, $yesterdaySales - $yesterdayBaseTotal),
                 'yesterday_orders' => (int) $yesterdayOrders,
                 'month_total' => $isKitchenWorkspace ? $monthBaseTotal : $monthSales,
                 'month_sales' => (int) $monthSales,
                 'month_base_total' => $monthBaseTotal,
+                'month_promo_total' => $monthPromoTotal,
+                'month_pre_discount_total' => max(0, $monthSales + $monthPromoTotal),
                 'month_markup_total' => max(0, $monthSales - $monthBaseTotal),
                 'month_orders' => (int) $monthOrders,
                 'filtered_total' => $isKitchenWorkspace ? $filteredBaseTotal : $filteredGrossTotal,
                 'filtered_sales_total' => (int) ($filteredSummary->sales_total ?? 0),
                 'filtered_base_total' => $filteredBaseTotal,
+                'filtered_promo_total' => $filteredPromoTotal,
+                'filtered_pre_discount_total' => $filteredPreDiscountTotal,
                 'filtered_markup_total' => $filteredMarkupTotal,
                 'filtered_orders_count' => (int) ($filteredSummary->orders_count ?? 0),
                 'filtered_profit_total' => (int) $filteredProfitTotal,
@@ -194,6 +220,8 @@ class WorkspaceSalesController extends Controller
             'hourlyTrend' => $hourlyTrend,
             'paymentBreakdown' => $paymentBreakdown,
             'topProducts' => $topProducts,
+            'tenantPromoBreakdown' => $tenantPromoBreakdown,
+            'promoTrend' => $promoTrend,
             'cashiers' => $cashiers,
             'meta' => [
                 'per_page_options' => $allowedPerPage,
@@ -209,6 +237,156 @@ class WorkspaceSalesController extends Controller
                 ],
             ],
         ]);
+    }
+
+    public function dailyBreakdown(Request $request): Response
+    {
+        [, $outlet, $filters, $tenantOutletIds, $allocationQuery] = $this->resolveKitchenWorkspaceContext($request);
+        $rows = $this->buildKitchenDailyBreakdownRows($allocationQuery, $filters);
+
+        return Inertia::render('Dashboard/WorkspaceSales/DailyBreakdown', [
+            'rows' => $rows,
+            'filters' => $filters,
+            'summary' => [
+                'days_count' => (int) $rows->count(),
+                'sales_total' => (int) $rows->sum('sales_total'),
+                'orders_count' => (int) $rows->sum('orders_count'),
+            ],
+            'meta' => [
+                'outlet' => [
+                    'id' => $outlet->id,
+                    'name' => $outlet->name,
+                    'code' => $outlet->code,
+                ],
+                'tenant_outlet_ids' => $tenantOutletIds->values()->all(),
+            ],
+        ]);
+    }
+
+    public function exportDailyBreakdown(Request $request)
+    {
+        [, , $filters, , $allocationQuery] = $this->resolveKitchenWorkspaceContext($request);
+        $rows = $this->buildKitchenDailyBreakdownRows($allocationQuery, $filters);
+        $filename = 'tenant-daily-breakdown-'.now()->format('Ymd-His').'.csv';
+
+        return response()->streamDownload(function () use ($rows) {
+            $handle = fopen('php://output', 'w');
+            fputcsv($handle, ['date', 'orders_count', 'cash_count', 'non_cash_count', 'average_order', 'sales_total']);
+            foreach ($rows as $row) {
+                fputcsv($handle, [$row['date'], $row['orders_count'], $row['cash_count'], $row['non_cash_count'], $row['average_order'], $row['sales_total']]);
+            }
+            fclose($handle);
+        }, $filename, ['Content-Type' => 'text/csv; charset=UTF-8']);
+    }
+
+    public function hourlyBreakdown(Request $request): Response
+    {
+        [, $outlet, $filters, $tenantOutletIds, $allocationQuery] = $this->resolveKitchenWorkspaceContext($request);
+        $rows = $this->buildKitchenHourlyBreakdownRows($allocationQuery, $filters);
+
+        return Inertia::render('Dashboard/WorkspaceSales/HourlyBreakdown', [
+            'rows' => $rows,
+            'filters' => $filters,
+            'summary' => [
+                'sales_total' => (int) $rows->sum('sales_total'),
+                'orders_count' => (int) $rows->sum('orders_count'),
+                'peak_hour' => $rows->sortByDesc('sales_total')->first(),
+            ],
+            'meta' => [
+                'outlet' => [
+                    'id' => $outlet->id,
+                    'name' => $outlet->name,
+                    'code' => $outlet->code,
+                ],
+                'tenant_outlet_ids' => $tenantOutletIds->values()->all(),
+            ],
+        ]);
+    }
+
+    public function exportHourlyBreakdown(Request $request)
+    {
+        [, , $filters, , $allocationQuery] = $this->resolveKitchenWorkspaceContext($request);
+        $rows = $this->buildKitchenHourlyBreakdownRows($allocationQuery, $filters);
+        $filename = 'tenant-hourly-breakdown-'.now()->format('Ymd-His').'.csv';
+
+        return response()->streamDownload(function () use ($rows) {
+            $handle = fopen('php://output', 'w');
+            fputcsv($handle, ['hour_of_day', 'label', 'orders_count', 'cash_count', 'non_cash_count', 'average_order', 'sales_total']);
+            foreach ($rows as $row) {
+                fputcsv($handle, [$row['hour_of_day'], $row['label'], $row['orders_count'], $row['cash_count'], $row['non_cash_count'], $row['average_order'], $row['sales_total']]);
+            }
+            fclose($handle);
+        }, $filename, ['Content-Type' => 'text/csv; charset=UTF-8']);
+    }
+
+    public function productBreakdown(Request $request): Response
+    {
+        [$user, $outlet, $filters, $tenantOutletIds, $allocationQuery] = $this->resolveKitchenWorkspaceContext($request);
+
+        $filteredAllocationIds = (clone $this->applyKitchenAllocationFilters($allocationQuery, $filters))->pluck('id');
+        $productPerformance = $this->buildTenantProductPerformance($user, $outlet->id, $tenantOutletIds, $filteredAllocationIds);
+        $rows = collect()
+            ->concat($productPerformance['best_sellers'] ?? collect())
+            ->concat($productPerformance['slow_movers'] ?? collect())
+            ->concat($productPerformance['unsold_products'] ?? collect())
+            ->concat($productPerformance['revenue_mix'] ?? collect())
+            ->unique('product_id')
+            ->map(function (array $row) {
+                $status = match (true) {
+                    (int) ($row['sold_qty'] ?? 0) === 0 => 'Tidak laku',
+                    (int) ($row['sold_qty'] ?? 0) <= 2 => 'Kurang laku',
+                    default => 'Laku',
+                };
+
+                return [
+                    ...$row,
+                    'status_label' => $status,
+                ];
+            })
+            ->sortBy([
+                ['sold_qty', 'desc'],
+                ['sold_value', 'desc'],
+                ['product_title', 'asc'],
+            ])
+            ->values();
+
+        return Inertia::render('Dashboard/WorkspaceSales/ProductBreakdown', [
+            'rows' => $rows,
+            'productPerformance' => $productPerformance,
+            'filters' => $filters,
+            'meta' => [
+                'outlet' => [
+                    'id' => $outlet->id,
+                    'name' => $outlet->name,
+                    'code' => $outlet->code,
+                ],
+                'tenant_outlet_ids' => $tenantOutletIds->values()->all(),
+            ],
+        ]);
+    }
+
+    public function exportProductBreakdown(Request $request)
+    {
+        [$user, $outlet, $filters, $tenantOutletIds, $allocationQuery] = $this->resolveKitchenWorkspaceContext($request);
+        $filteredAllocationIds = (clone $this->applyKitchenAllocationFilters($allocationQuery, $filters))->pluck('id');
+        $productPerformance = $this->buildTenantProductPerformance($user, $outlet->id, $tenantOutletIds, $filteredAllocationIds);
+        $rows = collect()
+            ->concat($productPerformance['best_sellers'] ?? collect())
+            ->concat($productPerformance['slow_movers'] ?? collect())
+            ->concat($productPerformance['unsold_products'] ?? collect())
+            ->concat($productPerformance['revenue_mix'] ?? collect())
+            ->unique('product_id')
+            ->values();
+        $filename = 'tenant-product-breakdown-'.now()->format('Ymd-His').'.csv';
+
+        return response()->streamDownload(function () use ($rows) {
+            $handle = fopen('php://output', 'w');
+            fputcsv($handle, ['product_id', 'product_title', 'sold_qty', 'sold_value', 'share_percentage']);
+            foreach ($rows as $row) {
+                fputcsv($handle, [$row['product_id'], $row['product_title'], $row['sold_qty'] ?? 0, $row['sold_value'] ?? 0, $row['share_percentage'] ?? 0]);
+            }
+            fclose($handle);
+        }, $filename, ['Content-Type' => 'text/csv; charset=UTF-8']);
     }
 
     private function renderKitchenWorkspace(
@@ -238,8 +416,8 @@ class WorkspaceSalesController extends Controller
 
         $filteredAllocationIds = (clone $allocationBaseQuery)->pluck('id');
         $filteredBaseTotals = $this->baseTotalsByAllocationIds($filteredAllocationIds);
-        $filteredTenantSalesTotal = $this->sumBaseValueForAllocationIds($filteredAllocationIds);
-        $filteredBaseTotal = $filteredTenantSalesTotal;
+        $filteredTenantSalesTotal = (int) ((clone $allocationBaseQuery)->sum('subtotal') ?? 0);
+        $filteredBaseTotal = $this->sumBaseValueForAllocationIds($filteredAllocationIds);
 
         $transactions = (clone $allocationBaseQuery)
             ->latest('delivered_at')
@@ -247,6 +425,7 @@ class WorkspaceSalesController extends Controller
             ->withQueryString()
             ->through(function (TransactionTenantAllocation $allocation) use ($filteredBaseTotals) {
                 $baseTotal = (int) ($filteredBaseTotals[$allocation->id] ?? 0);
+                $tenantSaleTotal = (int) ($allocation->subtotal ?? 0);
                 $transaction = $allocation->transaction;
 
                 return [
@@ -260,11 +439,11 @@ class WorkspaceSalesController extends Controller
                     'payment_method_label' => $this->humanizePaymentMethod($transaction?->payment_method),
                     'payment_status' => $transaction?->payment_status ?? $allocation->payment_status,
                     'payment_status_label' => $this->humanizePaymentStatus($transaction?->payment_status ?? $allocation->payment_status),
-                    'tenant_sale_total' => $baseTotal,
+                    'tenant_sale_total' => $tenantSaleTotal,
                     'base_total' => $baseTotal,
                     'service_status' => $allocation->waiter_status,
                     'service_status_label' => $this->humanizeServiceStatus($allocation->waiter_status),
-                    'settlement_reference_total' => $baseTotal,
+                    'settlement_reference_total' => $tenantSaleTotal,
                     'created_at' => optional($transaction?->getRawOriginal('created_at'))
                         ? Carbon::parse($transaction->getRawOriginal('created_at'))->toIso8601String()
                         : null,
@@ -282,8 +461,8 @@ class WorkspaceSalesController extends Controller
                 fn (Builder $query) => $query->whereRaw('1 = 0')
             )
             ->whereDate('delivered_at', Carbon::today());
-        $todayTenantSales = $this->sumBaseValueFromAllocationQuery(clone $todayAllocations);
-        $todayBaseTotal = $todayTenantSales;
+        $todayTenantSales = (int) ((clone $todayAllocations)->sum('subtotal') ?? 0);
+        $todayBaseTotal = $this->sumBaseValueFromAllocationQuery(clone $todayAllocations);
         $todayOrders = (clone $todayAllocations)->count();
         $todayCashCount = (clone $todayAllocations)->whereHas('transaction', fn (Builder $query) => $query->where('payment_method', 'cash'))->count();
         $todayNonCashCount = max(0, $todayOrders - $todayCashCount);
@@ -298,8 +477,8 @@ class WorkspaceSalesController extends Controller
                 fn (Builder $query) => $query->whereRaw('1 = 0')
             )
             ->whereDate('delivered_at', Carbon::yesterday());
-        $yesterdayTenantSales = $this->sumBaseValueFromAllocationQuery(clone $yesterdayAllocations);
-        $yesterdayBaseTotal = $yesterdayTenantSales;
+        $yesterdayTenantSales = (int) ((clone $yesterdayAllocations)->sum('subtotal') ?? 0);
+        $yesterdayBaseTotal = $this->sumBaseValueFromAllocationQuery(clone $yesterdayAllocations);
         $yesterdayOrders = (clone $yesterdayAllocations)->count();
 
         $monthAllocations = TransactionTenantAllocation::query()
@@ -313,14 +492,15 @@ class WorkspaceSalesController extends Controller
             )
             ->whereMonth('delivered_at', Carbon::now()->month)
             ->whereYear('delivered_at', Carbon::now()->year);
-        $monthTenantSales = $this->sumBaseValueFromAllocationQuery(clone $monthAllocations);
-        $monthBaseTotal = $monthTenantSales;
+        $monthTenantSales = (int) ((clone $monthAllocations)->sum('subtotal') ?? 0);
+        $monthBaseTotal = $this->sumBaseValueFromAllocationQuery(clone $monthAllocations);
         $monthOrders = (clone $monthAllocations)->count();
 
         $paymentBreakdown = $this->buildTenantPaymentBreakdown($outletId, $tenantOutletIds, $filters);
         $topProducts = $this->buildTenantTopProducts($filteredAllocationIds);
         $trend = $this->buildTenantTrend($outletId, $tenantOutletIds, $filters);
         $hourlyTrend = $this->buildTenantHourlyTrend($outletId, $tenantOutletIds);
+        $productPerformance = $this->buildTenantProductPerformance($user, $outletId, $tenantOutletIds, $filteredAllocationIds);
 
         $cashiers = TransactionTenantAllocation::query()
             ->where('outlet_id', $outletId)
@@ -366,11 +546,15 @@ class WorkspaceSalesController extends Controller
                 'filtered_total' => $filteredTenantSalesTotal,
                 'filtered_base_total' => $filteredBaseTotal,
                 'filtered_orders_count' => (int) $filteredAllocationIds->count(),
+                'average_order_value' => $filteredAllocationIds->count() > 0
+                    ? (int) round($filteredTenantSalesTotal / max(1, (int) $filteredAllocationIds->count()))
+                    : 0,
             ],
             'trend' => $trend,
             'hourlyTrend' => $hourlyTrend,
             'paymentBreakdown' => $paymentBreakdown,
             'topProducts' => $topProducts,
+            'productPerformance' => $productPerformance,
             'cashiers' => $cashiers,
             'meta' => [
                 'per_page_options' => $allowedPerPage,
@@ -385,8 +569,97 @@ class WorkspaceSalesController extends Controller
                     'code' => $outletCode,
                 ],
                 'tenant_outlet_ids' => $tenantOutletIds->values()->all(),
+                'detail_routes' => [
+                    'daily' => route('workspace-sales.daily-breakdown', $filters),
+                    'hourly' => route('workspace-sales.hourly-breakdown', $filters),
+                    'products' => route('workspace-sales.product-breakdown', $filters),
+                ],
             ],
         ]);
+    }
+
+    private function resolveKitchenWorkspaceContext(Request $request): array
+    {
+        $user = $request->user();
+        $outlet = $this->outletResolver->resolve($request, $user);
+        abort_if(! $outlet, 404, 'Outlet aktif tidak ditemukan.');
+        abort_unless($user?->isKitchenWorkspace(), 403, 'Halaman detail ini khusus workspace tenant / kitchen.');
+
+        $filters = [
+            'q' => trim((string) $request->input('q', '')),
+            'start_date' => $request->input('start_date', ''),
+            'end_date' => $request->input('end_date', ''),
+            'quick_range' => $request->input('quick_range', ''),
+            'payment_method' => $request->input('payment_method', ''),
+            'payment_status' => $request->input('payment_status', ''),
+            'order_type' => $request->input('order_type', ''),
+            'cashier_id' => $request->input('cashier_id', ''),
+            'per_page' => (int) $request->input('per_page', 15),
+        ];
+
+        $this->applyQuickRange($filters);
+
+        $tenantOutletIds = $this->resolveKitchenTenantOutletIds($user, $outlet->id);
+        $allocationQuery = TransactionTenantAllocation::query()
+            ->where('outlet_id', $outlet->id)
+            ->where('waiter_status', 'delivered')
+            ->whereNotNull('delivered_at')
+            ->when(
+                $tenantOutletIds->isNotEmpty(),
+                fn (Builder $query) => $query->whereIn('tenant_outlet_id', $tenantOutletIds->all()),
+                fn (Builder $query) => $query->whereRaw('1 = 0')
+            );
+
+        return [$user, $outlet, $filters, $tenantOutletIds, $allocationQuery];
+    }
+
+    private function buildKitchenDailyBreakdownRows($allocationQuery, array $filters): Collection
+    {
+        return $this->applyKitchenAllocationFilters($allocationQuery, $filters)
+            ->with('transaction:id,payment_method')
+            ->get()
+            ->groupBy(fn (TransactionTenantAllocation $allocation) => optional($allocation->delivered_at)->toDateString() ?: 'tanpa-tanggal')
+            ->map(function (Collection $allocations, string $date) {
+                $cashCount = $allocations->filter(fn (TransactionTenantAllocation $allocation) => $allocation->transaction?->payment_method === 'cash')->count();
+                $ordersCount = $allocations->count();
+                $salesTotal = (int) $allocations->sum('subtotal');
+
+                return [
+                    'date' => $date,
+                    'label' => $date !== 'tanpa-tanggal' ? Carbon::parse($date)->translatedFormat('d M Y') : 'Tanpa tanggal',
+                    'orders_count' => $ordersCount,
+                    'sales_total' => $salesTotal,
+                    'average_order' => $ordersCount > 0 ? (int) round($salesTotal / $ordersCount) : 0,
+                    'cash_count' => $cashCount,
+                    'non_cash_count' => max(0, $ordersCount - $cashCount),
+                ];
+            })
+            ->sortByDesc('date')
+            ->values();
+    }
+
+    private function buildKitchenHourlyBreakdownRows($allocationQuery, array $filters): Collection
+    {
+        return collect(range(0, 23))->map(function (int $hour) use ($allocationQuery, $filters) {
+            $hourQuery = $this->applyKitchenAllocationFilters(clone $allocationQuery, $filters)
+                ->whereRaw('HOUR(delivered_at) = ?', [$hour]);
+
+            $ordersCount = (int) (clone $hourQuery)->count();
+            $cashCount = (int) (clone $hourQuery)
+                ->whereHas('transaction', fn (Builder $query) => $query->where('payment_method', 'cash'))
+                ->count();
+            $salesTotal = (int) ((clone $hourQuery)->sum('subtotal') ?? 0);
+
+            return [
+                'hour_of_day' => $hour,
+                'label' => str_pad((string) $hour, 2, '0', STR_PAD_LEFT).'.00',
+                'orders_count' => $ordersCount,
+                'sales_total' => $salesTotal,
+                'average_order' => $ordersCount > 0 ? (int) round($salesTotal / $ordersCount) : 0,
+                'cash_count' => $cashCount,
+                'non_cash_count' => max(0, $ordersCount - $cashCount),
+            ];
+        });
     }
 
     private function sumBaseValueFromTransactionQuery($query): int
@@ -394,6 +667,13 @@ class WorkspaceSalesController extends Controller
         $transactionIds = (clone $query)->pluck('id');
 
         return $this->sumBaseValueForTransactionIds($transactionIds);
+    }
+
+    private function sumPromoDiscountsFromTransactionQuery($query): int
+    {
+        $transactionIds = (clone $query)->pluck('id');
+
+        return $this->sumPromoDiscountsForTransactionIds($transactionIds);
     }
 
     private function sumBaseValueForTransactionIds(Collection $transactionIds): int
@@ -406,6 +686,24 @@ class WorkspaceSalesController extends Controller
             ->whereIn('transaction_id', $transactionIds)
             ->selectRaw('COALESCE(SUM(base_unit_price * qty), 0) as total_base_value')
             ->value('total_base_value') ?? 0);
+    }
+
+    private function sumPromoDiscountsForTransactionIds(Collection $transactionIds): int
+    {
+        if ($transactionIds->isEmpty()) {
+            return 0;
+        }
+
+        $itemDiscounts = (int) (TransactionDetail::query()
+            ->whereIn('transaction_id', $transactionIds)
+            ->sum('discount_total') ?? 0);
+
+        $checkoutDiscounts = (int) (Transaction::query()
+            ->whereIn('id', $transactionIds)
+            ->selectRaw('COALESCE(SUM(discount + loyalty_discount_total + customer_voucher_discount), 0) as total_checkout_discount')
+            ->value('total_checkout_discount') ?? 0);
+
+        return $itemDiscounts + $checkoutDiscounts;
     }
 
     private function baseTotalsByTransactionIds(Collection $transactionIds): Collection
@@ -436,7 +734,7 @@ class WorkspaceSalesController extends Controller
 
         return (int) (TransactionTenantAllocationItem::query()
             ->whereIn('transaction_tenant_allocation_id', $allocationIds)
-            ->selectRaw('COALESCE(SUM(base_unit_price * qty), 0) as total_base_value')
+            ->selectRaw('COALESCE(SUM(line_total), 0) as total_base_value')
             ->value('total_base_value') ?? 0);
     }
 
@@ -595,6 +893,82 @@ class WorkspaceSalesController extends Controller
             ->values();
     }
 
+    private function buildAdminTenantPromoBreakdown(int $outletId, Collection $transactionIds): Collection
+    {
+        if ($transactionIds->isEmpty()) {
+            return collect();
+        }
+
+        $allocations = TransactionTenantAllocation::query()
+            ->with('tenantOutlet:id,name,code')
+            ->where('outlet_id', $outletId)
+            ->whereIn('transaction_id', $transactionIds)
+            ->get();
+
+        $allocations = $allocations->map(function (TransactionTenantAllocation $allocation) {
+            $promoDiscountTotal = (int) ($allocation->promo_discount_total ?? 0);
+            $subtotal = (int) ($allocation->subtotal ?? 0);
+            $prePromoSubtotal = $subtotal + $promoDiscountTotal;
+            $totalDiscountTotal = $promoDiscountTotal
+                + (int) ($allocation->voucher_discount_total ?? 0)
+                + (int) ($allocation->loyalty_discount_total ?? 0)
+                + (int) ($allocation->manual_discount_total ?? 0);
+
+            $allocation->setAttribute('pre_promo_subtotal', $prePromoSubtotal);
+            $allocation->setAttribute('total_discount_total', $totalDiscountTotal);
+
+            return $allocation;
+        });
+
+        return $allocations
+            ->groupBy('tenant_outlet_id')
+            ->map(function (Collection $tenantAllocations) {
+                /** @var TransactionTenantAllocation $first */
+                $first = $tenantAllocations->first();
+
+                return [
+                    'tenant_outlet_id' => (int) $first->tenant_outlet_id,
+                    'tenant_outlet' => $first->tenantOutlet ? [
+                        'id' => $first->tenantOutlet->id,
+                        'name' => $first->tenantOutlet->name,
+                        'code' => $first->tenantOutlet->code,
+                    ] : null,
+                    'orders_count' => $tenantAllocations->count(),
+                    'pre_promo_subtotal' => (int) $tenantAllocations->sum('pre_promo_subtotal'),
+                    'promo_total' => (int) $tenantAllocations->sum('total_discount_total'),
+                    'after_promo_total' => (int) $tenantAllocations->sum('grand_total'),
+                ];
+            })
+            ->sortByDesc('promo_total')
+            ->values();
+    }
+
+    private function buildAdminTenantPromoTrend(int $outletId, Collection $transactionIds): Collection
+    {
+        if ($transactionIds->isEmpty()) {
+            return collect();
+        }
+
+        return TransactionTenantAllocation::query()
+            ->join('transactions', 'transactions.id', '=', 'transaction_tenant_allocations.transaction_id')
+            ->where('transaction_tenant_allocations.outlet_id', $outletId)
+            ->whereIn('transaction_tenant_allocations.transaction_id', $transactionIds)
+            ->selectRaw('DATE(transactions.created_at) as day')
+            ->selectRaw('COUNT(DISTINCT transaction_tenant_allocations.transaction_id) as orders_count')
+            ->selectRaw('COALESCE(SUM(transaction_tenant_allocations.promo_discount_total + transaction_tenant_allocations.voucher_discount_total + transaction_tenant_allocations.loyalty_discount_total + transaction_tenant_allocations.manual_discount_total), 0) as promo_total')
+            ->groupBy('day')
+            ->orderBy('day')
+            ->limit(14)
+            ->get()
+            ->map(fn ($row) => [
+                'day' => $row->day,
+                'label' => Carbon::parse($row->day)->format('d M'),
+                'orders_count' => (int) $row->orders_count,
+                'promo_total' => (int) $row->promo_total,
+            ])
+            ->values();
+    }
+
     private function buildBaseTopProducts(Collection $transactionIds): Collection
     {
         if ($transactionIds->isEmpty()) {
@@ -687,7 +1061,7 @@ class WorkspaceSalesController extends Controller
                 ),
             $filters
         )
-            ->selectRaw('DATE(transaction_tenant_allocations.delivered_at) as day, COUNT(DISTINCT transaction_tenant_allocations.id) as orders_count, COALESCE(SUM(transaction_tenant_allocation_items.base_unit_price * transaction_tenant_allocation_items.qty), 0) as total_value')
+            ->selectRaw('DATE(transaction_tenant_allocations.delivered_at) as day, COUNT(DISTINCT transaction_tenant_allocations.id) as orders_count, COALESCE(SUM(transaction_tenant_allocation_items.line_total), 0) as total_value')
             ->groupBy('day')
             ->orderBy('day')
             ->limit(14)
@@ -714,7 +1088,7 @@ class WorkspaceSalesController extends Controller
                 fn (Builder $query) => $query->whereRaw('1 = 0')
             )
             ->whereDate('transaction_tenant_allocations.delivered_at', Carbon::today())
-            ->selectRaw('HOUR(transaction_tenant_allocations.delivered_at) as hour_of_day, COUNT(DISTINCT transaction_tenant_allocations.id) as orders_count, COALESCE(SUM(transaction_tenant_allocation_items.base_unit_price * transaction_tenant_allocation_items.qty), 0) as total_value')
+            ->selectRaw('HOUR(transaction_tenant_allocations.delivered_at) as hour_of_day, COUNT(DISTINCT transaction_tenant_allocations.id) as orders_count, COALESCE(SUM(transaction_tenant_allocation_items.line_total), 0) as total_value')
             ->groupBy('hour_of_day')
             ->orderBy('hour_of_day')
             ->get()
@@ -743,7 +1117,7 @@ class WorkspaceSalesController extends Controller
                 ),
             $filters
         )
-            ->selectRaw('COALESCE(transactions.payment_method, "lainnya") as payment_method, COUNT(DISTINCT transaction_tenant_allocations.id) as orders_count, COALESCE(SUM(transaction_tenant_allocation_items.base_unit_price * transaction_tenant_allocation_items.qty), 0) as total_value')
+            ->selectRaw('COALESCE(transactions.payment_method, "lainnya") as payment_method, COUNT(DISTINCT transaction_tenant_allocations.id) as orders_count, COALESCE(SUM(transaction_tenant_allocation_items.line_total), 0) as total_value')
             ->groupBy('transactions.payment_method')
             ->orderByDesc('total_value')
             ->get()
@@ -764,7 +1138,7 @@ class WorkspaceSalesController extends Controller
         return TransactionTenantAllocationItem::query()
             ->with('product:id,title')
             ->whereIn('transaction_tenant_allocation_id', $allocationIds)
-            ->selectRaw('product_id, SUM(qty) as total_qty, COALESCE(SUM(base_unit_price * qty), 0) as total_value')
+            ->selectRaw('product_id, SUM(qty) as total_qty, COALESCE(SUM(line_total), 0) as total_value')
             ->groupBy('product_id')
             ->orderByDesc('total_qty')
             ->limit(6)
@@ -776,6 +1150,113 @@ class WorkspaceSalesController extends Controller
                 'total_value' => (int) $row->total_value,
             ])
             ->values();
+    }
+
+    private function buildTenantProductPerformance(
+        User $user,
+        int $activeOutletId,
+        Collection $tenantOutletIds,
+        Collection $allocationIds
+    ): array {
+        $products = $this->visibleKitchenProductsQuery($user, $activeOutletId, $tenantOutletIds)
+            ->get(['id', 'title', 'tenant_outlet_id', 'buy_price', 'sell_price']);
+
+        $salesByProduct = $allocationIds->isNotEmpty()
+            ? TransactionTenantAllocationItem::query()
+                ->whereIn('transaction_tenant_allocation_id', $allocationIds)
+                ->selectRaw('product_id, SUM(qty) as total_qty, COALESCE(SUM(line_total), 0) as total_value')
+                ->groupBy('product_id')
+                ->get()
+                ->keyBy('product_id')
+            : collect();
+
+        $totalSalesValue = (int) $salesByProduct->sum(fn ($row) => (int) ($row->total_value ?? 0));
+
+        $performance = $products->map(function (Product $product) use ($salesByProduct, $totalSalesValue) {
+            $salesRow = $salesByProduct->get($product->id);
+            $soldQty = (int) ($salesRow->total_qty ?? 0);
+            $soldValue = (int) ($salesRow->total_value ?? 0);
+
+            return [
+                'product_id' => $product->id,
+                'product_title' => $product->title,
+                'tenant_outlet_id' => (int) ($product->tenant_outlet_id ?? 0),
+                'sold_qty' => $soldQty,
+                'sold_value' => $soldValue,
+                'share_percentage' => $totalSalesValue > 0
+                    ? round(($soldValue / $totalSalesValue) * 100, 2)
+                    : 0.0,
+            ];
+        })->values();
+
+        $soldProducts = $performance
+            ->filter(fn (array $product) => (int) $product['sold_qty'] > 0)
+            ->values();
+
+        return [
+            'catalog_count' => (int) $performance->count(),
+            'sold_count' => (int) $soldProducts->count(),
+            'unsold_count' => (int) $performance->where('sold_qty', 0)->count(),
+            'best_sellers' => $soldProducts
+                ->sortBy([
+                    ['sold_qty', 'desc'],
+                    ['sold_value', 'desc'],
+                    ['product_title', 'asc'],
+                ])
+                ->take(5)
+                ->values(),
+            'slow_movers' => $soldProducts
+                ->sortBy([
+                    ['sold_qty', 'asc'],
+                    ['sold_value', 'asc'],
+                    ['product_title', 'asc'],
+                ])
+                ->take(5)
+                ->values(),
+            'unsold_products' => $performance
+                ->where('sold_qty', 0)
+                ->sortBy('product_title')
+                ->take(8)
+                ->values(),
+            'revenue_mix' => $soldProducts
+                ->sortBy([
+                    ['sold_value', 'desc'],
+                    ['sold_qty', 'desc'],
+                    ['product_title', 'asc'],
+                ])
+                ->take(6)
+                ->values(),
+        ];
+    }
+
+    private function visibleKitchenProductsQuery(User $user, int $activeOutletId, Collection $tenantOutletIds)
+    {
+        $preferredStationId = (int) ($user->preferred_kitchen_station_id ?? 0);
+
+        return Product::query()
+            ->whereNotNull('tenant_outlet_id')
+            ->when(
+                $tenantOutletIds->isNotEmpty(),
+                fn (Builder $query) => $query->whereIn('tenant_outlet_id', $tenantOutletIds->all()),
+                fn (Builder $query) => $query->whereRaw('1 = 0')
+            )
+            ->whereHas('kitchenStationMappings', function (Builder $query) use ($preferredStationId, $activeOutletId) {
+                $query->where('is_active', true)
+                    ->when(
+                        $preferredStationId > 0,
+                        fn (Builder $builder) => $builder->where('kitchen_station_id', $preferredStationId)
+                    )
+                    ->when(
+                        $preferredStationId <= 0,
+                        fn (Builder $builder) => $builder->whereHas(
+                            'kitchenStation',
+                            fn (Builder $stationQuery) => $stationQuery
+                                ->where('outlet_id', $activeOutletId)
+                                ->where('is_active', true)
+                        )
+                    );
+            })
+            ->orderBy('title');
     }
 
     private function applyFilters($query, array $filters)

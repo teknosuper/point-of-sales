@@ -9,6 +9,7 @@ use App\Models\PricingRuleBuyGetItem;
 use App\Models\PricingRuleQtyBreak;
 use App\Models\Product;
 use Carbon\CarbonInterface;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Collection;
 
@@ -18,23 +19,33 @@ class PricingService
         private readonly LoyaltyService $loyaltyService
     ) {}
 
-    public function getActiveRules(?CarbonInterface $at = null): Collection
+    public function getActiveRules(?CarbonInterface $at = null, ?int $outletId = null): Collection
     {
         $at = $at ?? now();
         $cacheBucket = (int) floor($at->getTimestamp() / 30);
+        $cacheKey = 'pricing-rules:active:'.$cacheBucket.':'.($outletId ?: 'global');
 
         return Cache::remember(
-            'pricing-rules:active:'.$cacheBucket,
+            $cacheKey,
             now()->addSeconds(30),
             fn () => PricingRule::query()
                 ->with([
-                    'product:id,title,sell_price,category_id',
+                    'product:id,title,buy_price,sell_price,category_id',
                     'category:id,name',
+                    'outlet:id,name,code,outlet_type',
                     'qtyBreaks',
-                    'bundleItems.product:id,title,sell_price,category_id',
-                    'buyGetItems.product:id,title,sell_price,category_id',
+                    'bundleItems.product:id,title,buy_price,sell_price,category_id',
+                    'buyGetItems.product:id,title,buy_price,sell_price,category_id',
                 ])
                 ->where('is_active', true)
+                ->when(
+                    $outletId,
+                    fn ($query) => $query->where(function ($builder) use ($outletId) {
+                        $builder
+                            ->whereNull('outlet_id')
+                            ->orWhere('outlet_id', $outletId);
+                    })
+                )
                 ->where(function ($query) use ($at) {
                     $query->whereNull('starts_at')->orWhere('starts_at', '<=', $at);
                 })
@@ -44,6 +55,8 @@ class PricingService
                 ->orderByDesc('priority')
                 ->orderBy('id')
                 ->get()
+                ->filter(fn (PricingRule $rule) => $this->matchesRecurringSchedule($rule, $at))
+                ->values()
         );
     }
 
@@ -52,7 +65,7 @@ class PricingService
         $cartCollection = collect($carts)
             ->filter(fn ($cart) => $cart instanceof Cart && $cart->product)
             ->values();
-        $rules = $this->getActiveRules($at);
+        $rules = $this->getActiveRules($at, $outletId);
 
         return $this->buildPreview($cartCollection, $customer, $rules, $outletId);
     }
@@ -68,7 +81,7 @@ class PricingService
 
     public function previewProducts(iterable $products, ?Customer $customer = null, ?CarbonInterface $at = null, ?int $outletId = null): Collection
     {
-        $rules = $this->getActiveRules($at);
+        $rules = $this->getActiveRules($at, $outletId);
 
         return collect($products)
             ->filter(fn ($product) => $product instanceof Product)
@@ -140,11 +153,11 @@ class PricingService
             ->first();
 
         return [
-            'base_unit_price' => (int) $product->sell_price,
-            'effective_unit_price' => (int) $product->sell_price,
+            'base_unit_price' => $this->resolveBaseUnitPrice($product, null),
+            'effective_unit_price' => $this->resolveBaseUnitPrice($product, null),
             'quantity' => $quantity,
-            'line_base_total' => (int) $product->sell_price * $quantity,
-            'line_total' => (int) $product->sell_price * $quantity,
+            'line_base_total' => $this->resolveBaseUnitPrice($product, null) * $quantity,
+            'line_total' => $this->resolveBaseUnitPrice($product, null) * $quantity,
             'line_discount_total' => 0,
             'pricing_rule' => $complexRule ? $this->serializeRule($complexRule, false) : null,
         ];
@@ -163,7 +176,7 @@ class PricingService
     private function buildPreview(Collection $carts, ?Customer $customer, Collection $rules, ?int $outletId = null): array
     {
         $items = $carts->map(function (Cart $cart) {
-            $baseUnitPrice = (int) $cart->product->sell_price;
+            $baseUnitPrice = $this->resolveBaseUnitPrice($cart->product, null);
             $modifierTotal = (int) $cart->modifiers->sum('total_price');
             $baseProductTotal = $baseUnitPrice * (int) $cart->qty;
 
@@ -526,7 +539,7 @@ class PricingService
             return null;
         }
 
-        $baseUnitPrice = (int) $product->sell_price;
+        $baseUnitPrice = $this->resolveBaseUnitPrice($product, $rule);
         $lineBaseTotal = $baseUnitPrice * $quantity;
 
         if ($rule->kind === PricingRule::KIND_QTY_BREAK) {
@@ -644,6 +657,7 @@ class PricingService
             'target_type' => $rule->target_type,
             'customer_scope' => $rule->customer_scope,
             'eligible_loyalty_tiers' => $rule->eligible_loyalty_tiers,
+            'price_basis' => $rule->price_basis ?: PricingRule::PRICE_BASIS_SELL_PRICE,
             'price_context' => $includePriceContext,
         ];
     }
@@ -656,6 +670,56 @@ class PricingService
             PricingRule::TYPE_FIXED_PRICE => 'Harga Rp '.number_format((float) $rule->discount_value, 0, ',', '.'),
             default => $rule->name,
         };
+    }
+
+    private function matchesRecurringSchedule(PricingRule $rule, CarbonInterface $at): bool
+    {
+        $activeDays = collect($rule->active_days ?? [])
+            ->filter()
+            ->values();
+
+        if ($activeDays->isNotEmpty()) {
+            $dayMap = [
+                Carbon::SUNDAY => PricingRule::DAY_SUNDAY,
+                Carbon::MONDAY => PricingRule::DAY_MONDAY,
+                Carbon::TUESDAY => PricingRule::DAY_TUESDAY,
+                Carbon::WEDNESDAY => PricingRule::DAY_WEDNESDAY,
+                Carbon::THURSDAY => PricingRule::DAY_THURSDAY,
+                Carbon::FRIDAY => PricingRule::DAY_FRIDAY,
+                Carbon::SATURDAY => PricingRule::DAY_SATURDAY,
+            ];
+
+            $currentDay = $dayMap[$at->dayOfWeek] ?? null;
+
+            if (! $currentDay || ! $activeDays->contains($currentDay)) {
+                return false;
+            }
+        }
+
+        $startTime = $rule->daily_start_time;
+        $endTime = $rule->daily_end_time;
+
+        if (! $startTime && ! $endTime) {
+            return true;
+        }
+
+        $currentTime = $at->format('H:i:s');
+        $normalizedStart = $startTime ? substr((string) $startTime, 0, 8) : null;
+        $normalizedEnd = $endTime ? substr((string) $endTime, 0, 8) : null;
+
+        if ($normalizedStart && $normalizedEnd) {
+            if ($normalizedStart <= $normalizedEnd) {
+                return $currentTime >= $normalizedStart && $currentTime <= $normalizedEnd;
+            }
+
+            return $currentTime >= $normalizedStart || $currentTime <= $normalizedEnd;
+        }
+
+        if ($normalizedStart) {
+            return $currentTime >= $normalizedStart;
+        }
+
+        return $normalizedEnd ? $currentTime <= $normalizedEnd : true;
     }
 
     private function ruleTouchesProduct(PricingRule $rule, Product $product): bool
@@ -673,5 +737,15 @@ class PricingService
         }
 
         return false;
+    }
+
+    private function resolveBaseUnitPrice(Product $product, ?PricingRule $rule): int
+    {
+        $priceBasis = $rule?->price_basis ?: PricingRule::PRICE_BASIS_SELL_PRICE;
+
+        return match ($priceBasis) {
+            PricingRule::PRICE_BASIS_BUY_PRICE => (int) ($product->buy_price ?? 0),
+            default => (int) ($product->sell_price ?? 0),
+        };
     }
 }

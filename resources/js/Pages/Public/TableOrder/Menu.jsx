@@ -26,6 +26,16 @@ const promoDisplay = (product) => {
     };
 };
 
+const resolvedProductUnitPrice = (product) => {
+    const promo = promoDisplay(product);
+
+    if (promo.showPromo) {
+        return promo.promoPrice;
+    }
+
+    return Number(product?.sell_price || 0);
+};
+
 const orderStatusLabel = {
     pending_cashier_payment: "Menunggu bayar di kasir",
     paid: "Sudah dibayar",
@@ -184,7 +194,7 @@ export default function Menu({ table, outlet, products = [], identity }) {
         title: product.title,
         qty: 1,
         notes: "",
-        unit_price: Number(product.sell_price || 0),
+        unit_price: resolvedProductUnitPrice(product),
         modifiers: modifiers.map((modifier) => ({
             id: modifier.id,
             name: modifier.name,
@@ -467,9 +477,7 @@ export default function Menu({ table, outlet, products = [], identity }) {
                                       Number(product.stock || line.qty || 1)
                                   )
                               ),
-                              unit_price: Number(
-                                  product.sell_price || line.unit_price || 0
-                              ),
+                              unit_price: resolvedProductUnitPrice(product) || Number(line.unit_price || 0),
                               modifiers: Array.isArray(line.modifiers)
                                   ? line.modifiers.map((modifier) => ({
                                         id: modifier.id,

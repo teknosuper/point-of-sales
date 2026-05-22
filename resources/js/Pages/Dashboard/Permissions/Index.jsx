@@ -1,29 +1,38 @@
 import React from "react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
-import { Head, usePage } from "@inertiajs/react";
-import { IconDatabaseOff, IconKey, IconShield } from "@tabler/icons-react";
-import Search from "@/Components/Dashboard/Search";
-import Pagination from "@/Components/Dashboard/Pagination";
+import { Head, router, usePage } from "@inertiajs/react";
 import {
-    decoratePermission,
-    permissionGroupLabel,
-} from "@/Utils/permissionPresentation";
+    IconAdjustmentsHorizontal,
+    IconDatabaseOff,
+    IconFilterOff,
+    IconKey,
+    IconSearch,
+    IconShield,
+} from "@tabler/icons-react";
+import Pagination from "@/Components/Dashboard/Pagination";
+import { decoratePermission } from "@/Utils/permissionPresentation";
 
 export default function Index() {
-    const { permissions } = usePage().props;
+    const { permissions, filters = {}, groupCounts = [], groupOptions = [], perPageOptions = [] } = usePage().props;
     const rows = permissions.data.map(decoratePermission);
-    const grouped = rows.reduce((accumulator, permission) => {
-        accumulator[permission.group] = accumulator[permission.group] || {
-            key: permission.group,
-            label: permissionGroupLabel(permission.name),
-            count: 0,
-        };
-        accumulator[permission.group].count += 1;
-        return accumulator;
-    }, {});
-    const groups = Object.values(grouped).sort((left, right) =>
-        left.label.localeCompare(right.label, "id-ID")
-    );
+    const activeGroupLabel = filters.group
+        ? groupOptions.find((group) => group.key === filters.group)?.label || "Semua Group"
+        : "Semua Group";
+
+    const applyFilters = (nextFilters) => {
+        router.get(route("permissions.index"), nextFilters, {
+            preserveState: true,
+            replace: true,
+        });
+    };
+
+    const resetFilters = () => {
+        applyFilters({
+            search: "",
+            group: "",
+            per_page: filters.per_page || 20,
+        });
+    };
 
     return (
         <>
@@ -45,12 +54,31 @@ export default function Index() {
                 </div>
             </div>
 
-            {/* Search */}
-            <div className="mb-4 w-full sm:w-80">
-                <Search
-                    url={route("permissions.index")}
-                    placeholder="Cari hak akses..."
-                />
+            <div className="mb-6 grid gap-3 md:grid-cols-3">
+                <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+                    <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                        Total Permission
+                    </p>
+                    <p className="mt-2 text-2xl font-bold text-slate-900 dark:text-white">
+                        {permissions.total || 0}
+                    </p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+                    <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                        Group Aktif
+                    </p>
+                    <p className="mt-2 text-lg font-semibold text-slate-900 dark:text-white">
+                        {activeGroupLabel}
+                    </p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+                    <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                        Halaman Saat Ini
+                    </p>
+                    <p className="mt-2 text-lg font-semibold text-slate-900 dark:text-white">
+                        {rows.length} item
+                    </p>
+                </div>
             </div>
 
             <div className="mb-6 rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-100">
@@ -58,53 +86,169 @@ export default function Index() {
                 <p className="mt-1">
                     Nama besar menunjukkan aksi yang dipahami admin, sedangkan nama teknis tetap ditampilkan kecil di bawahnya untuk kebutuhan audit dan debugging.
                 </p>
+                <p className="mt-2">
+                    Alur RBAC di sistem ini adalah `Permission -> Role -> User`. Jadi permission seperti `pricing-rules-create` tidak dicentang langsung di halaman edit user, tetapi dimasukkan dulu ke role lalu role itu diberikan ke user.
+                </p>
             </div>
 
-            <div className="mb-6 flex flex-wrap gap-2">
-                {groups.map((group) => (
-                    <span
-                        key={group.key}
-                        className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+            <div className="mb-6 grid gap-3 lg:grid-cols-3">
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-100">
+                    <p className="font-semibold">Paket Tenant Promo</p>
+                    <p className="mt-1">
+                        Minimal beri `pricing-rules-access`, `pricing-rules-create`, dan `pricing-rules-update` jika tenant boleh membuat dan mengubah promo sendiri.
+                    </p>
+                </div>
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100">
+                    <p className="font-semibold">Harga Owner vs Tenant</p>
+                    <p className="mt-1">
+                        `products-pricing-update` mengubah harga beli dan harga jual owner. Itu berbeda dari `pricing-rules-*` yang dipakai tenant untuk membuat promo berbasis harga tenant.
+                    </p>
+                </div>
+                <div className="rounded-2xl border border-violet-200 bg-violet-50 p-4 text-sm text-violet-900 dark:border-violet-900/40 dark:bg-violet-950/20 dark:text-violet-100">
+                    <p className="font-semibold">Tempat Pengaturan</p>
+                    <p className="mt-1">
+                        Cek daftar permission di sini, rakit paketnya di halaman role, lalu pasang role itu ke user tenant pada halaman edit user.
+                    </p>
+                </div>
+            </div>
+
+            <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+                <div className="mb-4 flex items-center gap-2">
+                    <IconAdjustmentsHorizontal
+                        size={18}
+                        className="text-primary-500"
+                    />
+                    <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+                        Advanced Filter
+                    </h2>
+                </div>
+                <div className="grid gap-3 md:grid-cols-4">
+                    <div className="relative md:col-span-2">
+                        <input
+                            type="text"
+                            defaultValue={filters.search || ""}
+                            onKeyDown={(event) => {
+                                if (event.key === "Enter") {
+                                    applyFilters({
+                                        ...filters,
+                                        search: event.currentTarget.value,
+                                    });
+                                }
+                            }}
+                            placeholder="Cari nama teknis atau fungsi permission..."
+                            className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 pr-11 text-sm text-slate-800 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                        />
+                        <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-4 text-slate-400">
+                            <IconSearch size={18} />
+                        </div>
+                    </div>
+                    <select
+                        value={filters.group || ""}
+                        onChange={(event) =>
+                            applyFilters({
+                                ...filters,
+                                group: event.target.value,
+                            })
+                        }
+                        className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-800 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
                     >
-                        {group.label}: {group.count}
-                    </span>
-                ))}
+                        <option value="">Semua Group</option>
+                        {groupOptions.map((group) => (
+                            <option key={group.key} value={group.key}>
+                                {group.label}
+                            </option>
+                        ))}
+                    </select>
+                    <select
+                        value={filters.per_page || 20}
+                        onChange={(event) =>
+                            applyFilters({
+                                ...filters,
+                                per_page: event.target.value,
+                            })
+                        }
+                        className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-800 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                    >
+                        {perPageOptions.map((option) => (
+                            <option key={option} value={option}>
+                                {option} per halaman
+                            </option>
+                        ))}
+                    </select>
+                </div>
+                <div className="mt-4 flex flex-wrap gap-2">
+                    <button
+                        type="button"
+                        onClick={resetFilters}
+                        className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                    >
+                        <IconFilterOff size={14} />
+                        Reset Filter
+                    </button>
+                    {groupCounts.map((group) => (
+                        <button
+                            key={group.key}
+                            type="button"
+                            onClick={() =>
+                                applyFilters({
+                                    ...filters,
+                                    group: group.key,
+                                })
+                            }
+                            className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+                                filters.group === group.key
+                                    ? "border-primary-500 bg-primary-50 text-primary-700 dark:bg-primary-950/30 dark:text-primary-300"
+                                    : "border-slate-200 bg-white text-slate-600 hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                            }`}
+                        >
+                            {group.label}: {group.count}
+                        </button>
+                    ))}
+                </div>
             </div>
 
-            {/* Permissions Grid */}
             {rows.length > 0 ? (
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
-                    {rows.map((permission, i) => (
-                        <div
-                            key={permission.id || i}
-                            className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-4 hover:shadow-md hover:border-primary-300 dark:hover:border-primary-700 transition-all"
-                        >
-                            <div className="flex items-start gap-2">
-                                <div className="w-8 h-8 rounded-lg bg-primary-100 dark:bg-primary-900/50 flex items-center justify-center">
-                                    <IconShield
-                                        size={16}
-                                        className="text-primary-600 dark:text-primary-400"
-                                    />
-                                </div>
-                                <div className="min-w-0">
-                                    <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                                        {permission.label}
-                                    </p>
-                                    <p className="mt-1 text-[11px] uppercase tracking-wide text-slate-400 dark:text-slate-500">
-                                        {permission.group_label}
-                                    </p>
-                                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 break-all">
-                                        {permission.name}
-                                    </p>
-                                    {permission.description ? (
-                                        <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                                            {permission.description}
+                <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+                    <div className="border-b border-slate-200 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:text-slate-400">
+                        Daftar Permission
+                    </div>
+                    <div className="divide-y divide-slate-200 dark:divide-slate-800">
+                        {rows.map((permission, i) => (
+                            <div
+                                key={permission.id || i}
+                                className="flex flex-col gap-3 px-4 py-4 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/40 md:flex-row md:items-start md:justify-between"
+                            >
+                                <div className="flex min-w-0 items-start gap-3">
+                                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary-100 text-primary-600 dark:bg-primary-900/50 dark:text-primary-400">
+                                        <IconShield size={16} />
+                                    </div>
+                                    <div className="min-w-0">
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+                                                {permission.label}
+                                            </p>
+                                            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                                                {permission.group_label}
+                                            </span>
+                                        </div>
+                                        <p className="mt-1 break-all font-mono text-xs text-slate-500 dark:text-slate-400">
+                                            {permission.name}
                                         </p>
-                                    ) : null}
+                                        {permission.description ? (
+                                            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                                                {permission.description}
+                                            </p>
+                                        ) : null}
+                                    </div>
+                                </div>
+                                <div className="shrink-0">
+                                    <span className="inline-flex rounded-full border border-slate-200 px-2.5 py-1 text-[11px] font-medium text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                                        #{permission.id}
+                                    </span>
                                 </div>
                             </div>
-                        </div>
-                    ))}
+                        ))}
+                    </div>
                 </div>
             ) : (
                 <div className="flex flex-col items-center justify-center py-16 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
@@ -124,9 +268,7 @@ export default function Index() {
                 </div>
             )}
 
-            {permissions.last_page !== 1 && (
-                <Pagination links={permissions.links} />
-            )}
+            <Pagination links={permissions.links} />
         </>
     );
 }

@@ -14,6 +14,7 @@ use App\Models\PricingRuleQtyBreak;
 use App\Models\Product;
 use App\Services\AuditLogService;
 use App\Services\LoyaltyService;
+use App\Services\OutletResolver;
 use App\Services\PricingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -25,11 +26,17 @@ class PricingRuleController extends Controller
     public function __construct(
         private readonly AuditLogService $auditLogService,
         private readonly LoyaltyService $loyaltyService,
-        private readonly PricingService $pricingService
+        private readonly PricingService $pricingService,
+        private readonly OutletResolver $outletResolver
     ) {}
 
     public function index(Request $request)
     {
+        $user = $request->user();
+        $activeOutlet = $this->outletResolver->resolve($request, $user);
+        $activeOutletId = $activeOutlet?->id;
+        $isKitchenWorkspace = $user?->isKitchenWorkspace() ?? false;
+
         $filters = [
             'search' => $request->input('search'),
             'status' => $request->input('status'),
@@ -38,7 +45,15 @@ class PricingRuleController extends Controller
         ];
 
         $rules = PricingRule::query()
-            ->with(['product:id,title', 'category:id,name', 'creator:id,name', 'qtyBreaks', 'bundleItems', 'buyGetItems'])
+            ->with(['product:id,title', 'category:id,name', 'creator:id,name', 'qtyBreaks', 'bundleItems', 'buyGetItems', 'outlet:id,name,code,outlet_type'])
+            ->when(
+                $activeOutletId,
+                fn ($query) => $query->where(function ($builder) use ($activeOutletId) {
+                    $builder
+                        ->whereNull('outlet_id')
+                        ->orWhere('outlet_id', $activeOutletId);
+                })
+            )
             ->when($filters['search'], function ($query, $search) {
                 $query->where('name', 'like', '%'.$search.'%');
             })
@@ -78,8 +93,18 @@ class PricingRuleController extends Controller
                 'customer_scope' => $rule->customer_scope,
                 'product' => $rule->product,
                 'category' => $rule->category,
+                'outlet' => $rule->outlet ? [
+                    'id' => $rule->outlet->id,
+                    'name' => $rule->outlet->name,
+                    'code' => $rule->outlet->code,
+                    'outlet_type' => $rule->outlet->outlet_type,
+                ] : null,
+                'scope_label' => $rule->outlet
+                    ? ($rule->outlet->outlet_type === 'tenant' ? 'Promo Tenant' : 'Promo Outlet Owner')
+                    : 'Promo Global',
                 'discount_type' => $rule->discount_type,
                 'discount_value' => (float) $rule->discount_value,
+                'price_basis' => $rule->price_basis ?: PricingRule::PRICE_BASIS_SELL_PRICE,
                 'starts_at' => optional($rule->starts_at)?->toIso8601String(),
                 'ends_at' => optional($rule->ends_at)?->toIso8601String(),
                 'status_label' => $rule->currentStatusLabel(),
@@ -88,11 +113,33 @@ class PricingRuleController extends Controller
                 'buy_get_items_count' => $rule->buyGetItems->count(),
             ]);
 
-        $summaryBase = PricingRule::query()->get();
+        $summaryBase = PricingRule::query()
+            ->when(
+                $activeOutletId,
+                fn ($query) => $query->where(function ($builder) use ($activeOutletId) {
+                    $builder
+                        ->whereNull('outlet_id')
+                        ->orWhere('outlet_id', $activeOutletId);
+                })
+            )
+            ->get();
 
         return Inertia::render('Dashboard/PricingRules/Index', [
             'rules' => $rules,
             'filters' => $filters,
+            'workspace' => [
+                'is_kitchen' => $isKitchenWorkspace,
+                'mode_label' => $isKitchenWorkspace ? 'Promo Tenant' : 'Promo Outlet Owner',
+                'active_outlet' => $activeOutlet ? [
+                    'id' => $activeOutlet->id,
+                    'name' => $activeOutlet->name,
+                    'code' => $activeOutlet->code,
+                    'outlet_type' => $activeOutlet->outlet_type,
+                ] : null,
+                'default_price_basis' => $isKitchenWorkspace
+                    ? PricingRule::PRICE_BASIS_BUY_PRICE
+                    : PricingRule::PRICE_BASIS_SELL_PRICE,
+            ],
             'summary' => [
                 'active' => $summaryBase->filter(fn (PricingRule $rule) => $rule->currentStatusLabel() === 'active')->count(),
                 'scheduled' => $summaryBase->filter(fn (PricingRule $rule) => $rule->currentStatusLabel() === 'scheduled')->count(),
@@ -107,17 +154,19 @@ class PricingRuleController extends Controller
         ]);
     }
 
-    public function create()
+    public function create(Request $request)
     {
-        return Inertia::render('Dashboard/PricingRules/Create', $this->formPayload());
+        return Inertia::render('Dashboard/PricingRules/Create', $this->formPayload($request));
     }
 
     public function store(Request $request)
     {
         $validated = $this->validateRule($request);
+        $activeOutletId = $this->outletResolver->resolve($request, $request->user())?->id;
 
         $rule = PricingRule::create([
             ...$validated['rule'],
+            'outlet_id' => $activeOutletId,
             'created_by' => $request->user()?->id,
         ]);
 
@@ -136,14 +185,23 @@ class PricingRuleController extends Controller
             ->with('success', 'Rule promo berhasil dibuat.');
     }
 
-    public function edit(PricingRule $pricingRule)
+    public function edit(Request $request, PricingRule $pricingRule)
     {
         $pricingRule->load(['qtyBreaks', 'bundleItems', 'buyGetItems']);
+        $this->assertRuleVisibleForWorkspace($request, $pricingRule);
 
         return Inertia::render('Dashboard/PricingRules/Edit', [
-            ...$this->formPayload(),
+            ...$this->formPayload($request),
             'rule' => [
                 ...$pricingRule->toArray(),
+                'price_basis' => $pricingRule->price_basis ?: PricingRule::PRICE_BASIS_SELL_PRICE,
+                'active_days' => $pricingRule->active_days ?? [],
+                'daily_start_time' => $pricingRule->daily_start_time
+                    ? substr((string) $pricingRule->daily_start_time, 0, 5)
+                    : '',
+                'daily_end_time' => $pricingRule->daily_end_time
+                    ? substr((string) $pricingRule->daily_end_time, 0, 5)
+                    : '',
                 'qty_breaks' => $pricingRule->qtyBreaks->map(fn (PricingRuleQtyBreak $break) => [
                     'id' => $break->id,
                     'min_qty' => (int) $break->min_qty,
@@ -170,6 +228,7 @@ class PricingRuleController extends Controller
 
     public function update(Request $request, PricingRule $pricingRule)
     {
+        $this->assertRuleVisibleForWorkspace($request, $pricingRule);
         $before = $this->auditPayload($pricingRule->load(['qtyBreaks', 'bundleItems', 'buyGetItems']));
         $validated = $this->validateRule($request);
 
@@ -192,6 +251,7 @@ class PricingRuleController extends Controller
 
     public function destroy(PricingRule $pricingRule)
     {
+        $this->assertRuleVisibleForWorkspace(request(), $pricingRule);
         $before = $this->auditPayload($pricingRule->load(['qtyBreaks', 'bundleItems', 'buyGetItems']));
         $pricingRule->delete();
 
@@ -221,16 +281,49 @@ class PricingRuleController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $this->pricingService->previewCartWithRules($sampleCarts, $customer, collect([$rule])),
+            'data' => $this->pricingService->previewCartWithRules(
+                $sampleCarts,
+                $customer,
+                collect([$rule]),
+                $this->outletResolver->resolve($request, $request->user())?->id
+            ),
         ]);
     }
 
-    private function formPayload(): array
+    private function formPayload(Request $request): array
     {
+        $user = $request->user();
+        $activeOutlet = $this->outletResolver->resolve($request, $user);
+        $activeOutletId = $activeOutlet?->id;
+        $isKitchenWorkspace = $user?->isKitchenWorkspace() ?? false;
+
         return [
-            'products' => Product::orderBy('title')->get(['id', 'title', 'sell_price', 'category_id']),
+            'products' => Product::query()
+                ->when(
+                    $isKitchenWorkspace && $activeOutletId,
+                    fn ($query) => $query->where('tenant_outlet_id', $activeOutletId)
+                )
+                ->orderBy('title')
+                ->get(['id', 'title', 'buy_price', 'sell_price', 'category_id', 'tenant_outlet_id']),
             'categories' => Category::orderBy('name')->get(['id', 'name']),
             'tierOptions' => $this->loyaltyService->tierOptions(),
+            'priceBasisOptions' => [
+                ['value' => PricingRule::PRICE_BASIS_SELL_PRICE, 'label' => 'Harga Jual'],
+                ['value' => PricingRule::PRICE_BASIS_BUY_PRICE, 'label' => 'Harga Beli'],
+            ],
+            'pricingContext' => [
+                'active_outlet' => $activeOutlet ? [
+                    'id' => $activeOutlet->id,
+                    'name' => $activeOutlet->name,
+                    'code' => $activeOutlet->code,
+                    'outlet_type' => $activeOutlet->outlet_type,
+                ] : null,
+                'is_kitchen' => $isKitchenWorkspace,
+                'mode_label' => $isKitchenWorkspace ? 'Promo Tenant' : 'Promo Outlet Owner',
+                'forced_price_basis' => $isKitchenWorkspace
+                    ? PricingRule::PRICE_BASIS_BUY_PRICE
+                    : null,
+            ],
             'kindOptions' => [
                 ['value' => PricingRule::KIND_STANDARD_DISCOUNT, 'label' => 'Diskon Standar'],
                 ['value' => PricingRule::KIND_QTY_BREAK, 'label' => 'Harga Grosir / Qty Break'],
@@ -273,9 +366,25 @@ class PricingRuleController extends Controller
                 PricingRule::TYPE_FIXED_PRICE,
             ])],
             'discount_value' => ['required', 'numeric', 'min:0.01'],
+            'price_basis' => ['nullable', Rule::in([
+                PricingRule::PRICE_BASIS_SELL_PRICE,
+                PricingRule::PRICE_BASIS_BUY_PRICE,
+            ])],
             'preview_quantity_multiplier' => ['nullable', 'integer', 'min:1'],
             'starts_at' => ['nullable', 'date'],
             'ends_at' => ['nullable', 'date', 'after_or_equal:starts_at'],
+            'active_days' => ['nullable', 'array'],
+            'active_days.*' => ['string', Rule::in([
+                PricingRule::DAY_SUNDAY,
+                PricingRule::DAY_MONDAY,
+                PricingRule::DAY_TUESDAY,
+                PricingRule::DAY_WEDNESDAY,
+                PricingRule::DAY_THURSDAY,
+                PricingRule::DAY_FRIDAY,
+                PricingRule::DAY_SATURDAY,
+            ])],
+            'daily_start_time' => ['nullable', 'date_format:H:i'],
+            'daily_end_time' => ['nullable', 'date_format:H:i'],
             'notes' => ['nullable', 'string', 'max:1000'],
             'qty_breaks' => ['nullable', 'array'],
             'qty_breaks.*.min_qty' => ['required_with:qty_breaks', 'integer', 'min:1'],
@@ -344,7 +453,16 @@ class PricingRuleController extends Controller
         $validated['eligible_loyalty_tiers'] = $validated['customer_scope'] === PricingRule::SCOPE_MEMBER
             ? array_values(array_unique($validated['eligible_loyalty_tiers'] ?? []))
             : null;
+        $validated['active_days'] = array_values(array_unique($validated['active_days'] ?? []));
         $validated['preview_quantity_multiplier'] = max(1, (int) ($validated['preview_quantity_multiplier'] ?? 1));
+
+        if (($validated['daily_start_time'] ?? null) && ! ($validated['daily_end_time'] ?? null)) {
+            $request->validate(['daily_end_time' => ['required']]);
+        }
+
+        if (($validated['daily_end_time'] ?? null) && ! ($validated['daily_start_time'] ?? null)) {
+            $request->validate(['daily_start_time' => ['required']]);
+        }
 
         if ($validated['kind'] === PricingRule::KIND_QTY_BREAK) {
             $validated['qty_breaks'] = collect($validated['qty_breaks'] ?? [])
@@ -386,6 +504,10 @@ class PricingRuleController extends Controller
             $validated['discount_value'] = 0;
         }
 
+        $validated['price_basis'] = ($request->user()?->isKitchenWorkspace() ?? false)
+            ? PricingRule::PRICE_BASIS_BUY_PRICE
+            : ($validated['price_basis'] ?? PricingRule::PRICE_BASIS_SELL_PRICE);
+
         return [
             'rule' => collect($validated)
                 ->only([
@@ -400,9 +522,13 @@ class PricingRuleController extends Controller
                     'eligible_loyalty_tiers',
                     'discount_type',
                     'discount_value',
+                    'price_basis',
                     'preview_quantity_multiplier',
                     'starts_at',
                     'ends_at',
+                    'active_days',
+                    'daily_start_time',
+                    'daily_end_time',
                     'notes',
                 ])
                 ->all(),
@@ -442,13 +568,18 @@ class PricingRuleController extends Controller
             'target_type' => $rule->target_type,
             'product_id' => $rule->product_id,
             'category_id' => $rule->category_id,
+            'outlet_id' => $rule->outlet_id,
             'customer_scope' => $rule->customer_scope,
             'eligible_loyalty_tiers' => $rule->eligible_loyalty_tiers,
             'discount_type' => $rule->discount_type,
             'discount_value' => (float) $rule->discount_value,
+            'price_basis' => $rule->price_basis ?: PricingRule::PRICE_BASIS_SELL_PRICE,
             'preview_quantity_multiplier' => (int) $rule->preview_quantity_multiplier,
             'starts_at' => optional($rule->starts_at)?->toIso8601String(),
             'ends_at' => optional($rule->ends_at)?->toIso8601String(),
+            'active_days' => $rule->active_days,
+            'daily_start_time' => $rule->daily_start_time,
+            'daily_end_time' => $rule->daily_end_time,
             'notes' => $rule->notes,
             'qty_breaks' => $rule->qtyBreaks->map->only(['min_qty', 'discount_type', 'discount_value', 'sort_order'])->values()->all(),
             'bundle_items' => $rule->bundleItems->map->only(['product_id', 'quantity', 'sort_order'])->values()->all(),
@@ -507,5 +638,18 @@ class PricingRuleController extends Controller
         }
 
         return max(1, (int) ($rule->preview_quantity_multiplier ?: 1));
+    }
+
+    private function assertRuleVisibleForWorkspace(Request $request, PricingRule $pricingRule): void
+    {
+        $activeOutletId = $this->outletResolver->resolve($request, $request->user())?->id;
+
+        if (! $activeOutletId) {
+            return;
+        }
+
+        if ($pricingRule->outlet_id !== null && (int) $pricingRule->outlet_id !== (int) $activeOutletId) {
+            abort(404);
+        }
     }
 }

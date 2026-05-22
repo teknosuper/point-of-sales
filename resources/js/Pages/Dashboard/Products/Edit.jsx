@@ -40,7 +40,10 @@ export default function Edit({
     const { errors } = usePage().props;
     const canManageCatalog = capabilities?.can_manage_catalog === true;
     const canManagePricing = capabilities?.can_manage_pricing === true;
-    const canSubmitProductForm = canManageCatalog || canManagePricing;
+    const canManageTenantDiscount =
+        capabilities?.can_manage_tenant_discount === true;
+    const canSubmitProductForm =
+        canManageCatalog || canManagePricing || canManageTenantDiscount;
 
     const { data, setData, post, processing } = useForm({
         image: "",
@@ -57,6 +60,7 @@ export default function Edit({
         description: product.description ?? "",
         buy_price: product.buy_price ?? "",
         sell_price: product.sell_price ?? "",
+        tenant_discount_price: product.tenant_discount_price ?? "",
         _method: "PUT",
     });
     const {
@@ -229,6 +233,10 @@ export default function Edit({
                             <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-100">
                                 Anda sedang memakai mode operasional dapur/tenant. Di halaman ini Anda hanya bisa menyesuaikan stok outlet. Harga jual, harga beli, dan data katalog produk tetap dikelola admin.
                             </div>
+                        ) : canManageTenantDiscount && !canManageCatalog && !canManagePricing ? (
+                            <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100">
+                                Mode tenant aktif. Harga jual owner outlet disembunyikan. Anda hanya bisa mengatur harga promo tenant dari harga beli produk ini.
+                            </div>
                         ) : null}
 
                         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">
@@ -294,7 +302,9 @@ export default function Edit({
                                             <p className="mt-1 text-sm font-medium text-slate-900 dark:text-slate-100">
                                                 {tenantOutlets.find(
                                                     (outlet) => Number(outlet.id) === Number(product.tenant_outlet_id)
-                                                )?.name || "Global"}
+                                                )?.name ||
+                                                    product.tenant_outlet?.name ||
+                                                    "Global"}
                                             </p>
                                         </div>
                                     )}
@@ -470,6 +480,79 @@ export default function Edit({
                                 </div>
                             )}
                         </div>
+                        ) : canManageTenantDiscount ? (
+                        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">
+                            <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-4 flex items-center gap-2">
+                                <IconCurrencyDollar size={18} />
+                                Harga Tenant
+                            </h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800">
+                                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                        Harga Dasar Tenant
+                                    </p>
+                                    <p className="mt-1 text-lg font-bold text-slate-900 dark:text-slate-100">
+                                        Rp {Number(product.buy_price || 0).toLocaleString("id-ID")}
+                                    </p>
+                                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                        Basis harga tenant mengikuti harga beli owner outlet.
+                                    </p>
+                                </div>
+                                <Input
+                                    type="number"
+                                    label="Harga Diskon Tenant"
+                                    value={data.tenant_discount_price}
+                                    onChange={(e) =>
+                                        setData("tenant_discount_price", e.target.value)
+                                    }
+                                    errors={errors.tenant_discount_price}
+                                    placeholder="Kosongkan jika tidak ada promo"
+                                />
+                            </div>
+
+                            <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 dark:border-amber-900/40 dark:bg-amber-950/20">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">
+                                    Preview Harga Tenant
+                                </p>
+                                <div className="mt-2 flex flex-wrap items-end gap-3">
+                                    <p
+                                        className={`text-sm font-medium ${
+                                            data.tenant_discount_price !== "" &&
+                                            Number(data.tenant_discount_price) > 0 &&
+                                            Number(data.tenant_discount_price) < Number(product.buy_price || 0)
+                                                ? "text-slate-400 line-through dark:text-slate-500"
+                                                : "text-lg font-bold text-slate-900 dark:text-slate-100"
+                                        }`}
+                                    >
+                                        Rp {Number(product.buy_price || 0).toLocaleString("id-ID")}
+                                    </p>
+                                    {data.tenant_discount_price !== "" &&
+                                    Number(data.tenant_discount_price) > 0 &&
+                                    Number(data.tenant_discount_price) < Number(product.buy_price || 0) ? (
+                                        <p className="text-2xl font-bold text-danger-600 dark:text-danger-400">
+                                            Rp {Number(data.tenant_discount_price || 0).toLocaleString("id-ID")}
+                                        </p>
+                                    ) : null}
+                                </div>
+                                <p className="mt-2 text-xs text-amber-800 dark:text-amber-200">
+                                    Harga diskon tenant harus lebih kecil atau sama dengan harga beli. Untuk promo coret berbasis rule outlet, buat aturannya di menu Promo Harga tenant.
+                                </p>
+                                <div className="mt-3 flex flex-wrap gap-2">
+                                    <Link
+                                        href={route("pricing-rules.index")}
+                                        className="inline-flex items-center rounded-xl border border-amber-300 bg-white px-3 py-2 text-xs font-semibold text-amber-700 transition hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/20 dark:text-amber-200 dark:hover:bg-amber-950/40"
+                                    >
+                                        Buka Promo Harga Tenant
+                                    </Link>
+                                    <Link
+                                        href={route("products.index")}
+                                        className="inline-flex items-center rounded-xl border border-emerald-300 bg-white px-3 py-2 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950/20 dark:text-emerald-200 dark:hover:bg-emerald-950/40"
+                                    >
+                                        Update Stok Harian
+                                    </Link>
+                                </div>
+                            </div>
+                        </div>
                         ) : (
                         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">
                             <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-4 flex items-center gap-2">
@@ -485,14 +568,16 @@ export default function Edit({
                                         Rp {Number(product.buy_price || 0).toLocaleString("id-ID")}
                                     </p>
                                 </div>
-                                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800">
-                                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                                        Harga Jual
-                                    </p>
-                                    <p className="mt-1 text-lg font-bold text-slate-900 dark:text-slate-100">
-                                        Rp {Number(product.sell_price || 0).toLocaleString("id-ID")}
-                                    </p>
-                                </div>
+                                {!canManageTenantDiscount && product.sell_price !== null && product.sell_price !== undefined ? (
+                                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800">
+                                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                            Harga Jual
+                                        </p>
+                                        <p className="mt-1 text-lg font-bold text-slate-900 dark:text-slate-100">
+                                            Rp {Number(product.sell_price || 0).toLocaleString("id-ID")}
+                                        </p>
+                                    </div>
+                                ) : null}
                             </div>
                             <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
                                 Perubahan harga hanya boleh dilakukan admin atau pengguna yang memiliki izin pembaruan harga.

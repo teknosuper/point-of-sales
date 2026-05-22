@@ -117,12 +117,13 @@
 @php
     $money = fn ($value) => 'Rp '.number_format((int) $value, 0, ',', '.');
     $dateTime = fn ($value) => $value ? \Carbon\Carbon::parse($value)->format('d/m/Y H:i') : '-';
+    $isTenantRequest = (bool) ($settlement['is_tenant_request'] ?? false);
 @endphp
 <div class="sheet">
     <div class="header">
-        <div class="eyebrow">Bukti Setoran Kasir</div>
+        <div class="eyebrow">{{ $isTenantRequest ? 'Bukti Pencairan Tenant' : 'Bukti Setoran Kasir' }}</div>
         <h1>{{ $settlement['request_number'] ?? '-' }}</h1>
-        <p>Approval setoran dasar kasir ke admin / owner</p>
+        <p>{{ $isTenantRequest ? 'Approval pencairan dana tenant ke owner outlet' : 'Approval setoran dasar kasir ke admin / owner' }}</p>
     </div>
 
     <div class="content">
@@ -154,16 +155,16 @@
             <table>
                 <tbody>
                     <tr>
-                        <th>Penjualan Bruto</th>
-                        <td>{{ $money($settlement['gross_sales_total'] ?? 0) }}</td>
+                        <th>{{ $isTenantRequest ? 'Penjualan Setelah Promo' : 'Penjualan Bruto' }}</th>
+                        <td>{{ $money($settlement['settlement_reference_total'] ?? $settlement['gross_sales_total'] ?? 0) }}</td>
                     </tr>
                     <tr>
-                        <th>Nilai Dasar</th>
-                        <td>{{ $money($settlement['base_sales_total'] ?? 0) }}</td>
+                        <th>{{ $isTenantRequest ? 'Harga Dasar Tenant' : 'Nilai Dasar' }}</th>
+                        <td>{{ $money($settlement['pricing_basis_total'] ?? $settlement['base_sales_total'] ?? 0) }}</td>
                     </tr>
                     <tr>
-                        <th>Markup Owner</th>
-                        <td>{{ $money($settlement['markup_total'] ?? 0) }}</td>
+                        <th>{{ $isTenantRequest ? 'Diskon Pricing Rules' : 'Markup Owner' }}</th>
+                        <td>{{ $money($settlement['pricing_adjustment_total'] ?? $settlement['markup_total'] ?? 0) }}</td>
                     </tr>
                     <tr>
                         <th>Nominal Diminta</th>

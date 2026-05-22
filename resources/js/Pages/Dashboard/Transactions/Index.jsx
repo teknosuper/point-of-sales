@@ -126,6 +126,9 @@ const WALK_IN_CUSTOMER = {
     loyalty_points: 0,
 };
 
+const resolvedProductDisplayPrice = (product) =>
+    Number(product?.pricing_badge?.promo_price ?? product?.sell_price ?? 0);
+
 export default function Index({
     carts = [],
     carts_total = 0,
@@ -1075,7 +1078,7 @@ export default function Index({
                         id: tempId,
                         product_id: product.id,
                         qty: 1,
-                        price: Number(product.sell_price || 0),
+                        price: resolvedProductDisplayPrice(product),
                         notes: "",
                         product: { ...product },
                         tenant_outlet_id: product.tenant_outlet_id || null,
@@ -1122,13 +1125,9 @@ export default function Index({
                             ? {
                                   ...item,
                                   qty: Number(item.qty || 0) + 1,
-                                  price:
-                                      Number(
-                                          item.product?.sell_price ||
-                                              product.sell_price ||
-                                              0
-                                      ) *
-                                      (Number(item.qty || 0) + 1),
+                                  price: resolvedProductDisplayPrice(
+                                      item.product || product
+                                  ) * (Number(item.qty || 0) + 1),
                               }
                             : item
                     );
@@ -1139,7 +1138,7 @@ export default function Index({
                         id: tempId,
                         product_id: product.id,
                         qty: 1,
-                        price: Number(product.sell_price || 0),
+                        price: resolvedProductDisplayPrice(product),
                         product: {
                             ...product,
                         },
@@ -1214,7 +1213,7 @@ export default function Index({
                                 id: tempId,
                                 product_id: product.id,
                                 qty: 1,
-                                price: Number(product.sell_price || 0),
+                                price: resolvedProductDisplayPrice(product),
                                 notes: "",
                                 product: {
                                     ...product,

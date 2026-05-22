@@ -360,7 +360,7 @@ export default function Index({
 
                 {isKitchenWorkspace && wallet ? (
                     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                        <SummaryCard title="Saldo Masuk Tenant" value={formatCurrency(wallet.tenant_sales_total ?? 0)} description="Penjualan tenant yang sudah selesai diantar" icon={<IconReceipt2 size={20} />} tone="emerald" />
+                        <SummaryCard title="Saldo Masuk Tenant" value={formatCurrency(wallet.tenant_sales_total ?? 0)} description="Penjualan tenant setelah promo pricing rules" icon={<IconReceipt2 size={20} />} tone="emerald" />
                         <SummaryCard title="Piutang ke Owner" value={formatCurrency(wallet.receivable_total ?? 0)} description="Hak tenant yang belum dicairkan penuh" icon={<IconClockHour4 size={20} />} tone="amber" />
                         <SummaryCard title="Menunggu Approval" value={formatCurrency(wallet.pending_total ?? 0)} description="Pengajuan penarikan yang masih diproses" icon={<IconShieldCheck size={20} />} tone="blue" />
                         <SummaryCard title="Saldo Tersedia" value={formatCurrency(wallet.available_balance ?? 0)} description="Batas nominal yang bisa diajukan saat ini" icon={<IconCashBanknote size={20} />} tone="slate" />
@@ -383,10 +383,13 @@ export default function Index({
                                 <div className="grid gap-3 md:grid-cols-2">
                                     <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-800/60">
                                         <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                                            Harga Jual Tenant
+                                            Penjualan Setelah Promo
                                         </p>
                                         <p className="mt-2 text-lg font-bold text-slate-900 dark:text-white">
                                             {formatCurrency(wallet?.tenant_sales_total ?? 0)}
+                                        </p>
+                                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                            Dasar sebelum promo {formatCurrency(wallet?.base_total ?? 0)}
                                         </p>
                                     </div>
                                     <div className="rounded-2xl bg-emerald-50 p-4 dark:bg-emerald-950/20">
@@ -395,6 +398,9 @@ export default function Index({
                                         </p>
                                         <p className="mt-2 text-lg font-bold text-emerald-700 dark:text-emerald-300">
                                             {formatCurrency(wallet?.available_balance ?? 0)}
+                                        </p>
+                                        <p className="mt-1 text-xs text-emerald-600/80 dark:text-emerald-300/70">
+                                            Diskon pricing rules {formatCurrency(wallet?.pricing_discount_total ?? 0)}
                                         </p>
                                     </div>
                                 </div>
@@ -568,10 +574,18 @@ export default function Index({
                                     </div>
                                     <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-800/60">
                                         <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                                            Nilai Dasar Lunas
+                                            Harga Dasar Lunas
                                         </p>
                                         <p className="mt-2 text-lg font-bold text-slate-900 dark:text-white">
                                             {formatCurrency(selectedShift.base_sales_total)}
+                                        </p>
+                                    </div>
+                                    <div className="rounded-2xl bg-blue-50 p-4 dark:bg-blue-950/20">
+                                        <p className="text-xs font-semibold uppercase tracking-wide text-blue-500">
+                                            Diskon Promo
+                                        </p>
+                                        <p className="mt-2 text-lg font-bold text-blue-700 dark:text-blue-300">
+                                            {formatCurrency(selectedShift.pricing_discount_total || 0)}
                                         </p>
                                     </div>
                                     {!isKitchenWorkspace ? (
@@ -777,7 +791,9 @@ export default function Index({
                                     <tr className="border-b border-slate-100 dark:border-slate-800">
                                         <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Request</th>
                                         <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Pengaju</th>
-                                        <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Penjualan Tenant</th>
+                                        <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
+                                            {canCreateRequest ? "Saldo Referensi" : "Dasar Setoran"}
+                                        </th>
                                         <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Diajukan</th>
                                         <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Disetujui</th>
                                         <th className="px-4 py-3 text-center text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Status</th>
@@ -817,7 +833,14 @@ export default function Index({
                                                     </div>
                                                 ) : null}
                                             </td>
-                                            <td className="px-4 py-3 text-right font-semibold text-slate-900 dark:text-white">{formatCurrency(row.base_sales_total)}</td>
+                                            <td className="px-4 py-3 text-right font-semibold text-slate-900 dark:text-white">
+                                                {formatCurrency(row.settlement_reference_total ?? row.base_sales_total)}
+                                                {row.is_tenant_request ? (
+                                                    <div className="mt-1 text-[11px] font-normal text-slate-500 dark:text-slate-400">
+                                                        Dasar {formatCurrency(row.pricing_basis_total ?? row.base_sales_total)} • promo {formatCurrency(row.pricing_adjustment_total ?? 0)}
+                                                    </div>
+                                                ) : null}
+                                            </td>
                                             <td className="px-4 py-3 text-right font-semibold text-blue-600 dark:text-blue-300">{formatCurrency(row.requested_amount)}</td>
                                             <td className="px-4 py-3 text-right font-semibold text-emerald-600 dark:text-emerald-300">{formatCurrency(row.approved_amount || 0)}</td>
                                             <td className="px-4 py-3 text-center">

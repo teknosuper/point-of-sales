@@ -1,11 +1,10 @@
 import React from "react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
-import { Head, useForm, usePage } from "@inertiajs/react";
+import { Head, router, useForm, usePage } from "@inertiajs/react";
 import Button from "@/Components/Dashboard/Button";
 import Input from "@/Components/Dashboard/Input";
 import ListBox from "@/Components/Dashboard/ListBox";
 import Modal from "@/Components/Dashboard/Modal";
-import Search from "@/Components/Dashboard/Search";
 import Pagination from "@/Components/Dashboard/Pagination";
 import { useAuthorization } from "@/Utils/authorization";
 import {
@@ -14,90 +13,132 @@ import {
 } from "@/Utils/permissionPresentation";
 import { roleDescription, roleLabel } from "@/Utils/rolePresentation";
 import {
+    IconAdjustmentsHorizontal,
     IconDatabaseOff,
     IconCirclePlus,
     IconTrash,
     IconUserShield,
     IconPencilCog,
     IconPencilCheck,
+    IconSearch,
     IconShield,
+    IconFilterOff,
 } from "@tabler/icons-react";
 
-// Role Card Component
-function RoleCard({ role, onEdit, onDelete, canUpdate, canDelete }) {
-    const previewPermissions = role.permissions.slice(0, 8).map(decoratePermission);
+function summarizeRole(role) {
+    const permissions = (role.permissions || []).map(decoratePermission);
+    const groups = [...new Set(permissions.map((permission) => permission.group_label))];
+    const hasTenantPromo = permissions.some((permission) =>
+        permission.name.startsWith("pricing-rules-")
+    );
+    const hasOwnerPricing = permissions.some(
+        (permission) => permission.name === "products-pricing-update"
+    );
+    const isSystemRole = ["super-admin", "cashier", "waiter", "kitchen-operator"].includes(role.name);
+    const kindLabel = role.name === "kitchen-operator"
+        ? "Tenant Operasional"
+        : hasTenantPromo
+          ? "Tenant Promo"
+          : hasOwnerPricing
+            ? "Owner Pricing"
+            : isSystemRole
+              ? "Role Sistem"
+              : "Role Admin";
+
+    return {
+        permissions,
+        groups,
+        hasTenantPromo,
+        hasOwnerPricing,
+        kindLabel,
+    };
+}
+
+function RoleRow({ role, onEdit, onDelete, canUpdate, canDelete }) {
+    const summary = summarizeRole(role);
+    const previewPermissions = summary.permissions.slice(0, 6);
 
     return (
-        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden hover:shadow-lg transition-all">
-            {/* Header */}
-            <div className="p-5 border-b border-slate-100 dark:border-slate-800">
-                <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary-400 to-primary-600 flex items-center justify-center text-white">
-                        <IconUserShield size={24} />
+        <div className="flex flex-col gap-4 px-4 py-4 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/40 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary-100 text-primary-600 dark:bg-primary-900/50 dark:text-primary-300">
+                        <IconUserShield size={18} />
                     </div>
                     <div>
-                        <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-200 capitalize">
+                        <h3 className="text-base font-semibold text-slate-800 dark:text-slate-200 capitalize">
                             {roleLabel(role.name)}
                         </h3>
                         <p className="text-sm text-slate-500 dark:text-slate-400">
                             {roleDescription(role.name) || `${role.permissions.length} hak akses`}
                         </p>
                     </div>
+                    <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                        {summary.kindLabel}
+                    </span>
                 </div>
-            </div>
-
-            {/* Permissions */}
-            <div className="p-4 bg-slate-50 dark:bg-slate-800/50">
-                <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto scrollbar-thin">
+                <p className="mt-2 break-all font-mono text-xs text-slate-500 dark:text-slate-400">
+                    {role.name}
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                    {summary.groups.slice(0, 4).map((group) => (
+                        <span
+                            key={group}
+                            className="rounded-full border border-slate-200 px-2.5 py-1 text-[11px] font-medium text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                        >
+                            {group}
+                        </span>
+                    ))}
+                    {summary.groups.length > 4 && (
+                        <span className="rounded-full border border-slate-200 px-2.5 py-1 text-[11px] font-medium text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                            +{summary.groups.length - 4} group izin
+                        </span>
+                    )}
+                </div>
+                <div className="mt-3 flex flex-wrap gap-1.5">
                     {previewPermissions.map((permission, index) => (
                         <span
                             key={index}
-                            className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full bg-accent-100 dark:bg-accent-900/50 text-accent-700 dark:text-accent-400"
+                            className="inline-flex items-center gap-1 rounded-full bg-accent-100 px-2.5 py-1 text-[11px] font-medium text-accent-700 dark:bg-accent-900/50 dark:text-accent-300"
                         >
                             <IconShield size={10} />
                             {permission.label}
                         </span>
                     ))}
                     {role.permissions.length > 8 && (
-                        <span className="px-2 py-0.5 text-xs font-medium text-slate-500">
-                            +{role.permissions.length - 8} lainnya
+                        <span className="px-2 py-1 text-[11px] font-medium text-slate-500">
+                            +{role.permissions.length - 6} izin lainnya
                         </span>
                     )}
                 </div>
             </div>
-
-            {/* Actions */}
-            {(canUpdate || canDelete) && (
-                <div className="flex border-t border-slate-100 dark:border-slate-800">
-                    {canUpdate && (
-                        <button
-                            onClick={onEdit}
-                            className="flex-1 flex items-center justify-center gap-1.5 py-3 text-warning-600 hover:bg-warning-50 dark:hover:bg-warning-950/50 text-sm font-medium transition-colors"
-                        >
-                            <IconPencilCog size={16} />
-                            <span>Edit</span>
-                        </button>
-                    )}
-                    {canUpdate && canDelete && (
-                        <div className="w-px bg-slate-100 dark:bg-slate-800" />
-                    )}
-                    {canDelete && (
-                        <button
-                            onClick={onDelete}
-                            className="flex-1 flex items-center justify-center gap-1.5 py-3 text-danger-600 hover:bg-danger-50 dark:hover:bg-danger-950/50 text-sm font-medium transition-colors"
-                        >
-                            <IconTrash size={16} />
-                            <span>Hapus</span>
-                        </button>
-                    )}
-                </div>
-            )}
+            <div className="flex shrink-0 items-center gap-2">
+                <span className="rounded-full border border-slate-200 px-2.5 py-1 text-[11px] font-medium text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                    {role.permissions.length} izin
+                </span>
+                {canUpdate && (
+                    <button
+                        onClick={onEdit}
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-amber-200 bg-amber-50 text-amber-600 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300"
+                    >
+                        <IconPencilCog size={16} />
+                    </button>
+                )}
+                {canDelete && (
+                    <button
+                        onClick={onDelete}
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100 dark:border-rose-800 dark:bg-rose-950/30 dark:text-rose-300"
+                    >
+                        <IconTrash size={16} />
+                    </button>
+                )}
+            </div>
         </div>
     );
 }
 
 export default function Index() {
-    const { roles, permissions, errors } = usePage().props;
+    const { roles, permissions, errors, filters = {}, perPageOptions = [] } = usePage().props;
     const { can } = useAuthorization();
     const canCreateRoles = can("roles-create");
     const canUpdateRoles = can("roles-update");
@@ -183,6 +224,78 @@ export default function Index() {
     const permissionGroups = Object.values(groupedPermissionCounts).sort((left, right) =>
         left.label.localeCompare(right.label, "id-ID")
     );
+    const roleRows = roles.data.map((role) => ({
+        ...role,
+        summary: summarizeRole(role),
+    }));
+    const summaryCards = [
+        {
+            label: "Total Role",
+            value: roles.total || 0,
+        },
+        {
+            label: "Role Sistem",
+            value: roleRows.filter((role) =>
+                ["super-admin", "cashier", "waiter", "kitchen-operator"].includes(role.name)
+            ).length,
+        },
+        {
+            label: "Role Tenant Promo",
+            value: roleRows.filter((role) => role.summary.hasTenantPromo).length,
+        },
+        {
+            label: "Role Owner Pricing",
+            value: roleRows.filter((role) => role.summary.hasOwnerPricing).length,
+        },
+    ];
+
+    const applyFilters = (nextFilters) => {
+        router.get(route("roles.index"), nextFilters, {
+            preserveState: true,
+            replace: true,
+        });
+    };
+
+    const resetFilters = () => {
+        applyFilters({
+            search: "",
+            kind: "",
+            per_page: filters.per_page || 12,
+        });
+    };
+    const permissionPresets = [
+        {
+            key: "tenant-operational",
+            label: "Preset Tenant Operasional",
+            permissions: [
+                "products-access",
+                "products-edit",
+                "outlets-access",
+                "outlets-toggle",
+            ],
+        },
+        {
+            key: "tenant-promo",
+            label: "Preset Tenant Promo",
+            permissions: [
+                "pricing-rules-access",
+                "pricing-rules-create",
+                "pricing-rules-update",
+            ],
+        },
+        {
+            key: "owner-pricing",
+            label: "Preset Owner Pricing",
+            permissions: [
+                "products-access",
+                "products-pricing-update",
+                "pricing-rules-access",
+                "pricing-rules-create",
+                "pricing-rules-update",
+                "pricing-rules-delete",
+            ],
+        },
+    ];
 
     return (
         <>
@@ -223,12 +336,20 @@ export default function Index() {
                 </div>
             </div>
 
-            {/* Search */}
-            <div className="mb-4 w-full sm:w-80">
-                <Search
-                    url={route("roles.index")}
-                    placeholder="Cari akses group..."
-                />
+            <div className="mb-6 grid gap-3 md:grid-cols-4">
+                {summaryCards.map((item) => (
+                    <div
+                        key={item.label}
+                        className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900"
+                    >
+                        <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                            {item.label}
+                        </p>
+                        <p className="mt-2 text-2xl font-bold text-slate-900 dark:text-white">
+                            {item.value}
+                        </p>
+                    </div>
+                ))}
             </div>
 
             <div className="mb-6 rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-100">
@@ -236,17 +357,127 @@ export default function Index() {
                 <p className="mt-1">
                     Untuk user dapur tenant, kombinasikan minimal `Lihat Produk`, `Ubah Produk Operasional`, dan `Tutup atau Buka Toko`. Tambahkan `Ubah Harga Produk` hanya jika memang boleh mengubah harga beli atau harga jual.
                 </p>
+                <p className="mt-2">
+                    Jika tenant juga boleh membuat promo sendiri, tambahkan paket `Lihat Aturan Harga`, `Tambah Aturan Harga`, dan `Ubah Aturan Harga`. Halaman user hanya memilih role, jadi paket promo tenant harus selesai dirakit di sini.
+                </p>
             </div>
 
-            <div className="mb-6 flex flex-wrap gap-2">
-                {permissionGroups.map((group) => (
-                    <span
-                        key={group.key}
-                        className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+            <div className="mb-6 grid gap-3 lg:grid-cols-3">
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-100">
+                    <p className="font-semibold">Role Tenant Operasional</p>
+                    <p className="mt-1">
+                        Cocok untuk dapur atau PIC tenant harian: `products-access`, `products-edit`, `outlets-access`, dan `outlets-toggle`.
+                    </p>
+                </div>
+                <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-100">
+                    <p className="font-semibold">Role Tenant Promo</p>
+                    <p className="mt-1">
+                        Tambahkan `pricing-rules-access`, `pricing-rules-create`, `pricing-rules-update`. Tambah `pricing-rules-delete` hanya bila tenant boleh menghapus promo.
+                    </p>
+                </div>
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100">
+                    <p className="font-semibold">Role Owner Pricing</p>
+                    <p className="mt-1">
+                        `products-pricing-update` adalah izin terpisah. Pakai hanya untuk owner outlet atau admin yang memang boleh mengubah harga beli dan harga jual utama.
+                    </p>
+                </div>
+            </div>
+
+            <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+                <div className="mb-4 flex items-center gap-2">
+                    <IconAdjustmentsHorizontal size={18} className="text-primary-500" />
+                    <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+                        Filter Role
+                    </h2>
+                </div>
+                <div className="grid gap-3 md:grid-cols-4">
+                    <div className="relative md:col-span-2">
+                        <input
+                            type="text"
+                            defaultValue={filters.search || ""}
+                            onKeyDown={(event) => {
+                                if (event.key === "Enter") {
+                                    applyFilters({
+                                        ...filters,
+                                        search: event.currentTarget.value,
+                                    });
+                                }
+                            }}
+                            placeholder="Cari nama role..."
+                            className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 pr-11 text-sm text-slate-800 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                        />
+                        <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-4 text-slate-400">
+                            <IconSearch size={18} />
+                        </div>
+                    </div>
+                    <select
+                        value={filters.kind || ""}
+                        onChange={(event) =>
+                            applyFilters({
+                                ...filters,
+                                kind: event.target.value,
+                            })
+                        }
+                        className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-800 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
                     >
-                        {group.label}: {group.count}
-                    </span>
-                ))}
+                        <option value="">Semua Jenis Role</option>
+                        <option value="system">Role Sistem</option>
+                        <option value="tenant">Role Tenant</option>
+                        <option value="pricing">Role Pricing</option>
+                        <option value="admin">Role Admin Modul</option>
+                    </select>
+                    <select
+                        value={filters.per_page || 12}
+                        onChange={(event) =>
+                            applyFilters({
+                                ...filters,
+                                per_page: event.target.value,
+                            })
+                        }
+                        className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-800 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                    >
+                        {perPageOptions.map((option) => (
+                            <option key={option} value={option}>
+                                {option} per halaman
+                            </option>
+                        ))}
+                    </select>
+                </div>
+                <div className="mt-4 flex flex-wrap gap-2">
+                    <button
+                        type="button"
+                        onClick={resetFilters}
+                        className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                    >
+                        <IconFilterOff size={14} />
+                        Reset Filter
+                    </button>
+                    {permissionGroups.map((group) => (
+                        <span
+                            key={group.key}
+                            className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                        >
+                            {group.label}: {group.count}
+                        </span>
+                    ))}
+                </div>
+            </div>
+
+            <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+                <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+                    Cara baca role di halaman ini
+                </p>
+                <div className="mt-3 grid gap-3 lg:grid-cols-3">
+                    <div className="rounded-xl border border-slate-200 p-3 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300">
+                        Badge jenis role menjelaskan role itu fokus ke tenant operasional, tenant promo, owner pricing, atau admin umum.
+                    </div>
+                    <div className="rounded-xl border border-slate-200 p-3 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300">
+                        Chip group permission menunjukkan area modul yang disentuh role tersebut tanpa harus membuka form edit dulu.
+                    </div>
+                    <div className="rounded-xl border border-slate-200 p-3 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300">
+                        Jika role tenant perlu promo, pastikan ada permission `pricing-rules-*`. Jika boleh ubah harga owner, baru tambahkan `products-pricing-update`.
+                    </div>
+                </div>
             </div>
 
             {/* Modal */}
@@ -289,6 +520,7 @@ export default function Index() {
                             selected={data.selectedPermission}
                             setSelected={setSelectedPermission}
                             errors={errors.selectedPermission}
+                            presets={permissionPresets}
                         />
                     </div>
                     <Button
@@ -304,9 +536,13 @@ export default function Index() {
 
             {/* Content */}
             {roles.data.length > 0 ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                    {roles.data.map((role) => (
-                        <RoleCard
+                <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+                    <div className="border-b border-slate-200 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:text-slate-400">
+                        Daftar Role
+                    </div>
+                    <div className="divide-y divide-slate-200 dark:divide-slate-800">
+                        {roles.data.map((role) => (
+                            <RoleRow
                             key={role.id}
                             role={role}
                             onEdit={() => handleEdit(role)}
@@ -314,7 +550,8 @@ export default function Index() {
                             canUpdate={canUpdateRoles}
                             canDelete={canDeleteRoles}
                         />
-                    ))}
+                        ))}
+                    </div>
                 </div>
             ) : (
                 <div className="flex flex-col items-center justify-center py-16 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
@@ -343,7 +580,7 @@ export default function Index() {
                 </div>
             )}
 
-            {roles.last_page !== 1 && <Pagination links={roles.links} />}
+            <Pagination links={roles.links} />
         </>
     );
 }

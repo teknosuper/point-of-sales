@@ -208,8 +208,14 @@ class TableOrderFlowTest extends TestCase
             'tenant_outlet_id' => $outlet->id,
             'product_title' => $product->title,
             'qty' => 1,
+            'base_unit_price' => 25000,
             'unit_price' => 25000,
             'line_total' => 30000,
+            'discount_total' => 4000,
+            'pricing_rule_name' => 'Promo Tenant Lunch',
+            'pricing_rule_kind' => 'standard_discount',
+            'pricing_group_key' => 'rule-1',
+            'pricing_group_label' => 'Promo Tenant Lunch',
             'notes' => 'Pedas sedang',
         ])->modifiers()->create([
             'product_modifier_option_id' => $modifier->id,
@@ -241,6 +247,17 @@ class TableOrderFlowTest extends TestCase
             'qty' => 1,
             'unit_price' => 5000,
             'total_price' => 5000,
+        ]);
+        $this->assertDatabaseHas('transaction_details', [
+            'transaction_id' => $order->transaction_id,
+            'product_id' => $product->id,
+            'base_unit_price' => 25000,
+            'unit_price' => 25000,
+            'price' => 30000,
+            'discount_total' => 4000,
+            'pricing_rule_name' => 'Promo Tenant Lunch',
+            'pricing_rule_kind' => 'standard_discount',
+            'pricing_group_label' => 'Promo Tenant Lunch',
         ]);
     }
 

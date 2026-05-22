@@ -144,6 +144,14 @@
             <table>
                 <tbody>
                     <tr>
+                        <th>Subtotal Sebelum Promo</th>
+                        <td>{{ $formatMoney($allocation->pre_promo_subtotal ?? ($allocation->subtotal ?? 0)) }}</td>
+                    </tr>
+                    <tr>
+                        <th>Diskon Promo & Checkout</th>
+                        <td>{{ $formatMoney($allocation->total_discount_total ?? 0) }}</td>
+                    </tr>
+                    <tr>
                         <th>Revenue Tenant</th>
                         <td>{{ $formatMoney($allocation->grand_total ?? 0) }}</td>
                     </tr>
@@ -206,7 +214,7 @@
         </div>
     </div>
     <div class="footer">
-        Bukti ini dicetak dari sistem POINZA sebagai konfirmasi payout settlement tenant.
+        Bukti ini dicetak dari sistem POINZA sebagai konfirmasi payout settlement tenant. Nilai revenue tenant sudah memperhitungkan pricing rules.
     </div>
 </div>
 </body>

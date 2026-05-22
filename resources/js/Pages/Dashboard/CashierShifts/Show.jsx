@@ -138,7 +138,8 @@ export default function Show({ cashierShift, canForceClose = false }) {
                     <MetricCard title="Modal Awal" value={formatCurrency(cashierShift.opening_cash)} icon={IconWallet} />
                     <MetricCard title="Expected Cash" value={formatCurrency(cashierShift.expected_cash)} icon={IconCashBanknote} />
                     <MetricCard title="Penjualan Tunai" value={formatCurrency(cashierShift.cash_sales_total)} icon={IconReceipt} />
-                    <MetricCard title="Nilai Dasar Lunas" value={formatCurrency(cashierShift.base_sales_total)} icon={IconCashBanknote} />
+                    <MetricCard title="Harga Dasar Lunas" value={formatCurrency(cashierShift.base_sales_total)} icon={IconCashBanknote} />
+                    <MetricCard title="Diskon Promo" value={formatCurrency(cashierShift.pricing_discount_total || 0)} icon={IconReceipt} />
                     {!isKitchenWorkspace ? (
                         <MetricCard title="Markup Owner" value={formatCurrency(cashierShift.markup_total)} icon={IconWallet} />
                     ) : null}
@@ -213,6 +214,12 @@ export default function Show({ cashierShift, canForceClose = false }) {
                                 <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">Setoran Dasar Kasir</p>
                                 <p className="mt-2 text-sm text-emerald-900 dark:text-emerald-100">
                                     Kasir bisa meminta <span className="font-semibold">{formatCurrency(cashierShift.base_sales_total)}</span> berdasarkan transaksi lunas pada shift ini.
+                                </p>
+                                <p className="mt-2 text-xs text-emerald-800 dark:text-emerald-200">
+                                    Promo yang mengurangi nilai dasar shift ini:{" "}
+                                    <span className="font-semibold">
+                                        {formatCurrency(cashierShift.pricing_discount_total || 0)}
+                                    </span>
                                 </p>
                                 <p className="mt-2 text-xs text-emerald-800 dark:text-emerald-200">
                                     Penerima setoran:{" "}

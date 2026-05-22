@@ -24,7 +24,8 @@ class TableOrderService
         private readonly KitchenTicketService $kitchenTicketService,
         private readonly FoodcourtTenantAllocationService $foodcourtTenantAllocationService,
         private readonly AuditLogService $auditLogService,
-        private readonly LoyaltyService $loyaltyService
+        private readonly LoyaltyService $loyaltyService,
+        private readonly PricingService $pricingService
     ) {}
 
     public function createFromPublicMenu(DiningTable $table, Customer $customer, array $payload): TableOrder
@@ -71,7 +72,7 @@ class TableOrderService
             ->get()
             ->groupBy('product_id');
 
-        $orderItems = $items->map(function (array $item) use ($products, $modifierOptions, $table) {
+        $orderItems = $items->map(function (array $item, int $index) use ($products, $modifierOptions, $table) {
             /** @var Product|null $product */
             $product = $products->get($item['product_id']);
             if (! $product) {
@@ -102,12 +103,20 @@ class TableOrderService
             $modifierUnitTotal = (int) $selectedModifiers->sum(fn (ProductModifierOption $option) => (int) $option->price);
 
             return [
+                'cart_id' => -($index + 1),
                 'product_id' => $product->id,
                 'tenant_outlet_id' => $product->tenant_outlet_id ?: $table->outlet_id,
                 'product_title' => $product->title,
                 'qty' => $item['qty'],
+                'base_unit_price' => $unitPrice,
                 'unit_price' => $unitPrice,
                 'line_total' => ($unitPrice + $modifierUnitTotal) * $item['qty'],
+                'discount_total' => 0,
+                'pricing_rule_id' => null,
+                'pricing_rule_name' => null,
+                'pricing_rule_kind' => null,
+                'pricing_group_key' => null,
+                'pricing_group_label' => null,
                 'notes' => $item['notes'],
                 'modifiers' => $selectedModifiers->map(fn (ProductModifierOption $option) => [
                     'product_modifier_option_id' => $option->id,
@@ -118,6 +127,49 @@ class TableOrderService
                 ])->values()->all(),
             ];
         });
+
+        $pricingPreview = $this->pricingService->previewCart(
+            $orderItems->map(function (array $item) use ($products) {
+                $cart = new \App\Models\Cart([
+                    'id' => (int) $item['cart_id'],
+                    'product_id' => (int) $item['product_id'],
+                    'qty' => (int) $item['qty'],
+                    'price' => (int) $item['line_total'],
+                ]);
+
+                $cart->setRelation('product', $products->get($item['product_id']));
+                $cart->setRelation('modifiers', collect($item['modifiers'] ?? [])->map(
+                    fn (array $modifier) => (object) ['total_price' => (int) ($modifier['total_price'] ?? 0)]
+                ));
+
+                return $cart;
+            }),
+            $customer,
+            outletId: $table->outlet_id
+        );
+
+        $pricingItems = collect($pricingPreview['items'] ?? [])->keyBy('cart_id');
+
+        $orderItems = $orderItems->map(function (array $item) use ($pricingItems) {
+            $pricingItem = $pricingItems->get((int) $item['cart_id']);
+
+            if (! $pricingItem) {
+                return $item;
+            }
+
+            return [
+                ...$item,
+                'base_unit_price' => (int) ($pricingItem['base_unit_price'] ?? $item['base_unit_price']),
+                'unit_price' => (int) ($pricingItem['effective_unit_price'] ?? $item['unit_price']),
+                'line_total' => (int) ($pricingItem['line_total'] ?? $item['line_total']),
+                'discount_total' => (int) ($pricingItem['line_discount_total'] ?? $item['discount_total']),
+                'pricing_rule_id' => data_get($pricingItem, 'pricing_rule.id'),
+                'pricing_rule_name' => data_get($pricingItem, 'pricing_rule.name'),
+                'pricing_rule_kind' => data_get($pricingItem, 'pricing_rule.kind'),
+                'pricing_group_key' => $pricingItem['pricing_group_key'] ?? null,
+                'pricing_group_label' => $pricingItem['pricing_group_label'] ?? null,
+            ];
+        })->values();
 
         $subtotal = (int) $orderItems->sum('line_total');
 
@@ -141,6 +193,7 @@ class TableOrderService
 
             foreach ($orderItems as $item) {
                 $modifiers = $item['modifiers'] ?? [];
+                unset($item['cart_id']);
                 unset($item['modifiers']);
 
                 $orderItem = $order->items()->create($item);
@@ -227,11 +280,16 @@ class TableOrderService
                     'tenant_outlet_id' => $item->tenant_outlet_id ?: $tableOrder->outlet_id,
                     'product_id' => $product->id,
                     'qty' => (int) $item->qty,
-                    'base_unit_price' => (int) $item->unit_price,
+                    'base_unit_price' => (int) ($item->base_unit_price ?? $item->unit_price),
                     'unit_price' => (int) $item->unit_price,
                     'price' => (int) $item->line_total,
                     'notes' => $item->notes,
-                    'discount_total' => 0,
+                    'discount_total' => (int) ($item->discount_total ?? 0),
+                    'pricing_rule_id' => $item->pricing_rule_id,
+                    'pricing_rule_name' => $item->pricing_rule_name,
+                    'pricing_rule_kind' => $item->pricing_rule_kind,
+                    'pricing_group_key' => $item->pricing_group_key,
+                    'pricing_group_label' => $item->pricing_group_label,
                 ]);
 
                 foreach ($item->modifiers as $modifier) {

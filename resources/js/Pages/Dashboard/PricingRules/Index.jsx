@@ -63,7 +63,10 @@ const kindLabel = (kind) => {
     return "Standar";
 };
 
-export default function Index({ rules, filters, summary = {}, recentAudits = [] }) {
+const basisLabel = (basis) =>
+    basis === "buy_price" ? "Harga Beli Tenant" : "Harga Jual Owner";
+
+export default function Index({ rules, filters, summary = {}, recentAudits = [], workspace = {} }) {
     const { can } = useAuthorization();
     const hasData = rules.data.length > 0;
 
@@ -86,8 +89,17 @@ export default function Index({ rules, filters, summary = {}, recentAudits = [] 
                             Promo Harga
                         </h1>
                         <p className="text-sm text-slate-500 dark:text-slate-400">
-                            Atur diskon dan harga otomatis untuk POS.
+                            Atur diskon dan harga otomatis untuk POS, kasir, dan self order.
                         </p>
+                        {workspace?.active_outlet ? (
+                            <p className="mt-2 text-xs font-medium text-slate-500 dark:text-slate-400">
+                                Mode: {workspace.mode_label || "Promo Harga"} •{" "}
+                                Outlet aktif: {workspace.active_outlet.code} - {workspace.active_outlet.name}
+                                {workspace?.default_price_basis === "buy_price"
+                                    ? " • Basis default: harga beli tenant."
+                                    : " • Basis default: harga jual owner outlet."}
+                            </p>
+                        ) : null}
                     </div>
                     {can("pricing-rules-create") && (
                         <Button
@@ -119,6 +131,27 @@ export default function Index({ rules, filters, summary = {}, recentAudits = [] 
                             </p>
                         </div>
                     ))}
+                </div>
+
+                <div className="mb-6 grid gap-3 lg:grid-cols-3">
+                    <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-100">
+                        <p className="font-semibold">Promo Tenant</p>
+                        <p className="mt-1">
+                            Dipakai saat outlet aktif adalah tenant atau workspace dapur. Perhitungan promo memakai harga beli tenant, bukan harga jual owner.
+                        </p>
+                    </div>
+                    <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-100">
+                        <p className="font-semibold">Promo Outlet Owner</p>
+                        <p className="mt-1">
+                            Dipakai untuk outlet utama atau owner outlet. Perhitungan promo memakai harga jual owner kecuali rule diatur berbeda.
+                        </p>
+                    </div>
+                    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100">
+                        <p className="font-semibold">Cara Baca Halaman Ini</p>
+                        <p className="mt-1">
+                            Lihat kolom `Scope` untuk tahu rule ini milik tenant atau owner, lalu lihat kolom `Basis` untuk memastikan promo dihitung dari harga yang benar.
+                        </p>
+                    </div>
                 </div>
 
                 <div className="mb-4 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
@@ -185,6 +218,7 @@ export default function Index({ rules, filters, summary = {}, recentAudits = [] 
                                 <Table.Th>Scope</Table.Th>
                                 <Table.Th>Jenis</Table.Th>
                                 <Table.Th>Diskon</Table.Th>
+                                <Table.Th>Basis</Table.Th>
                                 <Table.Th>Priority</Table.Th>
                                 <Table.Th>Status</Table.Th>
                                 <Table.Th className="w-28 text-center">Aksi</Table.Th>
@@ -216,7 +250,21 @@ export default function Index({ rules, filters, summary = {}, recentAudits = [] 
                                         </Table.Td>
                                         <Table.Td>{targetLabel(rule)}</Table.Td>
                                         <Table.Td>
-                                            {customerScopeLabel(rule.customer_scope)}
+                                            <div>
+                                                <p className="font-medium text-slate-700 dark:text-slate-200">
+                                                    {rule.scope_label || "Promo Harga"}
+                                                </p>
+                                                <p className="text-xs text-slate-500 dark:text-slate-400">
+                                                    {rule.outlet
+                                                        ? `${rule.outlet.code} - ${rule.outlet.name}`
+                                                        : customerScopeLabel(rule.customer_scope)}
+                                                </p>
+                                                {rule.outlet ? (
+                                                    <p className="text-xs text-slate-400 dark:text-slate-500">
+                                                        Pelanggan: {customerScopeLabel(rule.customer_scope)}
+                                                    </p>
+                                                ) : null}
+                                            </div>
                                         </Table.Td>
                                         <Table.Td>
                                             <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">
@@ -224,6 +272,11 @@ export default function Index({ rules, filters, summary = {}, recentAudits = [] 
                                             </span>
                                         </Table.Td>
                                         <Table.Td>{discountLabel(rule)}</Table.Td>
+                                        <Table.Td>
+                                            <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                                                {basisLabel(rule.price_basis)}
+                                            </span>
+                                        </Table.Td>
                                         <Table.Td>{rule.priority}</Table.Td>
                                         <Table.Td>
                                             <span

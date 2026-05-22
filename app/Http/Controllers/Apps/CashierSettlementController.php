@@ -8,7 +8,6 @@ use App\Models\CashierShift;
 use App\Models\Product;
 use App\Models\Setting;
 use App\Models\TransactionTenantAllocation;
-use App\Models\TransactionTenantAllocationItem;
 use App\Models\User;
 use App\Services\AuditLogService;
 use App\Services\CashierShiftService;
@@ -180,7 +179,7 @@ class CashierSettlementController extends Controller
             'business_date' => now()->toDateString(),
             'gross_sales_total' => (int) ($wallet['tenant_sales_total'] ?? 0),
             'base_sales_total' => (int) ($wallet['base_total'] ?? 0),
-            'markup_total' => 0,
+            'markup_total' => (int) ($wallet['pricing_discount_total'] ?? 0),
             'requested_amount' => $requestedAmount,
         ]);
 
@@ -371,6 +370,8 @@ class CashierSettlementController extends Controller
             'closed_at' => optional($shift->closed_at)?->toISOString(),
             'gross_sales_total' => (int) $summary['gross_sales_total'],
             'base_sales_total' => (int) $summary['base_sales_total'],
+            'pricing_discount_total' => (int) $summary['pricing_discount_total'],
+            'pricing_reference_total' => (int) $summary['pricing_reference_total'],
             'markup_total' => (int) $summary['markup_total'],
             'requested_amount' => (int) $summary['base_sales_total'],
             'paid_transactions_count' => (int) $summary['paid_transactions_count'],
@@ -396,6 +397,8 @@ class CashierSettlementController extends Controller
 
     private function transformSettlementModel(CashierSettlementRequest $settlement): array
     {
+        $isTenantRequest = $settlement->cashier_shift_id === null;
+
         return [
             'id' => $settlement->id,
             'request_number' => $settlement->request_number,
@@ -404,6 +407,10 @@ class CashierSettlementController extends Controller
             'base_sales_total' => (int) $settlement->base_sales_total,
             'markup_total' => (int) $settlement->markup_total,
             'requested_amount' => (int) $settlement->requested_amount,
+            'is_tenant_request' => $isTenantRequest,
+            'settlement_reference_total' => (int) $settlement->gross_sales_total,
+            'pricing_basis_total' => (int) $settlement->base_sales_total,
+            'pricing_adjustment_total' => (int) $settlement->markup_total,
             'status' => $settlement->status,
             'recipient_name' => $settlement->recipient_name,
             'requested_notes' => $settlement->requested_notes,
@@ -455,6 +462,7 @@ class CashierSettlementController extends Controller
             'approved_amount' => (int) $settlement->approved_amount,
             'base_sales_total' => (int) $settlement->base_sales_total,
             'markup_total' => (int) $settlement->markup_total,
+            'settlement_reference_total' => (int) $settlement->gross_sales_total,
             'recipient_name' => $settlement->recipient_name,
         ];
     }
@@ -491,10 +499,13 @@ class CashierSettlementController extends Controller
             );
 
         $allocationIds = (clone $allocationQuery)->pluck('id');
-        $baseTotal = (int) (TransactionTenantAllocationItem::query()
-            ->whereIn('transaction_tenant_allocation_id', $allocationIds)
-            ->selectRaw('COALESCE(SUM(base_unit_price * qty), 0) as total_base')
-            ->value('total_base') ?? 0);
+        $pricingReferenceTotal = $allocationIds->isNotEmpty()
+            ? (int) ((clone $allocationQuery)->sum('subtotal') ?? 0)
+            : 0;
+        $baseTotal = $allocationIds->isNotEmpty()
+            ? (int) ((clone $allocationQuery)->sum('subtotal') + (clone $allocationQuery)->sum('promo_discount_total'))
+            : 0;
+        $pricingDiscountTotal = max(0, $baseTotal - $pricingReferenceTotal);
 
         $approvedTotal = (int) CashierSettlementRequest::query()
             ->where('outlet_id', $outletId)
@@ -510,12 +521,13 @@ class CashierSettlementController extends Controller
             ->where('status', CashierSettlementRequest::STATUS_PENDING)
             ->sum('requested_amount');
 
-        $receivableTotal = max(0, $baseTotal - $approvedTotal);
-        $availableBalance = max(0, $baseTotal - $approvedTotal - $pendingTotal);
+        $receivableTotal = max(0, $pricingReferenceTotal - $approvedTotal);
+        $availableBalance = max(0, $pricingReferenceTotal - $approvedTotal - $pendingTotal);
 
         return [
-            'tenant_sales_total' => $baseTotal,
+            'tenant_sales_total' => $pricingReferenceTotal,
             'base_total' => $baseTotal,
+            'pricing_discount_total' => $pricingDiscountTotal,
             'approved_total' => $approvedTotal,
             'pending_total' => $pendingTotal,
             'receivable_total' => $receivableTotal,

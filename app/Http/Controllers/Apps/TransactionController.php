@@ -1659,6 +1659,7 @@ class TransactionController extends Controller
             ])
             ->when($this->resolveActiveOutlet($request), fn ($builder, $outlet) => $builder->where('outlet_id', $outlet->id))
             ->withSum('details as total_items', 'qty')
+            ->withSum('details as total_promo_discount', 'discount_total')
             ->withSum('profits as total_profit', 'total')
             ->orderByDesc('created_at');
 
@@ -1710,6 +1711,10 @@ class TransactionController extends Controller
 
             return [
                 ...$transaction->toArray(),
+                'total_discount' => (int) ($transaction->total_promo_discount ?? 0)
+                    + (int) ($transaction->discount ?? 0)
+                    + (int) ($transaction->loyalty_discount_total ?? 0)
+                    + (int) ($transaction->customer_voucher_discount ?? 0),
                 'can_create_sales_return' => $canCreateSalesReturn,
                 'can_create_share_campaign' => (bool) $transaction->customer_id,
             ];

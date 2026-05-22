@@ -78,7 +78,7 @@ class SalesReportTest extends TestCase
             'cashier_id' => $user->id,
             'allocation_number' => 'TA-1-A',
             'subtotal' => 30000,
-            'promo_discount_total' => 0,
+            'promo_discount_total' => 2000,
             'manual_discount_total' => 0,
             'loyalty_discount_total' => 0,
             'voucher_discount_total' => 0,
@@ -155,6 +155,8 @@ class SalesReportTest extends TestCase
             ->where('tenantSettlement.top_tenants.0.profit_total', 10000)
             ->where('tenantSettlement.top_tenants.0.management_fee_total', 1000)
             ->where('tenantSettlement.top_tenants.0.tenant_payout_total', 9000)
+            ->where('tenantSettlement.allocations.0.total_discount_total', 2000)
+            ->where('tenantSettlement.allocations.0.pre_promo_subtotal', 32000)
             ->where('tenantSettlement.allocations.0.transaction.invoice', 'TRX-TENANT-1')
         );
 

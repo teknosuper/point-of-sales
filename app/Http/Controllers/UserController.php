@@ -22,24 +22,56 @@ class UserController extends Controller
     /**
      * Display a listing of the resource.
      */
-    public function index()
+    public function index(Request $request)
     {
+        $filters = [
+            'search' => trim((string) $request->input('search', '')),
+            'role' => (string) $request->input('role', ''),
+            'workspace' => (string) $request->input('workspace', ''),
+            'per_page' => (int) $request->input('per_page', 12),
+        ];
+
+        $allowedPerPage = [8, 12, 20, 30, 50];
+        if (! in_array($filters['per_page'], $allowedPerPage, true)) {
+            $filters['per_page'] = 12;
+        }
+
         // get all users data
         $users = User::query()
             ->with([
                 'roles',
-                'outlets' => fn ($query) => $query->select('outlets.id', 'name', 'code'),
+                'outlets' => fn ($query) => $query->select('outlets.id', 'name', 'code', 'outlet_type'),
                 'waiterTenantOutlets' => fn ($query) => $query->select('outlets.id', 'name', 'code'),
             ])
-            ->when(request()->search, fn ($query) => $query->where('name', 'like', '%'.request()->search.'%'))
-            ->select('id', 'name', 'avatar', 'email')
-            ->latest()
-            ->paginate(7)
+            ->when($filters['search'] !== '', function ($query) use ($filters) {
+                $query->where(function ($builder) use ($filters) {
+                    $builder
+                        ->where('name', 'like', '%'.$filters['search'].'%')
+                        ->orWhere('email', 'like', '%'.$filters['search'].'%');
+                });
+            })
+            ->when($filters['role'] !== '', fn ($query) => $query->whereHas('roles', fn ($roleQuery) => $roleQuery->where('name', $filters['role'])))
+            ->when($filters['workspace'] !== '', fn ($query) => $query->where('preferred_workspace', $filters['workspace']))
+            ->select('id', 'name', 'avatar', 'email', 'preferred_workspace')
+            ->orderBy('name')
+            ->paginate($filters['per_page'])
             ->withQueryString();
+
+        $roleOptions = Role::query()
+            ->orderBy('name')
+            ->get(['name'])
+            ->map(fn (Role $role) => [
+                'value' => $role->name,
+                'label' => $role->name,
+            ])
+            ->values();
 
         // render view
         return Inertia::render('Dashboard/Users/Index', [
             'users' => $users,
+            'filters' => $filters,
+            'perPageOptions' => $allowedPerPage,
+            'roleOptions' => $roleOptions,
         ]);
     }
 
@@ -50,6 +82,7 @@ class UserController extends Controller
     {
         // get all role data
         $roles = Role::query()
+            ->with(['permissions:id,name'])
             ->select('id', 'name')
             ->orderBy('name')
             ->get();
@@ -143,6 +176,7 @@ class UserController extends Controller
     {
         // get all role data
         $roles = Role::query()
+            ->with(['permissions:id,name'])
             ->select('id', 'name')
             ->orderBy('name')
             ->get();

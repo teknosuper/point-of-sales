@@ -34,6 +34,8 @@ class PublicTableOrderController extends Controller
             ->where('self_order_enabled', true)
             ->firstOrFail();
 
+        $identifiedCustomer = $this->resolvedPublicCustomer(request(), $table->outlet_id);
+
         $products = Product::query()
             ->with(['category:id,name', 'modifierOptions', 'kitchenStationMappings.kitchenStation:id,name,code'])
             ->select('id', 'title', 'description', 'image', 'sell_price', 'stock', 'category_id', 'supports_modifiers')
@@ -57,7 +59,11 @@ class PublicTableOrderController extends Controller
                 return $product;
             })
             ->values();
-        $pricingBadges = $this->pricingService->previewProducts($products, null, outletId: $table->outlet_id);
+        $pricingBadges = $this->pricingService->previewProducts(
+            $products,
+            $identifiedCustomer,
+            outletId: $table->outlet_id
+        );
         $products = $products->map(function (Product $product) use ($pricingBadges) {
             $pricing = $pricingBadges->get($product->id);
 
@@ -103,8 +109,6 @@ class PublicTableOrderController extends Controller
                 ] : null,
             ];
         })->values();
-
-        $identifiedCustomer = $this->resolvedPublicCustomer(request(), $table->outlet_id);
 
         return Inertia::render('Public/TableOrder/Menu', [
             'table' => [

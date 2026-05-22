@@ -13,6 +13,10 @@ import Checkbox from "@/Components/Dashboard/Checkbox";
 import toast from "react-hot-toast";
 import { useState } from "react";
 import { roleDescription, roleLabel } from "@/Utils/rolePresentation";
+import {
+    decoratePermission,
+    permissionGroupLabel,
+} from "@/Utils/permissionPresentation";
 
 export default function Create() {
     const {
@@ -93,6 +97,37 @@ export default function Create() {
     const isKitchenOperatorSelected = data.selectedRoles.includes("kitchen-operator");
     const accessibleTenantOutlets = tenantOutlets.filter((outlet) =>
         data.selectedOutlets.includes(outlet.id)
+    );
+    const selectedRoleObjects = roles.filter((role) =>
+        data.selectedRoles.includes(role.name)
+    );
+    const effectivePermissions = Array.from(
+        new Map(
+            selectedRoleObjects
+                .flatMap((role) => role.permissions || [])
+                .map((permission) => [permission.name, decoratePermission(permission)])
+        ).values()
+    ).sort((left, right) => left.label.localeCompare(right.label, "id-ID"));
+    const groupedPermissions = effectivePermissions.reduce((accumulator, permission) => {
+        const key = permission.group;
+
+        accumulator[key] = accumulator[key] || {
+            key,
+            label: permissionGroupLabel(permission.name),
+            items: [],
+        };
+        accumulator[key].items.push(permission);
+
+        return accumulator;
+    }, {});
+    const permissionGroups = Object.values(groupedPermissions).sort((left, right) =>
+        left.label.localeCompare(right.label, "id-ID")
+    );
+    const hasTenantPricingAccess = effectivePermissions.some((permission) =>
+        permission.name.startsWith("pricing-rules-")
+    );
+    const hasOwnerPricingAccess = effectivePermissions.some(
+        (permission) => permission.name === "products-pricing-update"
     );
 
     return (
@@ -251,6 +286,72 @@ export default function Create() {
                                 Rekomendasi user dapur tenant: beri akses outlet tenant yang sesuai. Role ini dirancang untuk operasional harian seperti melihat produk, menyesuaikan stok, dan buka/tutup toko. Harga produk tetap memerlukan izin khusus admin.
                             </div>
                         ) : null}
+                        <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/40">
+                            <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                                Cara kerja akses di halaman ini
+                            </p>
+                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                Pilih role untuk user baru, lalu sistem otomatis memberikan semua permission yang ada di role tersebut.
+                            </p>
+                            <div className="mt-3 grid gap-3 md:grid-cols-2">
+                                <div className={`rounded-xl border px-4 py-3 text-sm ${hasTenantPricingAccess ? "border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-100" : "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100"}`}>
+                                    <p className="font-semibold">Promo Tenant</p>
+                                    <p className="mt-1">
+                                        {hasTenantPricingAccess
+                                            ? "Role terpilih sudah membawa permission pricing rules."
+                                            : "Belum ada permission pricing rules. Tambahkan role promo tenant jika user ini harus mengelola promo."}
+                                    </p>
+                                </div>
+                                <div className={`rounded-xl border px-4 py-3 text-sm ${hasOwnerPricingAccess ? "border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-100" : "border-slate-200 bg-white text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300"}`}>
+                                    <p className="font-semibold">Harga Owner Outlet</p>
+                                    <p className="mt-1">
+                                        {hasOwnerPricingAccess
+                                            ? "Role terpilih juga memberi akses ubah harga owner outlet."
+                                            : "Role terpilih tidak memberi akses ubah harga owner outlet."}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6">
+                        <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-4">
+                            Ringkasan Permission Efektif
+                        </h3>
+                        <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">
+                            Preview ini membantu admin memastikan paket role tenant sudah benar sebelum user disimpan.
+                        </p>
+                        <div className="space-y-4">
+                            {permissionGroups.length > 0 ? (
+                                permissionGroups.map((group) => (
+                                    <div key={group.key} className="rounded-2xl border border-slate-200 p-4 dark:border-slate-800">
+                                        <div className="flex items-center justify-between gap-3">
+                                            <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                                                {group.label}
+                                            </p>
+                                            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                                                {group.items.length} izin
+                                            </span>
+                                        </div>
+                                        <div className="mt-3 flex flex-wrap gap-2">
+                                            {group.items.map((permission) => (
+                                                <span
+                                                    key={permission.name}
+                                                    className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                                                    title={permission.description || permission.name}
+                                                >
+                                                    {permission.label}
+                                                </span>
+                                            ))}
+                                        </div>
+                                    </div>
+                                ))
+                            ) : (
+                                <div className="rounded-2xl border border-dashed border-slate-300 px-4 py-6 text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                                    Pilih minimal satu role untuk melihat preview permission efektif.
+                                </div>
+                            )}
+                        </div>
                     </div>
 
                     <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6">

@@ -29,6 +29,19 @@ const discountTypeOptions = [
     { value: "fixed_price", label: "Harga Final" },
 ];
 
+const dayOptions = [
+    { value: "mon", label: "Senin" },
+    { value: "tue", label: "Selasa" },
+    { value: "wed", label: "Rabu" },
+    { value: "thu", label: "Kamis" },
+    { value: "fri", label: "Jumat" },
+    { value: "sat", label: "Sabtu" },
+    { value: "sun", label: "Minggu" },
+];
+
+const basisLabel = (basis) =>
+    basis === "buy_price" ? "Harga Beli Tenant" : "Harga Jual Owner";
+
 function InputError({ message }) {
     if (!message) return null;
     return <p className="mt-1 text-xs text-rose-500">{message}</p>;
@@ -59,8 +72,11 @@ export default function Form({
     categories = [],
     tierOptions = [],
     kindOptions = [],
+    priceBasisOptions = [],
+    pricingContext = {},
 }) {
     const isEdit = mode === "edit";
+    const forcedPriceBasis = pricingContext?.forced_price_basis || null;
     const { data, setData, post, put, processing, errors } = useForm({
         name: rule?.name ?? "",
         kind: rule?.kind ?? "standard_discount",
@@ -76,6 +92,8 @@ export default function Form({
             rule?.discount_value !== undefined && rule?.discount_value !== null
                 ? String(rule.discount_value)
                 : "",
+        price_basis:
+            rule?.price_basis ?? forcedPriceBasis ?? "sell_price",
         preview_quantity_multiplier: String(rule?.preview_quantity_multiplier ?? 1),
         starts_at: rule?.starts_at
             ? new Date(rule.starts_at).toISOString().slice(0, 16)
@@ -83,6 +101,9 @@ export default function Form({
         ends_at: rule?.ends_at
             ? new Date(rule.ends_at).toISOString().slice(0, 16)
             : "",
+        active_days: rule?.active_days ?? [],
+        daily_start_time: rule?.daily_start_time ?? "",
+        daily_end_time: rule?.daily_end_time ?? "",
         notes: rule?.notes ?? "",
         qty_breaks: rule?.qty_breaks?.length
             ? rule.qty_breaks.map((item) => ({
@@ -177,8 +198,38 @@ export default function Form({
                         {isEdit ? "Edit Promo Harga" : "Buat Promo Harga"}
                     </h1>
                     <p className="text-sm text-slate-500 dark:text-slate-400">
-                        Kelola promo standar, grosir, bundle, dan buy x get y dalam satu engine.
+                        Kelola promo standar, grosir, bundle, dan buy x get y dalam satu engine yang otomatis masuk ke kasir dan self order.
                     </p>
+                    {pricingContext?.active_outlet ? (
+                        <p className="mt-2 text-xs font-medium text-slate-500 dark:text-slate-400">
+                            Mode: {pricingContext.mode_label || "Promo Harga"} •{" "}
+                            Outlet aktif: {pricingContext.active_outlet.code} - {pricingContext.active_outlet.name}
+                            {forcedPriceBasis === "buy_price"
+                                ? " • Rule tenant akan menghitung promo dari harga beli tenant."
+                                : " • Rule outlet akan menghitung promo dari harga jual owner."}
+                        </p>
+                    ) : null}
+                </div>
+
+                <div className="grid gap-3 lg:grid-cols-3">
+                    <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-100">
+                        <p className="font-semibold">Kapan disebut Promo Tenant</p>
+                        <p className="mt-1">
+                            Jika outlet aktif adalah tenant atau user sedang bekerja di workspace tenant, rule ini akan menjadi promo tenant dan tidak memakai harga jual owner.
+                        </p>
+                    </div>
+                    <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-100">
+                        <p className="font-semibold">Kapan disebut Promo Owner</p>
+                        <p className="mt-1">
+                            Jika admin bekerja di outlet owner, rule ini menjadi promo outlet owner dan basis harga default-nya mengikuti harga jual owner.
+                        </p>
+                    </div>
+                    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100">
+                        <p className="font-semibold">Yang Harus Dicek</p>
+                        <p className="mt-1">
+                            Pastikan outlet aktif sudah benar, lalu cek bagian `Basis Harga` sebelum menyimpan rule supaya promo tidak masuk ke sisi yang salah.
+                        </p>
+                    </div>
                 </div>
 
                 <form onSubmit={submit} className="space-y-6">
@@ -250,6 +301,39 @@ export default function Form({
                                     }
                                     className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
                                 />
+                            </div>
+                            <div className="md:col-span-2">
+                                <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                    Basis Harga
+                                </label>
+                                {forcedPriceBasis ? (
+                                    <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100">
+                                        Workspace tenant mengunci basis promo ke <span className="font-semibold">harga beli tenant</span>. Rule ini tidak akan memakai harga jual owner outlet.
+                                    </div>
+                                ) : (
+                                    <div className="space-y-3">
+                                        <select
+                                            value={data.price_basis}
+                                            onChange={(event) =>
+                                                setData("price_basis", event.target.value)
+                                            }
+                                            className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                                        >
+                                            {priceBasisOptions.map((option) => (
+                                                <option key={option.value} value={option.value}>
+                                                    {option.label}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                                            Basis terpilih sekarang: <span className="font-semibold">{basisLabel(data.price_basis)}</span>.
+                                            {data.price_basis === "buy_price"
+                                                ? " Cocok untuk promo tenant."
+                                                : " Cocok untuk promo outlet owner."}
+                                        </div>
+                                    </div>
+                                )}
+                                <InputError message={errors.price_basis} />
                             </div>
                         </div>
                     </CardSection>
@@ -382,6 +466,103 @@ export default function Form({
                                     </div>
                                 </div>
                             )}
+                        </div>
+                    </CardSection>
+
+                    <CardSection
+                        title="Jadwal Promo"
+                        description="Rule bisa dibatasi ke rentang tanggal tertentu, hari tertentu, dan jam operasional tertentu."
+                    >
+                        <div className="grid gap-4 md:grid-cols-2">
+                            <div>
+                                <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                    Mulai Aktif
+                                </label>
+                                <input
+                                    type="datetime-local"
+                                    value={data.starts_at}
+                                    onChange={(event) =>
+                                        setData("starts_at", event.target.value)
+                                    }
+                                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                                />
+                                <InputError message={errors.starts_at} />
+                            </div>
+                            <div>
+                                <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                    Selesai Aktif
+                                </label>
+                                <input
+                                    type="datetime-local"
+                                    value={data.ends_at}
+                                    onChange={(event) =>
+                                        setData("ends_at", event.target.value)
+                                    }
+                                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                                />
+                                <InputError message={errors.ends_at} />
+                            </div>
+                            <div className="md:col-span-2">
+                                <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                    Hari Aktif
+                                </label>
+                                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                                    {dayOptions.map((day) => {
+                                        const checked = data.active_days.includes(day.value);
+
+                                        return (
+                                            <label
+                                                key={day.value}
+                                                className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                                            >
+                                                <input
+                                                    type="checkbox"
+                                                    checked={checked}
+                                                    onChange={(event) => {
+                                                        const next = event.target.checked
+                                                            ? [...data.active_days, day.value]
+                                                            : data.active_days.filter(
+                                                                  (value) => value !== day.value
+                                                              );
+
+                                                        setData("active_days", next);
+                                                    }}
+                                                />
+                                                {day.label}
+                                            </label>
+                                        );
+                                    })}
+                                </div>
+                                <InputError message={errors.active_days} />
+                            </div>
+                            <div>
+                                <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                    Jam Mulai
+                                </label>
+                                <input
+                                    type="time"
+                                    value={data.daily_start_time}
+                                    onChange={(event) =>
+                                        setData("daily_start_time", event.target.value)
+                                    }
+                                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                                />
+                                <InputError message={errors.daily_start_time} />
+                            </div>
+                            <div>
+                                <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                    Jam Selesai
+                                </label>
+                                <input
+                                    type="time"
+                                    value={data.daily_end_time}
+                                    onChange={(event) =>
+                                        setData("daily_end_time", event.target.value)
+                                    }
+                                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                                />
+                                <InputError message={errors.daily_end_time} />
+                            </div>
                         </div>
                     </CardSection>
 

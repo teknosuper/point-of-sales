@@ -1207,19 +1207,9 @@ const Sales = ({
                                 </thead>
                                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                                     {tenantAllocations.map((allocation) => {
-                                        const totalDiscount =
-                                            Number(
-                                                allocation.voucher_discount_total ??
-                                                    0
-                                            ) +
-                                            Number(
-                                                allocation.loyalty_discount_total ??
-                                                    0
-                                            ) +
-                                            Number(
-                                                allocation.manual_discount_total ??
-                                                    0
-                                            );
+                                        const totalDiscount = Number(
+                                            allocation.total_discount_total ?? 0
+                                        );
 
                                         const isSettled = Boolean(
                                             allocation.settled_at
@@ -1265,6 +1255,21 @@ const Sales = ({
                                                     {formatCurrency(
                                                         allocation.subtotal ?? 0
                                                     )}
+                                                    {Number(
+                                                        allocation.pre_promo_subtotal ??
+                                                            0
+                                                    ) >
+                                                    Number(
+                                                        allocation.subtotal ?? 0
+                                                    ) ? (
+                                                        <p className="mt-1 text-xs font-normal text-slate-500 dark:text-slate-400">
+                                                            Sebelum promo{" "}
+                                                            {formatCurrency(
+                                                                allocation.pre_promo_subtotal ??
+                                                                    0
+                                                            )}
+                                                        </p>
+                                                    ) : null}
                                                 </td>
                                                 <td className="px-4 py-4 text-right text-sm font-medium text-rose-600 dark:text-rose-400">
                                                     -{" "}

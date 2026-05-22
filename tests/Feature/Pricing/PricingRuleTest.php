@@ -12,6 +12,7 @@ use App\Models\Product;
 use App\Models\Transaction;
 use App\Models\User;
 use App\Services\LoyaltyService;
+use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
 use Spatie\Permission\Models\Permission;
@@ -313,6 +314,121 @@ class PricingRuleTest extends TestCase
             data_get($response->json(), 'data.summary.promo_discount_total')
         );
         $this->assertCount(1, data_get($response->json(), 'data.applied_groups', []));
+    }
+
+    public function test_pricing_rule_can_be_limited_to_specific_days(): void
+    {
+        Carbon::setTestNow('2026-05-25 10:00:00');
+
+        $cashier = $this->createUserWithPermissions([
+            'transactions-access',
+            'cashier-shifts-access',
+            'cashier-shifts-open',
+            'cashier-shifts-close',
+        ]);
+        $this->openShiftFor($cashier);
+        $product = $this->createProduct();
+
+        Cart::create([
+            'cashier_id' => $cashier->id,
+            'product_id' => $product->id,
+            'qty' => 1,
+            'price' => $product->sell_price,
+        ]);
+
+        PricingRule::create([
+            'name' => 'Promo Senin Pagi',
+            'is_active' => true,
+            'priority' => 320,
+            'target_type' => 'product',
+            'product_id' => $product->id,
+            'customer_scope' => 'all',
+            'discount_type' => 'fixed_amount',
+            'discount_value' => 10000,
+            'active_days' => [PricingRule::DAY_MONDAY],
+        ]);
+
+        $response = $this
+            ->actingAs($cashier)
+            ->postJson(route('transactions.pricing-preview'), []);
+
+        $response->assertOk();
+        $this->assertSame(
+            10000,
+            data_get($response->json(), 'data.summary.promo_discount_total')
+        );
+
+        Carbon::setTestNow('2026-05-26 10:00:00');
+
+        $response = $this
+            ->actingAs($cashier)
+            ->postJson(route('transactions.pricing-preview'), []);
+
+        $response->assertOk();
+        $this->assertSame(
+            0,
+            data_get($response->json(), 'data.summary.promo_discount_total')
+        );
+
+        Carbon::setTestNow();
+    }
+
+    public function test_pricing_rule_can_be_limited_to_daily_time_window(): void
+    {
+        Carbon::setTestNow('2026-05-25 15:30:00');
+
+        $cashier = $this->createUserWithPermissions([
+            'transactions-access',
+            'cashier-shifts-access',
+            'cashier-shifts-open',
+            'cashier-shifts-close',
+        ]);
+        $this->openShiftFor($cashier);
+        $product = $this->createProduct();
+
+        Cart::create([
+            'cashier_id' => $cashier->id,
+            'product_id' => $product->id,
+            'qty' => 1,
+            'price' => $product->sell_price,
+        ]);
+
+        PricingRule::create([
+            'name' => 'Happy Hour Sore',
+            'is_active' => true,
+            'priority' => 330,
+            'target_type' => 'product',
+            'product_id' => $product->id,
+            'customer_scope' => 'all',
+            'discount_type' => 'fixed_amount',
+            'discount_value' => 12000,
+            'daily_start_time' => '14:00:00',
+            'daily_end_time' => '17:00:00',
+        ]);
+
+        $response = $this
+            ->actingAs($cashier)
+            ->postJson(route('transactions.pricing-preview'), []);
+
+        $response->assertOk();
+        $this->assertSame(
+            12000,
+            data_get($response->json(), 'data.summary.promo_discount_total')
+        );
+
+        Carbon::setTestNow('2026-05-25 18:15:00');
+
+        $response = $this
+            ->actingAs($cashier)
+            ->postJson(route('transactions.pricing-preview'), []);
+
+        $response->assertOk();
+        $this->assertSame(
+            0,
+            data_get($response->json(), 'data.summary.promo_discount_total')
+        );
+
+        Carbon::setTestNow();
     }
 
     public function test_buy_x_get_y_preview_discounts_reward_item(): void
