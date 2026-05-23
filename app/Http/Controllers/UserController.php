@@ -28,6 +28,8 @@ class UserController extends Controller
             'search' => trim((string) $request->input('search', '')),
             'role' => (string) $request->input('role', ''),
             'workspace' => (string) $request->input('workspace', ''),
+            'outlet_type' => (string) $request->input('outlet_type', ''),
+            'outlet_id' => (string) $request->input('outlet_id', ''),
             'per_page' => (int) $request->input('per_page', 12),
         ];
 
@@ -52,6 +54,8 @@ class UserController extends Controller
             })
             ->when($filters['role'] !== '', fn ($query) => $query->whereHas('roles', fn ($roleQuery) => $roleQuery->where('name', $filters['role'])))
             ->when($filters['workspace'] !== '', fn ($query) => $query->where('preferred_workspace', $filters['workspace']))
+            ->when($filters['outlet_type'] !== '', fn ($query) => $query->whereHas('outlets', fn ($outletQuery) => $outletQuery->where('outlet_type', $filters['outlet_type'])))
+            ->when($filters['outlet_id'] !== '', fn ($query) => $query->whereHas('outlets', fn ($outletQuery) => $outletQuery->where('outlets.id', (int) $filters['outlet_id'])))
             ->select('id', 'name', 'avatar', 'email', 'preferred_workspace')
             ->orderBy('name')
             ->paginate($filters['per_page'])
@@ -65,6 +69,16 @@ class UserController extends Controller
                 'label' => $role->name,
             ])
             ->values();
+        $outletOptions = Outlet::query()
+            ->active()
+            ->ordered()
+            ->get(['id', 'name', 'code', 'outlet_type'])
+            ->map(fn (Outlet $outlet) => [
+                'value' => (string) $outlet->id,
+                'label' => trim(($outlet->code ? $outlet->code.' - ' : '').$outlet->name),
+                'outlet_type' => $outlet->outlet_type ?? 'main',
+            ])
+            ->values();
 
         // render view
         return Inertia::render('Dashboard/Users/Index', [
@@ -72,6 +86,7 @@ class UserController extends Controller
             'filters' => $filters,
             'perPageOptions' => $allowedPerPage,
             'roleOptions' => $roleOptions,
+            'outletOptions' => $outletOptions,
         ]);
     }
 

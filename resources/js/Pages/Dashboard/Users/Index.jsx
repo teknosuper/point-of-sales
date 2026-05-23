@@ -20,11 +20,17 @@ import { useAuthorization } from "@/Utils/authorization";
 import { roleLabel } from "@/Utils/rolePresentation";
 import Swal from "sweetalert2";
 
+function primaryOutlet(user) {
+    const outlets = user.outlets || [];
+    return outlets.find((outlet) => Boolean(outlet.pivot?.is_primary)) || outlets[0] || null;
+}
+
 function summarizeUser(user) {
     const roleNames = (user.roles || []).map((role) => role.name);
     const hasTenantPromo = roleNames.includes("pricing-rules-access");
     const hasOwnerPricing = roleNames.includes("products-access");
     const isKitchen = user.preferred_workspace === "kitchen";
+    const mainOutlet = primaryOutlet(user);
     const kindLabel = roleNames.includes("cashier")
         ? "Kasir"
         : roleNames.includes("waiter")
@@ -42,6 +48,7 @@ function summarizeUser(user) {
         hasOwnerPricing,
         isKitchen,
         kindLabel,
+        mainOutlet,
     };
 }
 
@@ -143,7 +150,7 @@ function UserRow({ user, isSelected, onSelect, onDelete, canUpdate, canDelete })
 }
 
 export default function Index() {
-    const { users, filters = {}, perPageOptions = [], roleOptions = [] } = usePage().props;
+    const { users, filters = {}, perPageOptions = [], roleOptions = [], outletOptions = [] } = usePage().props;
     const { can } = useAuthorization();
     const canCreateUsers = can("users-create");
     const canUpdateUsers = can("users-update");
@@ -199,7 +206,29 @@ export default function Index() {
         { label: "Mode Dapur", value: userRows.filter((user) => user.summary.isKitchen).length },
         { label: "Tenant Promo", value: userRows.filter((user) => user.summary.hasTenantPromo).length },
         { label: "Admin Pricing", value: userRows.filter((user) => user.summary.hasOwnerPricing).length },
+        { label: "User Tenant", value: userRows.filter((user) => user.summary.mainOutlet?.outlet_type === "tenant").length },
+        { label: "User Outlet Owner", value: userRows.filter((user) => user.summary.mainOutlet?.outlet_type !== "tenant").length },
     ];
+    const groupedUsers = userRows.reduce((accumulator, user) => {
+        const outlet = user.summary.mainOutlet;
+        const key = outlet ? `outlet-${outlet.id}` : "without-outlet";
+        const label = outlet
+            ? `${outlet.code ? `${outlet.code} - ` : ""}${outlet.name}`
+            : "Tanpa Outlet";
+        const typeLabel = outlet?.outlet_type === "tenant" ? "Tenant" : "Outlet Owner";
+
+        accumulator[key] = accumulator[key] || {
+            key,
+            label,
+            typeLabel,
+            items: [],
+        };
+        accumulator[key].items.push(user);
+        return accumulator;
+    }, {});
+    const userGroups = Object.values(groupedUsers).sort((left, right) =>
+        left.label.localeCompare(right.label, "id-ID")
+    );
 
     const applyFilters = (nextFilters) => {
         router.get(route("users.index"), nextFilters, {
@@ -213,6 +242,8 @@ export default function Index() {
             search: "",
             role: "",
             workspace: "",
+            outlet_type: "",
+            outlet_id: "",
             per_page: filters.per_page || 12,
         });
     };
@@ -265,7 +296,7 @@ export default function Index() {
                 </div>
             </div>
 
-            <div className="mb-6 grid gap-3 md:grid-cols-4">
+            <div className="mb-6 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
                 {summaryCards.map((item) => (
                     <div
                         key={item.label}
@@ -339,6 +370,39 @@ export default function Index() {
                         <option value="standard">Dashboard Umum</option>
                         <option value="kitchen">Layar Dapur</option>
                     </select>
+                    <select
+                        value={filters.outlet_type || ""}
+                        onChange={(event) =>
+                            applyFilters({
+                                ...filters,
+                                outlet_type: event.target.value,
+                            })
+                        }
+                        className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-800 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                    >
+                        <option value="">Semua Jenis Outlet</option>
+                        <option value="main">Outlet Owner</option>
+                        <option value="tenant">Tenant</option>
+                    </select>
+                    <select
+                        value={filters.outlet_id || ""}
+                        onChange={(event) =>
+                            applyFilters({
+                                ...filters,
+                                outlet_id: event.target.value,
+                            })
+                        }
+                        className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-800 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                    >
+                        <option value="">Semua Outlet</option>
+                        {outletOptions
+                            .filter((outlet) => !filters.outlet_type || outlet.outlet_type === filters.outlet_type)
+                            .map((outlet) => (
+                            <option key={outlet.value} value={outlet.value}>
+                                {outlet.label}
+                            </option>
+                        ))}
+                    </select>
                 </div>
                 <div className="mt-4 flex flex-wrap gap-2">
                     <button
@@ -365,27 +429,53 @@ export default function Index() {
                             </option>
                         ))}
                     </select>
+                    <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+                        Group outlet aktif: {userGroups.length}
+                    </span>
                 </div>
             </div>
 
             {users.data.length > 0 ? (
                 <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
                     <div className="border-b border-slate-200 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:text-slate-400">
-                        Daftar Pengguna
+                        Daftar Pengguna per Outlet / Tenant
                     </div>
                     <div className="divide-y divide-slate-200 dark:divide-slate-800">
-                        {users.data.map((user) => (
-                            <UserRow
-                                key={user.id}
-                                user={user}
-                                isSelected={data.selectedUser.includes(
-                                    user.id.toString()
-                                )}
-                                onSelect={setSelectedUser}
-                                onDelete={deleteData}
-                                canUpdate={canUpdateUsers}
-                                canDelete={canDeleteUsers}
-                            />
+                        {userGroups.map((group) => (
+                            <div key={group.key}>
+                                <div className="flex items-center justify-between gap-3 border-b border-slate-100 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/40">
+                                    <div>
+                                        <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+                                            {group.label}
+                                        </p>
+                                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                                            {group.typeLabel} • {group.items.length} user
+                                        </p>
+                                    </div>
+                                    <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${
+                                        group.typeLabel === "Tenant"
+                                            ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300"
+                                            : "bg-blue-100 text-blue-700 dark:bg-blue-950/30 dark:text-blue-300"
+                                    }`}>
+                                        {group.typeLabel}
+                                    </span>
+                                </div>
+                                <div className="divide-y divide-slate-200 dark:divide-slate-800">
+                                    {group.items.map((user) => (
+                                        <UserRow
+                                            key={user.id}
+                                            user={user}
+                                            isSelected={data.selectedUser.includes(
+                                                user.id.toString()
+                                            )}
+                                            onSelect={setSelectedUser}
+                                            onDelete={deleteData}
+                                            canUpdate={canUpdateUsers}
+                                            canDelete={canDeleteUsers}
+                                        />
+                                    ))}
+                                </div>
+                            </div>
                         ))}
                     </div>
                 </div>

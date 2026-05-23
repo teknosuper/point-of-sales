@@ -18,6 +18,13 @@ import {
     permissionGroupLabel,
 } from "@/Utils/permissionPresentation";
 
+function groupOutlets(outlets = []) {
+    return {
+        owner: outlets.filter((outlet) => (outlet.outlet_type || "main") !== "tenant"),
+        tenant: outlets.filter((outlet) => outlet.outlet_type === "tenant"),
+    };
+}
+
 export default function Create() {
     const {
         roles,
@@ -129,6 +136,14 @@ export default function Create() {
     const hasOwnerPricingAccess = effectivePermissions.some(
         (permission) => permission.name === "products-pricing-update"
     );
+    const outletGroups = groupOutlets(outlets);
+    const selectedOutletObjects = outlets.filter((outlet) =>
+        data.selectedOutlets.includes(outlet.id)
+    );
+    const selectedTenantCount = selectedOutletObjects.filter(
+        (outlet) => outlet.outlet_type === "tenant"
+    ).length;
+    const selectedOwnerCount = selectedOutletObjects.length - selectedTenantCount;
 
     return (
         <>
@@ -362,30 +377,87 @@ export default function Create() {
                         <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">
                             Pilih outlet yang boleh diakses user. Satu outlet dapat ditandai sebagai outlet utama.
                         </p>
-                        <div className="grid gap-3 md:grid-cols-2">
-                            {outlets.map((outlet) => (
-                                <label
-                                    key={outlet.id}
-                                    className={`flex items-start gap-3 rounded-xl border px-4 py-3 transition-all ${
-                                        data.selectedOutlets.includes(outlet.id)
-                                            ? "border-primary-500 bg-primary-50 dark:bg-primary-950/50"
-                                            : "border-slate-200 dark:border-slate-700 hover:border-primary-300"
-                                    }`}
-                                >
-                                    <Checkbox
-                                        value={String(outlet.id)}
-                                        onChange={setSelectedOutlets}
-                                        checked={data.selectedOutlets.includes(outlet.id)}
-                                    />
-                                    <div>
-                                        <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                                            {outlet.code} - {outlet.name}
+                        <div className="mb-4 grid gap-3 md:grid-cols-3">
+                            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/40">
+                                <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                    Total Outlet Dipilih
+                                </p>
+                                <p className="mt-2 text-2xl font-bold text-slate-900 dark:text-white">
+                                    {selectedOutletObjects.length}
+                                </p>
+                            </div>
+                            <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 dark:border-blue-900/40 dark:bg-blue-950/20">
+                                <p className="text-xs uppercase tracking-wide text-blue-700 dark:text-blue-300">
+                                    Outlet Owner
+                                </p>
+                                <p className="mt-2 text-2xl font-bold text-blue-900 dark:text-blue-100">
+                                    {selectedOwnerCount}
+                                </p>
+                            </div>
+                            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900/40 dark:bg-emerald-950/20">
+                                <p className="text-xs uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+                                    Tenant
+                                </p>
+                                <p className="mt-2 text-2xl font-bold text-emerald-900 dark:text-emerald-100">
+                                    {selectedTenantCount}
+                                </p>
+                            </div>
+                        </div>
+                        <div className="space-y-4">
+                            {[
+                                {
+                                    key: "owner",
+                                    title: "Outlet Owner",
+                                    tone: "blue",
+                                    items: outletGroups.owner,
+                                },
+                                {
+                                    key: "tenant",
+                                    title: "Tenant",
+                                    tone: "emerald",
+                                    items: outletGroups.tenant,
+                                },
+                            ].map((group) => (
+                                <div key={group.key} className="rounded-2xl border border-slate-200 p-4 dark:border-slate-800">
+                                    <div className="mb-3 flex items-center justify-between gap-3">
+                                        <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                                            {group.title}
                                         </p>
-                                        <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                                            {outlet.outlet_type || "main"}
-                                        </p>
+                                        <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${
+                                            group.tone === "emerald"
+                                                ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300"
+                                                : "bg-blue-100 text-blue-700 dark:bg-blue-950/30 dark:text-blue-300"
+                                        }`}>
+                                            {group.items.length} outlet
+                                        </span>
                                     </div>
-                                </label>
+                                    <div className="grid gap-3 md:grid-cols-2">
+                                        {group.items.map((outlet) => (
+                                            <label
+                                                key={outlet.id}
+                                                className={`flex items-start gap-3 rounded-xl border px-4 py-3 transition-all ${
+                                                    data.selectedOutlets.includes(outlet.id)
+                                                        ? "border-primary-500 bg-primary-50 dark:bg-primary-950/50"
+                                                        : "border-slate-200 dark:border-slate-700 hover:border-primary-300"
+                                                }`}
+                                            >
+                                                <Checkbox
+                                                    value={String(outlet.id)}
+                                                    onChange={setSelectedOutlets}
+                                                    checked={data.selectedOutlets.includes(outlet.id)}
+                                                />
+                                                <div>
+                                                    <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                                                        {outlet.code} - {outlet.name}
+                                                    </p>
+                                                    <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                                        {outlet.outlet_type || "main"}
+                                                    </p>
+                                                </div>
+                                            </label>
+                                        ))}
+                                    </div>
+                                </div>
                             ))}
                         </div>
                         {errors.selectedOutlets && (
@@ -408,7 +480,7 @@ export default function Create() {
                                     .filter((outlet) => data.selectedOutlets.includes(outlet.id))
                                     .map((outlet) => (
                                         <option key={outlet.id} value={outlet.id}>
-                                            {outlet.code} - {outlet.name}
+                                            [{outlet.outlet_type === "tenant" ? "Tenant" : "Owner"}] {outlet.code} - {outlet.name}
                                         </option>
                                     ))}
                             </select>

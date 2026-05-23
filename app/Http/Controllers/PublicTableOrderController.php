@@ -7,11 +7,15 @@ use App\Models\DiningTable;
 use App\Models\Product;
 use App\Models\ProductOutletStock;
 use App\Models\TableOrder;
+use App\Models\TableOrderItem;
+use App\Models\Transaction;
+use App\Models\TransactionDetail;
 use App\Services\CustomerOutletMetricService;
 use App\Services\LoyaltyService;
 use App\Services\PricingService;
 use App\Services\TableOrderService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
@@ -110,6 +114,12 @@ class PublicTableOrderController extends Controller
             ];
         })->values();
 
+        $recommendations = $this->recommendationPayload(
+            $products,
+            $table->outlet_id,
+            $identifiedCustomer
+        );
+
         return Inertia::render('Public/TableOrder/Menu', [
             'table' => [
                 'id' => $table->id,
@@ -124,6 +134,7 @@ class PublicTableOrderController extends Controller
                 'city' => $table->outlet?->city,
             ],
             'products' => $products,
+            'recommendations' => $recommendations,
             'identity' => [
                 'customer' => $identifiedCustomer ? $this->customerPayload($identifiedCustomer, $table->outlet_id) : null,
                 'pending_phone' => session()->get($this->pendingPhoneSessionKey($table->outlet_id)),
@@ -365,5 +376,85 @@ class PublicTableOrderController extends Controller
                 'outlet_name' => $transaction->outlet?->name,
             ])->values(),
         ];
+    }
+
+    private function recommendationPayload(Collection $products, int $outletId, ?Customer $customer): array
+    {
+        $productMap = $products->keyBy('id');
+        $promoProducts = $products
+            ->filter(fn (array $product) => $this->productHasPromo($product))
+            ->take(8)
+            ->values();
+
+        $bestSellerIds = TransactionDetail::query()
+            ->select('product_id')
+            ->where('outlet_id', $outletId)
+            ->whereNotNull('product_id')
+            ->groupBy('product_id')
+            ->orderByRaw('SUM(qty) DESC')
+            ->orderByRaw('MAX(id) DESC')
+            ->limit(8)
+            ->pluck('product_id');
+
+        $bestSellers = $bestSellerIds
+            ->map(fn ($productId) => $productMap->get((int) $productId))
+            ->filter()
+            ->values();
+
+        $historyProductIds = collect();
+
+        if ($customer) {
+            $transactionProductIds = Transaction::query()
+                ->where('customer_id', $customer->id)
+                ->where('outlet_id', $outletId)
+                ->latest('id')
+                ->limit(20)
+                ->pluck('id');
+
+            $transactionHistoryIds = TransactionDetail::query()
+                ->whereIn('transaction_id', $transactionProductIds)
+                ->whereNotNull('product_id')
+                ->orderByDesc('id')
+                ->pluck('product_id');
+
+            $tableOrderIds = TableOrder::query()
+                ->where('customer_id', $customer->id)
+                ->where('outlet_id', $outletId)
+                ->latest('id')
+                ->limit(20)
+                ->pluck('id');
+
+            $tableOrderHistoryIds = TableOrderItem::query()
+                ->whereIn('table_order_id', $tableOrderIds)
+                ->whereNotNull('product_id')
+                ->orderByDesc('id')
+                ->pluck('product_id');
+
+            $historyProductIds = $transactionHistoryIds
+                ->concat($tableOrderHistoryIds)
+                ->unique()
+                ->take(8)
+                ->values();
+        }
+
+        $historyProducts = $historyProductIds
+            ->map(fn ($productId) => $productMap->get((int) $productId))
+            ->filter()
+            ->values();
+
+        return [
+            'promo' => $promoProducts->values()->all(),
+            'best_sellers' => $bestSellers->values()->all(),
+            'history' => $historyProducts->values()->all(),
+        ];
+    }
+
+    private function productHasPromo(array $product): bool
+    {
+        $badge = $product['pricing_badge'] ?? null;
+        $promoPrice = (int) ($badge['promo_price'] ?? 0);
+        $basePrice = (int) ($badge['base_price'] ?? ($product['sell_price'] ?? 0));
+
+        return $promoPrice > 0 && $promoPrice < $basePrice;
     }
 }

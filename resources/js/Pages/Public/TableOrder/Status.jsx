@@ -23,28 +23,28 @@ export default function Status({ order }) {
         <>
             <Head title={`Order ${order.order_number}`} />
 
-            <div className="min-h-screen bg-[#f5f0e8] px-4 py-10 text-slate-900">
+            <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(14,165,233,0.12),_transparent_26%),radial-gradient(circle_at_top_right,_rgba(16,185,129,0.08),_transparent_34%),linear-gradient(180deg,_#eef4ff_0%,_#f8fafc_22%,_#f8fafc_100%)] px-4 py-10 text-slate-900">
                 <div className="mx-auto max-w-2xl space-y-6">
-                    <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
-                        <p className="text-sm uppercase tracking-[0.2em] text-slate-500">
+                    <div className="overflow-hidden rounded-[30px] border border-slate-200/80 bg-[linear-gradient(135deg,_rgba(15,23,42,0.97)_0%,_rgba(30,41,59,0.95)_52%,_rgba(8,47,73,0.94)_100%)] p-6 text-white shadow-[0_30px_90px_-42px_rgba(15,23,42,0.78)]">
+                        <p className="text-sm uppercase tracking-[0.2em] text-sky-200">
                             Status Order
                         </p>
-                        <h1 className="mt-2 text-3xl font-bold">{order.order_number}</h1>
-                        <p className="mt-3 text-sm text-slate-600">
+                        <h1 className="mt-2 text-3xl font-bold tracking-[-0.03em]">{order.order_number}</h1>
+                        <p className="mt-3 text-sm text-slate-300">
                             Meja {order.table?.code || order.table?.name}
                         </p>
-                        <div className="mt-4 inline-flex rounded-full bg-amber-100 px-4 py-2 text-sm font-semibold text-amber-700">
+                        <div className="mt-4 inline-flex rounded-full bg-amber-400/15 px-4 py-2 text-sm font-semibold text-amber-100 border border-amber-300/20">
                             {statusLabel[order.status] || order.status}
                         </div>
                     </div>
 
-                    <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
+                    <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-[0_18px_60px_-34px_rgba(15,23,42,0.3)]">
                         <h2 className="text-lg font-semibold">Rincian Pesanan</h2>
                         <div className="mt-4 space-y-3">
                             {order.items.map((item) => (
                                 <div
                                     key={item.id}
-                                    className="flex items-start justify-between gap-3 rounded-2xl bg-slate-50 px-4 py-3"
+                                    className="flex items-start justify-between gap-3 rounded-2xl border border-slate-200 bg-[linear-gradient(180deg,_#ffffff_0%,_#f8fafc_100%)] px-4 py-3"
                                 >
                                     <div>
                                         <p className="font-medium">
@@ -86,7 +86,7 @@ export default function Status({ order }) {
                         </div>
                     </div>
 
-                    <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
+                    <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-[0_18px_60px_-34px_rgba(15,23,42,0.3)]">
                         {order.status === "pending_cashier_payment" ? (
                             <p className="text-sm text-slate-600">
                                 Silakan ke kasir untuk pembayaran tunai. Setelah kasir

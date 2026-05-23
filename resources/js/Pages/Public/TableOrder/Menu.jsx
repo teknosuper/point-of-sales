@@ -26,6 +26,8 @@ const promoDisplay = (product) => {
     };
 };
 
+const productHasPromo = (product) => promoDisplay(product).showPromo;
+
 const resolvedProductUnitPrice = (product) => {
     const promo = promoDisplay(product);
 
@@ -63,9 +65,251 @@ const sanitizePhoneNumber = (value = "") =>
 const isValidPhoneNumber = (value = "") =>
     /^(?:\+62|62|0)[0-9]{8,13}$/.test(String(value).trim());
 
-export default function Menu({ table, outlet, products = [], identity }) {
+const recommendationTone = {
+    promo: {
+        eyebrow: "Promo Pilihan",
+        title: "Lagi turun harga",
+        description: "Harga coret langsung terlihat agar lebih cepat memilih.",
+        accent: "text-rose-600",
+        chip: "bg-rose-50 text-rose-700 border-rose-200",
+        button: "bg-rose-500 text-white shadow-lg shadow-rose-500/25",
+    },
+    best_sellers: {
+        eyebrow: "Best Seller",
+        title: "Paling sering dipesan",
+        description: "Menu dengan ritme order paling kuat di outlet ini.",
+        accent: "text-amber-600",
+        chip: "bg-amber-50 text-amber-700 border-amber-200",
+        button: "bg-amber-500 text-white shadow-lg shadow-amber-500/25",
+    },
+    history: {
+        eyebrow: "Pernah Anda Pesan",
+        title: "Cepat pesan lagi",
+        description: "Diambil dari riwayat order Anda di outlet ini.",
+        accent: "text-emerald-600",
+        chip: "bg-emerald-50 text-emerald-700 border-emerald-200",
+        button: "bg-emerald-500 text-white shadow-lg shadow-emerald-500/25",
+    },
+};
+
+function RecommendationStrip({
+    sectionKey,
+    products = [],
+    onPick,
+}) {
+    const railRef = useRef(null);
+    const [canScrollLeft, setCanScrollLeft] = useState(false);
+    const [canScrollRight, setCanScrollRight] = useState(false);
+    const [activePage, setActivePage] = useState(0);
+
+    const pageCount = Math.max(1, Math.ceil(products.length / 3));
+
+    if (!products.length) {
+        return null;
+    }
+
+    const tone = recommendationTone[sectionKey] || recommendationTone.promo;
+    const syncRailState = () => {
+        if (!railRef.current) {
+            return;
+        }
+
+        const { scrollLeft, scrollWidth, clientWidth } = railRef.current;
+        const maxScrollLeft = Math.max(0, scrollWidth - clientWidth);
+        const nextPageCount = Math.max(1, Math.ceil(scrollWidth / Math.max(clientWidth, 1)));
+        const nextActivePage = Math.min(
+            nextPageCount - 1,
+            Math.max(0, Math.round(scrollLeft / Math.max(clientWidth, 1)))
+        );
+
+        setCanScrollLeft(scrollLeft > 8);
+        setCanScrollRight(scrollLeft < maxScrollLeft - 8);
+        setActivePage(nextActivePage);
+    };
+
+    const scrollRail = (direction) => {
+        if (!railRef.current) {
+            return;
+        }
+
+        railRef.current.scrollBy({
+            left: direction * 260,
+            behavior: "smooth",
+        });
+    };
+
+    useEffect(() => {
+        syncRailState();
+
+        const currentRail = railRef.current;
+
+        if (!currentRail) {
+            return undefined;
+        }
+
+        currentRail.addEventListener("scroll", syncRailState, { passive: true });
+        window.addEventListener("resize", syncRailState);
+
+        return () => {
+            currentRail.removeEventListener("scroll", syncRailState);
+            window.removeEventListener("resize", syncRailState);
+        };
+    }, [products.length]);
+
+    return (
+        <section className="overflow-hidden rounded-[24px] border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                    <p className={`text-xs font-semibold uppercase tracking-[0.22em] ${tone.accent}`}>
+                        {tone.eyebrow}
+                    </p>
+                    <h3 className="mt-1 text-lg font-bold tracking-[-0.03em] text-slate-950">
+                        {tone.title}
+                    </h3>
+                    <p className="mt-1 text-sm text-slate-600">
+                        {tone.description}
+                    </p>
+                </div>
+                <div className="flex items-center gap-2">
+                    <span className={`inline-flex rounded-full border px-3 py-1.5 text-xs font-semibold ${tone.chip}`}>
+                        {products.length} menu
+                    </span>
+                </div>
+            </div>
+
+            <div className="relative mt-4">
+                <button
+                    type="button"
+                    onClick={() => scrollRail(-1)}
+                    disabled={!canScrollLeft}
+                    className={`absolute left-2 top-1/2 z-10 inline-flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border shadow-lg backdrop-blur transition ${
+                        canScrollLeft
+                            ? "border-slate-200 bg-white/95 text-slate-700 hover:bg-white"
+                            : "border-slate-100 bg-white/75 text-slate-300 opacity-80"
+                    }`}
+                    aria-label={`Geser ${tone.title} ke kiri`}
+                >
+                    &larr;
+                </button>
+                <button
+                    type="button"
+                    onClick={() => scrollRail(1)}
+                    disabled={!canScrollRight}
+                    className={`absolute right-2 top-1/2 z-10 inline-flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border shadow-lg backdrop-blur transition ${
+                        canScrollRight
+                            ? "border-slate-200 bg-white/95 text-slate-700 hover:bg-white"
+                            : "border-slate-100 bg-white/75 text-slate-300 opacity-80"
+                    }`}
+                    aria-label={`Geser ${tone.title} ke kanan`}
+                >
+                    &rarr;
+                </button>
+                <div
+                    ref={railRef}
+                    className="grid auto-cols-[220px] grid-flow-col gap-3 overflow-x-auto px-12 pb-1 overscroll-x-contain touch-pan-x [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                >
+                    {products.map((product) => {
+                        const promo = promoDisplay(product);
+
+                        return (
+                        <button
+                            key={`${sectionKey}-${product.id}`}
+                            type="button"
+                            onClick={() => onPick(product)}
+                            className="group relative w-[220px] rounded-[22px] border border-slate-200 bg-[linear-gradient(180deg,_#ffffff_0%,_#f8fafc_100%)] p-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg"
+                        >
+                            <div className="relative">
+                                <img
+                                    src={product.image || productPlaceholder(product.title)}
+                                    alt={product.title}
+                                        className="h-28 w-full rounded-[18px] object-cover"
+                                        onError={(event) => {
+                                            event.currentTarget.src = productPlaceholder(product.title);
+                                        }}
+                                    />
+                                    <span className={`absolute left-2 top-2 rounded-full px-2.5 py-1 text-[10px] font-semibold ${tone.button}`}>
+                                        {tone.eyebrow}
+                                    </span>
+                                    <span className="pointer-events-none absolute inset-x-4 top-1/2 hidden -translate-y-1/2 rounded-2xl bg-[linear-gradient(135deg,_#0f172a_0%,_#ef4444_100%)] px-4 py-3 text-center text-sm font-bold tracking-[0.01em] text-white shadow-2xl shadow-slate-900/25 sm:block sm:scale-95 sm:opacity-0 sm:transition sm:duration-200 sm:group-hover:scale-100 sm:group-hover:opacity-100">
+                                        Tambah ke Keranjang
+                                    </span>
+                                </div>
+                                <div className="mt-3">
+                                    <div className="flex items-start justify-between gap-2">
+                                        <div className="min-w-0">
+                                            <p className="truncate text-sm font-semibold text-slate-900">
+                                                {product.title}
+                                            </p>
+                                            <p className="mt-1 text-xs text-slate-500">
+                                                {product.category?.name || "Lainnya"}
+                                            </p>
+                                        </div>
+                                        <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold text-slate-600">
+                                            Stok {product.stock || 0}
+                                        </span>
+                                    </div>
+                                </div>
+                                <div className="mt-3 flex flex-wrap items-end gap-2">
+                                    <span className={`text-sm font-black ${promo.showPromo ? "text-rose-600" : "text-slate-900"}`}>
+                                        {formatPrice(
+                                            promo.showPromo
+                                                ? promo.promoPrice
+                                                : product.sell_price
+                                        )}
+                                    </span>
+                                    {promo.showPromo ? (
+                                        <>
+                                            <span className="text-[11px] text-slate-400 line-through">
+                                                {formatPrice(promo.basePrice)}
+                                            </span>
+                                            <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-semibold text-rose-700">
+                                                Hemat{" "}
+                                                {formatPrice(
+                                                    Math.max(
+                                                        0,
+                                                        promo.basePrice - promo.promoPrice
+                                                    )
+                                                )}
+                                            </span>
+                                        </>
+                                    ) : null}
+                                </div>
+                            </button>
+                        );
+                    })}
+                </div>
+                {pageCount > 1 ? (
+                    <div className="mt-4 flex items-center justify-center gap-2">
+                        {Array.from({ length: pageCount }).map((_, index) => (
+                            <span
+                                key={`${sectionKey}-page-${index}`}
+                                className={`h-2 rounded-full transition-all ${
+                                    index === activePage
+                                        ? "w-6 bg-slate-900"
+                                        : "w-2 bg-slate-300"
+                                }`}
+                            />
+                        ))}
+                    </div>
+                ) : null}
+            </div>
+        </section>
+    );
+}
+
+export default function Menu({
+    table,
+    outlet,
+    products = [],
+    identity,
+    recommendations = {},
+}) {
     const { flash, storeProfile } = usePage().props;
     const checkoutSectionRef = useRef(null);
+    const promoHighlightRailRef = useRef(null);
+    const [promoCanScrollLeft, setPromoCanScrollLeft] = useState(false);
+    const [promoCanScrollRight, setPromoCanScrollRight] = useState(false);
+    const [promoActivePage, setPromoActivePage] = useState(0);
     const [cartLines, setCartLines] = useState([]);
     const [modifierModalProduct, setModifierModalProduct] = useState(null);
     const [selectedModifierOptionIds, setSelectedModifierOptionIds] = useState(
@@ -84,6 +328,14 @@ export default function Menu({ table, outlet, products = [], identity }) {
     const pendingPhone = identity?.pending_phone || "";
     const recentOrders = customer?.recent_orders || [];
     const recentTransactions = customer?.recent_transactions || [];
+    const recommendationGroups = useMemo(
+        () => ({
+            promo: recommendations?.promo || [],
+            best_sellers: recommendations?.best_sellers || [],
+            history: recommendations?.history || [],
+        }),
+        [recommendations]
+    );
     const cartStorageKey = customer?.id
         ? `table-order-cart:${table.qr_token}:${customer.id}`
         : null;
@@ -103,15 +355,116 @@ export default function Menu({ table, outlet, products = [], identity }) {
     const logoutForm = useForm({});
 
     const categoryOptions = useMemo(() => {
-        const names = products
-            .map((product) => product.category?.name || "Lainnya")
-            .filter(Boolean);
+        const grouped = products.reduce((accumulator, product) => {
+            const categoryName = product.category?.name || "Lainnya";
+            accumulator[categoryName] = (accumulator[categoryName] || 0) + 1;
+            return accumulator;
+        }, {});
+
+        const categoryItems = Object.entries(grouped)
+            .sort(([left], [right]) => left.localeCompare(right, "id"))
+            .map(([label, count]) => ({
+                key: label,
+                label,
+                count,
+                isPromo: false,
+            }));
+
+        const promoCount = products.filter((product) => productHasPromo(product)).length;
 
         return [
-            "all",
-            ...[...new Set(names)].sort((a, b) => a.localeCompare(b, "id")),
+            {
+                key: "all",
+                label: "Semua",
+                count: products.length,
+                isPromo: false,
+            },
+            {
+                key: "promo",
+                label: "Promo",
+                count: promoCount,
+                isPromo: true,
+            },
+            ...categoryItems,
         ];
     }, [products]);
+
+    const promoProducts = useMemo(
+        () => products.filter((product) => productHasPromo(product)),
+        [products]
+    );
+    const spotlightProducts = useMemo(() => {
+        const promoFirst = [...promoProducts];
+        const fallback = products.filter(
+            (product) => !productHasPromo(product) && Number(product.stock || 0) > 0
+        );
+
+        return [...promoFirst, ...fallback].slice(0, 8);
+    }, [products, promoProducts]);
+    const promoHighlightPageCount = Math.max(
+        1,
+        Math.ceil(Math.min(promoProducts.length, 6) / 3)
+    );
+    const syncPromoHighlightState = () => {
+        if (!promoHighlightRailRef.current) {
+            return;
+        }
+
+        const { scrollLeft, scrollWidth, clientWidth } = promoHighlightRailRef.current;
+        const maxScrollLeft = Math.max(0, scrollWidth - clientWidth);
+        const nextPageCount = Math.max(1, Math.ceil(scrollWidth / Math.max(clientWidth, 1)));
+        const nextActivePage = Math.min(
+            nextPageCount - 1,
+            Math.max(0, Math.round(scrollLeft / Math.max(clientWidth, 1)))
+        );
+
+        setPromoCanScrollLeft(scrollLeft > 8);
+        setPromoCanScrollRight(scrollLeft < maxScrollLeft - 8);
+        setPromoActivePage(nextActivePage);
+    };
+    const scrollPromoHighlight = (direction) => {
+        if (!promoHighlightRailRef.current) {
+            return;
+        }
+
+        promoHighlightRailRef.current.scrollBy({
+            left: direction * 240,
+            behavior: "smooth",
+        });
+    };
+
+    useEffect(() => {
+        syncPromoHighlightState();
+
+        const currentRail = promoHighlightRailRef.current;
+
+        if (!currentRail) {
+            return undefined;
+        }
+
+        currentRail.addEventListener("scroll", syncPromoHighlightState, {
+            passive: true,
+        });
+        window.addEventListener("resize", syncPromoHighlightState);
+
+        return () => {
+            currentRail.removeEventListener("scroll", syncPromoHighlightState);
+            window.removeEventListener("resize", syncPromoHighlightState);
+        };
+    }, [promoProducts.length]);
+
+    const focusProductInCatalog = (product) => {
+        setSearchQuery(product?.title || "");
+        setSelectedCategory(
+            productHasPromo(product)
+                ? "promo"
+                : product?.category?.name || "all"
+        );
+    };
+    const handleRecommendationPick = (product) => {
+        focusProductInCatalog(product);
+        handleAddProduct(product);
+    };
 
     const filteredProducts = useMemo(() => {
         const normalizedQuery = searchQuery.trim().toLowerCase();
@@ -121,6 +474,7 @@ export default function Menu({ table, outlet, products = [], identity }) {
                 const categoryName = product.category?.name || "Lainnya";
                 const matchesCategory =
                     selectedCategory === "all" ||
+                    (selectedCategory === "promo" && productHasPromo(product)) ||
                     categoryName === selectedCategory;
                 const haystack = [
                     product.title,
@@ -713,6 +1067,45 @@ export default function Menu({ table, outlet, products = [], identity }) {
                                 {flash.info}
                             </div>
                         ) : null}
+                        <div className="relative mt-5 grid gap-3 sm:grid-cols-3">
+                            <div className="rounded-[22px] border border-white/12 bg-white/10 px-4 py-4 backdrop-blur">
+                                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-sky-200">
+                                    Menu Aktif
+                                </p>
+                                <p className="mt-2 text-2xl font-black tracking-[-0.04em] text-white">
+                                    {products.length}
+                                </p>
+                                <p className="mt-1 text-xs text-slate-300">
+                                    Siap dipilih dari meja ini
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setSelectedCategory("promo")}
+                                className="rounded-[22px] border border-rose-300/25 bg-[linear-gradient(135deg,_rgba(244,63,94,0.22)_0%,_rgba(251,113,133,0.14)_100%)] px-4 py-4 text-left backdrop-blur transition hover:border-rose-300/40"
+                            >
+                                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-rose-100">
+                                    Promo Hari Ini
+                                </p>
+                                <p className="mt-2 text-2xl font-black tracking-[-0.04em] text-white">
+                                    {promoProducts.length}
+                                </p>
+                                <p className="mt-1 text-xs text-rose-100/80">
+                                    Tab promo langsung disorot
+                                </p>
+                            </button>
+                            <div className="rounded-[22px] border border-emerald-300/20 bg-[linear-gradient(135deg,_rgba(16,185,129,0.18)_0%,_rgba(52,211,153,0.08)_100%)] px-4 py-4 backdrop-blur">
+                                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-emerald-100">
+                                    Pesanan Anda
+                                </p>
+                                <p className="mt-2 text-2xl font-black tracking-[-0.04em] text-white">
+                                    {cartItems.length}
+                                </p>
+                                <p className="mt-1 text-xs text-emerald-100/80">
+                                    Item ada di keranjang
+                                </p>
+                            </div>
+                        </div>
                     </div>
 
                     {!customer ? (
@@ -989,40 +1382,177 @@ export default function Menu({ table, outlet, products = [], identity }) {
                                                 />
                                             </div>
                                         </div>
-                                        <div className="mt-3 flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                                            {categoryOptions.map((categoryName) => {
+                                        {promoProducts.length > 0 ? (
+                                            <div className="mt-4 overflow-hidden rounded-[24px] border border-rose-200 bg-[linear-gradient(135deg,_#fff1f2_0%,_#fff7ed_100%)] p-3 sm:p-4">
+                                                <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                                                    <div>
+                                                        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-rose-600">
+                                                            Highlight Promo
+                                                        </p>
+                                                        <h3 className="mt-1 text-lg font-bold tracking-[-0.03em] text-slate-950">
+                                                            Menu yang sedang turun harga
+                                                        </h3>
+                                                        <p className="mt-1 text-sm text-slate-600">
+                                                            Tap tab promo atau pilih langsung dari deretan menu ini.
+                                                        </p>
+                                                    </div>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setSelectedCategory("promo")}
+                                                        className="inline-flex rounded-full bg-rose-500 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-rose-500/25"
+                                                    >
+                                                        Lihat Semua Promo
+                                                    </button>
+                                                </div>
+                                                <div className="relative mt-4">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => scrollPromoHighlight(-1)}
+                                                        disabled={!promoCanScrollLeft}
+                                                        className={`absolute left-2 top-1/2 z-10 inline-flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border shadow-lg backdrop-blur transition ${
+                                                            promoCanScrollLeft
+                                                                ? "border-rose-200 bg-white/95 text-rose-700 hover:bg-white"
+                                                                : "border-rose-100 bg-white/75 text-rose-300 opacity-80"
+                                                        }`}
+                                                        aria-label="Geser promo ke kiri"
+                                                    >
+                                                        &larr;
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => scrollPromoHighlight(1)}
+                                                        disabled={!promoCanScrollRight}
+                                                        className={`absolute right-2 top-1/2 z-10 inline-flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border shadow-lg backdrop-blur transition ${
+                                                            promoCanScrollRight
+                                                                ? "border-rose-200 bg-white/95 text-rose-700 hover:bg-white"
+                                                                : "border-rose-100 bg-white/75 text-rose-300 opacity-80"
+                                                        }`}
+                                                        aria-label="Geser promo ke kanan"
+                                                    >
+                                                        &rarr;
+                                                    </button>
+                                                    <div
+                                                        ref={promoHighlightRailRef}
+                                                        className="grid auto-cols-[210px] grid-flow-col gap-3 overflow-x-auto px-12 pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                                                    >
+                                                        {promoProducts.slice(0, 6).map((product) => {
+                                                            const promo = promoDisplay(product);
+
+                                                            return (
+                                                                <button
+                                                                    key={`promo-${product.id}`}
+                                                                    type="button"
+                                                                    onClick={() => {
+                                                                        focusProductInCatalog(product);
+                                                                        handleAddProduct(product);
+                                                                    }}
+                                                                    className="group relative w-[210px] rounded-[22px] border border-white/70 bg-white p-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg"
+                                                                >
+                                                                    <div className="flex items-start gap-3">
+                                                                        <img
+                                                                            src={product.image || productPlaceholder(product.title)}
+                                                                            alt={product.title}
+                                                                            className="h-16 w-16 rounded-2xl object-cover"
+                                                                            onError={(event) => {
+                                                                                event.currentTarget.src = productPlaceholder(product.title);
+                                                                            }}
+                                                                        />
+                                                                        <div className="min-w-0 flex-1">
+                                                                            <p className="truncate text-sm font-semibold text-slate-900">
+                                                                                {product.title}
+                                                                            </p>
+                                                                            <p className="mt-1 text-xs text-slate-500">
+                                                                                {product.category?.name || "Lainnya"}
+                                                                            </p>
+                                                                            <div className="mt-2 flex items-end gap-2">
+                                                                                <span className="text-sm font-black text-rose-600">
+                                                                                    {formatPrice(promo.promoPrice)}
+                                                                                </span>
+                                                                                <span className="text-[11px] text-slate-400 line-through">
+                                                                                    {formatPrice(promo.basePrice)}
+                                                                                </span>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                    <span className="pointer-events-none absolute inset-x-4 top-1/2 hidden -translate-y-1/2 rounded-2xl bg-[linear-gradient(135deg,_#7f1d1d_0%,_#f43f5e_100%)] px-4 py-3 text-center text-sm font-bold tracking-[0.01em] text-white shadow-2xl shadow-rose-500/25 sm:block sm:scale-95 sm:opacity-0 sm:transition sm:duration-200 sm:group-hover:scale-100 sm:group-hover:opacity-100">
+                                                                        Tambah ke Keranjang
+                                                                    </span>
+                                                                </button>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                    {promoHighlightPageCount > 1 ? (
+                                                        <div className="mt-4 flex items-center justify-center gap-2">
+                                                            {Array.from({
+                                                                length: promoHighlightPageCount,
+                                                            }).map((_, index) => (
+                                                                <span
+                                                                    key={`promo-highlight-page-${index}`}
+                                                                    className={`h-2 rounded-full transition-all ${
+                                                                        index === promoActivePage
+                                                                            ? "w-6 bg-rose-500"
+                                                                            : "w-2 bg-rose-200"
+                                                                    }`}
+                                                                />
+                                                            ))}
+                                                        </div>
+                                                    ) : null}
+                                                </div>
+                                            </div>
+                                        ) : null}
+                                        <div className="sticky top-0 z-10 -mx-3 mt-3 border-y border-slate-100 bg-white/90 px-3 py-3 backdrop-blur sm:-mx-5 sm:px-5">
+                                        <div className="flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                                            {categoryOptions.map((category) => {
                                                 const active =
                                                     selectedCategory ===
-                                                    categoryName;
+                                                    category.key;
 
                                                 return (
                                                     <button
-                                                        key={categoryName}
+                                                        key={category.key}
                                                         type="button"
                                                         onClick={() =>
                                                             setSelectedCategory(
-                                                                categoryName
+                                                                category.key
                                                             )
                                                         }
-                                                        className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition sm:px-4 sm:py-2 sm:text-sm ${
+                                                        className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition duration-200 sm:px-4 sm:py-2 sm:text-sm ${
                                                             active
-                                                                ? "bg-slate-950 text-white shadow-lg shadow-slate-900/15"
-                                                                : "border border-slate-200 bg-white text-slate-600"
+                                                                ? category.isPromo
+                                                                    ? "translate-y-[-1px] bg-[linear-gradient(135deg,_#f43f5e_0%,_#fb7185_100%)] text-white shadow-lg shadow-rose-500/30 ring-4 ring-rose-100"
+                                                                    : "translate-y-[-1px] bg-slate-950 text-white shadow-lg shadow-slate-900/15"
+                                                                : category.isPromo
+                                                                    ? "border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100"
+                                                                    : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
                                                         }`}
                                                     >
-                                                        {categoryName === "all"
-                                                            ? "Semua"
-                                                            : categoryName}
+                                                        <span className="inline-flex items-center gap-2">
+                                                            <span>{category.label}</span>
+                                                            <span className={`rounded-full px-1.5 py-0.5 text-[10px] ${
+                                                                active
+                                                                    ? "bg-white/15 text-white"
+                                                                    : category.isPromo
+                                                                        ? "bg-white text-rose-600"
+                                                                        : "bg-slate-100 text-slate-500"
+                                                            }`}>
+                                                                {category.count}
+                                                            </span>
+                                                        </span>
                                                     </button>
                                                 );
                                             })}
+                                        </div>
                                         </div>
                                         <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
                                             <span className="rounded-full bg-slate-100 px-2.5 py-1 font-semibold text-slate-700 sm:px-3 sm:py-1.5">
                                                 {filteredProductCount} menu tampil
                                             </span>
                                             {selectedCategory !== "all" ? (
-                                                <span className="rounded-full bg-sky-50 px-2.5 py-1 font-semibold text-sky-700 sm:px-3 sm:py-1.5">
+                                                <span className={`rounded-full px-2.5 py-1 font-semibold sm:px-3 sm:py-1.5 ${
+                                                    selectedCategory === "promo"
+                                                        ? "bg-rose-50 text-rose-700"
+                                                        : "bg-sky-50 text-sky-700"
+                                                }`}>
                                                     {selectedCategory}
                                                 </span>
                                             ) : null}
@@ -1035,6 +1565,117 @@ export default function Menu({ table, outlet, products = [], identity }) {
                                     </div>
 
                                     <div className="p-3 sm:p-5">
+                                        {spotlightProducts.length > 0 ? (
+                                            <section className="mb-5 overflow-hidden rounded-[24px] border border-slate-200 bg-[linear-gradient(135deg,_rgba(15,23,42,0.02)_0%,_rgba(14,165,233,0.06)_100%)] p-3 sm:p-4">
+                                                <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                                                    <div>
+                                                        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-sky-700">
+                                                            Pilihan Cepat
+                                                        </p>
+                                                        <h3 className="mt-1 text-lg font-bold tracking-[-0.03em] text-slate-950">
+                                                            Menu yang layak dicoba sekarang
+                                                        </h3>
+                                                        <p className="mt-1 text-sm text-slate-600">
+                                                            Promo diprioritaskan, sisanya menu siap pesan dengan stok aman.
+                                                        </p>
+                                                    </div>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setSelectedCategory("all");
+                                                            setSearchQuery("");
+                                                        }}
+                                                        className="inline-flex rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 shadow-sm"
+                                                    >
+                                                        Reset Jelajah
+                                                    </button>
+                                                </div>
+                                                <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                                                    {spotlightProducts.map((product, index) => {
+                                                        const promo = promoDisplay(product);
+
+                                                        return (
+                                                            <button
+                                                                key={`spotlight-${product.id}`}
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    focusProductInCatalog(product);
+                                                                    handleAddProduct(product);
+                                                                }}
+                                                                className={`group relative rounded-[22px] border bg-white p-3 text-left shadow-sm transition duration-200 hover:-translate-y-1 hover:shadow-lg ${
+                                                                    promo.showPromo
+                                                                        ? "border-rose-200"
+                                                                        : "border-slate-200"
+                                                                }`}
+                                                                style={{
+                                                                    animationDelay: `${index * 60}ms`,
+                                                                }}
+                                                            >
+                                                                <div className="relative">
+                                                                    <img
+                                                                        src={product.image || productPlaceholder(product.title)}
+                                                                        alt={product.title}
+                                                                        className="h-28 w-full rounded-[18px] object-cover"
+                                                                        onError={(event) => {
+                                                                            event.currentTarget.src = productPlaceholder(product.title);
+                                                                        }}
+                                                                    />
+                                                                    {promo.showPromo ? (
+                                                                        <span className="absolute left-2 top-2 rounded-full bg-[linear-gradient(135deg,_#f43f5e_0%,_#fb7185_100%)] px-2.5 py-1 text-[10px] font-semibold text-white shadow-lg shadow-rose-500/30">
+                                                                            Promo
+                                                                        </span>
+                                                                    ) : null}
+                                                                </div>
+                                                                <div className="mt-3">
+                                                                    <p className="truncate text-sm font-semibold text-slate-900">
+                                                                        {product.title}
+                                                                    </p>
+                                                                    <p className="mt-1 text-xs text-slate-500">
+                                                                        {product.category?.name || "Lainnya"}
+                                                                    </p>
+                                                                    <div className="mt-2 flex flex-wrap items-end gap-2">
+                                                                        <span className={`text-sm font-black ${
+                                                                            promo.showPromo ? "text-rose-600" : "text-slate-900"
+                                                                        }`}>
+                                                                            {formatPrice(
+                                                                                promo.showPromo
+                                                                                    ? promo.promoPrice
+                                                                                    : product.sell_price
+                                                                            )}
+                                                                        </span>
+                                                                        {promo.showPromo ? (
+                                                                            <span className="text-[11px] text-slate-400 line-through">
+                                                                                {formatPrice(promo.basePrice)}
+                                                                            </span>
+                                                                        ) : null}
+                                                                    </div>
+                                                                </div>
+                                                                <span className="pointer-events-none absolute inset-x-4 top-1/2 hidden -translate-y-1/2 rounded-2xl bg-[linear-gradient(135deg,_#0f172a_0%,_#0f766e_100%)] px-4 py-3 text-center text-sm font-bold tracking-[0.01em] text-white shadow-2xl shadow-slate-900/25 sm:block sm:scale-95 sm:opacity-0 sm:transition sm:duration-200 sm:group-hover:scale-100 sm:group-hover:opacity-100">
+                                                                    Tambah ke Keranjang
+                                                                </span>
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </section>
+                                        ) : null}
+                                        <div className="mb-5 space-y-4">
+                                            <RecommendationStrip
+                                                sectionKey="promo"
+                                                products={recommendationGroups.promo}
+                                                onPick={handleRecommendationPick}
+                                            />
+                                            <RecommendationStrip
+                                                sectionKey="best_sellers"
+                                                products={recommendationGroups.best_sellers}
+                                                onPick={handleRecommendationPick}
+                                            />
+                                            <RecommendationStrip
+                                                sectionKey="history"
+                                                products={recommendationGroups.history}
+                                                onPick={handleRecommendationPick}
+                                            />
+                                        </div>
                                         {Object.keys(groupedProducts).length === 0 ? (
                                             <div className="rounded-[24px] border border-dashed border-slate-300 bg-slate-50 px-5 py-8 text-center text-sm text-slate-500">
                                                 Tidak ada menu yang cocok dengan pencarian atau kategori ini.
@@ -1067,9 +1708,11 @@ export default function Menu({ table, outlet, products = [], identity }) {
                                                                     return (
                                                                         <article
                                                                             key={product.id}
-                                                                            className={`rounded-[22px] border p-2.5 transition sm:rounded-[26px] sm:p-4 ${
+                                                                            className={`group rounded-[22px] border p-2.5 transition sm:rounded-[26px] sm:p-4 ${
                                                                                 hasStock
-                                                                                    ? "border-slate-200 bg-white shadow-[0_14px_40px_-34px_rgba(15,23,42,0.35)]"
+                                                                                    ? promo.showPromo
+                                                                                        ? "border-rose-200 bg-[linear-gradient(180deg,_#ffffff_0%,_#fff6f7_100%)] shadow-[0_18px_45px_-34px_rgba(244,63,94,0.45)]"
+                                                                                        : "border-slate-200 bg-white shadow-[0_14px_40px_-34px_rgba(15,23,42,0.35)]"
                                                                                     : "border-slate-200 bg-slate-100/90 opacity-75"
                                                                             }`}
                                                                         >
@@ -1096,7 +1739,7 @@ export default function Menu({ table, outlet, products = [], identity }) {
                                                                                         }}
                                                                                     />
                                                                                     {promo.badge?.label ? (
-                                                                                        <span className="absolute left-2 top-2 max-w-[75%] truncate rounded-full bg-rose-500 px-2 py-1 text-[10px] font-semibold text-white">
+                                                                                        <span className="absolute left-2 top-2 max-w-[80%] truncate rounded-full bg-[linear-gradient(135deg,_#f43f5e_0%,_#fb7185_100%)] px-2.5 py-1 text-[10px] font-semibold text-white shadow-lg shadow-rose-500/30">
                                                                                             {promo.badge.label}
                                                                                         </span>
                                                                                     ) : null}
@@ -1162,8 +1805,8 @@ export default function Menu({ table, outlet, products = [], identity }) {
                                                                                         )}
                                                                                     </div>
 
-                                                                                    <div className="mt-3 flex flex-col gap-3 border-t border-slate-100 pt-3 sm:mt-4 sm:pt-4 lg:flex-row lg:items-end lg:justify-between">
-                                                                                        <div>
+                                                                                    <div className="mt-3 flex flex-col gap-3 border-t border-slate-100 pt-3 sm:mt-4 sm:pt-4 lg:grid lg:grid-cols-[minmax(0,1fr),220px] lg:items-end lg:gap-4">
+                                                                                        <div className="min-w-0">
                                                                                             <p className="text-base font-black tracking-[-0.03em] text-slate-950 sm:text-lg">
                                                                                                 {formatPrice(
                                                                                                     promo.showPromo
@@ -1172,11 +1815,16 @@ export default function Menu({ table, outlet, products = [], identity }) {
                                                                                                 )}
                                                                                             </p>
                                                                                             {promo.showPromo ? (
-                                                                                                <p className="mt-1 text-xs text-slate-400 line-through">
-                                                                                                    {formatPrice(
-                                                                                                        promo.basePrice
-                                                                                                    )}
-                                                                                                </p>
+                                                                                                <div className="mt-1 flex flex-wrap items-center gap-2">
+                                                                                                    <p className="text-xs text-slate-400 line-through">
+                                                                                                        {formatPrice(
+                                                                                                            promo.basePrice
+                                                                                                        )}
+                                                                                                    </p>
+                                                                                                    <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-semibold text-rose-700">
+                                                                                                        Hemat {formatPrice(Math.max(0, promo.basePrice - promo.promoPrice))}
+                                                                                                    </span>
+                                                                                                </div>
                                                                                             ) : null}
                                                                                             <p className="mt-1 text-[11px] font-medium text-slate-500 sm:text-xs">
                                                                                                 Dipilih{" "}
@@ -1200,12 +1848,12 @@ export default function Menu({ table, outlet, products = [], identity }) {
                                                                                                 disabled={
                                                                                                     !hasStock
                                                                                                 }
-                                                                                                className="inline-flex h-10 w-full items-center justify-center rounded-xl bg-[linear-gradient(135deg,_#0f172a_0%,_#0f3b68_100%)] px-4 text-xs font-semibold text-white shadow-lg shadow-slate-900/15 disabled:opacity-50 sm:h-11 sm:rounded-2xl sm:px-5 sm:text-sm lg:w-auto lg:min-w-[170px]"
+                                                                                                className="inline-flex h-10 w-full shrink-0 items-center justify-center rounded-xl bg-[linear-gradient(135deg,_#0f172a_0%,_#0f3b68_100%)] px-4 text-xs font-semibold text-white shadow-lg shadow-slate-900/15 disabled:opacity-50 sm:h-11 sm:rounded-2xl sm:px-5 sm:text-sm"
                                                                                             >
                                                                                                 Tambah ke Keranjang
                                                                                             </button>
                                                                                         ) : (
-                                                                                            <div className="w-full lg:min-w-[220px]">
+                                                                                            <div className="w-full shrink-0">
                                                                                                 <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-2 py-2">
                                                                                                     <button
                                                                                                         type="button"
@@ -1247,7 +1895,7 @@ export default function Menu({ table, outlet, products = [], identity }) {
                                                                                                         disabled={
                                                                                                             !hasStock
                                                                                                         }
-                                                                                                        className="h-9 w-14 rounded-xl border border-slate-200 bg-white px-2 text-center text-sm font-semibold outline-none"
+                                                                                                        className="h-9 min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-2 text-center text-sm font-semibold outline-none"
                                                                                                     />
                                                                                                     <button
                                                                                                         type="button"
