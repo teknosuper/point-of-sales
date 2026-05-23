@@ -182,7 +182,7 @@ function RecommendationStrip({
                     type="button"
                     onClick={() => scrollRail(-1)}
                     disabled={!canScrollLeft}
-                    className={`absolute left-2 top-1/2 z-10 inline-flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border shadow-lg backdrop-blur transition ${
+                    className={`absolute left-2 top-1/2 z-10 hidden h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border shadow-lg backdrop-blur transition sm:inline-flex ${
                         canScrollLeft
                             ? "border-slate-200 bg-white/95 text-slate-700 hover:bg-white"
                             : "border-slate-100 bg-white/75 text-slate-300 opacity-80"
@@ -195,7 +195,7 @@ function RecommendationStrip({
                     type="button"
                     onClick={() => scrollRail(1)}
                     disabled={!canScrollRight}
-                    className={`absolute right-2 top-1/2 z-10 inline-flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border shadow-lg backdrop-blur transition ${
+                    className={`absolute right-2 top-1/2 z-10 hidden h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border shadow-lg backdrop-blur transition sm:inline-flex ${
                         canScrollRight
                             ? "border-slate-200 bg-white/95 text-slate-700 hover:bg-white"
                             : "border-slate-100 bg-white/75 text-slate-300 opacity-80"
@@ -206,7 +206,7 @@ function RecommendationStrip({
                 </button>
                 <div
                     ref={railRef}
-                    className="grid auto-cols-[220px] grid-flow-col gap-3 overflow-x-auto px-12 pb-1 overscroll-x-contain touch-pan-x [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                    className="grid auto-cols-[78vw] grid-flow-col gap-3 overflow-x-auto pb-1 overscroll-x-contain touch-pan-x sm:auto-cols-[220px] sm:px-12 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
                 >
                     {products.map((product) => {
                         const promo = promoDisplay(product);
@@ -216,7 +216,7 @@ function RecommendationStrip({
                             key={`${sectionKey}-${product.id}`}
                             type="button"
                             onClick={() => onPick(product)}
-                            className="group relative w-[220px] rounded-[22px] border border-slate-200 bg-[linear-gradient(180deg,_#ffffff_0%,_#f8fafc_100%)] p-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg"
+                            className="group relative w-[78vw] max-w-full min-w-0 overflow-hidden rounded-[22px] border border-slate-200 bg-[linear-gradient(180deg,_#ffffff_0%,_#f8fafc_100%)] p-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg sm:w-[220px] sm:max-w-[220px]"
                         >
                             <div className="relative">
                                 <img
@@ -237,7 +237,7 @@ function RecommendationStrip({
                                 <div className="mt-3">
                                     <div className="flex items-start justify-between gap-2">
                                         <div className="min-w-0">
-                                            <p className="truncate text-sm font-semibold text-slate-900">
+                                            <p className="break-words text-sm font-semibold leading-5 text-slate-900">
                                                 {product.title}
                                             </p>
                                             <p className="mt-1 text-xs text-slate-500">
@@ -307,6 +307,8 @@ export default function Menu({
     const { flash, storeProfile } = usePage().props;
     const checkoutSectionRef = useRef(null);
     const promoHighlightRailRef = useRef(null);
+    const identifyPhoneInputRef = useRef(null);
+    const registerNameInputRef = useRef(null);
     const [promoCanScrollLeft, setPromoCanScrollLeft] = useState(false);
     const [promoCanScrollRight, setPromoCanScrollRight] = useState(false);
     const [promoActivePage, setPromoActivePage] = useState(0);
@@ -452,6 +454,31 @@ export default function Menu({
             window.removeEventListener("resize", syncPromoHighlightState);
         };
     }, [promoProducts.length]);
+
+    useEffect(() => {
+        if (customer) {
+            document.body.style.overflow = "";
+            return undefined;
+        }
+
+        document.body.style.overflow = "hidden";
+        setSidebarOpen(false);
+        setActiveMobileTab("products");
+
+        const focusTimer = window.setTimeout(() => {
+            if (pendingPhone) {
+                registerNameInputRef.current?.focus();
+                return;
+            }
+
+            identifyPhoneInputRef.current?.focus();
+        }, 60);
+
+        return () => {
+            window.clearTimeout(focusTimer);
+            document.body.style.overflow = "";
+        };
+    }, [customer, pendingPhone]);
 
     const focusProductInCatalog = (product) => {
         setSearchQuery(product?.title || "");
@@ -1109,204 +1136,23 @@ export default function Menu({
                     </div>
 
                     {!customer ? (
-                        <div className="grid gap-4 lg:grid-cols-[1.15fr,0.85fr]">
-                            <section className="rounded-[28px] border border-slate-200/80 bg-white/96 p-5 shadow-[0_18px_60px_-34px_rgba(15,23,42,0.3)] sm:p-6">
-                                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                                    <div className="max-w-2xl">
-                                        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-700">
-                                            Mulai Order
-                                        </p>
-                                        <h2 className="mt-2 text-[1.6rem] font-bold tracking-[-0.03em] text-slate-950">
-                                            Identitas pembeli
-                                        </h2>
-                                        <p className="mt-2 text-sm leading-6 text-slate-600">
-                                            Masukkan nomor HP agar pesanan mudah dikenali kasir dan dapat terhubung ke histori pembelian jika sudah pernah terdaftar.
-                                        </p>
-                                    </div>
-                                    <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-                                        Meja{" "}
-                                        <span className="font-semibold text-slate-900">
-                                            {table.code || table.name}
-                                        </span>
-                                    </div>
-                                </div>
-
-                                {!pendingPhone ? (
-                                    <div className="mt-5 rounded-[26px] border border-slate-200 bg-[linear-gradient(180deg,_#ffffff_0%,_#f8fafc_100%)] p-4 sm:p-5">
-                                        <div className="flex flex-col gap-1">
-                                            <p className="text-sm font-semibold text-slate-900">
-                                                Masukkan nomor hape
-                                            </p>
-                                            <p className="text-sm text-slate-500">
-                                                Jika nomor sudah terdaftar, histori dan poin akan langsung terhubung.
-                                            </p>
-                                        </div>
-                                        <form
-                                            onSubmit={submitIdentify}
-                                            className="mt-4 grid gap-3 sm:grid-cols-[1fr,180px] sm:items-start"
-                                        >
-                                            <div>
-                                                <input
-                                                    type="text"
-                                                    value={identifyForm.data.no_telp}
-                                                    onChange={(event) =>
-                                                        identifyForm.setData(
-                                                            "no_telp",
-                                                            sanitizePhoneNumber(
-                                                                event.target.value
-                                                            )
-                                                        )
-                                                    }
-                                                    placeholder="08xxxxxxxxxx"
-                                                    inputMode="numeric"
-                                                    autoComplete="tel"
-                                                    className="h-12 w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 text-base shadow-sm outline-none transition focus:border-sky-400 focus:bg-white focus:ring-4 focus:ring-sky-100"
-                                                />
-                                                <p className="mt-2 text-xs text-slate-500">
-                                                    Gunakan angka saja. Contoh: 0812xxxxxxx
-                                                </p>
-                                            </div>
-                                            {identifyForm.errors.no_telp ? (
-                                                <p className="text-sm text-rose-600 sm:col-span-2">
-                                                    {identifyForm.errors.no_telp}
-                                                </p>
-                                            ) : null}
-                                            <button
-                                                type="submit"
-                                                disabled={identifyForm.processing}
-                                                className="inline-flex h-12 w-full items-center justify-center rounded-2xl bg-[linear-gradient(135deg,_#0f172a_0%,_#0f3b68_100%)] px-5 py-3 font-semibold text-white shadow-lg shadow-slate-900/20 disabled:opacity-50"
-                                            >
-                                                Lanjutkan
-                                            </button>
-                                        </form>
-                                    </div>
-                                ) : (
-                                    <div className="mt-5 rounded-[26px] border border-slate-200 bg-[linear-gradient(180deg,_#ffffff_0%,_#f8fafc_100%)] p-4 sm:p-5">
-                                        <p className="text-sm font-semibold text-slate-900">
-                                            Lengkapi profil singkat
-                                        </p>
-                                        <p className="mt-1 text-sm text-slate-500">
-                                            Nomor {pendingPhone} belum terdaftar. Nama wajib, email dan alamat opsional.
-                                        </p>
-                                        <form onSubmit={submitRegister} className="mt-4 space-y-3">
-                                            <input
-                                                type="text"
-                                                value={registerForm.data.name}
-                                                onChange={(event) =>
-                                                    registerForm.setData("name", event.target.value)
-                                                }
-                                                placeholder="Nama"
-                                                className="h-12 w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 shadow-sm outline-none transition focus:border-sky-400 focus:bg-white focus:ring-4 focus:ring-sky-100"
-                                            />
-                                            <input
-                                                type="email"
-                                                value={registerForm.data.email}
-                                                onChange={(event) =>
-                                                    registerForm.setData("email", event.target.value)
-                                                }
-                                                placeholder="Email (opsional)"
-                                                className="h-12 w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 shadow-sm outline-none transition focus:border-sky-400 focus:bg-white focus:ring-4 focus:ring-sky-100"
-                                            />
-                                            <textarea
-                                                rows={3}
-                                                value={registerForm.data.address}
-                                                onChange={(event) =>
-                                                    registerForm.setData(
-                                                        "address",
-                                                        event.target.value
-                                                    )
-                                                }
-                                                placeholder="Alamat (opsional)"
-                                                className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 shadow-sm outline-none transition focus:border-sky-400 focus:bg-white focus:ring-4 focus:ring-sky-100"
-                                            />
-                                            {Object.values(registerForm.errors).length > 0 ? (
-                                                <div className="space-y-1 text-sm text-rose-600">
-                                                    {Object.entries(registerForm.errors).map(
-                                                        ([key, value]) => (
-                                                            <p key={key}>{value}</p>
-                                                        )
-                                                    )}
-                                                </div>
-                                            ) : null}
-                                            <button
-                                                type="submit"
-                                                disabled={registerForm.processing}
-                                                className="inline-flex h-12 w-full items-center justify-center rounded-2xl bg-[linear-gradient(135deg,_#0f172a_0%,_#0f3b68_100%)] px-5 py-3 font-semibold text-white shadow-lg shadow-slate-900/20 disabled:opacity-50"
-                                            >
-                                                Simpan Profil dan Lanjut
-                                            </button>
-                                        </form>
-                                    </div>
-                                )}
-                            </section>
-
-                            <section className="rounded-[28px] border border-slate-200/80 bg-white/96 p-5 shadow-[0_18px_60px_-34px_rgba(15,23,42,0.3)] sm:p-6">
-                                <div className="flex items-start justify-between gap-3">
-                                    <div>
-                                        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-700">
-                                            Cara Order
-                                        </p>
-                                        <h2 className="mt-2 text-xl font-bold tracking-[-0.02em] text-slate-950">
-                                            Ringkas dan cepat dipakai
-                                        </h2>
-                                    </div>
-                                    <button
-                                        type="button"
-                                        onClick={() =>
-                                            setShowOrderGuide((current) => !current)
-                                        }
-                                        className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-600 lg:hidden"
+                        <div className="relative z-0 min-h-[58vh] overflow-hidden rounded-[28px] border border-slate-200/70 bg-white/45 shadow-[0_18px_60px_-34px_rgba(15,23,42,0.3)] backdrop-blur-sm">
+                            <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,_rgba(248,250,252,0.45)_0%,_rgba(226,232,240,0.65)_100%)]" />
+                            <div className="relative z-[1] grid gap-4 p-5 opacity-80 sm:grid-cols-3 sm:p-6">
+                                {[
+                                    ["Akses dikunci", "Nomor HP wajib sebelum katalog dan keranjang aktif."],
+                                    ["Promo tetap aman", "Promo customer dan histori hanya terbaca setelah identitas terhubung."],
+                                    ["Bayar di kasir", "Order tetap diproses normal setelah login dengan nomor HP."],
+                                ].map(([title, helper]) => (
+                                    <div
+                                        key={title}
+                                        className="rounded-[22px] border border-white/70 bg-white/75 px-4 py-4 shadow-sm backdrop-blur"
                                     >
-                                        {showOrderGuide ? "Tutup" : "Lihat"}
-                                    </button>
-                                </div>
-                                <p className="mt-2 text-sm leading-6 text-slate-600">
-                                    Buka nomor, pilih menu, kirim order, lalu bayar di kasir.
-                                </p>
-                                <div
-                                    className={`mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2 ${
-                                        showOrderGuide ? "grid" : "hidden lg:grid"
-                                    }`}
-                                >
-                                    {[
-                                        [
-                                            "1",
-                                            "Isi nomor HP",
-                                            "Agar kasir mudah mengenali order Anda.",
-                                        ],
-                                        [
-                                            "2",
-                                            "Pilih menu",
-                                            "Tambahkan extra atau catatan bila perlu.",
-                                        ],
-                                        [
-                                            "3",
-                                            "Kirim order",
-                                            "Tunjukkan total ke kasir untuk pembayaran.",
-                                        ],
-                                        [
-                                            "4",
-                                            "Tunggu pesanan",
-                                            "Dapur langsung memproses order.",
-                                        ],
-                                    ].map(([step, title, helper]) => (
-                                        <div
-                                            key={step}
-                                            className="rounded-[22px] border border-slate-200 bg-[linear-gradient(180deg,_#ffffff_0%,_#f8fafc_100%)] px-4 py-4 shadow-sm"
-                                        >
-                                            <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-900 text-sm font-bold text-white">
-                                                {step}
-                                            </span>
-                                            <p className="mt-4 text-sm font-semibold text-slate-900">
-                                                {title}
-                                            </p>
-                                            <p className="mt-1 text-sm leading-6 text-slate-500">
-                                                {helper}
-                                            </p>
-                                        </div>
-                                    ))}
-                                </div>
-                            </section>
+                                        <p className="text-sm font-semibold text-slate-900">{title}</p>
+                                        <p className="mt-1 text-sm leading-6 text-slate-500">{helper}</p>
+                                    </div>
+                                ))}
+                            </div>
                         </div>
                     ) : (
                         <>
@@ -1346,15 +1192,15 @@ export default function Menu({
                                 </button>
                             </div>
 
-                        <div className="grid gap-5 lg:grid-cols-[minmax(0,1.35fr),380px] xl:grid-cols-[minmax(0,1.45fr),420px]">
+                        <div className="min-w-0 overflow-x-hidden grid gap-5 lg:grid-cols-[minmax(0,1.35fr),380px] xl:grid-cols-[minmax(0,1.45fr),420px]">
                             <div
-                                className={`space-y-4 sm:space-y-5 ${
+                                className={`min-w-0 overflow-x-hidden space-y-4 sm:space-y-5 ${
                                     activeMobileTab === "products"
                                         ? "block"
                                         : "hidden lg:block"
                                 }`}
                             >
-                                <section className="overflow-hidden rounded-[24px] border border-slate-200/80 bg-white/96 shadow-[0_20px_70px_-38px_rgba(15,23,42,0.28)] sm:rounded-[28px]">
+                                <section className="min-w-0 overflow-hidden rounded-[24px] border border-slate-200/80 bg-white/96 shadow-[0_20px_70px_-38px_rgba(15,23,42,0.28)] sm:rounded-[28px]">
                                     <div className="border-b border-slate-100 bg-[linear-gradient(135deg,_rgba(15,23,42,0.04)_0%,_rgba(14,165,233,0.07)_100%)] px-3 py-3 sm:px-5 sm:py-4">
                                         <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
                                             <div className="min-w-0">
@@ -1409,7 +1255,7 @@ export default function Menu({
                                                         type="button"
                                                         onClick={() => scrollPromoHighlight(-1)}
                                                         disabled={!promoCanScrollLeft}
-                                                        className={`absolute left-2 top-1/2 z-10 inline-flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border shadow-lg backdrop-blur transition ${
+                                                        className={`absolute left-2 top-1/2 z-10 hidden h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border shadow-lg backdrop-blur transition sm:inline-flex ${
                                                             promoCanScrollLeft
                                                                 ? "border-rose-200 bg-white/95 text-rose-700 hover:bg-white"
                                                                 : "border-rose-100 bg-white/75 text-rose-300 opacity-80"
@@ -1422,7 +1268,7 @@ export default function Menu({
                                                         type="button"
                                                         onClick={() => scrollPromoHighlight(1)}
                                                         disabled={!promoCanScrollRight}
-                                                        className={`absolute right-2 top-1/2 z-10 inline-flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border shadow-lg backdrop-blur transition ${
+                                                        className={`absolute right-2 top-1/2 z-10 hidden h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border shadow-lg backdrop-blur transition sm:inline-flex ${
                                                             promoCanScrollRight
                                                                 ? "border-rose-200 bg-white/95 text-rose-700 hover:bg-white"
                                                                 : "border-rose-100 bg-white/75 text-rose-300 opacity-80"
@@ -1433,7 +1279,7 @@ export default function Menu({
                                                     </button>
                                                     <div
                                                         ref={promoHighlightRailRef}
-                                                        className="grid auto-cols-[210px] grid-flow-col gap-3 overflow-x-auto px-12 pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                                                        className="grid auto-cols-[76vw] grid-flow-col gap-3 overflow-x-auto pb-1 sm:auto-cols-[210px] sm:px-12 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
                                                     >
                                                         {promoProducts.slice(0, 6).map((product) => {
                                                             const promo = promoDisplay(product);
@@ -1446,19 +1292,19 @@ export default function Menu({
                                                                         focusProductInCatalog(product);
                                                                         handleAddProduct(product);
                                                                     }}
-                                                                    className="group relative w-[210px] rounded-[22px] border border-white/70 bg-white p-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg"
+                                                                    className="group relative w-[76vw] max-w-full min-w-0 overflow-hidden rounded-[22px] border border-white/70 bg-white p-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg sm:w-[210px] sm:max-w-[210px]"
                                                                 >
-                                                                    <div className="flex items-start gap-3">
+                                                                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
                                                                         <img
                                                                             src={product.image || productPlaceholder(product.title)}
                                                                             alt={product.title}
-                                                                            className="h-16 w-16 rounded-2xl object-cover"
+                                                                            className="h-24 w-full rounded-2xl object-cover sm:h-16 sm:w-16"
                                                                             onError={(event) => {
                                                                                 event.currentTarget.src = productPlaceholder(product.title);
                                                                             }}
                                                                         />
                                                                         <div className="min-w-0 flex-1">
-                                                                            <p className="truncate text-sm font-semibold text-slate-900">
+                                                                            <p className="break-words text-sm font-semibold leading-5 text-slate-900">
                                                                                 {product.title}
                                                                             </p>
                                                                             <p className="mt-1 text-xs text-slate-500">
@@ -1500,7 +1346,7 @@ export default function Menu({
                                                 </div>
                                             </div>
                                         ) : null}
-                                        <div className="sticky top-0 z-10 -mx-3 mt-3 border-y border-slate-100 bg-white/90 px-3 py-3 backdrop-blur sm:-mx-5 sm:px-5">
+                                        <div className="sticky top-0 z-10 mt-3 border-y border-slate-100 bg-white/90 px-3 py-3 backdrop-blur sm:-mx-5 sm:px-5">
                                         <div className="flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                                             {categoryOptions.map((category) => {
                                                 const active =
@@ -1564,7 +1410,7 @@ export default function Menu({
                                         </div>
                                     </div>
 
-                                    <div className="p-3 sm:p-5">
+                                    <div className="min-w-0 overflow-x-hidden p-3 sm:p-5">
                                         {spotlightProducts.length > 0 ? (
                                             <section className="mb-5 overflow-hidden rounded-[24px] border border-slate-200 bg-[linear-gradient(135deg,_rgba(15,23,42,0.02)_0%,_rgba(14,165,233,0.06)_100%)] p-3 sm:p-4">
                                                 <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -1590,7 +1436,7 @@ export default function Menu({
                                                         Reset Jelajah
                                                     </button>
                                                 </div>
-                                                <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                                                <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                                                     {spotlightProducts.map((product, index) => {
                                                         const promo = promoDisplay(product);
 
@@ -1602,7 +1448,7 @@ export default function Menu({
                                                                     focusProductInCatalog(product);
                                                                     handleAddProduct(product);
                                                                 }}
-                                                                className={`group relative rounded-[22px] border bg-white p-3 text-left shadow-sm transition duration-200 hover:-translate-y-1 hover:shadow-lg ${
+                                                                className={`group relative min-w-0 overflow-hidden rounded-[22px] border bg-white p-3 text-left shadow-sm transition duration-200 hover:-translate-y-1 hover:shadow-lg ${
                                                                     promo.showPromo
                                                                         ? "border-rose-200"
                                                                         : "border-slate-200"
@@ -1627,7 +1473,7 @@ export default function Menu({
                                                                     ) : null}
                                                                 </div>
                                                                 <div className="mt-3">
-                                                                    <p className="truncate text-sm font-semibold text-slate-900">
+                                                                    <p className="break-words text-sm font-semibold leading-5 text-slate-900">
                                                                         {product.title}
                                                                     </p>
                                                                     <p className="mt-1 text-xs text-slate-500">
@@ -1708,7 +1554,7 @@ export default function Menu({
                                                                     return (
                                                                         <article
                                                                             key={product.id}
-                                                                            className={`group rounded-[22px] border p-2.5 transition sm:rounded-[26px] sm:p-4 ${
+                                                                            className={`group min-w-0 overflow-hidden rounded-[22px] border p-2.5 transition sm:rounded-[26px] sm:p-4 ${
                                                                                 hasStock
                                                                                     ? promo.showPromo
                                                                                         ? "border-rose-200 bg-[linear-gradient(180deg,_#ffffff_0%,_#fff6f7_100%)] shadow-[0_18px_45px_-34px_rgba(244,63,94,0.45)]"
@@ -1716,7 +1562,7 @@ export default function Menu({
                                                                                     : "border-slate-200 bg-slate-100/90 opacity-75"
                                                                             }`}
                                                                         >
-                                                                            <div className="flex items-start gap-2.5 sm:gap-4">
+                                                                            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
                                                                                 <div className="relative shrink-0">
                                                                                     <img
                                                                                         src={
@@ -1728,7 +1574,7 @@ export default function Menu({
                                                                                         alt={
                                                                                             product.title
                                                                                         }
-                                                                                        className="h-20 w-20 rounded-[18px] object-cover sm:h-28 sm:w-28 sm:rounded-[22px]"
+                                                                                        className="h-40 w-full rounded-[18px] object-cover sm:h-28 sm:w-28 sm:rounded-[22px]"
                                                                                         onError={(
                                                                                             event
                                                                                         ) => {
@@ -1754,7 +1600,7 @@ export default function Menu({
                                                                                 <div className="min-w-0 flex-1">
                                                                                     <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                                                                                         <div className="min-w-0">
-                                                                                            <h3 className="text-sm font-bold leading-5 text-slate-950 sm:text-base sm:leading-6">
+                                                                                            <h3 className="break-words text-sm font-bold leading-5 text-slate-950 sm:text-base sm:leading-6">
                                                                                                 {
                                                                                                     product.title
                                                                                                 }
@@ -2358,6 +2204,133 @@ export default function Menu({
                     )}
                 </div>
             </div>
+
+            {!customer ? (
+                <div className="fixed inset-0 z-[500] flex items-center justify-center bg-[linear-gradient(180deg,_rgba(2,6,23,0.82)_0%,_rgba(15,23,42,0.9)_100%)] px-4 py-6 backdrop-blur-md sm:px-6">
+                    <div className="relative z-[501] w-full max-w-md rounded-[30px] border border-slate-200/90 bg-white p-5 shadow-[0_40px_120px_-48px_rgba(15,23,42,0.72)] sm:p-7">
+                        {!pendingPhone ? (
+                            <div className="text-center">
+                                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-700">
+                                    Login Wajib
+                                </p>
+                                <h2 className="mt-2 text-[1.35rem] font-bold tracking-[-0.03em] text-slate-950 sm:text-[1.6rem]">
+                                    Masukkan nomor HP
+                                </h2>
+                                <p className="mt-2 text-sm leading-6 text-slate-500">
+                                    Nomor HP wajib untuk mulai order dari meja ini.
+                                </p>
+                                <p className="mt-1 text-xs font-medium text-slate-400">
+                                    Meja {table.code || table.name}
+                                </p>
+
+                                <form onSubmit={submitIdentify} className="mt-5 space-y-3 text-left">
+                                    <div>
+                                        <input
+                                            ref={identifyPhoneInputRef}
+                                            type="text"
+                                            value={identifyForm.data.no_telp}
+                                            onChange={(event) =>
+                                                identifyForm.setData(
+                                                    "no_telp",
+                                                    sanitizePhoneNumber(
+                                                        event.target.value
+                                                    )
+                                                )
+                                            }
+                                            placeholder="08xxxxxxxxxx"
+                                            inputMode="numeric"
+                                            autoComplete="tel"
+                                            className="h-12 w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 text-base shadow-sm outline-none transition focus:border-sky-400 focus:bg-white focus:ring-4 focus:ring-sky-100"
+                                        />
+                                        <p className="mt-2 text-xs text-slate-500">
+                                            Contoh: 0812xxxxxxx
+                                        </p>
+                                    </div>
+                                    {identifyForm.errors.no_telp ? (
+                                        <p className="text-sm text-rose-600">
+                                            {identifyForm.errors.no_telp}
+                                        </p>
+                                    ) : null}
+                                    <button
+                                        type="submit"
+                                        disabled={identifyForm.processing}
+                                        className="inline-flex h-12 w-full items-center justify-center rounded-2xl bg-[linear-gradient(135deg,_#0f172a_0%,_#0f3b68_100%)] px-5 py-3 font-semibold text-white shadow-lg shadow-slate-900/20 disabled:opacity-50"
+                                    >
+                                        Lanjutkan
+                                    </button>
+                                </form>
+                            </div>
+                        ) : (
+                            <div>
+                                <div className="text-center">
+                                    <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-700">
+                                        Lengkapi Profil
+                                    </p>
+                                    <h2 className="mt-2 text-[1.35rem] font-bold tracking-[-0.03em] text-slate-950 sm:text-[1.6rem]">
+                                        Nomor belum terdaftar
+                                    </h2>
+                                    <p className="mt-2 text-sm leading-6 text-slate-500">
+                                        Lengkapi nama untuk melanjutkan order.
+                                    </p>
+                                    <p className="mt-1 text-xs font-medium text-slate-400">
+                                        {pendingPhone}
+                                    </p>
+                                </div>
+
+                                <form onSubmit={submitRegister} className="mt-5 space-y-3">
+                                    <input
+                                        ref={registerNameInputRef}
+                                        type="text"
+                                        value={registerForm.data.name}
+                                        onChange={(event) =>
+                                            registerForm.setData("name", event.target.value)
+                                        }
+                                        placeholder="Nama"
+                                        className="h-12 w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 shadow-sm outline-none transition focus:border-sky-400 focus:bg-white focus:ring-4 focus:ring-sky-100"
+                                    />
+                                    <input
+                                        type="email"
+                                        value={registerForm.data.email}
+                                        onChange={(event) =>
+                                            registerForm.setData("email", event.target.value)
+                                        }
+                                        placeholder="Email (opsional)"
+                                        className="h-12 w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 shadow-sm outline-none transition focus:border-sky-400 focus:bg-white focus:ring-4 focus:ring-sky-100"
+                                    />
+                                    <textarea
+                                        rows={3}
+                                        value={registerForm.data.address}
+                                        onChange={(event) =>
+                                            registerForm.setData(
+                                                "address",
+                                                event.target.value
+                                            )
+                                        }
+                                        placeholder="Alamat (opsional)"
+                                        className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 shadow-sm outline-none transition focus:border-sky-400 focus:bg-white focus:ring-4 focus:ring-sky-100"
+                                    />
+                                    {Object.values(registerForm.errors).length > 0 ? (
+                                        <div className="space-y-1 text-sm text-rose-600">
+                                            {Object.entries(registerForm.errors).map(
+                                                ([key, value]) => (
+                                                    <p key={key}>{value}</p>
+                                                )
+                                            )}
+                                        </div>
+                                    ) : null}
+                                    <button
+                                        type="submit"
+                                        disabled={registerForm.processing}
+                                        className="inline-flex h-12 w-full items-center justify-center rounded-2xl bg-[linear-gradient(135deg,_#0f172a_0%,_#0f3b68_100%)] px-5 py-3 font-semibold text-white shadow-lg shadow-slate-900/20 disabled:opacity-50"
+                                    >
+                                        Simpan dan Lanjut
+                                    </button>
+                                </form>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            ) : null}
 
             {modifierModalProduct ? (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4">

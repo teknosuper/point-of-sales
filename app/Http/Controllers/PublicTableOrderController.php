@@ -14,6 +14,7 @@ use App\Services\CustomerOutletMetricService;
 use App\Services\LoyaltyService;
 use App\Services\PricingService;
 use App\Services\TableOrderService;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Schema;
@@ -246,6 +247,10 @@ class PublicTableOrderController extends Controller
                 'diningTable:id,name,code,qr_token',
                 'items.modifiers',
                 'transaction:id,invoice,payment_status,payment_method,created_at',
+                'transaction.kitchenTickets:id,transaction_id,kitchen_station_id,ticket_number,status,notes,fired_at,acknowledged_at,ready_at,completed_at,created_at',
+                'transaction.kitchenTickets.kitchenStation:id,name,code',
+                'transaction.kitchenTickets.items:id,kitchen_ticket_id,product_title,qty,status,notes,completed_at',
+                'customer:id,name,no_telp,email,address,is_loyalty_member,member_code,loyalty_tier,loyalty_points',
             ])
             ->where('access_token', $accessToken)
             ->firstOrFail();
@@ -264,6 +269,8 @@ class PublicTableOrderController extends Controller
                 'grand_total' => (int) $order->grand_total,
                 'approved_at' => optional($order->approved_at)->toISOString(),
                 'created_at' => optional($order->created_at)->toISOString(),
+                'created_at_label' => optional($order->created_at)->format('d M Y H:i'),
+                'approved_at_label' => optional($order->approved_at)->format('d M Y H:i'),
                 'table' => [
                     'name' => $order->diningTable?->name,
                     'code' => $order->diningTable?->code,
@@ -288,7 +295,41 @@ class PublicTableOrderController extends Controller
                     'invoice' => $order->transaction->invoice,
                     'payment_status' => $order->transaction->payment_status,
                     'payment_method' => $order->transaction->payment_method,
+                    'created_at' => filled($order->transaction->getRawOriginal('created_at'))
+                        ? Carbon::parse($order->transaction->getRawOriginal('created_at'))->toISOString()
+                        : null,
+                    'created_at_label' => filled($order->transaction->getRawOriginal('created_at'))
+                        ? Carbon::parse($order->transaction->getRawOriginal('created_at'))->format('d M Y H:i')
+                        : null,
+                    'kitchen_tickets' => $order->transaction->kitchenTickets->map(fn ($ticket) => [
+                        'id' => $ticket->id,
+                        'ticket_number' => $ticket->ticket_number,
+                        'status' => $ticket->status,
+                        'notes' => $ticket->notes,
+                        'created_at_label' => optional($ticket->created_at)->format('d M Y H:i'),
+                        'fired_at_label' => optional($ticket->fired_at)->format('d M Y H:i'),
+                        'acknowledged_at_label' => optional($ticket->acknowledged_at)->format('d M Y H:i'),
+                        'ready_at_label' => optional($ticket->ready_at)->format('d M Y H:i'),
+                        'completed_at_label' => optional($ticket->completed_at)->format('d M Y H:i'),
+                        'station' => [
+                            'name' => $ticket->kitchenStation?->name,
+                            'code' => $ticket->kitchenStation?->code,
+                        ],
+                        'items' => $ticket->items->map(fn ($item) => [
+                            'id' => $item->id,
+                            'product_title' => $item->product_title,
+                            'qty' => (int) $item->qty,
+                            'status' => $item->status,
+                            'notes' => $item->notes,
+                            'completed_at_label' => optional($item->completed_at)->format('d M Y H:i'),
+                        ])->values(),
+                    ])->values(),
                 ] : null,
+            ],
+            'identity' => [
+                'customer' => $order->customer
+                    ? $this->customerPayload($order->customer, (int) $order->outlet_id)
+                    : null,
             ],
         ]);
     }
