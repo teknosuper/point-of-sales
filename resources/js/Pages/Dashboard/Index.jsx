@@ -3,6 +3,7 @@ import { Head, Link } from "@inertiajs/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Chart from "chart.js/auto";
 import { detectPwaInstalled } from "@/Utils/pwaInstallation";
+import { useAuthorization } from "@/Utils/authorization";
 import {
     IconBooks,
     IconBox,
@@ -24,6 +25,8 @@ import {
     IconTarget,
     IconMapPin,
     IconWallet,
+    IconFileAnalytics,
+    IconDeviceDesktopAnalytics,
 } from "@tabler/icons-react";
 
 const formatCurrency = (value = 0) =>
@@ -188,6 +191,69 @@ function ListCard({ title, subtitle, icon: Icon, children, emptyMessage }) {
     );
 }
 
+function QuickMenuCard({
+    href,
+    title,
+    description,
+    icon: Icon,
+    tone = "slate",
+    featured = false,
+}) {
+    const toneClasses = {
+        primary: featured
+            ? "from-primary-500 to-primary-700 text-white shadow-primary-500/25"
+            : "border-primary-200 bg-primary-50 text-primary-700 dark:border-primary-900/40 dark:bg-primary-950/20 dark:text-primary-300",
+        emerald: featured
+            ? "from-emerald-500 to-emerald-700 text-white shadow-emerald-500/25"
+            : "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-300",
+        amber: featured
+            ? "from-amber-500 to-orange-600 text-white shadow-amber-500/25"
+            : "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300",
+        violet: featured
+            ? "from-violet-500 to-indigo-700 text-white shadow-violet-500/25"
+            : "border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-900/40 dark:bg-violet-950/20 dark:text-violet-300",
+        slate: featured
+            ? "from-slate-700 to-slate-900 text-white shadow-slate-500/25"
+            : "border-slate-200 bg-white text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200",
+    };
+
+    return (
+        <Link
+            href={href}
+            className={`group relative overflow-hidden rounded-2xl border p-5 transition-all hover:-translate-y-0.5 hover:shadow-lg ${
+                featured
+                    ? `border-transparent bg-gradient-to-br shadow-xl ${toneClasses[tone]}`
+                    : toneClasses[tone]
+            }`}
+        >
+            <div className="flex items-start justify-between gap-4">
+                <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] opacity-80">
+                        Quick Menu
+                    </p>
+                    <h3 className="mt-2 text-xl font-bold">{title}</h3>
+                    <p
+                        className={`mt-2 text-sm ${
+                            featured ? "text-white/80" : "text-slate-500 dark:text-slate-400"
+                        }`}
+                    >
+                        {description}
+                    </p>
+                </div>
+                <div
+                    className={`rounded-2xl p-3 ${
+                        featured
+                            ? "bg-white/15 text-white"
+                            : "bg-white/80 dark:bg-slate-800"
+                    }`}
+                >
+                    <Icon size={24} strokeWidth={1.7} />
+                </div>
+            </div>
+        </Link>
+    );
+}
+
 export default function Dashboard({
     totalCategories,
     totalProducts,
@@ -216,6 +282,7 @@ export default function Dashboard({
     onboardingChecklist = [],
     onboardingSummary = {},
 }) {
+    const { can } = useAuthorization();
     const chartRef = useRef(null);
     const chartInstance = useRef(null);
     const [pwaInstalled, setPwaInstalled] = useState(false);
@@ -241,6 +308,63 @@ export default function Dashboard({
             completed: effectiveOnboardingChecklist.filter((item) => item.done).length,
         }),
         [onboardingSummary, effectiveOnboardingChecklist]
+    );
+    const quickMenus = useMemo(
+        () =>
+            [
+                can("transactions-access")
+                    ? {
+                          title: "KASIR",
+                          description:
+                              "Masuk ke POS transaksi untuk mulai penjualan, QR meja, dan pembayaran.",
+                          href: route("transactions.index"),
+                          icon: IconShoppingCart,
+                          tone: "primary",
+                          featured: true,
+                      }
+                    : null,
+                can("cashier-shifts-access")
+                    ? {
+                          title: "Shift Kasir",
+                          description:
+                              "Lihat shift aktif, buka shift baru, dan kontrol setoran kasir.",
+                          href: route("cashier-shifts.index"),
+                          icon: IconWallet,
+                          tone: "emerald",
+                      }
+                    : null,
+                can("reports-access")
+                    ? {
+                          title: "Sales Report",
+                          description:
+                              "Pantau omzet, settlement tenant, dan performa penjualan.",
+                          href: route("reports.sales.index"),
+                          icon: IconFileAnalytics,
+                          tone: "amber",
+                      }
+                    : null,
+                can("profits-access")
+                    ? {
+                          title: "Profit Report",
+                          description:
+                              "Lihat profit, markup owner, dan breakdown target keuntungan.",
+                          href: route("reports.profits.index"),
+                          icon: IconTrendingUp,
+                          tone: "violet",
+                      }
+                    : null,
+                can("dashboard-access")
+                    ? {
+                          title: "Workspace Sales",
+                          description:
+                              "Buka kumpulan report tenant, best seller, dan breakdown harian.",
+                          href: route("workspace-sales.index"),
+                          icon: IconDeviceDesktopAnalytics,
+                          tone: "slate",
+                      }
+                    : null,
+            ].filter(Boolean),
+        [can]
     );
 
     useEffect(() => {
@@ -375,6 +499,34 @@ export default function Dashboard({
                         <span>Transaksi Baru</span>
                     </Link>
                 </div>
+
+                {quickMenus.length > 0 && (
+                    <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+                        <div className="mb-4 flex items-center justify-between gap-3">
+                            <div>
+                                <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+                                    Quick Menu
+                                </h2>
+                                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                    Shortcut cepat ke area operasional yang paling sering dipakai.
+                                </p>
+                            </div>
+                        </div>
+                        <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+                            {quickMenus.map((menu) => (
+                                <QuickMenuCard
+                                    key={menu.title}
+                                    href={menu.href}
+                                    title={menu.title}
+                                    description={menu.description}
+                                    icon={menu.icon}
+                                    tone={menu.tone}
+                                    featured={menu.featured}
+                                />
+                            ))}
+                        </div>
+                    </div>
+                )}
 
                 <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">

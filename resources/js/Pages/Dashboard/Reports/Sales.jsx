@@ -72,6 +72,9 @@ const formatCurrency = (value = 0) =>
         minimumFractionDigits: 0,
     }).format(value);
 
+const progressWidth = (value) =>
+    `${Math.min(100, Math.max(0, Number(value || 0)))}%`;
+
 const castFilterString = (value) =>
     typeof value === "number" ? String(value) : value ?? "";
 
@@ -89,6 +92,7 @@ const defaultSettlementForm = {
 const Sales = ({
     transactions,
     summary,
+    targets,
     tenantSettlement,
     filters,
     cashiers,
@@ -425,6 +429,130 @@ const Sales = ({
                     {summaryCards.map((card) => (
                         <SummaryCard key={card.title} {...card} />
                     ))}
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+                    <div className="mb-4 flex items-start justify-between gap-3">
+                        <div>
+                            <h2 className="text-base font-semibold text-slate-900 dark:text-white">
+                                Pencapaian Target
+                            </h2>
+                            <p className="text-sm text-slate-500 dark:text-slate-400">
+                                Membandingkan hasil periode aktif dengan target bulanan outlet.
+                            </p>
+                        </div>
+                        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                            {targets?.period_label || "Periode berjalan"}
+                        </span>
+                    </div>
+
+                    <div className="grid gap-4 lg:grid-cols-2">
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/30">
+                            <div className="flex items-center justify-between gap-3">
+                                <div>
+                                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                        Target Omzet
+                                    </p>
+                                    <p className="mt-1 text-xl font-bold text-slate-900 dark:text-white">
+                                        {formatCurrency(targets?.sales_actual ?? 0)}
+                                    </p>
+                                </div>
+                                <span
+                                    className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                                        targets?.sales_met
+                                            ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300"
+                                            : "bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300"
+                                    }`}
+                                >
+                                    {targets?.sales_target > 0
+                                        ? `${targets?.sales_progress_percent ?? 0}%`
+                                        : "Belum diatur"}
+                                </span>
+                            </div>
+                            <div className="mt-4 h-3 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800">
+                                <div
+                                    className="h-full rounded-full bg-primary-500"
+                                    style={{
+                                        width: progressWidth(
+                                            targets?.sales_progress_percent
+                                        ),
+                                    }}
+                                />
+                            </div>
+                            <div className="mt-3 flex items-center justify-between text-sm">
+                                <span className="text-slate-500 dark:text-slate-400">
+                                    Target {formatCurrency(targets?.sales_target ?? 0)}
+                                </span>
+                                <span
+                                    className={`font-semibold ${
+                                        Number(targets?.sales_gap ?? 0) >= 0
+                                            ? "text-emerald-600 dark:text-emerald-400"
+                                            : "text-rose-600 dark:text-rose-400"
+                                    }`}
+                                >
+                                    {Number(targets?.sales_gap ?? 0) >= 0
+                                        ? "Lebih "
+                                        : "Kurang "}
+                                    {formatCurrency(
+                                        Math.abs(Number(targets?.sales_gap ?? 0))
+                                    )}
+                                </span>
+                            </div>
+                        </div>
+
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/30">
+                            <div className="flex items-center justify-between gap-3">
+                                <div>
+                                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                        Target Profit
+                                    </p>
+                                    <p className="mt-1 text-xl font-bold text-slate-900 dark:text-white">
+                                        {formatCurrency(targets?.profit_actual ?? 0)}
+                                    </p>
+                                </div>
+                                <span
+                                    className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                                        targets?.profit_met
+                                            ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300"
+                                            : "bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300"
+                                    }`}
+                                >
+                                    {targets?.profit_target > 0
+                                        ? `${targets?.profit_progress_percent ?? 0}%`
+                                        : "Belum diatur"}
+                                </span>
+                            </div>
+                            <div className="mt-4 h-3 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800">
+                                <div
+                                    className="h-full rounded-full bg-emerald-500"
+                                    style={{
+                                        width: progressWidth(
+                                            targets?.profit_progress_percent
+                                        ),
+                                    }}
+                                />
+                            </div>
+                            <div className="mt-3 flex items-center justify-between text-sm">
+                                <span className="text-slate-500 dark:text-slate-400">
+                                    Target {formatCurrency(targets?.profit_target ?? 0)}
+                                </span>
+                                <span
+                                    className={`font-semibold ${
+                                        Number(targets?.profit_gap ?? 0) >= 0
+                                            ? "text-emerald-600 dark:text-emerald-400"
+                                            : "text-rose-600 dark:text-rose-400"
+                                    }`}
+                                >
+                                    {Number(targets?.profit_gap ?? 0) >= 0
+                                        ? "Lebih "
+                                        : "Kurang "}
+                                    {formatCurrency(
+                                        Math.abs(Number(targets?.profit_gap ?? 0))
+                                    )}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <div className="grid gap-4 xl:grid-cols-[1.15fr,0.85fr]">

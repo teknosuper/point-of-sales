@@ -106,6 +106,8 @@ class PublicTableOrderController extends Controller
                 ] : null,
                 'pricing_badge' => $pricing && ! empty($pricing['pricing_rule']) ? [
                     'label' => $pricing['pricing_rule']['label'],
+                    'detail' => $pricing['pricing_rule']['detail'] ?? null,
+                    'rule_name' => $pricing['pricing_rule']['name'] ?? null,
                     'promo_price' => $pricing['pricing_rule']['price_context']
                         ? $pricing['effective_unit_price']
                         : null,
@@ -266,6 +268,8 @@ class PublicTableOrderController extends Controller
                 'payment_method' => $order->payment_method,
                 'status' => $order->status,
                 'subtotal' => (int) $order->subtotal,
+                'base_subtotal' => (int) $order->items->sum(fn ($item) => ((int) ($item->base_unit_price ?? $item->unit_price) * (int) $item->qty) + (int) $item->modifiers->sum('total_price')),
+                'discount_total' => (int) $order->items->sum('discount_total'),
                 'grand_total' => (int) $order->grand_total,
                 'approved_at' => optional($order->approved_at)->toISOString(),
                 'created_at' => optional($order->created_at)->toISOString(),
@@ -280,8 +284,12 @@ class PublicTableOrderController extends Controller
                     'id' => $item->id,
                     'product_title' => $item->product_title,
                     'qty' => (int) $item->qty,
+                    'base_unit_price' => (int) ($item->base_unit_price ?? $item->unit_price),
                     'unit_price' => (int) $item->unit_price,
                     'line_total' => (int) $item->line_total,
+                    'discount_total' => (int) ($item->discount_total ?? 0),
+                    'pricing_rule_name' => $item->pricing_rule_name,
+                    'pricing_rule_kind' => $item->pricing_rule_kind,
                     'notes' => $item->notes,
                     'modifiers' => $item->modifiers->map(fn ($modifier) => [
                         'id' => $modifier->id,

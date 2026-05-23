@@ -7,12 +7,32 @@ use App\Models\KitchenTicket;
 use App\Models\PrintJob;
 use App\Models\Transaction;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 class PrintJobService
 {
-    public function queueReceipt(Transaction $transaction, ?KitchenStationDevice $device = null, ?int $userId = null): PrintJob
+    public function queueReceipt(Transaction $transaction, ?KitchenStationDevice $device = null, ?int $userId = null, bool $forceRequeue = false): PrintJob
     {
         $receiptDevice = $device ?? $this->resolveReceiptDevice($transaction->outlet_id);
+
+        $existing = PrintJob::query()
+            ->where('transaction_id', $transaction->id)
+            ->where('job_type', PrintJob::TYPE_RECEIPT)
+            ->when(
+                $receiptDevice?->id,
+                fn ($query) => $query->where('kitchen_station_device_id', $receiptDevice->id)
+            )
+            ->whereIn('status', [
+                PrintJob::STATUS_QUEUED,
+                PrintJob::STATUS_PROCESSING,
+                ...($forceRequeue ? [] : [PrintJob::STATUS_SUCCESS]),
+            ])
+            ->latest('id')
+            ->first();
+
+        if ($existing) {
+            return $existing;
+        }
 
         return PrintJob::create([
             'outlet_id' => $transaction->outlet_id,
@@ -138,5 +158,58 @@ class PrintJobService
         return $jobs->map(function (PrintJob $job) {
             return $this->markProcessing($job);
         });
+    }
+
+    public function claimQueuedReceiptJobs(int $outletId, ?int $deviceId = null, int $limit = 10): Collection
+    {
+        $jobIds = DB::transaction(function () use ($outletId, $deviceId, $limit) {
+            $jobs = PrintJob::query()
+                ->where('job_type', PrintJob::TYPE_RECEIPT)
+                ->where('status', PrintJob::STATUS_QUEUED)
+                ->where('outlet_id', $outletId)
+                ->when($deviceId, fn ($query) => $query->where('kitchen_station_device_id', $deviceId))
+                ->orderBy('queued_at')
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->limit(max(1, min($limit, 20)))
+                ->get(['id']);
+
+            if ($jobs->isEmpty()) {
+                return collect();
+            }
+
+            $ids = $jobs->pluck('id');
+
+            PrintJob::query()
+                ->whereIn('id', $ids)
+                ->update([
+                    'status' => PrintJob::STATUS_PROCESSING,
+                    'processing_at' => now(),
+                    'failed_at' => null,
+                    'failure_reason' => null,
+                    'updated_at' => now(),
+                ]);
+
+            return $ids;
+        });
+
+        if ($jobIds->isEmpty()) {
+            return collect();
+        }
+
+        return PrintJob::query()
+            ->with([
+                'transaction:id,invoice,outlet_id,cashier_id,customer_id,table_id,order_type,payment_method,discount,grand_total,created_at',
+                'transaction.details:id,transaction_id,product_id,qty,price,unit_price,discount_total,notes',
+                'transaction.details.product:id,title',
+                'transaction.details.modifiers:id,transaction_detail_id,name,unit_price',
+                'transaction.cashier:id,name',
+                'transaction.customer:id,name,no_telp',
+                'transaction.diningTable:id,name,code',
+            ])
+            ->whereIn('id', $jobIds->all())
+            ->get()
+            ->sortBy(fn (PrintJob $job) => $jobIds->search($job->id))
+            ->values();
     }
 }

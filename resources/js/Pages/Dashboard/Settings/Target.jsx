@@ -1,6 +1,5 @@
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import { Head, useForm, usePage } from "@inertiajs/react";
-import Button from "@/Components/Dashboard/Button";
 import toast from "react-hot-toast";
 import {
     IconTarget,
@@ -144,24 +143,26 @@ export default function Target({ settings }) {
                         </div>
 
                         <div className="flex justify-end border-t border-slate-100 pt-4 dark:border-slate-800">
-                            <Button
+                            <button
                                 type="submit"
-                                variant="primary"
                                 disabled={processing}
-                                className="flex items-center gap-2"
+                                className="inline-flex items-center gap-2 rounded-xl bg-primary-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-600 disabled:opacity-60"
                             >
                                 <IconDeviceFloppy size={18} />
                                 {processing ? "Menyimpan..." : "Simpan Target"}
-                            </Button>
+                            </button>
                         </div>
                     </form>
                 </div>
 
                 <div className="rounded-xl border border-primary-200 bg-primary-50 p-4 dark:border-primary-900 dark:bg-primary-950/30">
                     <p className="text-sm text-primary-700 dark:text-primary-300">
-                        <strong>Tip:</strong> Target penjualan akan ditampilkan di dashboard
-                        sebagai progress pencapaian omzet bulanan. Target keuntungan membantu
-                        memantau apakah margin bisnis sudah sesuai sasaran.
+                        <strong>Tip:</strong> Target ini dipakai di laporan
+                        <span className="font-semibold"> penjualan </span>
+                        dan
+                        <span className="font-semibold"> keuntungan </span>
+                        untuk membaca apakah omzet dan profit periode aktif sudah
+                        memenuhi target bulanan outlet.
                     </p>
                 </div>
             </div>

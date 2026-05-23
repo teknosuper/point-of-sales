@@ -29,6 +29,15 @@ const kitchenStatusTone = {
     completed: "bg-slate-100 text-slate-700 border-slate-200",
 };
 
+const pricingKindLabel = {
+    discount_percentage: "Diskon Persen",
+    discount_nominal: "Diskon Nominal",
+    fixed_price: "Harga Promo",
+    buy_x_get_y: "Buy One Get One",
+    qty_break: "Promo Qty",
+    bundle_price: "Harga Bundle",
+};
+
 export default function Status({ order }) {
     const { storeProfile, identity } = usePage().props;
     const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -230,15 +239,40 @@ export default function Status({ order }) {
                             {order.items.map((item) => (
                                 <div
                                     key={item.id}
-                                    className="flex items-start justify-between gap-3 rounded-2xl border border-slate-200 bg-[linear-gradient(180deg,_#ffffff_0%,_#f8fafc_100%)] px-4 py-3"
+                                    className="rounded-2xl border border-slate-200 bg-[linear-gradient(180deg,_#ffffff_0%,_#f8fafc_100%)] px-4 py-3"
                                 >
-                                    <div>
-                                        <p className="font-medium">
-                                            {item.product_title} x{item.qty}
-                                        </p>
-                                        <p className="mt-1 text-xs text-slate-500">
-                                            {formatPrice(item.unit_price)} / porsi
-                                        </p>
+                                    <div className="flex items-start justify-between gap-3">
+                                        <div className="min-w-0">
+                                            <p className="font-medium">
+                                                {item.product_title} x{item.qty}
+                                            </p>
+                                            <div className="mt-1 flex flex-wrap items-center gap-2">
+                                                <p className="text-xs text-slate-500">
+                                                    {formatPrice(item.unit_price)} / porsi
+                                                </p>
+                                                {item.discount_total > 0 ? (
+                                                    <>
+                                                        <span className="text-xs text-slate-400 line-through">
+                                                            {formatPrice(item.base_unit_price)} / porsi
+                                                        </span>
+                                                        <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-semibold text-rose-700">
+                                                            Hemat {formatPrice(item.discount_total)}
+                                                        </span>
+                                                    </>
+                                                ) : null}
+                                            </div>
+                                            {item.pricing_rule_name ? (
+                                                <div className="mt-2 flex flex-wrap items-center gap-2">
+                                                    <span className="rounded-full bg-sky-50 px-2.5 py-1 text-[11px] font-semibold text-sky-700">
+                                                        {item.pricing_rule_name}
+                                                    </span>
+                                                    {item.pricing_rule_kind ? (
+                                                        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600">
+                                                            {pricingKindLabel[item.pricing_rule_kind] || item.pricing_rule_kind}
+                                                        </span>
+                                                    ) : null}
+                                                </div>
+                                            ) : null}
                                         {item.modifiers?.length ? (
                                             <div className="mt-1 flex flex-wrap gap-2">
                                                 {item.modifiers.map((modifier) => (
@@ -256,19 +290,41 @@ export default function Status({ order }) {
                                                 {item.notes}
                                             </p>
                                         ) : null}
+                                        </div>
+                                        <div className="text-right">
+                                            <p className="font-semibold">
+                                                {formatPrice(item.line_total)}
+                                            </p>
+                                            {item.discount_total > 0 ? (
+                                                <p className="mt-1 text-[11px] text-rose-600">
+                                                    Promo aktif
+                                                </p>
+                                            ) : null}
+                                        </div>
                                     </div>
-                                    <p className="font-semibold">
-                                        {formatPrice(item.line_total)}
-                                    </p>
                                 </div>
                             ))}
                         </div>
 
-                        <div className="mt-6 flex items-center justify-between border-t border-slate-200 pt-4">
-                            <span className="text-sm text-slate-500">Total</span>
-                            <span className="text-2xl font-bold">
-                                {formatPrice(order.grand_total)}
-                            </span>
+                        <div className="mt-6 space-y-3 border-t border-slate-200 pt-4">
+                            <div className="flex items-center justify-between text-sm">
+                                <span className="text-slate-500">Subtotal sebelum promo</span>
+                                <span className="font-semibold text-slate-700">
+                                    {formatPrice(order.base_subtotal || order.grand_total)}
+                                </span>
+                            </div>
+                            <div className="flex items-center justify-between text-sm">
+                                <span className="text-slate-500">Total diskon promo</span>
+                                <span className="font-semibold text-rose-600">
+                                    {formatPrice(order.discount_total || 0)}
+                                </span>
+                            </div>
+                            <div className="flex items-center justify-between border-t border-slate-200 pt-3">
+                                <span className="text-sm text-slate-500">Total</span>
+                                <span className="text-2xl font-bold">
+                                    {formatPrice(order.grand_total)}
+                                </span>
+                            </div>
                         </div>
                     </div>
 

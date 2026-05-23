@@ -23,6 +23,14 @@ const formatPrice = (value = 0) =>
 const FILTER_PANEL_STORAGE_KEY = "pos:product-grid:filter-panel-expanded";
 const VIEW_MODE_STORAGE_KEY = "pos:product-grid:view-mode";
 
+const promoExplanation = (badge) => {
+    if (!badge) {
+        return null;
+    }
+
+    return badge.detail || badge.rule_name || badge.label || null;
+};
+
 // Single Product Card
 function ProductCard({ product, onAddToCart, isAdding, viewMode = "list" }) {
     const hasStock = product.stock > 0;
@@ -32,6 +40,7 @@ function ProductCard({ product, onAddToCart, isAdding, viewMode = "list" }) {
     const basePrice = Number(promoBadge?.base_price || product.sell_price || 0);
     const showPromo = promoBadge && promoPrice > 0 && promoPrice < basePrice;
     const showBadge = Boolean(promoBadge?.label);
+    const promoDetail = promoExplanation(promoBadge);
     const isListMode = viewMode === "list";
 
     return (
@@ -170,6 +179,17 @@ function ProductCard({ product, onAddToCart, isAdding, viewMode = "list" }) {
                     <p className="text-base font-bold text-primary-600 dark:text-primary-400">
                         {formatPrice(showPromo ? promoPrice : product.sell_price)}
                     </p>
+                    {promoDetail && (
+                        <p
+                            className={`mt-1 max-w-[220px] text-xs leading-5 ${
+                                isListMode
+                                    ? "text-right text-rose-600 dark:text-rose-300"
+                                    : "text-rose-600 dark:text-rose-300"
+                            }`}
+                        >
+                            {promoDetail}
+                        </p>
+                    )}
                     {isListMode && hasStock && (
                         <span className="mt-2 inline-flex rounded-full bg-primary-50 px-3 py-1 text-[11px] font-semibold text-primary-600 dark:bg-primary-950/30 dark:text-primary-300">
                             Tambah

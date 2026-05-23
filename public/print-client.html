@@ -112,8 +112,6 @@
     let pollingTimer = null;
     let isPolling = false;
     let stats = { printed: 0, failed: 0, polls: 0 };
-    let lastPrintedId = 0; // Track last transaction ID printed
-
     function getConfig() {
         return {
             baseUrl: document.getElementById('baseUrl').value.replace(/\/$/, ''),
@@ -130,9 +128,6 @@
         let url = `${config.baseUrl}/api/print-queue/${config.queueType}?token=${config.token}&outlet_id=${config.outletId}`;
         if (config.queueType === 'kitchen' && config.stationId) {
             url += `&station_id=${config.stationId}`;
-        }
-        if (config.queueType === 'cashier' && lastPrintedId > 0) {
-            url += `&last_id=${lastPrintedId}`;
         }
         return url;
     }
@@ -202,11 +197,6 @@
                 for (const job of data.jobs) {
                     await processJob(job, config);
                 }
-                // Update last_id for cashier (transaction-based polling)
-                if (data.last_id) {
-                    lastPrintedId = data.last_id;
-                    localStorage.setItem('pos-print-last-id-' + config.outletId, String(lastPrintedId));
-                }
             }
         } catch (err) {
             log(`❌ Error polling: ${err.message}`, 'error');
@@ -264,8 +254,8 @@
                 log(`✅ Job #${job.id} encoded (browser mode — no printer connected)`);
             }
 
-            // Mark as done (only for kitchen jobs that use print_jobs table)
-            if (job.type === 'kitchen_ticket') {
+            // Mark print job as done for both cashier receipt and kitchen ticket queues.
+            if (job.id) {
                 await markJobDone(job.id, config);
             }
             stats.printed++;
@@ -563,11 +553,6 @@
         if (params.get('type')) document.getElementById('queueType').value = params.get('type');
         if (params.get('station_id')) document.getElementById('stationId').value = params.get('station_id');
         if (params.get('paper')) document.getElementById('paperWidth').value = params.get('paper');
-
-        // Load last printed ID from localStorage
-        const outletId = document.getElementById('outletId').value;
-        const savedLastId = localStorage.getItem('pos-print-last-id-' + outletId);
-        if (savedLastId) lastPrintedId = parseInt(savedLastId) || 0;
 
         if (params.get('autostart') === '1') setTimeout(startPolling, 500);
     })();

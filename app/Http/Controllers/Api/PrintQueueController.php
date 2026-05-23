@@ -5,7 +5,6 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\KitchenStationDevice;
 use App\Models\PrintJob;
-use App\Models\Transaction;
 use App\Services\PrintJobService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -28,86 +27,41 @@ class PrintQueueController extends Controller
     /**
      * GET /api/print-queue/cashier
      *
-     * Poll for new transactions that need receipt printing.
-     * Uses transactions table directly — no print_jobs insert needed at checkout.
+     * Poll for queued cashier receipt jobs.
      */
     public function cashier(Request $request): JsonResponse
     {
         $this->authorize($request);
 
         $outletId = (int) $request->query('outlet_id', 0);
-        $lastId = (int) $request->query('last_id', 0);
+        $deviceId = (int) $request->query('device_id', 0);
 
-        $query = Transaction::query()
-            ->with([
-                'details:id,transaction_id,product_id,qty,price,unit_price,discount_total,notes',
-                'details.product:id,title',
-                'details.modifiers:id,transaction_detail_id,name,unit_price',
-                'cashier:id,name',
-                'customer:id,name,no_telp',
-                'diningTable:id,name,code',
-            ])
-            ->when($outletId > 0, fn ($q) => $q->where('outlet_id', $outletId))
-            ->where('payment_status', 'paid')
-            ->when($lastId > 0, fn ($q) => $q->where('id', '>', $lastId))
-            ->orderBy('id')
-            ->limit(5);
-
-        $transactions = $query->get();
-
-        if ($transactions->isEmpty()) {
+        if ($outletId <= 0) {
             return response()->json([
                 'success' => true,
                 'jobs' => [],
                 'count' => 0,
-                'last_id' => $lastId,
             ]);
         }
 
-        $outletProfile = $outletId > 0 ? \App\Models\Outlet::find($outletId)?->profilePayload() : [];
+        $jobs = $this->printJobService->claimQueuedReceiptJobs(
+            $outletId,
+            $deviceId > 0 ? $deviceId : null,
+            5
+        );
 
-        $jobs = $transactions->map(fn (Transaction $tx) => [
-            'id' => $tx->id,
-            'type' => 'receipt',
-            'copies' => 1,
-            'paper_width' => '58mm',
-            'store' => [
-                'name' => $outletProfile['name'] ?? '',
-                'address' => $outletProfile['address'] ?? '',
-                'phone' => $outletProfile['phone'] ?? '',
-            ],
-            'transaction' => [
-                'invoice' => $tx->invoice,
-                'date' => $tx->created_at ? \Carbon\Carbon::parse($tx->created_at)->format('d/m/Y H:i') : null,
-                'cashier' => $tx->cashier?->name ?? '-',
-                'customer' => $tx->customer?->name ?? 'Pelanggan Umum',
-                'order_type' => $tx->order_type,
-                'payment_method' => $tx->payment_method,
-                'table' => $tx->diningTable?->name ?? $tx->diningTable?->code ?? null,
-                'subtotal' => (int) ($tx->grand_total + ($tx->discount ?? 0)),
-                'discount' => (int) ($tx->discount ?? 0),
-                'grand_total' => (int) $tx->grand_total,
-                'items' => $tx->details->map(fn ($detail) => [
-                    'name' => $detail->product?->title ?? 'Item',
-                    'qty' => (int) $detail->qty,
-                    'price' => (int) $detail->unit_price,
-                    'total' => (int) $detail->price,
-                    'discount' => (int) ($detail->discount_total ?? 0),
-                    'notes' => $detail->notes,
-                    'modifiers' => $detail->modifiers->map(fn ($mod) => [
-                        'name' => $mod->name,
-                        'price' => (int) $mod->unit_price,
-                    ])->values()->all(),
-                ])->values()->all(),
-            ],
-            'queued_at' => $tx->created_at ? \Carbon\Carbon::parse($tx->created_at)->toIso8601String() : null,
-        ]);
+        if ($jobs->isEmpty()) {
+            return response()->json([
+                'success' => true,
+                'jobs' => [],
+                'count' => 0,
+            ]);
+        }
 
         return response()->json([
             'success' => true,
-            'jobs' => $jobs->values(),
+            'jobs' => $jobs->map(fn (PrintJob $job) => $this->receiptPayload($job))->values(),
             'count' => $jobs->count(),
-            'last_id' => $transactions->last()->id,
         ]);
     }
 

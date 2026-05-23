@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Customer;
 use App\Models\Outlet;
 use App\Models\Profit;
+use App\Models\Setting;
 use App\Models\Transaction;
 use App\Models\TransactionDetail;
 use App\Models\TransactionTenantAllocation;
@@ -155,10 +156,12 @@ class SalesReportController extends Controller
         $tenantSummary['management_fee_total'] = (int) round($tenantMetricAllocations->sum('management_fee_total'));
         $tenantSummary['tenant_payout_total'] = (int) round($tenantMetricAllocations->sum('tenant_payout_total'));
         $dailyRecap = $this->buildAllocationDailyRecap($tenantMetricAllocations);
+        $targets = $this->targetSummary($summary, $outletId, $filters);
 
         return Inertia::render('Dashboard/Reports/Sales', [
             'transactions' => $transactions,
             'summary' => $summary,
+            'targets' => $targets,
             'tenantSettlement' => [
                 'summary' => [
                     'allocation_count' => (int) $tenantSummary['allocation_count'],
@@ -203,6 +206,50 @@ class SalesReportController extends Controller
             })
             ->when($filters['start_date'] ?? null, fn ($q, $start) => $q->whereDate('created_at', '>=', $start))
             ->when($filters['end_date'] ?? null, fn ($q, $end) => $q->whereDate('created_at', '<=', $end));
+    }
+
+    protected function targetSummary(array $summary, ?int $outletId, array $filters): array
+    {
+        $salesTarget = Setting::getInt('monthly_sales_target', 0, $outletId);
+        $profitTarget = Setting::getInt('monthly_profit_target', 0, $outletId);
+
+        $salesActual = (int) ($summary['revenue_total'] ?? 0);
+        $profitActual = (int) ($summary['profit_total'] ?? 0);
+
+        return [
+            'period_label' => $this->resolvePeriodLabel($filters),
+            'sales_target' => $salesTarget,
+            'sales_actual' => $salesActual,
+            'sales_gap' => $salesTarget > 0 ? $salesActual - $salesTarget : 0,
+            'sales_progress_percent' => $salesTarget > 0
+                ? round(($salesActual / $salesTarget) * 100, 2)
+                : null,
+            'sales_met' => $salesTarget > 0 ? $salesActual >= $salesTarget : null,
+            'profit_target' => $profitTarget,
+            'profit_actual' => $profitActual,
+            'profit_gap' => $profitTarget > 0 ? $profitActual - $profitTarget : 0,
+            'profit_progress_percent' => $profitTarget > 0
+                ? round(($profitActual / $profitTarget) * 100, 2)
+                : null,
+            'profit_met' => $profitTarget > 0 ? $profitActual >= $profitTarget : null,
+        ];
+    }
+
+    protected function resolvePeriodLabel(array $filters): string
+    {
+        if (! empty($filters['start_date']) && ! empty($filters['end_date'])) {
+            return Carbon::parse($filters['start_date'])->format('d M Y').' - '.Carbon::parse($filters['end_date'])->format('d M Y');
+        }
+
+        if (! empty($filters['start_date'])) {
+            return 'Sejak '.Carbon::parse($filters['start_date'])->format('d M Y');
+        }
+
+        if (! empty($filters['end_date'])) {
+            return 'Sampai '.Carbon::parse($filters['end_date'])->format('d M Y');
+        }
+
+        return 'Periode berjalan';
     }
 
     protected function applyAllocationFilters($query, array $filters)

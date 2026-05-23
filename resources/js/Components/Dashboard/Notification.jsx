@@ -55,6 +55,7 @@ export default function Notification() {
             receivableNotifications.map((n) => ({
                 ...n,
                 id: `recv-${n.id}`,
+                originalId: n.id,
                 type: "receivable",
             }))
         ),
@@ -62,6 +63,7 @@ export default function Notification() {
             payableNotifications.map((n) => ({
                 ...n,
                 id: `pay-${n.id}`,
+                originalId: n.id,
                 type: "payable",
             }))
         ),
@@ -108,16 +110,49 @@ export default function Notification() {
                 { product_id: item.originalId || id },
                 { preserveScroll: true, preserveState: true }
             );
+            return;
+        }
+
+        if (item?.type === "receivable" || item?.type === "payable") {
+            router.post(
+                route("notifications.read"),
+                {
+                    type: item.type,
+                    reference_id: item.originalId || item.id,
+                },
+                { preserveScroll: true, preserveState: true }
+            );
         }
     };
 
     const handleMarkAllRead = () => {
         setData([]);
-        router.post(
-            route("notifications.stock.readAll"),
-            {},
-            { preserveScroll: true, preserveState: true }
-        );
+        const stockItems = data.filter((item) => item.type === "stock");
+        const financeItems = data
+            .filter(
+                (item) =>
+                    item.type === "receivable" || item.type === "payable"
+            )
+            .map((item) => ({
+                type: item.type,
+                reference_id: item.originalId || item.id,
+            }));
+
+        if (stockItems.length > 0) {
+            router.post(
+                route("notifications.stock.readAll"),
+                {},
+                { preserveScroll: true, preserveState: true }
+            );
+        }
+
+        if (financeItems.length > 0) {
+            router.post(
+                route("notifications.readAll"),
+                { items: financeItems },
+                { preserveScroll: true, preserveState: true }
+            );
+        }
     };
 
     const badgeCount = data.length + pendingTableOrders.length;
@@ -138,7 +173,9 @@ export default function Notification() {
                             </div>
                         </div>
                         <Link
-                            href={route("table-orders.index")}
+                            href={route("transactions.index", {
+                                open_table_order: pendingTableOrders[0]?.id,
+                            })}
                             className="inline-flex items-center gap-1 rounded-xl border border-[#e5d3bf] bg-white px-3 py-2 text-[11px] font-semibold text-[#9b4b2e]"
                         >
                             Lihat
@@ -147,8 +184,11 @@ export default function Notification() {
                     </div>
                     <div className="space-y-2">
                         {pendingTableOrders.slice(0, 3).map((order) => (
-                            <div
+                            <Link
                                 key={order.id}
+                                href={route("transactions.index", {
+                                    open_table_order: order.id,
+                                })}
                                 className="flex items-start justify-between gap-3 rounded-2xl border border-white/80 bg-white/90 px-3 py-2.5 shadow-sm"
                             >
                                 <div className="min-w-0">
@@ -169,7 +209,7 @@ export default function Notification() {
                                         minimumFractionDigits: 0,
                                     })}
                                 </div>
-                            </div>
+                            </Link>
                         ))}
                     </div>
                 </div>

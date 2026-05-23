@@ -653,6 +653,7 @@ class PricingService
             'name' => $rule->name,
             'kind' => $rule->kind,
             'label' => $this->ruleLabel($rule),
+            'detail' => $this->ruleDetail($rule),
             'priority' => (int) $rule->priority,
             'target_type' => $rule->target_type,
             'customer_scope' => $rule->customer_scope,
@@ -670,6 +671,87 @@ class PricingService
             PricingRule::TYPE_FIXED_PRICE => 'Harga Rp '.number_format((float) $rule->discount_value, 0, ',', '.'),
             default => $rule->name,
         };
+    }
+
+    private function ruleDetail(PricingRule $rule): string
+    {
+        return match ($rule->kind) {
+            PricingRule::KIND_QTY_BREAK => $this->qtyBreakRuleDetail($rule),
+            PricingRule::KIND_BUNDLE_PRICE => $this->bundleRuleDetail($rule),
+            PricingRule::KIND_BUY_X_GET_Y => $this->buyGetRuleDetail($rule),
+            default => $this->standardRuleDetail($rule),
+        };
+    }
+
+    private function standardRuleDetail(PricingRule $rule): string
+    {
+        return match ($rule->discount_type) {
+            PricingRule::TYPE_PERCENTAGE => 'Diskon '.rtrim(rtrim(number_format((float) $rule->discount_value, 2, '.', ''), '0'), '.').'% untuk item ini.',
+            PricingRule::TYPE_FIXED_AMOUNT => 'Potongan Rp '.number_format((float) $rule->discount_value, 0, ',', '.').' per item.',
+            PricingRule::TYPE_FIXED_PRICE => 'Harga promo jadi Rp '.number_format((float) $rule->discount_value, 0, ',', '.').'.',
+            default => $rule->name,
+        };
+    }
+
+    private function qtyBreakRuleDetail(PricingRule $rule): string
+    {
+        $parts = $rule->qtyBreaks
+            ->map(function (PricingRuleQtyBreak $break) {
+                $label = match ($break->discount_type) {
+                    PricingRule::TYPE_PERCENTAGE => 'diskon '.rtrim(rtrim(number_format((float) $break->discount_value, 2, '.', ''), '0'), '.').'%',
+                    PricingRule::TYPE_FIXED_AMOUNT => 'hemat Rp '.number_format((float) $break->discount_value, 0, ',', '.'),
+                    PricingRule::TYPE_FIXED_PRICE => 'harga jadi Rp '.number_format((float) $break->discount_value, 0, ',', '.'),
+                    default => null,
+                };
+
+                if (! $label) {
+                    return null;
+                }
+
+                return 'beli '.$break->min_qty.' '.$label;
+            })
+            ->filter()
+            ->values();
+
+        if ($parts->isEmpty()) {
+            return 'Promo grosir berdasarkan jumlah pembelian.';
+        }
+
+        return ucfirst($parts->implode(', ')).'.';
+    }
+
+    private function bundleRuleDetail(PricingRule $rule): string
+    {
+        $items = $rule->bundleItems
+            ->map(fn ($item) => ($item->quantity > 1 ? $item->quantity.'x ' : '').($item->product?->title ?? 'item'))
+            ->filter()
+            ->values();
+
+        if ($items->isEmpty()) {
+            return 'Promo paket harga khusus.';
+        }
+
+        return 'Paket '.implode(' + ', $items->all()).' jadi Rp '.number_format((float) $rule->discount_value, 0, ',', '.').'.';
+    }
+
+    private function buyGetRuleDetail(PricingRule $rule): string
+    {
+        $buyItems = $rule->buyGetItems
+            ->where('role', PricingRuleBuyGetItem::ROLE_BUY)
+            ->map(fn ($item) => ($item->quantity > 1 ? $item->quantity.'x ' : '').($item->product?->title ?? 'item'))
+            ->filter()
+            ->values();
+        $getItems = $rule->buyGetItems
+            ->where('role', PricingRuleBuyGetItem::ROLE_GET)
+            ->map(fn ($item) => ($item->quantity > 1 ? $item->quantity.'x ' : '').($item->product?->title ?? 'item'))
+            ->filter()
+            ->values();
+
+        if ($buyItems->isEmpty() || $getItems->isEmpty()) {
+            return 'Buy one get one / buy x get y.';
+        }
+
+        return 'Beli '.implode(' + ', $buyItems->all()).', gratis '.implode(' + ', $getItems->all()).'.';
     }
 
     private function matchesRecurringSchedule(PricingRule $rule, CarbonInterface $at): bool

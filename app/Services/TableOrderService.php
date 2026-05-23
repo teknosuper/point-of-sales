@@ -25,7 +25,8 @@ class TableOrderService
         private readonly FoodcourtTenantAllocationService $foodcourtTenantAllocationService,
         private readonly AuditLogService $auditLogService,
         private readonly LoyaltyService $loyaltyService,
-        private readonly PricingService $pricingService
+        private readonly PricingService $pricingService,
+        private readonly PrintJobService $printJobService
     ) {}
 
     public function createFromPublicMenu(DiningTable $table, Customer $customer, array $payload): TableOrder
@@ -352,6 +353,8 @@ class TableOrderService
             ],
             actor: $cashier
         );
+
+        $this->printJobService->queueReceipt($transaction, userId: $cashier->id);
 
         return $transaction;
     }

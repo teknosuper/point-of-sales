@@ -22,6 +22,7 @@ class DatabaseSeeder extends Seeder
             PaymentSettingSeeder::class,
             OutletKitchenSeeder::class,
             DemoInitialSetupSeeder::class,
+            DemoPricingRuleSeeder::class,
         ];
 
         $this->call($defaultSeeders);
@@ -34,6 +35,7 @@ class DatabaseSeeder extends Seeder
                 OperationalCoreSeeder::class,
                 FeatureCoverageSeeder::class,
                 DemoInitialSetupSeeder::class,
+                DemoPricingRuleSeeder::class,
             ]);
         }
 

@@ -26,6 +26,12 @@ const promoDisplay = (product) => {
     };
 };
 
+const promoExplanation = (product) =>
+    product?.pricing_badge?.detail ||
+    product?.pricing_badge?.rule_name ||
+    product?.pricing_badge?.label ||
+    null;
+
 const productHasPromo = (product) => promoDisplay(product).showPromo;
 
 const resolvedProductUnitPrice = (product) => {
@@ -210,6 +216,7 @@ function RecommendationStrip({
                 >
                     {products.map((product) => {
                         const promo = promoDisplay(product);
+                        const promoDetail = promoExplanation(product);
 
                         return (
                         <button
@@ -274,6 +281,11 @@ function RecommendationStrip({
                                         </>
                                     ) : null}
                                 </div>
+                                {promoDetail ? (
+                                    <p className="mt-2 text-xs leading-5 text-rose-600">
+                                        {promoDetail}
+                                    </p>
+                                ) : null}
                             </button>
                         );
                     })}
@@ -1546,6 +1558,10 @@ export default function Menu({
                                                                         promoDisplay(
                                                                             product
                                                                         );
+                                                                    const promoDetail =
+                                                                        promoExplanation(
+                                                                            product
+                                                                        );
                                                                     const hasStock =
                                                                         Number(
                                                                             product.stock || 0
@@ -1671,6 +1687,11 @@ export default function Menu({
                                                                                                         Hemat {formatPrice(Math.max(0, promo.basePrice - promo.promoPrice))}
                                                                                                     </span>
                                                                                                 </div>
+                                                                                            ) : null}
+                                                                                            {promoDetail ? (
+                                                                                                <p className="mt-1.5 text-[11px] leading-5 text-rose-600 sm:text-xs">
+                                                                                                    {promoDetail}
+                                                                                                </p>
                                                                                             ) : null}
                                                                                             <p className="mt-1 text-[11px] font-medium text-slate-500 sm:text-xs">
                                                                                                 Dipilih{" "}

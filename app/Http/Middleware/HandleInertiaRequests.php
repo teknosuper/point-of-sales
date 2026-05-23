@@ -3,6 +3,7 @@
 namespace App\Http\Middleware;
 
 use App\Models\CashierShift;
+use App\Models\NotificationRead;
 use App\Models\Outlet;
 use App\Models\Payable;
 use App\Models\Product;
@@ -137,6 +138,15 @@ class HandleInertiaRequests extends Middleware
             }
 
             $receivableNotifications = $receivableQuery
+                ->when(Schema::hasTable('notification_reads'), function ($query) use ($userId) {
+                    $query->whereNotExists(function ($subQuery) use ($userId) {
+                        $subQuery->selectRaw('1')
+                            ->from('notification_reads as nr')
+                            ->where('nr.user_id', $userId)
+                            ->where('nr.type', 'receivable')
+                            ->whereColumn('nr.reference_id', 'receivables.id');
+                    });
+                })
                 ->whereDate('due_date', '<=', now()->addDays(3))
                 ->orderBy('due_date')
                 ->limit(5)
@@ -153,6 +163,15 @@ class HandleInertiaRequests extends Middleware
                 });
 
             $payableNotifications = $payableQuery
+                ->when(Schema::hasTable('notification_reads'), function ($query) use ($userId) {
+                    $query->whereNotExists(function ($subQuery) use ($userId) {
+                        $subQuery->selectRaw('1')
+                            ->from('notification_reads as nr')
+                            ->where('nr.user_id', $userId)
+                            ->where('nr.type', 'payable')
+                            ->whereColumn('nr.reference_id', 'payables.id');
+                    });
+                })
                 ->whereDate('due_date', '<=', now()->addDays(3))
                 ->orderBy('due_date')
                 ->limit(5)

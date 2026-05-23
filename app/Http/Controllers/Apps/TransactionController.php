@@ -24,6 +24,7 @@ use App\Services\LoyaltyService;
 use App\Services\OutletResolver;
 use App\Services\Payments\PaymentGatewayManager;
 use App\Services\PricingService;
+use App\Services\PrintJobService;
 use App\Services\StockMutationService;
 use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Database\Eloquent\Builder;
@@ -47,7 +48,8 @@ class TransactionController extends Controller
         private readonly OutletResolver $outletResolver,
         private readonly StockMutationService $stockMutationService,
         private readonly KitchenTicketService $kitchenTicketService,
-        private readonly FoodcourtTenantAllocationService $foodcourtTenantAllocationService
+        private readonly FoodcourtTenantAllocationService $foodcourtTenantAllocationService,
+        private readonly PrintJobService $printJobService
     ) {}
 
     /**
@@ -55,11 +57,12 @@ class TransactionController extends Controller
      *
      * @return void
      */
-    public function index()
+    public function index(Request $request)
     {
         $userId = auth()->user()->id;
         $outlet = $this->resolveActiveOutlet();
         $activeShift = $this->cashierShiftService->getActiveShiftForUser($userId, $outlet?->id);
+        $openTableOrderId = (int) $request->integer('open_table_order');
 
         // Get active cart items (not held)
         $carts = Cart::with('product.modifierOptions', 'tenantOutlet:id,name,code', 'modifiers')
@@ -154,6 +157,8 @@ class TransactionController extends Controller
                 ] : null,
                 'pricing_badge' => $pricing && ! empty($pricing['pricing_rule']) ? [
                     'label' => $pricing['pricing_rule']['label'],
+                    'detail' => $pricing['pricing_rule']['detail'] ?? null,
+                    'rule_name' => $pricing['pricing_rule']['name'] ?? null,
                     'promo_price' => $pricing['pricing_rule']['price_context']
                         ? $pricing['effective_unit_price']
                         : null,
@@ -190,7 +195,7 @@ class TransactionController extends Controller
             ->get();
 
         $pendingTableOrders = TableOrder::query()
-            ->with(['diningTable:id,name,code'])
+            ->with(['diningTable:id,name,code', 'items.modifiers'])
             ->when($outlet, fn ($query) => $query->where('outlet_id', $outlet->id))
             ->where('status', 'pending_cashier_payment')
             ->latest('created_at')
@@ -201,12 +206,33 @@ class TransactionController extends Controller
                 'order_number' => $order->order_number,
                 'customer_name' => $order->customer_name,
                 'customer_phone' => $order->customer_phone,
+                'notes' => $order->notes,
                 'grand_total' => (int) $order->grand_total,
                 'created_at' => optional($order->created_at)->toISOString(),
+                'created_at_label' => optional($order->created_at)->format('d M Y H:i'),
                 'table' => [
                     'name' => $order->diningTable?->name,
                     'code' => $order->diningTable?->code,
                 ],
+                'items' => $order->items->map(fn ($item) => [
+                    'id' => $item->id,
+                    'product_title' => $item->product_title,
+                    'qty' => (int) $item->qty,
+                    'base_unit_price' => (int) ($item->base_unit_price ?? $item->unit_price),
+                    'unit_price' => (int) $item->unit_price,
+                    'line_total' => (int) $item->line_total,
+                    'discount_total' => (int) ($item->discount_total ?? 0),
+                    'pricing_rule_name' => $item->pricing_rule_name,
+                    'pricing_rule_kind' => $item->pricing_rule_kind,
+                    'notes' => $item->notes,
+                    'modifiers' => $item->modifiers->map(fn ($modifier) => [
+                        'id' => $modifier->id,
+                        'name' => $modifier->name,
+                        'qty' => (int) $modifier->qty,
+                        'unit_price' => (int) $modifier->unit_price,
+                        'total_price' => (int) $modifier->total_price,
+                    ])->values(),
+                ])->values(),
             ])
             ->values();
 
@@ -223,6 +249,7 @@ class TransactionController extends Controller
             'defaultPaymentGateway' => $defaultGateway,
             'bankAccounts' => $bankAccounts,
             'pendingTableOrders' => $pendingTableOrders,
+            'openTableOrderId' => $openTableOrderId > 0 ? $openTableOrderId : null,
             'shiftSummary' => $this->cashierShiftService->summarizeForDisplay($activeShift),
             'loyaltyTierOptions' => $this->loyaltyService->tierOptions(),
             'tenantOutlets' => Outlet::query()
@@ -1227,6 +1254,10 @@ class TransactionController extends Controller
             $markPerf('tenant_allocation');
             $this->kitchenTicketService->createForTransaction($sideEffectTransaction);
             $markPerf('kitchen_tickets');
+            if (($sideEffectTransaction->payment_status ?? null) === 'paid') {
+                $this->printJobService->queueReceipt($sideEffectTransaction, userId: auth()->id());
+                $markPerf('receipt_queued');
+            }
 
         $paymentWarning = null;
 
@@ -1477,10 +1508,10 @@ class TransactionController extends Controller
                 );
             }
 
-            $this->foodcourtTenantAllocationService->rebuildForTransaction($transaction->fresh(['details']));
-            $this->kitchenTicketService->createForTransaction($transaction->fresh(['details.product.kitchenStationMappings']));
+                $this->foodcourtTenantAllocationService->rebuildForTransaction($transaction->fresh(['details']));
+                $this->kitchenTicketService->createForTransaction($transaction->fresh(['details.product.kitchenStationMappings']));
 
-            return $transaction->fresh([
+                return $transaction->fresh([
                 'details.product',
                 'details.modifiers',
                 'cashier',
@@ -1489,8 +1520,10 @@ class TransactionController extends Controller
                 'bankAccount',
                 'tenantAllocations.tenantOutlet:id,name,code',
                 'tenantAllocations.items.product:id,title',
-            ]);
+                ]);
             });
+
+            $this->printJobService->queueReceipt($transaction, userId: auth()->id());
 
             return response()->json([
                 'message' => 'Transaksi offline berhasil disinkronkan.',
@@ -1727,6 +1760,55 @@ class TransactionController extends Controller
         ]);
     }
 
+    public function historyFeed(Request $request): JsonResponse
+    {
+        $filters = [
+            'q' => trim((string) $request->input('q')),
+            'start_date' => $request->input('start_date'),
+            'end_date' => $request->input('end_date'),
+            'customer_scope' => $request->input('customer_scope'),
+            'payment_status' => $request->input('payment_status'),
+            'payment_method' => $request->input('payment_method'),
+            'per_page' => max(5, min(50, (int) $request->integer('per_page', 10))),
+        ];
+
+        $query = $this->buildTransactionHistoryModalQuery($request, includeDetails: true)
+            ->when($filters['q'], function (Builder $builder, string $keyword) {
+                $builder->where(function (Builder $nested) use ($keyword) {
+                    $nested->where('invoice', 'like', '%'.$keyword.'%')
+                        ->orWhereHas('customer', fn (Builder $customerQuery) => $customerQuery
+                            ->where('name', 'like', '%'.$keyword.'%')
+                            ->orWhere('no_telp', 'like', '%'.$keyword.'%'))
+                        ->orWhereHas('cashier', fn (Builder $cashierQuery) => $cashierQuery
+                            ->where('name', 'like', '%'.$keyword.'%'));
+                });
+            })
+            ->when($filters['start_date'], fn (Builder $builder, $date) => $builder->whereDate('created_at', '>=', $date))
+            ->when($filters['end_date'], fn (Builder $builder, $date) => $builder->whereDate('created_at', '<=', $date))
+            ->when($filters['customer_scope'] === 'walk_in', fn (Builder $builder) => $builder->whereNull('customer_id'))
+            ->when($filters['customer_scope'] === 'registered', fn (Builder $builder) => $builder->whereNotNull('customer_id'))
+            ->when($filters['payment_status'], fn (Builder $builder, $status) => $builder->where('payment_status', $status))
+            ->when($filters['payment_method'], fn (Builder $builder, $method) => $builder->where('payment_method', $method))
+            ->orderByDesc('created_at');
+
+        $transactions = $query->paginate($filters['per_page'])->withQueryString();
+
+        return response()->json([
+            'data' => $transactions->getCollection()->map(
+                fn (Transaction $transaction) => $this->transformTransactionHistoryModalItem($transaction)
+            )->values(),
+            'meta' => [
+                'current_page' => $transactions->currentPage(),
+                'last_page' => $transactions->lastPage(),
+                'per_page' => $transactions->perPage(),
+                'total' => $transactions->total(),
+                'from' => $transactions->firstItem(),
+                'to' => $transactions->lastItem(),
+            ],
+            'filters' => $filters,
+        ]);
+    }
+
     /**
      * Confirm payment for bank transfer transactions
      */
@@ -1776,11 +1858,140 @@ class TransactionController extends Controller
             ->with('success', "Pembayaran untuk invoice {$transaction->invoice} berhasil dikonfirmasi.");
     }
 
+    public function requeueReceipt(Request $request, Transaction $transaction): JsonResponse
+    {
+        $outlet = $this->resolveActiveOutlet($request);
+        if ($outlet && (int) $transaction->outlet_id !== (int) $outlet->id) {
+            abort(404);
+        }
+
+        if (! $request->user()->isSuperAdmin() && (int) $transaction->cashier_id !== (int) $request->user()->id) {
+            abort(404);
+        }
+
+        if ($transaction->payment_status !== 'paid') {
+            return response()->json([
+                'message' => 'Hanya transaksi lunas yang bisa diminta cetak ulang ke queue.',
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+        }
+
+        $job = $this->printJobService->queueReceipt(
+            $transaction,
+            userId: $request->user()->id,
+            forceRequeue: true
+        );
+
+        $this->auditLogService->log(
+            event: 'transaction.receipt_requeued',
+            module: 'transactions',
+            auditable: $transaction,
+            description: "Print ulang struk untuk invoice {$transaction->invoice} dimasukkan ke queue.",
+            after: [
+                'invoice' => $transaction->invoice,
+                'print_job_id' => $job->id,
+                'job_status' => $job->status,
+            ],
+            actor: $request->user()
+        );
+
+        return response()->json([
+            'message' => "Struk {$transaction->invoice} berhasil dimasukkan ke antrean print.",
+            'data' => [
+                'print_job_id' => $job->id,
+                'status' => $job->status,
+            ],
+        ]);
+    }
+
     private function resolveActiveOutlet(?Request $request = null)
     {
         $request ??= request();
 
         return $this->outletResolver->resolve($request, $request->user());
+    }
+
+    private function buildTransactionHistoryModalQuery(Request $request, bool $includeDetails = false): Builder
+    {
+        $detailColumns = [
+            'id',
+            'transaction_id',
+            'product_id',
+            'qty',
+            'price',
+        ];
+
+        foreach (['discount_total', 'base_unit_price', 'unit_price'] as $optionalColumn) {
+            if (Schema::hasColumn('transaction_details', $optionalColumn)) {
+                $detailColumns[] = $optionalColumn;
+            }
+        }
+
+        $query = Transaction::query()
+            ->with([
+                'cashier:id,name',
+                'customer:id,name,no_telp',
+                'tenantAllocations.tenantOutlet:id,name,code',
+            ])
+            ->when($includeDetails, fn (Builder $builder) => $builder->with([
+                'details' => fn ($detailQuery) => $detailQuery
+                    ->select($detailColumns)
+                    ->with('product:id,title'),
+            ]))
+            ->when($this->resolveActiveOutlet($request), fn (Builder $builder, $outlet) => $builder->where('outlet_id', $outlet->id))
+            ->when(! $request->user()->isSuperAdmin(), fn (Builder $builder) => $builder->where('cashier_id', $request->user()->id))
+            ->withSum('details as total_items', 'qty');
+
+        if (Schema::hasColumn('transaction_details', 'discount_total')) {
+            $query->withSum('details as total_promo_discount', 'discount_total');
+        }
+
+        return $query;
+    }
+
+    private function transformTransactionHistoryModalItem(Transaction $transaction): array
+    {
+        return [
+            'id' => $transaction->id,
+            'invoice' => $transaction->invoice,
+            'created_at' => optional($transaction->created_at)->toISOString(),
+            'created_at_label' => optional($transaction->created_at)->format('d M Y H:i'),
+            'payment_method' => $transaction->payment_method,
+            'payment_status' => $transaction->payment_status,
+            'grand_total' => (int) $transaction->grand_total,
+            'total_items' => (int) ($transaction->total_items ?? 0),
+            'total_discount' => (int) ($transaction->total_promo_discount ?? 0)
+                + (int) ($transaction->discount ?? 0)
+                + (int) ($transaction->loyalty_discount_total ?? 0)
+                + (int) ($transaction->customer_voucher_discount ?? 0),
+            'cashier' => $transaction->cashier ? [
+                'id' => $transaction->cashier->id,
+                'name' => $transaction->cashier->name,
+            ] : null,
+            'customer' => $transaction->customer ? [
+                'id' => $transaction->customer->id,
+                'name' => $transaction->customer->name,
+                'phone' => $transaction->customer->no_telp,
+            ] : null,
+            'tenant_allocations' => $transaction->tenantAllocations->map(fn ($allocation) => [
+                'id' => $allocation->id,
+                'tenant_outlet_id' => $allocation->tenant_outlet_id,
+                'tenant_outlet' => $allocation->tenantOutlet ? [
+                    'id' => $allocation->tenantOutlet->id,
+                    'name' => $allocation->tenantOutlet->name,
+                    'code' => $allocation->tenantOutlet->code,
+                ] : null,
+            ])->values(),
+            'details' => $transaction->relationLoaded('details')
+                ? $transaction->details->map(fn ($detail) => [
+                    'id' => $detail->id,
+                    'product_name' => $detail->product?->title ?? "Produk #{$detail->product_id}",
+                    'qty' => (int) $detail->qty,
+                    'price' => (int) ($detail->unit_price ?? $detail->price),
+                    'total' => (int) $detail->price,
+                    'discount_total' => (int) ($detail->discount_total ?? 0),
+                ])->values()
+                : [],
+        ];
     }
 
     private function findEditableCart(Request $request, int|string $cartId): ?Cart

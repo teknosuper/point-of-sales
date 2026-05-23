@@ -104,6 +104,8 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
         ->middlewareFor('destroy', ['permission:users-delete', 'step_up']);
     Route::post('/notifications/low-stock/read', [NotificationController::class, 'markLowStockRead'])->name('notifications.stock.read');
     Route::post('/notifications/low-stock/read-all', [NotificationController::class, 'markAllLowStockRead'])->name('notifications.stock.readAll');
+    Route::post('/notifications/read', [NotificationController::class, 'markRead'])->name('notifications.read');
+    Route::post('/notifications/read-all', [NotificationController::class, 'markAllRead'])->name('notifications.readAll');
     Route::get('/regions/regencies', [\App\Http\Controllers\RegionController::class, 'regencies'])->name('regions.regencies');
     Route::get('/regions/districts', [\App\Http\Controllers\RegionController::class, 'districts'])->name('regions.districts');
     Route::get('/regions/villages', [\App\Http\Controllers\RegionController::class, 'villages'])->name('regions.villages');
@@ -293,7 +295,9 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
     Route::post('/transactions/store', [TransactionController::class, 'store'])->middleware(['permission:transactions-access', 'active_shift'])->name('transactions.store');
     Route::get('/transactions/health', [TransactionController::class, 'health'])->middleware('permission:transactions-access')->name('transactions.health');
     Route::post('/transactions/sync-offline', [TransactionController::class, 'syncOffline'])->middleware(['permission:transactions-access', 'active_shift'])->name('transactions.sync-offline');
+    Route::post('/transactions/{transaction}/requeue-receipt', [TransactionController::class, 'requeueReceipt'])->middleware(['permission:transactions-access', 'outlet_access'])->name('transactions.requeue-receipt');
     Route::get('/transactions/{invoice}/print', [TransactionController::class, 'print'])->middleware('permission:transactions-access')->name('transactions.print');
+    Route::get('/transactions/history-feed', [TransactionController::class, 'historyFeed'])->middleware('permission:transactions-access')->name('transactions.history-feed');
     Route::get('/transactions/history', [TransactionController::class, 'history'])->middleware('permission:transactions-access')->name('transactions.history');
     Route::get('/kitchen', [KitchenDisplayController::class, 'index'])->middleware('permission:dashboard-access')->name('kitchen.index');
     Route::get('/kitchen/{stationSlug}', [KitchenDisplayController::class, 'show'])->middleware('permission:dashboard-access')->name('kitchen.show');
@@ -412,6 +416,7 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
     Route::get('/reports/outlet-analytics', [OutletAnalyticsController::class, 'index'])->middleware(['permission:reports-access', 'outlet_access'])->name('reports.outlet-analytics.index');
     Route::get('/reports/setup-audit', [SetupAuditController::class, 'index'])->middleware('permission:reports-access')->name('reports.setup-audit.index');
     Route::get('/reports/profits', [ProfitReportController::class, 'index'])->middleware('permission:profits-access')->name('reports.profits.index');
+    Route::get('/reports/profits/filter-options', [ProfitReportController::class, 'filterOptions'])->middleware('permission:profits-access')->name('reports.profits.filter-options');
     Route::get('/reports/insights', [AdvancedSalesInsightsController::class, 'index'])->middleware('permission:reports-access')->name('reports.insights.index');
 
     // aging & reminders
