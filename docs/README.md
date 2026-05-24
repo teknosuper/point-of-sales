@@ -26,6 +26,7 @@ Dokumentasi ini ditujukan untuk developer yang ingin setup, memahami alur modul,
 - `docs/features/demo-seed-guide.md`
 - `docs/features/printing-architecture-options.md`
 - `docs/features/print-bridge-api.md`
+- `docs/features/public-catalog-api.md`
 - `docs/features/pwa-device-setup.md`
 - `docs/features/customers-regions.md`
 - `docs/features/member-management.md`

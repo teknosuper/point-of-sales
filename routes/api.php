@@ -1,8 +1,11 @@
 <?php
 
 use App\Http\Controllers\Api\PrintBridgeController;
-use App\Http\Controllers\Api\PrintQueueController;
 use App\Http\Controllers\Api\PaymentWebhookController;
+use App\Http\Controllers\Api\PublicApiDocsController;
+use App\Http\Controllers\Api\PrintQueueController;
+use App\Http\Controllers\Api\PublicCatalogController;
+use App\Http\Middleware\AllowPublicApiCors;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -35,3 +38,21 @@ Route::prefix('print-queue')->group(function () {
     Route::post('/{printJob}/done', [PrintQueueController::class, 'done'])->name('print-queue.done');
     Route::post('/{printJob}/fail', [PrintQueueController::class, 'fail'])->name('print-queue.fail');
 });
+
+Route::prefix('public/catalog')
+    ->middleware(AllowPublicApiCors::class)
+    ->group(function () {
+        Route::options('/{any?}', fn () => response('', 204))
+            ->where('any', '.*');
+        Route::get('/meta', [PublicCatalogController::class, 'meta'])->name('public.catalog.meta');
+        Route::get('/products', [PublicCatalogController::class, 'products'])->name('public.catalog.products');
+        Route::get('/products/{product}', [PublicCatalogController::class, 'show'])->name('public.catalog.products.show');
+        Route::get('/promos', [PublicCatalogController::class, 'promos'])->name('public.catalog.promos');
+        Route::get('/promo-banners', [PublicCatalogController::class, 'promoBanners'])->name('public.catalog.promo-banners');
+        Route::get('/home-sections', [PublicCatalogController::class, 'homeSections'])->name('public.catalog.home-sections');
+        Route::get('/highlights', [PublicCatalogController::class, 'highlights'])->name('public.catalog.highlights');
+    });
+
+Route::get('/public/docs', PublicApiDocsController::class)
+    ->middleware(AllowPublicApiCors::class)
+    ->name('public.api.docs');

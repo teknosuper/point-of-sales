@@ -99,3 +99,110 @@ vendor/bin/pint                      # PHP formatter (Laravel Pint)
 - Module docs: `docs/README.md` (index), `docs/features/` (per-module)
 - Architecture: `docs/architecture-overview.md`
 - Planning: `planning/improvement-planning.md`
+
+## Fast Context Rules For Codex
+
+Gunakan aturan ini agar cepat paham repo dan hemat token:
+
+- Jangan mulai dengan scan seluruh repo. Mulai dari sumber kebenaran berikut, urut:
+  1. `routes/web.php`
+  2. controller terkait di `app/Http/Controllers/Apps` atau `app/Http/Controllers/Reports`
+  3. service terkait di `app/Services`
+  4. page terkait di `resources/js/Pages/Dashboard`
+  5. test terkait di `tests/Feature`
+  6. baru setelah itu baca `docs/` atau `planning/` bila perlu klarifikasi
+- Jika task menyebut modul bisnis, cari dulu dokumen yang paling dekat di `docs/features/`, jangan baca semua file markdown.
+- Jika task menyentuh multi-outlet, kitchen, loyalty tier, settlement tenant, atau stok, anggap repo ini masih fase transisi. Verifikasi implementasi aktual di kode, jangan hanya percaya dokumen lama.
+- Jika ada konflik antara dokumentasi, planning, dan kode, prioritaskan kode aktif. Dokumentasi dipakai untuk orientasi, bukan sumber kebenaran final.
+- Untuk pencarian, prioritaskan `rg` dan baca cuplikan file seperlunya. Hindari membuka file besar penuh jika cukup baca bagian relevan.
+- Saat menjelaskan hasil, ringkas per area perubahan. Jangan copy-paste isi file panjang, log terminal panjang, atau stack trace penuh.
+
+## Repo Mental Model
+
+Pahami repo ini dengan model berikut agar keputusan teknis tidak salah arah:
+
+- Ini bukan lagi POS sederhana. Sistem sudah mencakup kasir, shift, inventory audit, receivable, payable, procurement, loyalty, CRM, outlet, kitchen dispatch, dan fondasi foodcourt multi-tenant.
+- `Transaction` adalah pusat alur penjualan dan berelasi ke profit, receivable, loyalty, sales return, payment reference, `outlet_id`, dan kitchen dispatch.
+- `Product` adalah katalog global. Source of truth stok jangka panjang bergerak ke `product_outlet_stocks`. `products.stock` masih fallback kompatibilitas.
+- Outlet aktif di-resolve server-side. Jangan asumsikan setting toko global tanpa cek `OutletResolver` dan shared props Inertia.
+- Banyak modul sekarang harus dipikirkan sebagai `outlet-aware`. Jika query, policy, route model binding, report, atau summary belum memfilter outlet aktif, anggap ada potensi bug.
+- Kitchen routing dipisah per station dan per outlet. Satu transaksi bisa menghasilkan banyak `kitchen_tickets`.
+- Foodcourt multi-tenant sudah punya fondasi schema, tetapi UI dan sebagian flow masih parsial. Jangan refactor seolah fondasi itu belum ada.
+
+## Task Routing Prompts
+
+Gunakan prompt internal berikut sebagai heuristik kerja. Jangan tulis ulang ke user kecuali relevan.
+
+### Saat menerima task bugfix
+
+- Temukan route, controller, service, dan page yang menangani flow itu.
+- Verifikasi apakah bug terkait permission, `active_shift`, outlet aktif, fallback stok, atau shared props Inertia sebelum mengubah UI.
+- Perbaiki dengan patch sekecil mungkin dan pertahankan pola Laravel + Inertia yang sudah ada.
+
+### Saat menerima task fitur baru
+
+- Pastikan fitur ditempatkan dalam boundary modul yang sudah ada, bukan membuat pola baru tanpa alasan kuat.
+- Cek apakah fitur perlu `permission`, `step_up`, `active_shift`, audit log, atau isolasi `outlet_id`.
+- Jika fitur menyentuh transaksi, stok, kitchen, receivable, payable, atau loyalty, cek dampak lintas modul sebelum implementasi.
+
+### Saat menerima task frontend
+
+- Cari page utama di `resources/js/Pages/Dashboard` lalu telusuri komponen pendukungnya.
+- Gunakan Ziggy `route()` untuk navigasi atau action endpoint.
+- Ikuti token Tailwind yang sudah ada: `primary`, `accent`, `success`, `warning`, `danger`.
+- Jangan memindahkan validasi domain ke frontend jika backend sudah punya boundary yang benar.
+
+### Saat menerima task backend
+
+- Mulai dari route surface dan middleware aktif pada route tersebut.
+- Pindahkan business logic lintas model ke service bila pola repo sudah melakukannya.
+- Untuk perubahan data sensitif, pertimbangkan audit log dan isolasi outlet.
+- Untuk test, prioritaskan feature test paling sempit yang membuktikan perubahan.
+
+### Saat menerima task laporan atau query data
+
+- Asumsikan risiko utama adalah kebocoran data lintas outlet, bukan sekadar salah total angka.
+- Verifikasi filter `outlet_id`, period filter, dan relasi agregasi sebelum mengubah tampilan.
+- Jika report menyangkut tenant, loyalty, receivable, payable, atau profit, cek apakah agregasinya masih bergantung pada fallback global lama.
+
+## Token Efficiency Rules
+
+- Jawab singkat, langsung, dan fokus ke hasil.
+- Jangan ulangi isi pertanyaan user.
+- Jangan beri beberapa opsi jika satu opsi terbaik sudah cukup jelas.
+- Jangan membaca seluruh markdown di `docs/` atau `planning/` tanpa alasan spesifik.
+- Jangan menjalankan test full suite jika cukup test file atau method yang terdampak.
+- Jangan refactor besar di luar scope task.
+- Jangan membuat abstraction baru jika patch kecil pada pola existing sudah cukup.
+- Jika butuh asumsi, pilih asumsi paling aman dan tulis singkat.
+- Jika ada blocker nyata, jelaskan blocker dan satu langkah paling logis berikutnya.
+
+## High-Risk Checks Before Concluding
+
+Sebelum menganggap task selesai, cek cepat apakah perubahan menyentuh salah satu area ini:
+
+- permission atau Spatie cache
+- `active_shift`
+- outlet isolation
+- `products.stock` vs `product_outlet_stocks`
+- kitchen station / ticket routing
+- payment gateway config per outlet
+- receivable / payable side effects
+- sales return atau stock mutation trail
+- shared props Inertia yang mempengaruhi banyak halaman
+
+## Fast Start Prompt Pack
+
+Pakai template singkat ini sebagai pola pikir awal saat mulai sesi:
+
+```md
+Pahami repo ini sebagai sistem POS retail yang sudah berkembang menjadi multi-modul dan sedang transisi ke multi-outlet, kitchen dispatch, dan foodcourt tenant allocation.
+
+Saat mengerjakan task:
+- cari route, controller, service, page, dan test yang paling relevan lebih dulu
+- prioritaskan kode aktif dibanding dokumentasi jika ada konflik
+- anggap `Transaction` sebagai pusat alur penjualan dan `product_outlet_stocks` sebagai arah source of truth stok
+- cek `permission`, `active_shift`, `outlet_id`, dan shared props Inertia sebelum menyimpulkan akar masalah
+- buat patch sekecil mungkin, ikuti pola existing, dan hindari scan repo berlebihan
+- ringkas jawaban, fokus pada hasil, risiko, dan verifikasi
+```
