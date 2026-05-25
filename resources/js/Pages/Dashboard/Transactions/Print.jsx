@@ -19,6 +19,7 @@ import { useAuthorization } from "@/Utils/authorization";
 
 export default function Print({
     transaction,
+    receiptLayout = null,
     embedded = false,
     autoPrint = false,
     initialMode = "thermal58",
@@ -350,6 +351,7 @@ export default function Print({
                                 {printMode === "thermal80" ? (
                                     <ThermalReceipt
                                         transaction={transaction}
+                                        layout={receiptLayout}
                                         storeName={store.name}
                                         storeAddress={store.address}
                                         storePhone={store.phone}
@@ -359,6 +361,7 @@ export default function Print({
                                 ) : (
                                     <ThermalReceipt58mm
                                         transaction={transaction}
+                                        layout={receiptLayout}
                                         storeName={store.name}
                                         storePhone={store.phone}
                                         storeEmail={store.email}

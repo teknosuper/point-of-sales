@@ -121,6 +121,77 @@ const Row = ({ label, value, small = false, strong = false }) => (
     </div>
 );
 
+const LayoutRows = ({ rows = [], compact = false }) => (
+    <>
+        {rows.map((row, index) => (
+            <Row
+                key={`${row.label}-${index}`}
+                label={row.label}
+                value={row.value}
+                small={compact}
+                strong={Boolean(row.strong)}
+            />
+        ))}
+    </>
+);
+
+const ReceiptLayoutSections = ({ layout, compact = false }) => {
+    const items = layout?.items || [];
+
+    return (
+        <>
+            <div className="my-1">
+                <LayoutRows rows={layout?.meta_rows || []} compact={compact} />
+            </div>
+
+            <pre>{compact ? "-".repeat(24) : "-".repeat(32)}</pre>
+
+            <div className="my-1">
+                {items.map((item, index) => (
+                    <div key={`${item.name}-${index}`} className="mb-1">
+                        <p className={`font-medium ${compact ? "truncate" : "break-words"}`}>
+                            {item.name}
+                        </p>
+                        {item.promo ? (
+                            <p className="text-[10px] text-slate-500">{item.promo}</p>
+                        ) : null}
+                        <Row
+                            label={item.detail_left}
+                            value={item.detail_right}
+                            small={compact}
+                        />
+                        {(item.modifiers || []).map((modifier, modifierIndex) => (
+                            <Row
+                                key={`${modifier.label}-${modifierIndex}`}
+                                label={modifier.label}
+                                value={modifier.value}
+                                small
+                            />
+                        ))}
+                        {item.notes ? (
+                            <p className="text-[10px] break-words text-slate-500">
+                                * {item.notes}
+                            </p>
+                        ) : null}
+                    </div>
+                ))}
+            </div>
+
+            <pre>{compact ? "-".repeat(24) : "-".repeat(32)}</pre>
+
+            <div className="my-1">
+                <LayoutRows rows={layout?.totals || []} compact={compact} />
+            </div>
+
+            <pre>{compact ? "-".repeat(24) : "-".repeat(32)}</pre>
+
+            <div className="my-1">
+                <LayoutRows rows={layout?.payments || []} compact={compact} />
+            </div>
+        </>
+    );
+};
+
 const ReceiptItems = ({ items, compact = false }) => (
     <div className="my-1">
         {items.map((item, index) => {
@@ -280,6 +351,7 @@ const SimpleBarcode = ({ value, compact = false }) => {
 
 export default function ThermalReceipt({
     transaction,
+    layout = null,
     storeName = "TOKO ANDA",
     storeAddress = "",
     storePhone = "",
@@ -304,58 +376,63 @@ export default function ThermalReceipt({
             </div>
 
             <pre className="whitespace-pre-wrap">{line}</pre>
+            {layout ? (
+                <ReceiptLayoutSections layout={layout} />
+            ) : (
+                <>
+                    <div className="my-1">
+                        <Row label="No:" value={transaction?.invoice} />
+                        <Row
+                            label="Tgl:"
+                            value={formatDateTime(transaction?.created_at)}
+                        />
+                        <Row label="Kasir:" value={transaction?.cashier?.name || "-"} />
+                        <Row
+                            label="Pelanggan:"
+                            value={transaction?.customer?.name || "Umum"}
+                        />
+                        <Row
+                            label="Pesanan:"
+                            value={
+                                transaction?.order_type === "dine_in"
+                                    ? "Makan di Tempat"
+                                    : "Bawa Pulang"
+                            }
+                        />
+                        {transaction?.dining_table?.name ? (
+                            <Row
+                                label="Meja:"
+                                value={
+                                    transaction.dining_table.code ||
+                                    transaction.dining_table.name
+                                }
+                            />
+                        ) : null}
+                        {transaction?.waiter?.name ? (
+                            <Row
+                                label="Petugas Antar:"
+                                value={transaction.waiter.name}
+                            />
+                        ) : null}
+                    </div>
 
-            <div className="my-1">
-                <Row label="No:" value={transaction?.invoice} />
-                <Row
-                    label="Tgl:"
-                    value={formatDateTime(transaction?.created_at)}
-                />
-                <Row label="Kasir:" value={transaction?.cashier?.name || "-"} />
-                <Row
-                    label="Pelanggan:"
-                    value={transaction?.customer?.name || "Umum"}
-                />
-                <Row
-                    label="Pesanan:"
-                    value={
-                        transaction?.order_type === "dine_in"
-                            ? "Makan di Tempat"
-                            : "Bawa Pulang"
-                    }
-                />
-                {transaction?.dining_table?.name ? (
-                    <Row
-                        label="Meja:"
-                        value={
-                            transaction.dining_table.code ||
-                            transaction.dining_table.name
-                        }
-                    />
-                ) : null}
-                {transaction?.waiter?.name ? (
-                    <Row
-                        label="Petugas Antar:"
-                        value={transaction.waiter.name}
-                    />
-                ) : null}
-            </div>
+                    <pre className="whitespace-pre-wrap">{line}</pre>
 
-            <pre className="whitespace-pre-wrap">{line}</pre>
+                    <ReceiptItems items={items} />
 
-            <ReceiptItems items={items} />
+                    <pre className="whitespace-pre-wrap">{dashLine}</pre>
 
-            <pre className="whitespace-pre-wrap">{dashLine}</pre>
+                    <div className="my-1">
+                        <ReceiptTotals transaction={transaction} />
+                    </div>
 
-            <div className="my-1">
-                <ReceiptTotals transaction={transaction} />
-            </div>
+                    <pre className="whitespace-pre-wrap">{dashLine}</pre>
 
-            <pre className="whitespace-pre-wrap">{dashLine}</pre>
-
-            <div className="my-1">
-                <ReceiptPayment transaction={transaction} />
-            </div>
+                    <div className="my-1">
+                        <ReceiptPayment transaction={transaction} />
+                    </div>
+                </>
+            )}
 
             <pre className="whitespace-pre-wrap">{line}</pre>
 
@@ -387,6 +464,7 @@ export default function ThermalReceipt({
 
 export function ThermalReceipt58mm({
     transaction,
+    layout = null,
     storeName = "TOKO",
     storePhone = "",
     storeEmail = "",
@@ -408,27 +486,33 @@ export function ThermalReceipt58mm({
             </div>
 
             <pre>{line}</pre>
-            <p>#{transaction?.invoice}</p>
-            <p>{formatDateTime(transaction?.created_at, true)}</p>
-            <p>
-                {transaction?.order_type === "dine_in"
-                    ? "Makan di Tempat"
-                    : "Bawa Pulang"}
-            </p>
-            {transaction?.dining_table?.name ? (
-                <p>
-                    Meja{" "}
-                    {transaction.dining_table.code ||
-                        transaction.dining_table.name}
-                </p>
-            ) : null}
-            <pre>{line}</pre>
+            {layout ? (
+                <ReceiptLayoutSections layout={layout} compact />
+            ) : (
+                <>
+                    <p>#{transaction?.invoice}</p>
+                    <p>{formatDateTime(transaction?.created_at, true)}</p>
+                    <p>
+                        {transaction?.order_type === "dine_in"
+                            ? "Makan di Tempat"
+                            : "Bawa Pulang"}
+                    </p>
+                    {transaction?.dining_table?.name ? (
+                        <p>
+                            Meja{" "}
+                            {transaction.dining_table.code ||
+                                transaction.dining_table.name}
+                        </p>
+                    ) : null}
+                    <pre>{line}</pre>
 
-            <ReceiptItems items={items} compact />
+                    <ReceiptItems items={items} compact />
 
-            <pre>{line}</pre>
-            <ReceiptTotals transaction={transaction} compact />
-            <ReceiptPayment transaction={transaction} compact />
+                    <pre>{line}</pre>
+                    <ReceiptTotals transaction={transaction} compact />
+                    <ReceiptPayment transaction={transaction} compact />
+                </>
+            )}
             <pre>{line}</pre>
             <p className="text-center">Terima kasih!</p>
             <SimpleBarcode value={transaction?.invoice} compact />

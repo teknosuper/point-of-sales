@@ -132,6 +132,20 @@
         return url;
     }
 
+    function resolvePaperColumns(job, config) {
+        const paperWidth = String(job?.paper_width || '').toLowerCase();
+
+        if (paperWidth === '58mm') {
+            return 32;
+        }
+
+        if (paperWidth === '80mm') {
+            return 48;
+        }
+
+        return Number(config?.paperWidth || 32);
+    }
+
     function log(message, type = 'info') {
         const container = document.getElementById('logContainer');
         const time = new Date().toLocaleTimeString('id-ID');
@@ -213,28 +227,33 @@
             setStatus('🖨️ Mencetak...', 'status-printing');
 
             let byteArray;
+            const printColumns = resolvePaperColumns(job, config);
+            const runtimeConfig = {
+                ...config,
+                paperWidth: printColumns,
+            };
 
             if (ReceiptPrinterEncoder) {
                 // Use library encoder
                 const encoder = new ReceiptPrinterEncoder({
                     language: 'esc-pos',
                     feedBeforeCut: 1,
-                    columns: config.paperWidth,
+                    columns: printColumns,
                 });
 
                 let result;
                 if (job.type === 'receipt') {
-                    result = encodeReceiptLib(encoder, job, config);
+                    result = encodeReceiptLib(encoder, job, runtimeConfig);
                 } else {
-                    result = encodeKitchenTicketLib(encoder, job, config);
+                    result = encodeKitchenTicketLib(encoder, job, runtimeConfig);
                 }
                 byteArray = Array.from(result);
             } else {
                 // Use built-in raw ESC/POS encoder
                 if (job.type === 'receipt') {
-                    byteArray = encodeReceiptRaw(job, config);
+                    byteArray = encodeReceiptRaw(job, runtimeConfig);
                 } else {
-                    byteArray = encodeKitchenTicketRaw(job, config);
+                    byteArray = encodeKitchenTicketRaw(job, runtimeConfig);
                 }
             }
 
@@ -481,7 +500,105 @@
         }
     }
 
+    function renderReceiptLayoutRaw(bytes, layout, cols, separator) {
+        const store = layout?.store || {};
+        const metaRows = layout?.meta_rows || [];
+        const items = layout?.items || [];
+        const totals = layout?.totals || [];
+        const payments = layout?.payments || [];
+        const footerLines = layout?.footer_lines || [];
+
+        bytes.push(...escAlignCenter());
+        if (store.name) bytes.push(...escBoldLine(store.name));
+        if (store.address) printWrappedLinesRaw(bytes, store.address, cols);
+        if (store.phone) bytes.push(...escLine(store.phone));
+        if (store.email) bytes.push(...escLine(store.email));
+        if (store.website) bytes.push(...escLine(store.website));
+        bytes.push(...escLine(separator));
+
+        bytes.push(...escAlignLeft());
+        metaRows.forEach(row => printTwoColumnRaw(bytes, row.label, row.value, cols));
+        bytes.push(...escLine(separator));
+
+        items.forEach(item => {
+            printWrappedLinesRaw(bytes, item.name || 'Item', cols);
+            if (item.promo) printWrappedLinesRaw(bytes, item.promo, cols, '  ');
+            printTwoColumnRaw(bytes, item.detail_left, item.detail_right, cols);
+            (item.modifiers || []).forEach(modifier => printTwoColumnRaw(bytes, modifier.label, modifier.value, cols));
+            if (item.notes) printWrappedLinesRaw(bytes, item.notes, cols, '  * ');
+        });
+
+        bytes.push(...escLine(separator));
+        totals.forEach(row => printTwoColumnRaw(bytes, row.label, row.value, cols));
+        bytes.push(...escLine(separator));
+        payments.forEach(row => {
+            if (row.label === 'Info') {
+                printWrappedLinesRaw(bytes, row.value, cols, '  ');
+                return;
+            }
+            printTwoColumnRaw(bytes, row.label, row.value, cols);
+        });
+        bytes.push(...escNewline());
+        bytes.push(...escAlignCenter());
+        footerLines.forEach(line => bytes.push(...escLine(line)));
+    }
+
+    function renderReceiptLayoutLib(encoder, layout, cols, separator) {
+        const store = layout?.store || {};
+        const metaRows = layout?.meta_rows || [];
+        const items = layout?.items || [];
+        const totals = layout?.totals || [];
+        const payments = layout?.payments || [];
+        const footerLines = layout?.footer_lines || [];
+
+        encoder.align('center').bold(true);
+        if (store.name) encoder.text(store.name).newline();
+        encoder.bold(false);
+        if (store.address) wrapText(store.address, cols).forEach(line => encoder.text(line).newline());
+        if (store.phone) encoder.text(store.phone).newline();
+        if (store.email) encoder.text(store.email).newline();
+        if (store.website) encoder.text(store.website).newline();
+        encoder.text(separator).newline().align('left');
+
+        metaRows.forEach(row => twoColumnLines(row.label, row.value, cols).forEach(line => encoder.text(line).newline()));
+        encoder.text(separator).newline();
+
+        items.forEach(item => {
+            wrapText(item.name || 'Item', cols).forEach(line => encoder.text(line).newline());
+            if (item.promo) wrapText(item.promo, Math.max(8, cols - 2)).forEach(line => encoder.text(`  ${line}`).newline());
+            twoColumnLines(item.detail_left, item.detail_right, cols).forEach(line => encoder.text(line).newline());
+            (item.modifiers || []).forEach(modifier => twoColumnLines(modifier.label, modifier.value, cols).forEach(line => encoder.text(line).newline()));
+            if (item.notes) wrapText(item.notes, Math.max(8, cols - 4)).forEach(line => encoder.text(`  * ${line}`).newline());
+        });
+
+        encoder.text(separator).newline();
+        totals.forEach(row => twoColumnLines(row.label, row.value, cols).forEach(line => encoder.text(line).newline()));
+        encoder.text(separator).newline();
+        payments.forEach(row => {
+            if (row.label === 'Info') {
+                wrapText(row.value, Math.max(8, cols - 2)).forEach(line => encoder.text(`  ${line}`).newline());
+                return;
+            }
+            twoColumnLines(row.label, row.value, cols).forEach(line => encoder.text(line).newline());
+        });
+        encoder.newline().align('center');
+        footerLines.forEach(line => encoder.text(line).newline());
+    }
+
     function encodeReceiptRaw(job, config) {
+        if (job.layout) {
+            const cols = config.paperWidth;
+            const bytes = [];
+            const sep = '-'.repeat(cols);
+
+            bytes.push(...escInit());
+            renderReceiptLayoutRaw(bytes, job.layout, cols, sep);
+            bytes.push(...escFeed(3));
+            bytes.push(...escCut());
+
+            return bytes;
+        }
+
         const tx = job.transaction || {};
         const store = job.store || {};
         const items = tx.items || [];
@@ -597,6 +714,16 @@
     }
 
     function encodeReceiptLib(encoder, job, config) {
+        if (job.layout) {
+            const sep = config.paperWidth === 48 ? '------------------------------------------------' : '--------------------------------';
+
+            encoder.initialize();
+            renderReceiptLayoutLib(encoder, job.layout, config.paperWidth, sep);
+            encoder.cut();
+
+            return encoder.encode();
+        }
+
         const tx = job.transaction || {};
         const store = job.store || {};
         const items = tx.items || [];

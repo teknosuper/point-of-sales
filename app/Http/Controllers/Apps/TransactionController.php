@@ -25,6 +25,7 @@ use App\Services\OutletResolver;
 use App\Services\Payments\PaymentGatewayManager;
 use App\Services\PricingService;
 use App\Services\PrintJobService;
+use App\Services\ReceiptLayoutService;
 use App\Services\StockMutationService;
 use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Database\Eloquent\Builder;
@@ -49,7 +50,8 @@ class TransactionController extends Controller
         private readonly StockMutationService $stockMutationService,
         private readonly KitchenTicketService $kitchenTicketService,
         private readonly FoodcourtTenantAllocationService $foodcourtTenantAllocationService,
-        private readonly PrintJobService $printJobService
+        private readonly PrintJobService $printJobService,
+        private readonly ReceiptLayoutService $receiptLayoutService
     ) {}
 
     /**
@@ -1591,6 +1593,11 @@ class TransactionController extends Controller
 
         return Inertia::render('Dashboard/Transactions/Print', [
             'transaction' => $transaction,
+            'receiptLayout' => $this->receiptLayoutService->build(
+                $transaction,
+                $transaction->outlet?->profilePayload() ?? [],
+                $request->query('mode') === 'thermal80' ? '80mm' : '58mm'
+            ),
             'embedded' => $request->boolean('embedded'),
             'autoPrint' => $request->boolean('autoprint'),
             'initialMode' => in_array($request->query('mode'), ['invoice', 'thermal80', 'thermal58', 'shipping'], true)

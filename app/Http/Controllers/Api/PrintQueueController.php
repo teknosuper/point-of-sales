@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\KitchenStationDevice;
 use App\Models\PrintJob;
 use App\Services\PrintJobService;
+use App\Services\ReceiptLayoutService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -22,7 +23,8 @@ use Illuminate\Support\Str;
 class PrintQueueController extends Controller
 {
     public function __construct(
-        private readonly PrintJobService $printJobService
+        private readonly PrintJobService $printJobService,
+        private readonly ReceiptLayoutService $receiptLayoutService
     ) {}
 
     /**
@@ -198,6 +200,17 @@ class PrintQueueController extends Controller
         $paidAmount = $paymentMethod === 'cash'
             ? (int) ($transaction->cash ?? 0)
             : max((int) ($transaction->cash ?? 0), $grandTotal);
+        $layout = $transaction
+            ? $this->receiptLayoutService->build(
+                $transaction,
+                [
+                    'name' => $storeProfile['name'] ?? '',
+                    'address' => $storeProfile['address'] ?? '',
+                    'phone' => $storeProfile['phone'] ?? '',
+                ],
+                (string) data_get($job->payload, 'paper_width', '58mm')
+            )
+            : null;
 
         return [
             'id' => $job->id,
@@ -209,6 +222,7 @@ class PrintQueueController extends Controller
                 'address' => $storeProfile['address'] ?? '',
                 'phone' => $storeProfile['phone'] ?? '',
             ],
+            'layout' => $layout,
             'transaction' => $transaction ? [
                 'invoice' => $transaction->invoice,
                 'date' => $transaction->created_at ? \Carbon\Carbon::parse($transaction->created_at)->format('d/m/Y H:i') : null,
