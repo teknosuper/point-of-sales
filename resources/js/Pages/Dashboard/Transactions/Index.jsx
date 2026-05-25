@@ -4257,7 +4257,7 @@ export default function Index({
                         {promoDiscount > 0 && (
                             <div className="flex justify-between items-center mb-2 text-sm">
                                 <span className="text-slate-500">
-                                    Promo Otomatis
+                                    Promo Spesial
                                 </span>
                                 <span className="text-emerald-600">
                                     -{formatPrice(promoDiscount)}
@@ -4267,7 +4267,7 @@ export default function Index({
                         {(pricingPreview?.applied_groups || []).length > 0 && (
                             <div className="mb-3 rounded-xl border border-slate-200 bg-white/70 p-2 dark:border-slate-700 dark:bg-slate-900/60">
                                 <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                                    Grup Promo Aktif
+                                    Promo yang sedang bekerja
                                 </div>
                                 <div className="space-y-1.5">
                                     {(pricingPreview?.applied_groups || []).map(
@@ -4363,15 +4363,15 @@ export default function Index({
                                     <IconReceipt size={18} />
                                     <span>
                                         {!localCarts.length
-                                            ? "Keranjang Kosong"
+                                            ? "Pilih menu dulu"
                                             : paymentMethod === "cash" &&
                                               cash < payable
-                                            ? `Kurang ${formatPrice(
+                                            ? `Tambah ${formatPrice(
                                                   payable - cash
-                                              )}`
+                                              )} lagi`
                                             : isLoadingPricing
-                                            ? "Menghitung Promo..."
-                                            : "Selesaikan Transaksi"}
+                                            ? "Menyiapkan total terbaik..."
+                                            : "Lanjutkan pembayaran"}
                                     </span>
                                 </>
                             )}
@@ -5415,9 +5415,9 @@ export default function Index({
                             <h3 className="mt-1 text-lg font-bold text-slate-900 dark:text-white">
                                 Atur Nominal Bayar
                             </h3>
-                            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                                Pilih nominal cepat atau isi jumlah bayar kasir.
-                            </p>
+                                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                    Pilih nominal cepat atau isi jumlah pembayaran pelanggan.
+                                </p>
                         </div>
 
                         <div className="space-y-4 px-5 py-4">
@@ -5811,10 +5811,10 @@ export default function Index({
                                 </p>
                                 <h3 className="mt-1 flex items-center gap-2 text-lg font-bold text-slate-900 dark:text-white">
                                     <IconHistory size={20} />
-                                    Riwayat transaksi terbaru
+                                    Perjalanan transaksi pelanggan
                                 </h3>
                                 <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                                    Lihat detail, cek status pembayaran, dan cetak struk tanpa keluar dari halaman transaksi.
+                                    Pantau detail belanja, status pembayaran, dan cetak struk tanpa pindah halaman.
                                 </p>
                             </div>
                             <button

@@ -8,6 +8,7 @@ use App\Models\PrintJob;
 use App\Services\PrintJobService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 
 /**
  * Simplified print queue endpoints for ESC/POS Web Direct integration.
@@ -186,6 +187,17 @@ class PrintQueueController extends Controller
         $transaction = $job->transaction;
         $outlet = \App\Models\Outlet::find($job->outlet_id);
         $storeProfile = $outlet?->profilePayload() ?? [];
+        $paymentMethod = strtolower((string) ($transaction?->payment_method ?? 'cash'));
+        $promoDiscount = (int) ($transaction?->details?->sum('discount_total') ?? 0);
+        $manualDiscount = (int) ($transaction->discount ?? 0);
+        $voucherDiscount = (int) ($transaction->customer_voucher_discount ?? 0);
+        $loyaltyDiscount = (int) ($transaction->loyalty_discount_total ?? 0);
+        $shippingCost = (int) ($transaction->shipping_cost ?? 0);
+        $grandTotal = (int) ($transaction->grand_total ?? 0);
+        $subtotal = $grandTotal + $manualDiscount - $shippingCost + $promoDiscount + $voucherDiscount + $loyaltyDiscount;
+        $paidAmount = $paymentMethod === 'cash'
+            ? (int) ($transaction->cash ?? 0)
+            : max((int) ($transaction->cash ?? 0), $grandTotal);
 
         return [
             'id' => $job->id,
@@ -204,25 +216,135 @@ class PrintQueueController extends Controller
                 'customer' => $transaction->customer?->name ?? 'Pelanggan Umum',
                 'order_type' => $transaction->order_type,
                 'payment_method' => $transaction->payment_method,
+                'payment_method_label' => $this->paymentMethodLabel($transaction),
+                'payment_status' => $transaction->payment_status,
+                'payment_reference' => $transaction->payment_reference,
+                'payment_summary' => $this->paymentSummary($transaction),
                 'table' => $transaction->diningTable?->name ?? $transaction->diningTable?->code ?? null,
-                'subtotal' => (int) ($transaction->grand_total + ($transaction->discount ?? 0)),
-                'discount' => (int) ($transaction->discount ?? 0),
-                'grand_total' => (int) $transaction->grand_total,
-                'items' => $transaction->details->map(fn ($detail) => [
-                    'name' => $detail->product?->title ?? 'Item',
-                    'qty' => (int) $detail->qty,
-                    'price' => (int) $detail->unit_price,
-                    'total' => (int) $detail->price,
-                    'discount' => (int) ($detail->discount_total ?? 0),
-                    'notes' => $detail->notes,
-                    'modifiers' => $detail->modifiers->map(fn ($mod) => [
-                        'name' => $mod->name,
-                        'price' => (int) $mod->unit_price,
-                    ])->values()->all(),
-                ])->values()->all(),
+                'subtotal' => $subtotal,
+                'promo_discount_total' => $promoDiscount,
+                'discount' => $manualDiscount,
+                'voucher_discount_total' => $voucherDiscount,
+                'loyalty_discount_total' => $loyaltyDiscount,
+                'shipping_cost' => $shippingCost,
+                'grand_total' => $grandTotal,
+                'cash' => (int) ($transaction->cash ?? 0),
+                'change' => (int) ($transaction->change ?? 0),
+                'paid_amount' => $paidAmount,
+                'bank_account' => $transaction->bankAccount ? [
+                    'bank_name' => $transaction->bankAccount->bank_name,
+                    'account_number' => $transaction->bankAccount->account_number,
+                    'account_name' => $transaction->bankAccount->account_name,
+                ] : null,
+                'items' => $transaction->details->map(function ($detail) {
+                    $qty = max(1, (int) $detail->qty);
+                    $lineTotal = (int) ($detail->price ?? 0);
+                    $modifierTotal = (int) $detail->modifiers->sum('total_price');
+                    $baseLineTotal = max(0, $lineTotal - $modifierTotal);
+                    $unitPrice = (int) ($detail->unit_price ?: ($qty ? $baseLineTotal / $qty : $baseLineTotal));
+                    $baseUnitPrice = (int) ($detail->base_unit_price ?: $unitPrice);
+
+                    return [
+                        'name' => $detail->product?->title ?? 'Item',
+                        'qty' => $qty,
+                        'price' => $unitPrice,
+                        'base_unit_price' => $baseUnitPrice,
+                        'base_total' => $baseUnitPrice * $qty,
+                        'total' => $lineTotal,
+                        'line_total' => $baseLineTotal,
+                        'modifier_total' => $modifierTotal,
+                        'discount' => (int) ($detail->discount_total ?? 0),
+                        'promo_label' => $detail->pricing_group_label ?: $detail->pricing_rule_name,
+                        'promo_kind' => $detail->pricing_rule_kind,
+                        'promo_kind_label' => $this->promoKindLabel($detail->pricing_rule_kind),
+                        'promo_summary' => $this->promoSummary($detail),
+                        'notes' => $detail->notes,
+                        'modifiers' => $detail->modifiers->map(fn ($mod) => [
+                            'name' => $mod->name,
+                            'qty' => (int) ($mod->qty ?? 1),
+                            'price' => (int) ($mod->unit_price ?? 0),
+                            'total' => (int) ($mod->total_price ?? (($mod->unit_price ?? 0) * ($mod->qty ?? 1))),
+                        ])->values()->all(),
+                    ];
+                })->values()->all(),
             ] : null,
             'queued_at' => $job->queued_at?->toIso8601String(),
         ];
+    }
+
+    private function paymentMethodLabel($transaction): string
+    {
+        $method = strtolower((string) ($transaction?->payment_method ?? 'cash'));
+
+        return match ($method) {
+            'cash' => 'Tunai',
+            'bank_transfer' => 'Transfer Bank',
+            'midtrans' => 'Midtrans',
+            'xendit' => 'Xendit',
+            'pay_later' => 'Piutang',
+            default => Str::headline(str_replace('_', ' ', $method)),
+        };
+    }
+
+    private function paymentSummary($transaction): ?string
+    {
+        if (! $transaction) {
+            return null;
+        }
+
+        $method = strtolower((string) ($transaction->payment_method ?? 'cash'));
+
+        return match ($method) {
+            'bank_transfer' => trim(implode(' • ', array_filter([
+                $transaction->bankAccount?->bank_name,
+                $transaction->bankAccount?->account_number,
+            ]))),
+            'midtrans', 'xendit' => $transaction->payment_reference ?: null,
+            'pay_later' => 'Pembayaran dicatat sebagai piutang',
+            default => null,
+        };
+    }
+
+    private function promoKindLabel(?string $kind): ?string
+    {
+        return match ($kind) {
+            'standard_discount' => 'Promo Harga Spesial',
+            'qty_break' => 'Promo Belanja Lebih Untung',
+            'bundle_price' => 'Promo Paket Hemat',
+            'buy_x_get_y' => 'Promo Bonus Item',
+            default => null,
+        };
+    }
+
+    private function promoSummary($detail): ?string
+    {
+        $discount = (int) ($detail->discount_total ?? 0);
+        if ($discount <= 0) {
+            return null;
+        }
+
+        $baseUnitPrice = (int) ($detail->base_unit_price ?? 0);
+        $unitPrice = (int) ($detail->unit_price ?? 0);
+        $label = $detail->pricing_group_label ?: $detail->pricing_rule_name ?: 'Promo';
+        $kindLabel = $this->promoKindLabel($detail->pricing_rule_kind);
+        $qty = max(1, (int) ($detail->qty ?? 1));
+        $headline = match ($detail->pricing_rule_kind) {
+            'qty_break' => sprintf('Beli %d+ lebih hemat', $qty),
+            'bundle_price' => 'Ambil paket, harga lebih hemat',
+            'buy_x_get_y' => 'Beli item pilihan, bonus langsung aktif',
+            default => null,
+        };
+        $priceSnippet = null;
+
+        if ($baseUnitPrice > 0 && $unitPrice > 0 && $baseUnitPrice > $unitPrice) {
+            $priceSnippet = sprintf(
+                'dari Rp%s jadi Rp%s',
+                number_format($baseUnitPrice, 0, ',', '.'),
+                number_format($unitPrice, 0, ',', '.')
+            );
+        }
+
+        return trim(implode(' • ', array_filter([$kindLabel, $headline, $label, $priceSnippet])));
     }
 
     private function kitchenPayload(PrintJob $job): array

@@ -121,10 +121,10 @@ function EmptyCart() {
                 />
             </div>
             <h3 className="text-base font-medium text-slate-600 dark:text-slate-400">
-                Keranjang Kosong
+                Belum ada menu dipilih
             </h3>
             <p className="text-sm text-slate-400 dark:text-slate-500 mt-1">
-                Klik produk untuk menambahkan
+                Pilih menu favorit untuk mulai pesanan
             </p>
         </div>
     );

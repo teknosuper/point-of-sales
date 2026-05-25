@@ -9,10 +9,10 @@ const formatPrice = (value = 0) =>
     });
 
 const statusLabel = {
-    pending_cashier_payment: "Menunggu Pembayaran di Kasir",
-    paid: "Sudah Dibayar",
-    rejected: "Ditolak Kasir",
-    cancelled: "Dibatalkan",
+    pending_cashier_payment: "Siap dibayar di kasir",
+    paid: "Pembayaran selesai",
+    rejected: "Belum bisa diproses kasir",
+    cancelled: "Pesanan dibatalkan",
 };
 
 const kitchenStatusLabel = {
@@ -30,12 +30,12 @@ const kitchenStatusTone = {
 };
 
 const pricingKindLabel = {
-    discount_percentage: "Diskon Persen",
-    discount_nominal: "Diskon Nominal",
+    discount_percentage: "Diskon Spesial",
+    discount_nominal: "Potongan Spesial",
     fixed_price: "Harga Promo",
-    buy_x_get_y: "Buy One Get One",
-    qty_break: "Promo Qty",
-    bundle_price: "Harga Bundle",
+    buy_x_get_y: "Beli Bonus",
+    qty_break: "Makin Banyak Lebih Untung",
+    bundle_price: "Paket Hemat",
 };
 
 export default function Status({ order }) {
@@ -63,7 +63,7 @@ export default function Status({ order }) {
                 <div className="flex h-full flex-col overflow-hidden">
                     <div className="flex items-center justify-between border-b border-slate-200 px-4 py-4">
                         <div>
-                            <p className="text-sm font-bold text-slate-900">Status Order</p>
+                            <p className="text-sm font-bold text-slate-900">Perjalanan Pesanan</p>
                             <p className="text-xs text-slate-500">Meja {order.table?.code || order.table?.name}</p>
                         </div>
                         <button
@@ -81,7 +81,7 @@ export default function Status({ order }) {
                             <p className="mt-1 text-sm font-semibold text-slate-900">
                                 Meja {order.table?.code || order.table?.name}
                             </p>
-                            <p className="text-xs text-slate-500">Bayar di kasir</p>
+                            <p className="text-xs text-slate-500">Pembayaran diselesaikan di kasir</p>
                         </div>
 
                         <div className="mb-4 rounded-2xl border border-slate-200 bg-slate-50 p-3">
@@ -160,7 +160,7 @@ export default function Status({ order }) {
                                 href={newOrderHref}
                                 className="inline-flex w-full items-center justify-center rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
                             >
-                                Buat Order Baru
+                                Pesan Lagi
                             </Link>
                         ) : null}
                     </div>
@@ -180,7 +180,7 @@ export default function Status({ order }) {
                 <div className="mx-auto max-w-2xl space-y-6">
                     <div className="overflow-hidden rounded-[30px] border border-slate-200/80 bg-[linear-gradient(135deg,_rgba(15,23,42,0.97)_0%,_rgba(30,41,59,0.95)_52%,_rgba(8,47,73,0.94)_100%)] p-6 text-white shadow-[0_30px_90px_-42px_rgba(15,23,42,0.78)]">
                         <p className="text-sm uppercase tracking-[0.2em] text-sky-200">
-                            Status Order
+                            Perjalanan Pesanan
                         </p>
                         <h1 className="mt-2 text-3xl font-bold tracking-[-0.03em]">{order.order_number}</h1>
                         <p className="mt-3 text-sm text-slate-300">
@@ -192,7 +192,7 @@ export default function Status({ order }) {
                     </div>
 
                     <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-[0_18px_60px_-34px_rgba(15,23,42,0.3)]">
-                        <h2 className="text-lg font-semibold">Detail Order</h2>
+                        <h2 className="text-lg font-semibold">Ringkasan Pesanan</h2>
                         <div className="mt-4 grid gap-3 sm:grid-cols-2">
                             <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
                                 <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Atas Nama</p>
@@ -234,7 +234,7 @@ export default function Status({ order }) {
                     </div>
 
                     <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-[0_18px_60px_-34px_rgba(15,23,42,0.3)]">
-                        <h2 className="text-lg font-semibold">Rincian Pesanan</h2>
+                        <h2 className="text-lg font-semibold">Menu Pilihanmu</h2>
                         <div className="mt-4 space-y-3">
                             {order.items.map((item) => (
                                 <div
@@ -297,7 +297,7 @@ export default function Status({ order }) {
                                             </p>
                                             {item.discount_total > 0 ? (
                                                 <p className="mt-1 text-[11px] text-rose-600">
-                                                    Promo aktif
+                                                    Promo sedang berlaku
                                                 </p>
                                             ) : null}
                                         </div>
@@ -308,13 +308,13 @@ export default function Status({ order }) {
 
                         <div className="mt-6 space-y-3 border-t border-slate-200 pt-4">
                             <div className="flex items-center justify-between text-sm">
-                                <span className="text-slate-500">Subtotal sebelum promo</span>
+                                <span className="text-slate-500">Total sebelum promo</span>
                                 <span className="font-semibold text-slate-700">
                                     {formatPrice(order.base_subtotal || order.grand_total)}
                                 </span>
                             </div>
                             <div className="flex items-center justify-between text-sm">
-                                <span className="text-slate-500">Total diskon promo</span>
+                                <span className="text-slate-500">Hemat dari promo</span>
                                 <span className="font-semibold text-rose-600">
                                     {formatPrice(order.discount_total || 0)}
                                 </span>
@@ -329,7 +329,7 @@ export default function Status({ order }) {
                     </div>
 
                     <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-[0_18px_60px_-34px_rgba(15,23,42,0.3)]">
-                        <h2 className="text-lg font-semibold">Status Dapur</h2>
+                        <h2 className="text-lg font-semibold">Progress Dapur</h2>
                         {order.transaction?.kitchen_tickets?.length ? (
                             <div className="mt-4 space-y-4">
                                 {order.transaction.kitchen_tickets.map((ticket) => (

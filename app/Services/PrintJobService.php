@@ -199,13 +199,14 @@ class PrintJobService
 
         return PrintJob::query()
             ->with([
-                'transaction:id,invoice,outlet_id,cashier_id,customer_id,table_id,order_type,payment_method,discount,grand_total,created_at',
-                'transaction.details:id,transaction_id,product_id,qty,price,unit_price,discount_total,notes',
+                'transaction:id,invoice,outlet_id,cashier_id,customer_id,table_id,order_type,payment_method,payment_status,payment_reference,cash,change,discount,loyalty_discount_total,customer_voucher_discount,shipping_cost,grand_total,bank_account_id,created_at',
+                'transaction.details:id,transaction_id,product_id,qty,base_unit_price,price,unit_price,discount_total,pricing_rule_name,pricing_rule_kind,pricing_group_label,notes',
                 'transaction.details.product:id,title',
-                'transaction.details.modifiers:id,transaction_detail_id,name,unit_price',
+                'transaction.details.modifiers:id,transaction_detail_id,name,qty,unit_price,total_price',
                 'transaction.cashier:id,name',
                 'transaction.customer:id,name,no_telp',
                 'transaction.diningTable:id,name,code',
+                'transaction.bankAccount:id,bank_name,account_number,account_name',
             ])
             ->whereIn('id', $jobIds->all())
             ->get()

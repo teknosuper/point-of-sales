@@ -105,7 +105,17 @@ class DocumentController extends Controller
     {
         $this->ensureFontDirectory();
 
-        $transaction = Transaction::with(['details.product', 'details.modifiers', 'cashier', 'waiter', 'diningTable', 'customer', 'outlet'])
+        $transaction = Transaction::with([
+            'details.product',
+            'details.modifiers',
+            'details.pricingRule',
+            'cashier',
+            'waiter',
+            'diningTable',
+            'customer',
+            'bankAccount',
+            'outlet',
+        ])
             ->where('invoice', $invoice)
             ->firstOrFail();
         $this->ensureUserCanAccessOutlet($request, $transaction->outlet_id);

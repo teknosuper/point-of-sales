@@ -151,11 +151,11 @@ export default function PaymentPanel({
 
     // Submit label
     const submitLabel = useMemo(() => {
-        if (!hasItems) return "Keranjang Kosong";
-        if (!selectedCustomer) return "Pilih Pelanggan";
+        if (!hasItems) return "Pilih menu dulu";
+        if (!selectedCustomer) return "Pilih pelanggan dulu";
         if (isCashPayment && remaining > 0)
-            return `Kurang ${formatPrice(remaining)}`;
-        return "Selesaikan Transaksi";
+            return `Tambah ${formatPrice(remaining)} lagi`;
+        return "Lanjutkan pembayaran";
     }, [hasItems, selectedCustomer, isCashPayment, remaining]);
 
     return (
@@ -185,7 +185,7 @@ export default function PaymentPanel({
                     </div>
                     <div className="flex justify-between text-sm">
                         <span className="text-slate-500 dark:text-slate-400">
-                            Promo Otomatis
+                            Promo Spesial
                         </span>
                         <span className="font-medium text-danger-500">
                             - {formatPrice(promoDiscount)}

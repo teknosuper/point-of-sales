@@ -145,7 +145,7 @@ export default function CustomerSelect({
                             onClick={() => setIsPickerOpen(true)}
                             className="rounded-xl border border-primary-200 bg-primary-50 px-3 py-2 text-xs font-semibold text-primary-700 hover:border-primary-300 hover:bg-primary-100 dark:border-primary-900/60 dark:bg-primary-950/30 dark:text-primary-300"
                         >
-                            Pilih Pelanggan
+                            Ganti Pelanggan
                         </button>
                     </div>
 
@@ -191,10 +191,10 @@ export default function CustomerSelect({
                                     Pelanggan
                                 </p>
                                 <h3 className="mt-1 text-lg font-bold text-slate-900 dark:text-white">
-                                    Pilih Pelanggan
+                                    Pilih pelanggan terbaik
                                 </h3>
                                 <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                                    Default transaksi memakai pelanggan umum. Pilih pelanggan lain bila diperlukan.
+                                    Transaksi otomatis memakai pelanggan umum. Ganti jika ingin pakai profil pelanggan atau member.
                                 </p>
                             </div>
                             <button

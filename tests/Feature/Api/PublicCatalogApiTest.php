@@ -9,6 +9,7 @@ use App\Models\Product;
 use App\Models\ProductOutletStock;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -168,6 +169,76 @@ class PublicCatalogApiTest extends TestCase
         $this->assertNotEmpty(data_get($response->json(), 'data.0.highlight_products'));
         $this->assertNotEmpty(data_get($response->json(), 'data.1.bundle_items'));
         $this->assertNotEmpty(data_get($response->json(), 'data.2.qty_breaks'));
+
+        Carbon::setTestNow();
+    }
+
+    public function test_public_catalog_cache_is_invalidated_immediately_after_pricing_rule_and_product_price_changes(): void
+    {
+        Cache::flush();
+        Carbon::setTestNow('2026-05-24 11:00:00');
+
+        $outlet = $this->createOutlet('CACHE-API', 'Outlet Cache API', true);
+        $category = $this->createCategory('Kopi');
+        $product = $this->createProduct($category, 'Cappuccino', 30000);
+
+        ProductOutletStock::create([
+            'outlet_id' => $outlet->id,
+            'product_id' => $product->id,
+            'stock' => 10,
+        ]);
+
+        $rule = PricingRule::create([
+            'name' => 'Promo Siang',
+            'kind' => PricingRule::KIND_STANDARD_DISCOUNT,
+            'is_active' => true,
+            'priority' => 200,
+            'target_type' => PricingRule::TARGET_PRODUCT,
+            'product_id' => $product->id,
+            'outlet_id' => $outlet->id,
+            'customer_scope' => PricingRule::SCOPE_ALL,
+            'discount_type' => PricingRule::TYPE_FIXED_PRICE,
+            'discount_value' => 25000,
+            'starts_at' => now()->subHour(),
+            'ends_at' => now()->addHour(),
+        ]);
+
+        $firstResponse = $this->getJson(route('public.catalog.promos', [
+            'outlet_id' => $outlet->id,
+        ]));
+
+        $firstResponse
+            ->assertOk()
+            ->assertJsonPath('data.0.pricing.original_price', 30000)
+            ->assertJsonPath('data.0.pricing.promo_price', 25000);
+
+        $rule->update([
+            'discount_value' => 22000,
+        ]);
+
+        $product->update([
+            'sell_price' => 32000,
+        ]);
+
+        $secondResponse = $this->getJson(route('public.catalog.promos', [
+            'outlet_id' => $outlet->id,
+        ]));
+
+        $secondResponse
+            ->assertOk()
+            ->assertJsonPath('data.0.pricing.original_price', 32000)
+            ->assertJsonPath('data.0.pricing.promo_price', 22000)
+            ->assertJsonPath('data.0.pricing.savings_amount', 10000);
+
+        $productsResponse = $this->getJson(route('public.catalog.products', [
+            'outlet_id' => $outlet->id,
+        ]));
+
+        $productsResponse
+            ->assertOk()
+            ->assertJsonPath('data.0.sell_price', 32000)
+            ->assertJsonPath('data.0.pricing_badge.promo_price', 22000)
+            ->assertJsonPath('data.0.pricing_badge.base_price', 32000);
 
         Carbon::setTestNow();
     }

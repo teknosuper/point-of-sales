@@ -73,25 +73,25 @@ const isValidPhoneNumber = (value = "") =>
 
 const recommendationTone = {
     promo: {
-        eyebrow: "Promo Pilihan",
-        title: "Lagi turun harga",
-        description: "Harga coret langsung terlihat agar lebih cepat memilih.",
+        eyebrow: "Promo Favorit Hari Ini",
+        title: "Menu spesial, harga lebih seru",
+        description: "Pilihan promo terbaik yang paling sayang untuk dilewatkan.",
         accent: "text-rose-600",
         chip: "bg-rose-50 text-rose-700 border-rose-200",
         button: "bg-rose-500 text-white shadow-lg shadow-rose-500/25",
     },
     best_sellers: {
-        eyebrow: "Best Seller",
-        title: "Paling sering dipesan",
-        description: "Menu dengan ritme order paling kuat di outlet ini.",
+        eyebrow: "Favorit Banyak Orang",
+        title: "Menu andalan yang paling dicari",
+        description: "Rekomendasi aman kalau ingin pilih yang paling laris.",
         accent: "text-amber-600",
         chip: "bg-amber-50 text-amber-700 border-amber-200",
         button: "bg-amber-500 text-white shadow-lg shadow-amber-500/25",
     },
     history: {
-        eyebrow: "Pernah Anda Pesan",
-        title: "Cepat pesan lagi",
-        description: "Diambil dari riwayat order Anda di outlet ini.",
+        eyebrow: "Favoritmu Sebelumnya",
+        title: "Pesan lagi tanpa mikir lama",
+        description: "Menu yang pernah kamu pilih, siap dipesan lagi lebih cepat.",
         accent: "text-emerald-600",
         chip: "bg-emerald-50 text-emerald-700 border-emerald-200",
         button: "bg-emerald-500 text-white shadow-lg shadow-emerald-500/25",
@@ -238,7 +238,7 @@ function RecommendationStrip({
                                         {tone.eyebrow}
                                     </span>
                                     <span className="pointer-events-none absolute inset-x-4 top-1/2 hidden -translate-y-1/2 rounded-2xl bg-[linear-gradient(135deg,_#0f172a_0%,_#ef4444_100%)] px-4 py-3 text-center text-sm font-bold tracking-[0.01em] text-white shadow-2xl shadow-slate-900/25 sm:block sm:scale-95 sm:opacity-0 sm:transition sm:duration-200 sm:group-hover:scale-100 sm:group-hover:opacity-100">
-                                        Tambah ke Keranjang
+                                        Tambah ke Pesanan
                                     </span>
                                 </div>
                                 <div className="mt-3">
@@ -1091,7 +1091,7 @@ export default function Menu({
                                         Meja {table.code || table.name}
                                     </span>
                                     <span className="rounded-full border border-emerald-400/20 bg-emerald-400/12 px-3 py-1.5 text-xs font-semibold text-emerald-100">
-                                        Bayar di kasir
+                                        Bayar nanti di kasir
                                     </span>
                                 </div>
                             </div>
@@ -1154,7 +1154,7 @@ export default function Menu({
                                 {[
                                     ["Akses dikunci", "Nomor HP wajib sebelum katalog dan keranjang aktif."],
                                     ["Promo tetap aman", "Promo customer dan histori hanya terbaca setelah identitas terhubung."],
-                                    ["Bayar di kasir", "Order tetap diproses normal setelah login dengan nomor HP."],
+                                    ["Bayar nanti di kasir", "Order tetap diproses normal setelah login dengan nomor HP."],
                                 ].map(([title, helper]) => (
                                     <div
                                         key={title}
@@ -1333,7 +1333,7 @@ export default function Menu({
                                                                         </div>
                                                                     </div>
                                                                     <span className="pointer-events-none absolute inset-x-4 top-1/2 hidden -translate-y-1/2 rounded-2xl bg-[linear-gradient(135deg,_#7f1d1d_0%,_#f43f5e_100%)] px-4 py-3 text-center text-sm font-bold tracking-[0.01em] text-white shadow-2xl shadow-rose-500/25 sm:block sm:scale-95 sm:opacity-0 sm:transition sm:duration-200 sm:group-hover:scale-100 sm:group-hover:opacity-100">
-                                                                        Tambah ke Keranjang
+                                                                        Tambah ke Pesanan
                                                                     </span>
                                                                 </button>
                                                             );
@@ -1509,7 +1509,7 @@ export default function Menu({
                                                                     </div>
                                                                 </div>
                                                                 <span className="pointer-events-none absolute inset-x-4 top-1/2 hidden -translate-y-1/2 rounded-2xl bg-[linear-gradient(135deg,_#0f172a_0%,_#0f766e_100%)] px-4 py-3 text-center text-sm font-bold tracking-[0.01em] text-white shadow-2xl shadow-slate-900/25 sm:block sm:scale-95 sm:opacity-0 sm:transition sm:duration-200 sm:group-hover:scale-100 sm:group-hover:opacity-100">
-                                                                    Tambah ke Keranjang
+                                                                    Tambah ke Pesanan
                                                                 </span>
                                                             </button>
                                                         );
@@ -1717,7 +1717,7 @@ export default function Menu({
                                                                                                 }
                                                                                                 className="inline-flex h-10 w-full shrink-0 items-center justify-center rounded-xl bg-[linear-gradient(135deg,_#0f172a_0%,_#0f3b68_100%)] px-4 text-xs font-semibold text-white shadow-lg shadow-slate-900/15 disabled:opacity-50 sm:h-11 sm:rounded-2xl sm:px-5 sm:text-sm"
                                                                                             >
-                                                                                                Tambah ke Keranjang
+                                                                                                Tambah ke Pesanan
                                                                                             </button>
                                                                                         ) : (
                                                                                             <div className="w-full shrink-0">

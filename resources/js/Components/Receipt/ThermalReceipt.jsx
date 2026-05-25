@@ -1,15 +1,283 @@
 import React from "react";
 
-/**
- * ThermalReceipt - Receipt template optimized for thermal printers (58mm/80mm)
- *
- * Features:
- * - Monospace font for alignment
- * - Fixed width for thermal paper
- * - No colors (thermal printers are B&W)
- * - Simple lines using dashes
- * - Compact layout
- */
+const PAYMENT_LABELS = {
+    cash: "TUNAI",
+    bank_transfer: "TRANSFER BANK",
+    midtrans: "MIDTRANS",
+    xendit: "XENDIT",
+    pay_later: "PIUTANG",
+};
+
+const PROMO_KIND_LABELS = {
+    standard_discount: "Harga Spesial",
+    qty_break: "Belanja Lebih Untung",
+    bundle_price: "Paket Hemat",
+    buy_x_get_y: "Bonus Item",
+};
+
+const formatPrice = (price = 0, compact = false) =>
+    `${compact ? "Rp" : "Rp "}${Number(price || 0).toLocaleString("id-ID")}`;
+
+const formatDateTime = (value, compact = false) =>
+    new Date(value).toLocaleString("id-ID", {
+        day: "2-digit",
+        month: compact ? "2-digit" : "short",
+        year: compact ? undefined : "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+    });
+
+const paymentSummary = (transaction) => {
+    const method = String(transaction?.payment_method || "cash").toLowerCase();
+    const bankAccount = transaction?.bank_account || transaction?.bankAccount;
+
+    if (method === "bank_transfer") {
+        return [bankAccount?.bank_name, bankAccount?.account_number]
+            .filter(Boolean)
+            .join(" • ");
+    }
+
+    if (method === "midtrans" || method === "xendit") {
+        return transaction?.payment_reference || null;
+    }
+
+    if (method === "pay_later") {
+        return "Pembayaran dicatat sebagai piutang";
+    }
+
+    return null;
+};
+
+const paymentMethodLabel = (transaction) =>
+    PAYMENT_LABELS[String(transaction?.payment_method || "cash").toLowerCase()] ||
+    String(transaction?.payment_method || "TUNAI")
+        .replaceAll("_", " ")
+        .toUpperCase();
+
+const paidAmount = (transaction) => {
+    const method = String(transaction?.payment_method || "cash").toLowerCase();
+    const cash = Number(transaction?.cash || 0);
+    const grandTotal = Number(transaction?.grand_total || 0);
+
+    return method === "cash" ? cash : Math.max(cash, grandTotal);
+};
+
+const promoMeta = (item) => {
+    if (Number(item?.discount_total || 0) <= 0) {
+        return null;
+    }
+
+    const kindLabel = PROMO_KIND_LABELS[item?.pricing_rule_kind] || null;
+    const title = item?.pricing_group_label || item?.pricing_rule_name || null;
+    const qty = Math.max(1, Number(item?.qty || 1));
+    const headline =
+        item?.pricing_rule_kind === "qty_break"
+            ? `Beli ${qty}+ lebih hemat`
+            : item?.pricing_rule_kind === "bundle_price"
+              ? "Ambil paket, harga lebih hemat"
+              : item?.pricing_rule_kind === "buy_x_get_y"
+                ? "Beli item pilihan, bonus langsung aktif"
+                : null;
+    const baseUnitPrice = Number(item?.base_unit_price || 0);
+    const unitPrice = Number(item?.unit_price || 0);
+    const parts = [kindLabel, headline, title].filter(Boolean);
+
+    if (baseUnitPrice > unitPrice && unitPrice > 0) {
+        parts.push(
+            `${formatPrice(baseUnitPrice)} -> ${formatPrice(unitPrice)}`
+        );
+    }
+
+    return parts.join(" • ") || "Promo Spesial";
+};
+
+const normalizeLineItem = (item) => {
+    const qty = Math.max(1, Number(item?.qty || 1));
+    const itemTotal = Number(item?.price || 0);
+    const modifierTotal = Number(
+        item?.modifiers?.reduce(
+            (sum, modifier) => sum + Number(modifier.total_price || 0),
+            0
+        ) || 0
+    );
+    const baseItemTotal = Math.max(0, itemTotal - modifierTotal);
+    const unitPrice = Number(item?.unit_price || 0) || baseItemTotal / qty;
+
+    return {
+        qty,
+        unitPrice,
+        baseItemTotal,
+    };
+};
+
+const Row = ({ label, value, small = false, strong = false }) => (
+    <div
+        className={`grid grid-cols-[1fr_auto] gap-3 ${
+            small ? "text-[10px]" : ""
+        } ${strong ? "font-bold" : ""}`}
+    >
+        <span className="min-w-0 break-words">{label}</span>
+        <span className="text-right whitespace-nowrap">{value}</span>
+    </div>
+);
+
+const ReceiptItems = ({ items, compact = false }) => (
+    <div className="my-1">
+        {items.map((item, index) => {
+            const { qty, unitPrice, baseItemTotal } = normalizeLineItem(item);
+            const promoText = promoMeta(item);
+
+            return (
+                <div key={item.id || index} className="mb-1">
+                    <p className={`font-medium ${compact ? "truncate" : "break-words"}`}>
+                        {item.product?.title}
+                    </p>
+                    {promoText ? (
+                        <p className="text-[10px] text-slate-500">{promoText}</p>
+                    ) : null}
+                    <Row
+                        label={`${qty}x @ ${formatPrice(unitPrice, compact)}`}
+                        value={formatPrice(baseItemTotal, compact)}
+                        small={compact}
+                    />
+                    {item.modifiers?.map((modifier) => (
+                        <Row
+                            key={modifier.id}
+                            label={`+ ${modifier.name}`}
+                            value={formatPrice(modifier.total_price, compact)}
+                            small
+                        />
+                    ))}
+                    {item.notes ? (
+                        <p className="text-[10px] break-words text-slate-500">
+                            * {item.notes}
+                        </p>
+                    ) : null}
+                </div>
+            );
+        })}
+    </div>
+);
+
+const ReceiptTotals = ({ transaction, compact = false }) => {
+    const items = transaction?.details ?? [];
+    const promoDiscount = items.reduce(
+        (sum, item) => sum + Number(item.discount_total || 0),
+        0
+    );
+    const loyaltyDiscount = Number(transaction?.loyalty_discount_total || 0);
+    const voucherDiscount = Number(transaction?.customer_voucher_discount || 0);
+    const manualDiscount = Number(transaction?.discount || 0);
+    const shippingCost = Number(transaction?.shipping_cost || 0);
+    const grandTotal = Number(transaction?.grand_total || 0);
+    const subtotal =
+        grandTotal +
+        manualDiscount -
+        shippingCost +
+        promoDiscount +
+        loyaltyDiscount +
+        voucherDiscount;
+
+    return (
+        <>
+            <Row
+                label="Subtotal"
+                value={formatPrice(subtotal, compact)}
+                small={compact}
+            />
+            {promoDiscount > 0 ? (
+                <Row
+                    label="Potongan Promo"
+                    value={`-${formatPrice(promoDiscount, compact)}`}
+                    small={compact}
+                />
+            ) : null}
+            {manualDiscount > 0 ? (
+                <Row
+                    label="Diskon Manual"
+                    value={`-${formatPrice(manualDiscount, compact)}`}
+                    small={compact}
+                />
+            ) : null}
+            {voucherDiscount > 0 ? (
+                <Row
+                    label="Voucher"
+                    value={`-${formatPrice(voucherDiscount, compact)}`}
+                    small={compact}
+                />
+            ) : null}
+            {loyaltyDiscount > 0 ? (
+                <Row
+                    label="Redeem Poin"
+                    value={`-${formatPrice(loyaltyDiscount, compact)}`}
+                    small={compact}
+                />
+            ) : null}
+            {shippingCost > 0 ? (
+                <Row
+                    label="Ongkir"
+                    value={formatPrice(shippingCost, compact)}
+                    small={compact}
+                />
+            ) : null}
+            <Row
+                label="TOTAL"
+                value={formatPrice(grandTotal, compact)}
+                strong
+            />
+        </>
+    );
+};
+
+const ReceiptPayment = ({ transaction, compact = false }) => {
+    const methodKey = String(transaction?.payment_method || "cash").toLowerCase();
+    const summary = paymentSummary(transaction);
+
+    return (
+        <>
+            <Row
+                label="Metode Bayar"
+                value={paymentMethodLabel(transaction)}
+                small={compact}
+            />
+            {summary ? (
+                <p className="text-[10px] break-words text-slate-500">{summary}</p>
+            ) : null}
+            <Row
+                label={methodKey === "cash" ? "Bayar" : "Nominal Bayar"}
+                value={formatPrice(paidAmount(transaction), compact)}
+                small={compact}
+            />
+            {Number(transaction?.change || 0) > 0 ? (
+                <Row
+                    label="Kembali"
+                    value={formatPrice(transaction?.change, compact)}
+                    strong
+                />
+            ) : null}
+        </>
+    );
+};
+
+const SimpleBarcode = ({ value, compact = false }) => {
+    const bars = (value || "").split("").map((char, idx) => {
+        const weight = (char.charCodeAt(0) + idx * 17) % (compact ? 4 : 5);
+        return 2 + weight;
+    });
+
+    return (
+        <div className="flex items-end justify-center gap-[2px] mt-2">
+            {bars.map((width, index) => (
+                <span
+                    key={index}
+                    style={{ width: `${width}px` }}
+                    className={`${compact ? "h-8" : "h-10"} bg-black block`}
+                />
+            ))}
+        </div>
+    );
+};
+
 export default function ThermalReceipt({
     transaction,
     storeName = "TOKO ANDA",
@@ -18,81 +286,15 @@ export default function ThermalReceipt({
     storeEmail = "",
     storeWebsite = "",
 }) {
-    const formatPrice = (price = 0) => {
-        return "Rp " + Number(price || 0).toLocaleString("id-ID");
-    };
-
-    const formatDate = (value) => {
-        return new Date(value).toLocaleString("id-ID", {
-            day: "2-digit",
-            month: "2-digit",
-            year: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
-        });
-    };
-
     const items = transaction?.details ?? [];
-    const promoDiscount = items.reduce(
-        (sum, item) => sum + Number(item.discount_total || 0),
-        0
-    );
-    const loyaltyDiscount = Number(transaction?.loyalty_discount_total || 0);
-    const voucherDiscount = Number(
-        transaction?.customer_voucher_discount || 0
-    );
-
-    // Calculate totals
-    const subtotal =
-        (transaction?.grand_total || 0) +
-        (transaction?.discount || 0) -
-        (transaction?.shipping_cost || 0) +
-        promoDiscount +
-        loyaltyDiscount +
-        voucherDiscount;
-    const discount = transaction?.discount || 0;
-    const total = transaction?.grand_total || 0;
-    const shipping = transaction?.shipping_cost || 0;
-    const cash = transaction?.cash || 0;
-    const change = transaction?.change || 0;
-
-    const paymentLabels = {
-        cash: "TUNAI",
-        midtrans: "MIDTRANS",
-        xendit: "XENDIT",
-    };
-    const paymentMethod =
-        paymentLabels[transaction?.payment_method?.toLowerCase()] || "TUNAI";
-
-    // Line separator
     const line = "=".repeat(32);
     const dashLine = "-".repeat(32);
-
-    const SimpleBarcode = ({ value }) => {
-        const bars = (value || "").split("").map((char, idx) => {
-            const weight = (char.charCodeAt(0) + idx * 17) % 5;
-            return 2 + weight;
-        });
-
-        return (
-            <div className="flex items-end justify-center gap-[2px] mt-2">
-                {bars.map((w, i) => (
-                    <span
-                        key={i}
-                        style={{ width: `${w}px` }}
-                        className="h-10 bg-black block"
-                    />
-                ))}
-            </div>
-        );
-    };
 
     return (
         <div
             className="thermal-receipt font-mono text-xs leading-tight"
             style={{ width: "80mm", padding: "4mm" }}
         >
-            {/* Store Header */}
             <div className="text-center mb-2">
                 <p className="text-sm font-bold">{storeName}</p>
                 {storeAddress && <p className="text-xs">{storeAddress}</p>}
@@ -103,176 +305,60 @@ export default function ThermalReceipt({
 
             <pre className="whitespace-pre-wrap">{line}</pre>
 
-            {/* Invoice Info */}
             <div className="my-1">
-                <div className="flex justify-between">
-                    <span>No:</span>
-                    <span>{transaction?.invoice}</span>
-                </div>
-                <div className="flex justify-between">
-                    <span>Tgl:</span>
-                    <span>{formatDate(transaction?.created_at)}</span>
-                </div>
-                <div className="flex justify-between">
-                    <span>Kasir:</span>
-                    <span>{transaction?.cashier?.name || "-"}</span>
-                </div>
-                <div className="flex justify-between">
-                    <span>Pelanggan:</span>
-                    <span>{transaction?.customer?.name || "Umum"}</span>
-                </div>
-                <div className="flex justify-between">
-                    <span>Pesanan:</span>
-                    <span>
-                        {transaction?.order_type === "dine_in"
+                <Row label="No:" value={transaction?.invoice} />
+                <Row
+                    label="Tgl:"
+                    value={formatDateTime(transaction?.created_at)}
+                />
+                <Row label="Kasir:" value={transaction?.cashier?.name || "-"} />
+                <Row
+                    label="Pelanggan:"
+                    value={transaction?.customer?.name || "Umum"}
+                />
+                <Row
+                    label="Pesanan:"
+                    value={
+                        transaction?.order_type === "dine_in"
                             ? "Makan di Tempat"
-                            : "Bawa Pulang"}
-                    </span>
-                </div>
-                {transaction?.dining_table?.name && (
-                    <div className="flex justify-between">
-                        <span>Meja:</span>
-                        <span>
-                            {transaction.dining_table.code ||
-                                transaction.dining_table.name}
-                        </span>
-                    </div>
-                )}
-                {transaction?.waiter?.name && (
-                    <div className="flex justify-between">
-                        <span>Petugas Antar:</span>
-                        <span>{transaction.waiter.name}</span>
-                    </div>
-                )}
+                            : "Bawa Pulang"
+                    }
+                />
+                {transaction?.dining_table?.name ? (
+                    <Row
+                        label="Meja:"
+                        value={
+                            transaction.dining_table.code ||
+                            transaction.dining_table.name
+                        }
+                    />
+                ) : null}
+                {transaction?.waiter?.name ? (
+                    <Row
+                        label="Petugas Antar:"
+                        value={transaction.waiter.name}
+                    />
+                ) : null}
             </div>
 
             <pre className="whitespace-pre-wrap">{line}</pre>
 
-            {/* Items */}
-            <div className="my-1">
-                {items.map((item, index) => {
-                    const qty = Number(item.qty) || 1;
-                    const itemTotal = Number(item.price) || 0;
-                    const modifierTotal = Number(
-                        item.modifiers?.reduce(
-                            (sum, modifier) =>
-                                sum + Number(modifier.total_price || 0),
-                            0
-                        ) || 0
-                    );
-                    const baseItemTotal = itemTotal - modifierTotal;
-                    const unitPrice =
-                        Number(item.unit_price || 0) || baseItemTotal / qty;
-                    const baseUnitPrice =
-                        Number(item.base_unit_price || 0) || unitPrice;
+            <ReceiptItems items={items} />
 
-                    return (
-                        <div key={item.id || index} className="mb-1">
-                            <p className="font-medium truncate">
-                                {item.product?.title}
-                            </p>
-                            {Number(item.discount_total || 0) > 0 &&
-                                baseUnitPrice > unitPrice && (
-                                    <div className="flex justify-between text-[10px] text-slate-500">
-                                        <span>
-                                            Promo:{" "}
-                                            {item.pricing_group_label ||
-                                                item.pricing_rule_name ||
-                                                "Promo"}
-                                        </span>
-                                        <span>{formatPrice(baseUnitPrice)}</span>
-                                    </div>
-                                )}
-                            <div className="flex justify-between">
-                                <span>
-                                    {qty}x @ {formatPrice(unitPrice)}
-                                </span>
-                                <span>{formatPrice(baseItemTotal)}</span>
-                            </div>
-                            {item.modifiers?.map((modifier) => (
-                                <div
-                                    key={modifier.id}
-                                    className="flex justify-between text-[10px]"
-                                >
-                                    <span>+ {modifier.name}</span>
-                                    <span>
-                                        {formatPrice(modifier.total_price)}
-                                    </span>
-                                </div>
-                            ))}
-                            {item.notes ? (
-                                <p className="text-[10px] break-words">
-                                    * {item.notes}
-                                </p>
-                            ) : null}
-                        </div>
-                    );
-                })}
+            <pre className="whitespace-pre-wrap">{dashLine}</pre>
+
+            <div className="my-1">
+                <ReceiptTotals transaction={transaction} />
             </div>
 
             <pre className="whitespace-pre-wrap">{dashLine}</pre>
 
-            {/* Totals */}
             <div className="my-1">
-                <div className="flex justify-between">
-                    <span>Subtotal</span>
-                    <span>{formatPrice(subtotal)}</span>
-                </div>
-                {promoDiscount > 0 && (
-                    <div className="flex justify-between">
-                        <span>Promo</span>
-                        <span>-{formatPrice(promoDiscount)}</span>
-                    </div>
-                )}
-                {discount > 0 && (
-                    <div className="flex justify-between">
-                        <span>Diskon Manual</span>
-                        <span>-{formatPrice(discount)}</span>
-                    </div>
-                )}
-                {voucherDiscount > 0 && (
-                    <div className="flex justify-between">
-                        <span>Voucher</span>
-                        <span>-{formatPrice(voucherDiscount)}</span>
-                    </div>
-                )}
-                {loyaltyDiscount > 0 && (
-                    <div className="flex justify-between">
-                        <span>Redeem Poin</span>
-                        <span>-{formatPrice(loyaltyDiscount)}</span>
-                    </div>
-                )}
-                {shipping > 0 && (
-                    <div className="flex justify-between">
-                        <span>Ongkir</span>
-                        <span>{formatPrice(shipping)}</span>
-                    </div>
-                )}
-                <div className="flex justify-between font-bold text-sm">
-                    <span>TOTAL</span>
-                    <span>{formatPrice(total)}</span>
-                </div>
-            </div>
-
-            <pre className="whitespace-pre-wrap">{dashLine}</pre>
-
-            {/* Payment Info */}
-            <div className="my-1">
-                <div className="flex justify-between">
-                    <span>Bayar ({paymentMethod})</span>
-                    <span>{formatPrice(cash)}</span>
-                </div>
-                {change > 0 && (
-                    <div className="flex justify-between font-bold">
-                        <span>Kembali</span>
-                        <span>{formatPrice(change)}</span>
-                    </div>
-                )}
+                <ReceiptPayment transaction={transaction} />
             </div>
 
             <pre className="whitespace-pre-wrap">{line}</pre>
 
-            {/* Footer */}
             <div className="text-center mt-2">
                 <p className="text-xs">Terima kasih</p>
                 <p className="text-xs">Barang yang sudah dibeli</p>
@@ -281,7 +367,6 @@ export default function ThermalReceipt({
                 <SimpleBarcode value={transaction?.invoice} />
             </div>
 
-            {/* Print-specific styles */}
             <style>{`
                 @media print {
                     .thermal-receipt {
@@ -300,9 +385,6 @@ export default function ThermalReceipt({
     );
 }
 
-/**
- * Compact Receipt for 58mm printers
- */
 export function ThermalReceipt58mm({
     transaction,
     storeName = "TOKO",
@@ -310,48 +392,8 @@ export function ThermalReceipt58mm({
     storeEmail = "",
     storeWebsite = "",
 }) {
-    const formatPrice = (price = 0) => {
-        return "Rp" + Number(price || 0).toLocaleString("id-ID");
-    };
-
-    const formatTime = (value) => {
-        return new Date(value).toLocaleString("id-ID", {
-            day: "2-digit",
-            month: "2-digit",
-            hour: "2-digit",
-            minute: "2-digit",
-        });
-    };
-
     const items = transaction?.details ?? [];
-    const promoDiscount = items.reduce(
-        (sum, item) => sum + Number(item.discount_total || 0),
-        0
-    );
-    const loyaltyDiscount = Number(transaction?.loyalty_discount_total || 0);
-    const voucherDiscount = Number(
-        transaction?.customer_voucher_discount || 0
-    );
     const line = "-".repeat(24);
-
-    const SimpleBarcode = ({ value }) => {
-        const bars = (value || "").split("").map((char, idx) => {
-            const weight = (char.charCodeAt(0) + idx * 17) % 4;
-            return 2 + weight;
-        });
-
-        return (
-            <div className="flex items-end gap-[2px] mt-2 justify-center">
-                {bars.map((w, i) => (
-                    <span
-                        key={i}
-                        style={{ width: `${w}px` }}
-                        className="h-8 bg-black block"
-                    />
-                ))}
-            </div>
-        );
-    };
 
     return (
         <div
@@ -367,132 +409,29 @@ export function ThermalReceipt58mm({
 
             <pre>{line}</pre>
             <p>#{transaction?.invoice}</p>
-            <p>{formatTime(transaction?.created_at)}</p>
+            <p>{formatDateTime(transaction?.created_at, true)}</p>
             <p>
                 {transaction?.order_type === "dine_in"
                     ? "Makan di Tempat"
                     : "Bawa Pulang"}
             </p>
-            {transaction?.dining_table?.name && (
+            {transaction?.dining_table?.name ? (
                 <p>
                     Meja{" "}
                     {transaction.dining_table.code ||
                         transaction.dining_table.name}
                 </p>
-            )}
+            ) : null}
             <pre>{line}</pre>
 
-            {items.map((item, i) => {
-                const qty = Number(item.qty) || 1;
-                const modifierTotal = Number(
-                    item.modifiers?.reduce(
-                        (sum, modifier) =>
-                            sum + Number(modifier.total_price || 0),
-                        0
-                    ) || 0
-                );
-                const baseItemTotal = Number(item.price || 0) - modifierTotal;
-                const unitPrice =
-                    Number(item.unit_price || 0) ||
-                    baseItemTotal / qty;
-                const baseUnitPrice =
-                    Number(item.base_unit_price || 0) || unitPrice;
-
-                return (
-                    <div key={i} className="mb-1">
-                        <p className="truncate">{item.product?.title}</p>
-                        {Number(item.discount_total || 0) > 0 &&
-                            baseUnitPrice > unitPrice && (
-                                <div className="flex justify-between text-[9px] text-slate-500">
-                                    <span>Promo</span>
-                                    <span>{formatPrice(baseUnitPrice)}</span>
-                                </div>
-                            )}
-                        <div className="flex justify-between">
-                            <span>
-                                {item.qty}x @ {formatPrice(unitPrice)}
-                            </span>
-                            <span>{formatPrice(baseItemTotal)}</span>
-                        </div>
-                        {item.modifiers?.map((modifier) => (
-                            <div
-                                key={modifier.id}
-                                className="flex justify-between text-[9px]"
-                            >
-                                <span>+ {modifier.name}</span>
-                                <span>
-                                    {formatPrice(modifier.total_price)}
-                                </span>
-                            </div>
-                        ))}
-                        {item.notes ? (
-                            <p className="text-[9px] break-words">
-                                * {item.notes}
-                            </p>
-                        ) : null}
-                    </div>
-                );
-            })}
+            <ReceiptItems items={items} compact />
 
             <pre>{line}</pre>
-            <div className="flex justify-between">
-                <span>Subtotal</span>
-                <span>
-                    {formatPrice(
-                        (transaction?.grand_total || 0) +
-                            (transaction?.discount || 0) -
-                            (transaction?.shipping_cost || 0) +
-                            promoDiscount +
-                            loyaltyDiscount +
-                            voucherDiscount
-                    )}
-                </span>
-            </div>
-            {promoDiscount > 0 && (
-                <div className="flex justify-between">
-                    <span>Promo</span>
-                    <span>-{formatPrice(promoDiscount)}</span>
-                </div>
-            )}
-            {Number(transaction?.discount || 0) > 0 && (
-                <div className="flex justify-between">
-                    <span>Disc</span>
-                    <span>-{formatPrice(transaction?.discount)}</span>
-                </div>
-            )}
-            {voucherDiscount > 0 && (
-                <div className="flex justify-between">
-                    <span>Voucher</span>
-                    <span>-{formatPrice(voucherDiscount)}</span>
-                </div>
-            )}
-            {loyaltyDiscount > 0 && (
-                <div className="flex justify-between">
-                    <span>Poin</span>
-                    <span>-{formatPrice(loyaltyDiscount)}</span>
-                </div>
-            )}
-            {Number(transaction?.shipping_cost || 0) > 0 && (
-                <div className="flex justify-between">
-                    <span>Ongkir</span>
-                    <span>{formatPrice(transaction?.shipping_cost)}</span>
-                </div>
-            )}
-            <div className="flex justify-between font-bold">
-                <span>TOTAL</span>
-                <span>{formatPrice(transaction?.grand_total)}</span>
-            </div>
-            <div className="flex justify-between">
-                <span>Bayar</span>
-                <span>{formatPrice(transaction?.cash)}</span>
-            </div>
-            <div className="flex justify-between">
-                <span>Kembali</span>
-                <span>{formatPrice(transaction?.change)}</span>
-            </div>
+            <ReceiptTotals transaction={transaction} compact />
+            <ReceiptPayment transaction={transaction} compact />
             <pre>{line}</pre>
             <p className="text-center">Terima kasih!</p>
-            <SimpleBarcode value={transaction?.invoice} />
+            <SimpleBarcode value={transaction?.invoice} compact />
 
             <style>{`
                 @media print {

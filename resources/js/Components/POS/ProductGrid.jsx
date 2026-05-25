@@ -106,7 +106,7 @@ function ProductCard({ product, onAddToCart, isAdding, viewMode = "list" }) {
                     {hasStock && (
                         <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-primary-500/10 opacity-0 transition-opacity group-hover:opacity-100">
                             <div className="rounded-full bg-primary-500 px-4 py-2 text-sm font-semibold text-white shadow-lg">
-                                + Tambah
+                                Pilih Menu
                             </div>
                         </div>
                     )}
@@ -151,7 +151,7 @@ function ProductCard({ product, onAddToCart, isAdding, viewMode = "list" }) {
                     </h3>
                     <div className="mt-1 space-y-1 text-xs text-slate-500 dark:text-slate-400">
                         <p>
-                            Dapur:{" "}
+                            Disiapkan oleh{" "}
                             <span className="font-medium text-slate-600 dark:text-slate-300">
                                 {product.tenant_outlet?.name || "-"}
                             </span>
@@ -245,7 +245,7 @@ function SearchInput({
                 onKeyDown={(e) => e.key === "Enter" && onSearch?.()}
                 placeholder={
                     placeholder ||
-                    "Cari produk atau scan barcode... (/ untuk fokus)"
+                    "Cari menu favorit atau scan barcode... (/ untuk fokus)"
                 }
                 className="w-full h-12 pl-4 pr-12 rounded-xl border border-slate-200 dark:border-slate-700
                     bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200

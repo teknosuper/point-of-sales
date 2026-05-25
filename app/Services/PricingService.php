@@ -16,14 +16,16 @@ use Illuminate\Support\Collection;
 class PricingService
 {
     public function __construct(
-        private readonly LoyaltyService $loyaltyService
+        private readonly LoyaltyService $loyaltyService,
+        private readonly PricingCacheService $pricingCacheService
     ) {}
 
     public function getActiveRules(?CarbonInterface $at = null, ?int $outletId = null): Collection
     {
         $at = $at ?? now();
         $cacheBucket = (int) floor($at->getTimestamp() / 30);
-        $cacheKey = 'pricing-rules:active:'.$cacheBucket.':'.($outletId ?: 'global');
+        $cacheVersion = $this->pricingCacheService->activeRulesVersion();
+        $cacheKey = 'pricing-rules:active:v'.$cacheVersion.':'.$cacheBucket.':'.($outletId ?: 'global');
 
         return Cache::remember(
             $cacheKey,
