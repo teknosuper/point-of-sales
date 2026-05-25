@@ -147,11 +147,22 @@ class PublicCatalogApiTest extends TestCase
             ->assertJsonPath('data.0.visual.type', 'buy_get')
             ->assertJsonPath('data.0.buy_items.0.image', $productA->image)
             ->assertJsonPath('data.0.get_items.0.image', $productB->image)
+            ->assertJsonPath('data.0.pricing.original_price', 33000)
+            ->assertJsonPath('data.0.pricing.promo_price', 15000)
+            ->assertJsonPath('data.0.pricing.savings_amount', 18000)
             ->assertJsonPath('data.1.kind', PricingRule::KIND_BUNDLE_PRICE)
             ->assertJsonPath('data.1.badge.text', 'Bundle')
             ->assertJsonPath('data.1.visual.type', 'bundle')
             ->assertJsonPath('data.1.bundle_items.0.image', $productA->image)
+            ->assertJsonPath('data.1.pricing.original_price', 33000)
+            ->assertJsonPath('data.1.pricing.promo_price', 25000)
+            ->assertJsonPath('data.1.pricing.savings_amount', 8000)
             ->assertJsonPath('data.2.kind', PricingRule::KIND_QTY_BREAK)
+            ->assertJsonPath('data.2.pricing.original_price', 45000)
+            ->assertJsonPath('data.2.pricing.promo_price', 36000)
+            ->assertJsonPath('data.2.pricing.savings_amount', 9000)
+            ->assertJsonPath('data.2.pricing.tiers.0.min_qty', 3)
+            ->assertJsonPath('data.2.pricing.tiers.0.promo_unit_price', 12000)
             ->assertJsonPath('groups.buy_x_get_y.0.kind', PricingRule::KIND_BUY_X_GET_Y);
 
         $this->assertNotEmpty(data_get($response->json(), 'data.0.highlight_products'));

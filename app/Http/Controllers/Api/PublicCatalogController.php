@@ -475,6 +475,7 @@ class PublicCatalogController extends Controller
 
         $highlightProducts = $this->promoHighlightProducts($rule, $outletId);
         $heroProduct = collect($highlightProducts)->first();
+        $pricing = $this->promoPricingPayload($rule, $outletId, $bundleItems, $buyGetItems);
 
         return [
             'id' => $rule->id,
@@ -531,6 +532,7 @@ class PublicCatalogController extends Controller
             'buy_get_items' => $buyGetItems->all(),
             'buy_items' => $buyGetItems->where('role', 'buy')->values()->all(),
             'get_items' => $buyGetItems->where('role', 'get')->values()->all(),
+            'pricing' => $pricing,
             'visual' => $this->promoVisualPayload($rule, $outletId, $bundleItems, $buyGetItems),
             'highlight_products' => $highlightProducts,
             'hero_image' => $heroProduct['image'] ?? null,
@@ -701,9 +703,203 @@ class PublicCatalogController extends Controller
             'image' => $product->image,
             'sell_price' => (int) ($product->sell_price ?? 0),
             'buy_price' => (int) ($product->buy_price ?? 0),
+            'original_price' => (int) ($product->sell_price ?? 0),
             'stock' => (int) ($product->stock ?? 0),
             'category_id' => (int) ($product->category_id ?? 0),
         ];
+    }
+
+    private function promoPricingPayload(
+        PricingRule $rule,
+        ?int $outletId,
+        Collection $bundleItems,
+        Collection $buyGetItems
+    ): array {
+        $priceBasis = $rule->price_basis ?: PricingRule::PRICE_BASIS_SELL_PRICE;
+
+        return match ($rule->kind) {
+            PricingRule::KIND_BUNDLE_PRICE => $this->bundlePromoPricingPayload($rule, $bundleItems, $priceBasis),
+            PricingRule::KIND_BUY_X_GET_Y => $this->buyGetPromoPricingPayload($buyGetItems, $priceBasis),
+            PricingRule::KIND_QTY_BREAK => $this->qtyBreakPromoPricingPayload($rule, $outletId, $priceBasis),
+            default => $this->standardPromoPricingPayload($rule, $outletId, $priceBasis),
+        };
+    }
+
+    private function standardPromoPricingPayload(PricingRule $rule, ?int $outletId, string $priceBasis): array
+    {
+        $product = $rule->product;
+        if (! $product) {
+            return $this->emptyPromoPricingPayload($priceBasis);
+        }
+
+        $pricing = $this->pricingService->calculateProductPrice(
+            $product,
+            1,
+            rules: collect([$rule]),
+            outletId: $outletId
+        );
+
+        $originalPrice = (int) ($pricing['base_unit_price'] ?? $this->resolvePromoBasePrice($product, $priceBasis));
+        $promoPrice = (int) ($pricing['effective_unit_price'] ?? $originalPrice);
+        $savingsAmount = max(0, $originalPrice - $promoPrice);
+
+        return [
+            'currency' => 'IDR',
+            'price_basis' => $priceBasis,
+            'quantity_context' => 1,
+            'original_price' => $originalPrice,
+            'promo_price' => $promoPrice,
+            'savings_amount' => $savingsAmount,
+            'savings_percentage' => $this->calculateSavingsPercentage($originalPrice, $savingsAmount),
+            'discount_type' => $rule->discount_type,
+            'discount_value' => $rule->discount_value !== null ? (float) $rule->discount_value : null,
+            'tiers' => [],
+        ];
+    }
+
+    private function qtyBreakPromoPricingPayload(PricingRule $rule, ?int $outletId, string $priceBasis): array
+    {
+        $product = $rule->product;
+        if (! $product) {
+            return $this->emptyPromoPricingPayload($priceBasis);
+        }
+
+        $tiers = $rule->qtyBreaks
+            ->map(function ($break) use ($rule, $product, $outletId, $priceBasis) {
+                $quantity = max(1, (int) $break->min_qty);
+                $pricing = $this->pricingService->calculateProductPrice(
+                    $product,
+                    $quantity,
+                    rules: collect([$rule]),
+                    outletId: $outletId
+                );
+                $originalUnitPrice = (int) ($pricing['base_unit_price'] ?? $this->resolvePromoBasePrice($product, $priceBasis));
+                $promoUnitPrice = (int) ($pricing['effective_unit_price'] ?? $originalUnitPrice);
+                $originalTotal = $originalUnitPrice * $quantity;
+                $promoTotal = (int) ($pricing['line_total'] ?? ($promoUnitPrice * $quantity));
+                $savingsAmount = max(0, $originalTotal - $promoTotal);
+
+                return [
+                    'min_qty' => $quantity,
+                    'original_unit_price' => $originalUnitPrice,
+                    'promo_unit_price' => $promoUnitPrice,
+                    'original_total' => $originalTotal,
+                    'promo_total' => $promoTotal,
+                    'savings_amount' => $savingsAmount,
+                    'savings_percentage' => $this->calculateSavingsPercentage($originalTotal, $savingsAmount),
+                    'discount_type' => $break->discount_type,
+                    'discount_value' => (float) $break->discount_value,
+                ];
+            })
+            ->values();
+
+        $bestTier = $tiers->sortByDesc('savings_amount')->first();
+
+        return [
+            'currency' => 'IDR',
+            'price_basis' => $priceBasis,
+            'quantity_context' => $bestTier['min_qty'] ?? 1,
+            'original_price' => $bestTier['original_total'] ?? null,
+            'promo_price' => $bestTier['promo_total'] ?? null,
+            'savings_amount' => $bestTier['savings_amount'] ?? 0,
+            'savings_percentage' => $bestTier['savings_percentage'] ?? 0,
+            'discount_type' => $rule->discount_type,
+            'discount_value' => $rule->discount_value !== null ? (float) $rule->discount_value : null,
+            'tiers' => $tiers->all(),
+        ];
+    }
+
+    private function bundlePromoPricingPayload(PricingRule $rule, Collection $bundleItems, string $priceBasis): array
+    {
+        $originalPrice = (int) $bundleItems->sum(function (array $item) use ($priceBasis) {
+            $unitPrice = $priceBasis === PricingRule::PRICE_BASIS_BUY_PRICE
+                ? (int) ($item['buy_price'] ?? 0)
+                : (int) ($item['sell_price'] ?? 0);
+
+            return $unitPrice * max(1, (int) ($item['quantity'] ?? 1));
+        });
+        $promoPrice = max(0, (int) round((float) $rule->discount_value));
+        $savingsAmount = max(0, $originalPrice - $promoPrice);
+
+        return [
+            'currency' => 'IDR',
+            'price_basis' => $priceBasis,
+            'quantity_context' => (int) $bundleItems->sum('quantity'),
+            'original_price' => $originalPrice,
+            'promo_price' => $promoPrice,
+            'savings_amount' => $savingsAmount,
+            'savings_percentage' => $this->calculateSavingsPercentage($originalPrice, $savingsAmount),
+            'discount_type' => $rule->discount_type,
+            'discount_value' => $rule->discount_value !== null ? (float) $rule->discount_value : null,
+            'tiers' => [],
+        ];
+    }
+
+    private function buyGetPromoPricingPayload(Collection $buyGetItems, string $priceBasis): array
+    {
+        $originalPrice = (int) $buyGetItems->sum(function (array $item) use ($priceBasis) {
+            $unitPrice = $priceBasis === PricingRule::PRICE_BASIS_BUY_PRICE
+                ? (int) ($item['buy_price'] ?? 0)
+                : (int) ($item['sell_price'] ?? 0);
+
+            return $unitPrice * max(1, (int) ($item['quantity'] ?? 1));
+        });
+        $buyTotal = (int) $buyGetItems
+            ->where('role', 'buy')
+            ->sum(function (array $item) use ($priceBasis) {
+                $unitPrice = $priceBasis === PricingRule::PRICE_BASIS_BUY_PRICE
+                    ? (int) ($item['buy_price'] ?? 0)
+                    : (int) ($item['sell_price'] ?? 0);
+
+                return $unitPrice * max(1, (int) ($item['quantity'] ?? 1));
+            });
+        $savingsAmount = max(0, $originalPrice - $buyTotal);
+
+        return [
+            'currency' => 'IDR',
+            'price_basis' => $priceBasis,
+            'quantity_context' => (int) $buyGetItems->sum('quantity'),
+            'original_price' => $originalPrice,
+            'promo_price' => $buyTotal,
+            'savings_amount' => $savingsAmount,
+            'savings_percentage' => $this->calculateSavingsPercentage($originalPrice, $savingsAmount),
+            'discount_type' => PricingRule::TYPE_FIXED_AMOUNT,
+            'discount_value' => (float) $savingsAmount,
+            'tiers' => [],
+        ];
+    }
+
+    private function emptyPromoPricingPayload(string $priceBasis): array
+    {
+        return [
+            'currency' => 'IDR',
+            'price_basis' => $priceBasis,
+            'quantity_context' => 1,
+            'original_price' => null,
+            'promo_price' => null,
+            'savings_amount' => 0,
+            'savings_percentage' => 0,
+            'discount_type' => null,
+            'discount_value' => null,
+            'tiers' => [],
+        ];
+    }
+
+    private function resolvePromoBasePrice(Product $product, string $priceBasis): int
+    {
+        return match ($priceBasis) {
+            PricingRule::PRICE_BASIS_BUY_PRICE => (int) ($product->buy_price ?? 0),
+            default => (int) ($product->sell_price ?? 0),
+        };
+    }
+
+    private function calculateSavingsPercentage(?int $originalPrice, int $savingsAmount): float
+    {
+        if (! $originalPrice || $originalPrice <= 0 || $savingsAmount <= 0) {
+            return 0;
+        }
+
+        return round(($savingsAmount / $originalPrice) * 100, 2);
     }
 
     private function buildBuyGetHeadline(Collection $buyItems, Collection $getItems): string
