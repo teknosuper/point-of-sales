@@ -301,7 +301,7 @@
     function padRight(str, len) { return (str + ' '.repeat(len)).slice(0, len); }
     function padLeft(str, len) { return (' '.repeat(len) + str).slice(-len); }
     function moneyColumnWidth(cols) {
-        return cols >= 48 ? 14 : 12;
+        return cols >= 48 ? 12 : 8;
     }
 
     function itemColumnWidth(cols) {
@@ -375,6 +375,30 @@
         return tx.payment_method_label || String(tx.payment_method || 'Tunai').replace(/_/g, ' ').toUpperCase();
     }
 
+    function paymentAmountRows(tx) {
+        const method = String(tx.payment_method || 'cash').toLowerCase();
+        const total = Number(tx.grand_total || 0);
+        const paid = Number(tx.paid_amount || 0);
+        const cash = Number(tx.cash || 0);
+        const rows = [];
+
+        if (method === 'cash') {
+            rows.push(['Bayar Tunai', compactMoney(paid || cash || total)]);
+        } else {
+            rows.push(['Bayar Tunai', compactMoney(cash)]);
+            rows.push([paymentMethodLabel(tx), compactMoney(paid || total)]);
+        }
+
+        rows.push(['Nominal Bayar', compactMoney(paid || cash || total)]);
+        rows.push(['Kembali', compactMoney(tx.change || 0)]);
+
+        return rows;
+    }
+
+    function compactMoney(value) {
+        return Number(value || 0).toLocaleString('id-ID');
+    }
+
     function printWrappedLinesRaw(bytes, text, cols, indent = '') {
         wrapText(text, Math.max(8, cols - indent.length)).forEach(line => {
             bytes.push(...escLine(indent + line));
@@ -397,8 +421,8 @@
 
         printTwoColumnRaw(
             bytes,
-            `${item.qty || 1} x ${formatMoney(item.price)}`,
-            formatMoney(total),
+            `${item.qty || 1}x ${compactMoney(item.price)}`,
+            compactMoney(total),
             cols
         );
 
@@ -407,7 +431,7 @@
                 printTwoColumnRaw(
                     bytes,
                     `+ ${mod.name}`,
-                    formatMoney(mod.total || mod.price || 0),
+                    compactMoney(mod.total || mod.price || 0),
                     cols
                 );
             });
@@ -431,8 +455,8 @@
         }
 
         twoColumnLines(
-            `${item.qty || 1} x ${formatMoney(item.price)}`,
-            formatMoney(total),
+            `${item.qty || 1}x ${compactMoney(item.price)}`,
+            compactMoney(total),
             cols
         ).forEach(line => {
             encoder.text(line).newline();
@@ -442,7 +466,7 @@
             item.modifiers.forEach(mod => {
                 twoColumnLines(
                     `+ ${mod.name}`,
-                    formatMoney(mod.total || mod.price || 0),
+                    compactMoney(mod.total || mod.price || 0),
                     cols
                 ).forEach(line => {
                     encoder.text(line).newline();
@@ -486,42 +510,36 @@
 
         bytes.push(...escLine(sep));
         if (tx.subtotal) {
-            printTwoColumnRaw(bytes, 'Subtotal', formatMoney(tx.subtotal), cols);
+            printTwoColumnRaw(bytes, 'Sub Total', compactMoney(tx.subtotal), cols);
         }
         if (tx.promo_discount_total && tx.promo_discount_total > 0) {
-            printTwoColumnRaw(bytes, 'Potongan Promo', '-' + formatMoney(tx.promo_discount_total), cols);
+            printTwoColumnRaw(bytes, 'Diskon Item', compactMoney(tx.promo_discount_total), cols);
         }
         if (tx.discount && tx.discount > 0) {
-            printTwoColumnRaw(bytes, 'Diskon Manual', '-' + formatMoney(tx.discount), cols);
+            printTwoColumnRaw(bytes, 'Diskon Manual', '-' + compactMoney(tx.discount), cols);
         }
         if (tx.voucher_discount_total && tx.voucher_discount_total > 0) {
-            printTwoColumnRaw(bytes, 'Voucher', '-' + formatMoney(tx.voucher_discount_total), cols);
+            printTwoColumnRaw(bytes, 'Voucher', '-' + compactMoney(tx.voucher_discount_total), cols);
         }
         if (tx.loyalty_discount_total && tx.loyalty_discount_total > 0) {
-            printTwoColumnRaw(bytes, 'Redeem Poin', '-' + formatMoney(tx.loyalty_discount_total), cols);
+            printTwoColumnRaw(bytes, 'Redeem Poin', '-' + compactMoney(tx.loyalty_discount_total), cols);
         }
         if (tx.shipping_cost && tx.shipping_cost > 0) {
-            printTwoColumnRaw(bytes, 'Ongkir', formatMoney(tx.shipping_cost), cols);
+            printTwoColumnRaw(bytes, 'Ongkir', compactMoney(tx.shipping_cost), cols);
         }
-        twoColumnLines('TOTAL', formatMoney(tx.grand_total || 0), cols).forEach(line => {
+        bytes.push(...escLine(sep));
+        twoColumnLines('Netto', compactMoney(tx.grand_total || 0), cols).forEach(line => {
             bytes.push(...escBoldLine(line));
         });
+        bytes.push(...escLine(sep));
         if (tx.payment_method || tx.payment_method_label) {
-            printTwoColumnRaw(bytes, 'Metode', paymentMethodLabel(tx), cols);
+            paymentAmountRows(tx).forEach(([label, value]) => {
+                printTwoColumnRaw(bytes, label, value, cols);
+            });
+            bytes.push(...escLine('Metode: ' + paymentMethodLabel(tx)));
         }
         if (tx.payment_summary) {
             printWrappedLinesRaw(bytes, tx.payment_summary, cols, '  ');
-        }
-        if (tx.paid_amount) {
-            printTwoColumnRaw(
-                bytes,
-                String(tx.payment_method || '').toLowerCase() === 'cash' ? 'Bayar' : 'Nominal Bayar',
-                formatMoney(tx.paid_amount),
-                cols
-            );
-        }
-        if (tx.change && tx.change > 0) {
-            printTwoColumnRaw(bytes, 'Kembali', formatMoney(tx.change), cols);
         }
 
         bytes.push(...escNewline());
@@ -605,63 +623,54 @@
 
         encoder.text(sep).newline();
         if (tx.subtotal) {
-            twoColumnLines('Subtotal', formatMoney(tx.subtotal), config.paperWidth).forEach(line => {
+            twoColumnLines('Sub Total', compactMoney(tx.subtotal), config.paperWidth).forEach(line => {
                 encoder.text(line).newline();
             });
         }
         if (tx.promo_discount_total && tx.promo_discount_total > 0) {
-            twoColumnLines('Potongan Promo', '-' + formatMoney(tx.promo_discount_total), config.paperWidth).forEach(line => {
+            twoColumnLines('Diskon Item', compactMoney(tx.promo_discount_total), config.paperWidth).forEach(line => {
                 encoder.text(line).newline();
             });
         }
         if (tx.discount && tx.discount > 0) {
-            twoColumnLines('Diskon Manual', '-' + formatMoney(tx.discount), config.paperWidth).forEach(line => {
+            twoColumnLines('Diskon Manual', '-' + compactMoney(tx.discount), config.paperWidth).forEach(line => {
                 encoder.text(line).newline();
             });
         }
         if (tx.voucher_discount_total && tx.voucher_discount_total > 0) {
-            twoColumnLines('Voucher', '-' + formatMoney(tx.voucher_discount_total), config.paperWidth).forEach(line => {
+            twoColumnLines('Voucher', '-' + compactMoney(tx.voucher_discount_total), config.paperWidth).forEach(line => {
                 encoder.text(line).newline();
             });
         }
         if (tx.loyalty_discount_total && tx.loyalty_discount_total > 0) {
-            twoColumnLines('Redeem Poin', '-' + formatMoney(tx.loyalty_discount_total), config.paperWidth).forEach(line => {
+            twoColumnLines('Redeem Poin', '-' + compactMoney(tx.loyalty_discount_total), config.paperWidth).forEach(line => {
                 encoder.text(line).newline();
             });
         }
         if (tx.shipping_cost && tx.shipping_cost > 0) {
-            twoColumnLines('Ongkir', formatMoney(tx.shipping_cost), config.paperWidth).forEach(line => {
+            twoColumnLines('Ongkir', compactMoney(tx.shipping_cost), config.paperWidth).forEach(line => {
                 encoder.text(line).newline();
             });
         }
+        encoder.text(sep).newline();
         encoder.bold(true);
-        twoColumnLines('TOTAL', formatMoney(tx.grand_total || 0), config.paperWidth).forEach(line => {
+        twoColumnLines('Netto', compactMoney(tx.grand_total || 0), config.paperWidth).forEach(line => {
             encoder.text(line).newline();
         });
         encoder.bold(false);
+        encoder.text(sep).newline();
 
         if (tx.payment_method || tx.payment_method_label) {
-            twoColumnLines('Metode', paymentMethodLabel(tx), config.paperWidth).forEach(line => {
-                encoder.text(line).newline();
+            paymentAmountRows(tx).forEach(([label, value]) => {
+                twoColumnLines(label, value, config.paperWidth).forEach(line => {
+                    encoder.text(line).newline();
+                });
             });
+            encoder.text('Metode: ' + paymentMethodLabel(tx)).newline();
         }
         if (tx.payment_summary) {
             wrapText(tx.payment_summary, Math.max(8, config.paperWidth - 2)).forEach(line => {
                 encoder.text(`  ${line}`).newline();
-            });
-        }
-        if (tx.paid_amount) {
-            twoColumnLines(
-                String(tx.payment_method || '').toLowerCase() === 'cash' ? 'Bayar' : 'Nominal Bayar',
-                formatMoney(tx.paid_amount),
-                config.paperWidth
-            ).forEach(line => {
-                encoder.text(line).newline();
-            });
-        }
-        if (tx.change && tx.change > 0) {
-            twoColumnLines('Kembali', formatMoney(tx.change), config.paperWidth).forEach(line => {
-                encoder.text(line).newline();
             });
         }
 
