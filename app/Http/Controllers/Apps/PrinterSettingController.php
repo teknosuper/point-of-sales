@@ -23,6 +23,9 @@ class PrinterSettingController extends Controller
 
         $token = (string) config('services.print_bridge.token', '0000');
         $baseUrl = rtrim((string) config('app.url'), '/');
+        $printClientVersion = file_exists(public_path('print-client.html'))
+            ? (string) filemtime(public_path('print-client.html'))
+            : now()->format('YmdHis');
 
         $stations = KitchenStation::query()
             ->where('outlet_id', $outlet->id)
@@ -87,8 +90,8 @@ class PrinterSettingController extends Controller
                 'outlet_name' => $outlet->name,
                 'done_url' => "{$baseUrl}/api/print-queue/{id}/done?token={$token}",
                 'fail_url' => "{$baseUrl}/api/print-queue/{id}/fail?token={$token}",
-                'print_client_cashier' => "{$baseUrl}/print-client.html?base_url=" . urlencode($baseUrl) . "&token={$token}&outlet_id={$outlet->id}&type=cashier&autostart=1",
-                'print_client_kitchen' => "{$baseUrl}/print-client.html?base_url=" . urlencode($baseUrl) . "&token={$token}&outlet_id={$outlet->id}&type=kitchen&autostart=1",
+                'print_client_cashier' => "{$baseUrl}/print-client.html?v={$printClientVersion}&base_url=" . urlencode($baseUrl) . "&token={$token}&outlet_id={$outlet->id}&type=cashier&autostart=1",
+                'print_client_kitchen' => "{$baseUrl}/print-client.html?v={$printClientVersion}&base_url=" . urlencode($baseUrl) . "&token={$token}&outlet_id={$outlet->id}&type=kitchen&autostart=1",
             ],
         ]);
     }
