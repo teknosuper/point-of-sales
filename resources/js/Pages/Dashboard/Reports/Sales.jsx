@@ -300,6 +300,8 @@ const Sales = ({
         orders_count: summary?.orders_count ?? 0,
         revenue_total: summary?.revenue_total ?? 0,
         discount_total: summary?.discount_total ?? 0,
+        tenant_discount_total: summary?.tenant_discount_total ?? 0,
+        owner_discount_total: summary?.owner_discount_total ?? 0,
         items_sold: summary?.items_sold ?? 0,
         profit_total: summary?.profit_total ?? 0,
         average_order: summary?.average_order ?? 0,
@@ -351,7 +353,7 @@ const Sales = ({
         {
             title: "Diskon Diberikan",
             value: formatCurrency(safeSummary.discount_total),
-            description: "Akumulasi promo",
+            description: `Tenant ${formatCurrency(safeSummary.tenant_discount_total)} • Owner ${formatCurrency(safeSummary.owner_discount_total)}`,
             icon: <IconDiscount2 />,
             gradient: "from-warning-500 to-warning-600",
         },
@@ -967,43 +969,119 @@ const Sales = ({
                                 </thead>
                                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                                     {rows.map((trx, i) => (
-                                        <tr
-                                            key={trx.id}
-                                            className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
-                                        >
-                                            <td className="px-4 py-4 text-sm text-slate-600 dark:text-slate-400">
-                                                {i +
-                                                    1 +
-                                                    (currentPage - 1) * perPage}
-                                            </td>
-                                            <td className="px-4 py-4 text-sm font-semibold text-slate-900 dark:text-white">
-                                                {trx.invoice}
-                                            </td>
-                                            <td className="px-4 py-4 text-sm text-slate-600 dark:text-slate-400">
-                                                {trx.created_at}
-                                            </td>
-                                            <td className="px-4 py-4 text-sm text-slate-600 dark:text-slate-400">
-                                                {trx.customer?.name ?? "Umum / Walk-in"}
-                                            </td>
-                                            <td className="px-4 py-4 text-sm text-slate-600 dark:text-slate-400">
-                                                {trx.cashier?.name ?? "-"}
-                                            </td>
-                                            <td className="px-4 py-4 text-center">
-                                                <span className="px-2 py-0.5 text-xs font-medium bg-primary-100 dark:bg-primary-900/50 text-primary-700 dark:text-primary-400 rounded-full">
-                                                    {trx.total_items ?? 0}
-                                                </span>
-                                            </td>
-                                            <td className="px-4 py-4 text-right text-sm font-semibold text-slate-900 dark:text-white">
-                                                {formatCurrency(
-                                                    trx.grand_total ?? 0
-                                                )}
-                                            </td>
-                                            <td className="px-4 py-4 text-right text-sm font-semibold text-success-600 dark:text-success-400">
-                                                {formatCurrency(
-                                                    trx.total_profit ?? 0
-                                                )}
-                                            </td>
-                                        </tr>
+                                        <React.Fragment key={trx.id}>
+                                            <tr className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                                                <td className="px-4 py-4 text-sm text-slate-600 dark:text-slate-400">
+                                                    {i +
+                                                        1 +
+                                                        (currentPage - 1) * perPage}
+                                                </td>
+                                                <td className="px-4 py-4 text-sm font-semibold text-slate-900 dark:text-white">
+                                                    {trx.invoice}
+                                                </td>
+                                                <td className="px-4 py-4 text-sm text-slate-600 dark:text-slate-400">
+                                                    {trx.created_at}
+                                                </td>
+                                                <td className="px-4 py-4 text-sm text-slate-600 dark:text-slate-400">
+                                                    {trx.customer?.name ?? "Umum / Walk-in"}
+                                                </td>
+                                                <td className="px-4 py-4 text-sm text-slate-600 dark:text-slate-400">
+                                                    {trx.cashier?.name ?? "-"}
+                                                </td>
+                                                <td className="px-4 py-4 text-center">
+                                                    <span className="px-2 py-0.5 text-xs font-medium bg-primary-100 dark:bg-primary-900/50 text-primary-700 dark:text-primary-400 rounded-full">
+                                                        {trx.total_items ?? 0}
+                                                    </span>
+                                                </td>
+                                                <td className="px-4 py-4 text-right text-sm font-semibold text-slate-900 dark:text-white">
+                                                    <div>
+                                                        {formatCurrency(
+                                                            trx.grand_total ?? 0
+                                                        )}
+                                                    </div>
+                                                    <div className="mt-1 text-xs font-medium text-slate-500 dark:text-slate-400">
+                                                        Sebelum promo{" "}
+                                                        {formatCurrency(
+                                                            trx.pre_promo_subtotal ??
+                                                                trx.grand_total ??
+                                                                0
+                                                        )}
+                                                    </div>
+                                                    <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                                                        Tenant cut{" "}
+                                                        {formatCurrency(
+                                                            trx.tenant_discount_total ??
+                                                                0
+                                                        )}{" "}
+                                                        • Owner cut{" "}
+                                                        {formatCurrency(
+                                                            trx.owner_discount_total ??
+                                                                0
+                                                        )}
+                                                    </div>
+                                                </td>
+                                                <td className="px-4 py-4 text-right text-sm font-semibold text-success-600 dark:text-success-400">
+                                                    <div>
+                                                        {formatCurrency(
+                                                            trx.total_profit ?? 0
+                                                        )}
+                                                    </div>
+                                                    <div className="mt-1 text-xs font-medium text-slate-500 dark:text-slate-400">
+                                                        Tenant net{" "}
+                                                        {formatCurrency(
+                                                            trx.tenant_net_total ?? 0
+                                                        )}
+                                                    </div>
+                                                    <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                                                        Owner net{" "}
+                                                        {formatCurrency(
+                                                            trx.owner_net_total ?? 0
+                                                        )}
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                            {Array.isArray(trx.detail_items) && trx.detail_items.length > 0 ? (
+                                                <tr className="bg-slate-50/70 dark:bg-slate-950/30">
+                                                    <td colSpan={8} className="px-4 pb-4 pt-0">
+                                                        <div className="rounded-2xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
+                                                            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                                                Rincian Item
+                                                            </div>
+                                                            <div className="space-y-2">
+                                                                {trx.detail_items.map((item) => (
+                                                                    <div
+                                                                        key={item.id}
+                                                                        className="grid gap-2 rounded-xl border border-slate-100 px-3 py-2 text-xs dark:border-slate-800 md:grid-cols-[1.3fr,0.8fr,0.8fr,0.8fr]"
+                                                                    >
+                                                                        <div>
+                                                                            <div className="font-semibold text-slate-800 dark:text-slate-200">
+                                                                                {item.product_name}
+                                                                            </div>
+                                                                            <div className="text-slate-500 dark:text-slate-400">
+                                                                                {item.qty} item
+                                                                                {item.pricing_rule_name ? ` • ${item.pricing_rule_name}` : ""}
+                                                                            </div>
+                                                                        </div>
+                                                                        <div className="text-slate-600 dark:text-slate-300">
+                                                                            <div>Sblm promo {formatCurrency(item.pre_promo_total ?? item.line_total ?? 0)}</div>
+                                                                            <div>Line total {formatCurrency(item.line_total ?? 0)}</div>
+                                                                        </div>
+                                                                        <div className="text-slate-600 dark:text-slate-300">
+                                                                            <div>Tenant cut {formatCurrency(item.tenant_discount_total ?? 0)}</div>
+                                                                            <div>Tenant net {formatCurrency(item.tenant_net_total ?? 0)}</div>
+                                                                        </div>
+                                                                        <div className="text-slate-600 dark:text-slate-300">
+                                                                            <div>Owner cut {formatCurrency(item.owner_discount_total ?? 0)}</div>
+                                                                            <div>Owner net {formatCurrency(item.owner_net_total ?? 0)}</div>
+                                                                        </div>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            ) : null}
+                                        </React.Fragment>
                                     ))}
                                 </tbody>
                             </table>

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Apps;
 
 use App\Http\Controllers\Controller;
 use App\Models\Outlet;
+use App\Models\Product;
 use App\Models\Setting;
 use App\Services\AuditLogService;
 use App\Services\LoyaltyService;
@@ -27,15 +28,60 @@ class SettingController extends Controller
      */
     public function target()
     {
-        $outletId = $this->resolvedOutlet(request())?->id;
+        $outlet = $this->resolvedOutlet(request());
+        $outletId = $outlet?->id;
+        $daysInMonth = now()->daysInMonth;
+        $productTargets = $this->normalizeProductTargets(
+            Setting::get('monthly_product_item_targets', '[]', $outletId)
+        );
 
         $settings = [
             'monthly_sales_target' => Setting::get('monthly_sales_target', 0, $outletId),
             'monthly_profit_target' => Setting::get('monthly_profit_target', 0, $outletId),
+            'daily_global_item_target' => Setting::get('daily_global_item_target', 0, $outletId),
         ];
+
+        $products = Product::query()
+            ->select('id', 'title', 'buy_price', 'sell_price', 'tenant_outlet_id', 'stock')
+            ->with(['tenantOutlet:id,name,code'])
+            ->orderBy('title')
+            ->when($outlet && Schema::hasTable('product_outlet_stocks'), function ($query) use ($outlet) {
+                $query->with(['outletStocks' => fn ($stockQuery) => $stockQuery
+                    ->select('id', 'product_id', 'outlet_id', 'stock')
+                    ->where('outlet_id', $outlet->id)]);
+            })
+            ->get()
+            ->map(function (Product $product) use ($productTargets, $outlet, $daysInMonth) {
+                $monthlyTarget = (int) ($productTargets[$product->id] ?? 0);
+                $stock = $outlet && Schema::hasTable('product_outlet_stocks')
+                    ? (int) ($product->outletStocks->first()?->stock ?? 0)
+                    : (int) ($product->stock ?? 0);
+
+                return [
+                    'id' => $product->id,
+                    'title' => $product->title,
+                    'buy_price' => (int) ($product->buy_price ?? 0),
+                    'sell_price' => (int) ($product->sell_price ?? 0),
+                    'tenant_outlet_id' => $product->tenant_outlet_id ? (int) $product->tenant_outlet_id : null,
+                    'tenant_outlet' => $product->tenantOutlet ? [
+                        'id' => $product->tenantOutlet->id,
+                        'name' => $product->tenantOutlet->name,
+                        'code' => $product->tenantOutlet->code,
+                    ] : null,
+                    'stock' => $stock,
+                    'monthly_target' => $monthlyTarget,
+                    'daily_target' => $monthlyTarget > 0 ? round($monthlyTarget / $daysInMonth, 2) : 0,
+                ];
+            })
+            ->values();
 
         return Inertia::render('Dashboard/Settings/Target', [
             'settings' => $settings,
+            'products' => $products,
+            'targetMeta' => [
+                'days_in_month' => $daysInMonth,
+                'month_label' => now()->translatedFormat('F Y'),
+            ],
         ]);
     }
 
@@ -45,24 +91,94 @@ class SettingController extends Controller
     public function updateTarget(Request $request)
     {
         $validated = $request->validate([
-            'monthly_sales_target' => 'required|numeric|min:0',
-            'monthly_profit_target' => 'required|numeric|min:0',
+            'monthly_sales_target' => 'nullable|numeric|min:0',
+            'monthly_profit_target' => 'nullable|numeric|min:0',
+            'daily_global_item_target' => 'nullable|integer|min:0',
+            'product_targets' => 'nullable|array',
+            'product_targets.*.product_id' => 'required|integer|exists:products,id',
+            'product_targets.*.monthly_target' => 'nullable|integer|min:0',
         ]);
 
         $outletId = $this->resolvedOutlet($request)?->id;
+        $beforeSalesTarget = Setting::get('monthly_sales_target', 0, $outletId);
+        $beforeProfitTarget = Setting::get('monthly_profit_target', 0, $outletId);
+        $beforeDailyGlobalItemTarget = Setting::get('daily_global_item_target', 0, $outletId);
+        $beforeTargets = $this->normalizeProductTargets(
+            Setting::get('monthly_product_item_targets', '[]', $outletId)
+        );
+        $normalizedTargets = collect($validated['product_targets'] ?? [])
+            ->map(fn (array $row) => [
+                'product_id' => (int) $row['product_id'],
+                'monthly_target' => (int) ($row['monthly_target'] ?? 0),
+            ])
+            ->filter(fn (array $row) => $row['monthly_target'] > 0)
+            ->unique('product_id')
+            ->values()
+            ->all();
 
         Setting::setMany([
             'monthly_sales_target' => [
-                'value' => $validated['monthly_sales_target'],
+                'value' => $validated['monthly_sales_target'] ?? 0,
                 'description' => 'Target penjualan bulanan',
             ],
             'monthly_profit_target' => [
-                'value' => $validated['monthly_profit_target'],
+                'value' => $validated['monthly_profit_target'] ?? 0,
                 'description' => 'Target keuntungan bulanan',
             ],
+            'daily_global_item_target' => [
+                'value' => $validated['daily_global_item_target'] ?? 0,
+                'description' => 'Target item harian global',
+            ],
         ], $outletId);
+        Setting::set(
+            'monthly_product_item_targets',
+            json_encode($normalizedTargets),
+            'Target penjualan item bulanan per produk',
+            $outletId
+        );
+
+        $this->auditLogService->log(
+            event: 'settings.target.updated',
+            module: 'target_settings',
+            auditable: ['target_label' => 'Target Settings'],
+            description: 'Pengaturan target bulanan diperbarui.',
+            before: [
+                'monthly_sales_target' => $beforeSalesTarget,
+                'monthly_profit_target' => $beforeProfitTarget,
+                'daily_global_item_target' => $beforeDailyGlobalItemTarget,
+                'product_targets' => $beforeTargets,
+            ],
+            after: [
+                'monthly_sales_target' => $validated['monthly_sales_target'] ?? 0,
+                'monthly_profit_target' => $validated['monthly_profit_target'] ?? 0,
+                'daily_global_item_target' => $validated['daily_global_item_target'] ?? 0,
+                'product_targets' => $normalizedTargets,
+            ]
+        );
 
         return back()->with('success', 'Target berhasil disimpan');
+    }
+
+    private function normalizeProductTargets(mixed $value): array
+    {
+        $decoded = is_string($value) ? json_decode($value, true) : $value;
+
+        if (! is_array($decoded)) {
+            return [];
+        }
+
+        return collect($decoded)
+            ->mapWithKeys(function ($row) {
+                $productId = (int) ($row['product_id'] ?? 0);
+                $monthlyTarget = (int) ($row['monthly_target'] ?? 0);
+
+                if ($productId <= 0 || $monthlyTarget <= 0) {
+                    return [];
+                }
+
+                return [$productId => $monthlyTarget];
+            })
+            ->all();
     }
 
     /**

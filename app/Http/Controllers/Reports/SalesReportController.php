@@ -16,6 +16,7 @@ use Carbon\Carbon;
 use App\Services\OutletResolver;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Schema;
 use Inertia\Inertia;
 
 class SalesReportController extends Controller
@@ -49,9 +50,15 @@ class SalesReportController extends Controller
             $filters
         )->orderByDesc('created_at');
 
+        $detailColumns = $this->transactionDetailSelectColumns();
+
         $transactions = (clone $baseListQuery)
+            ->with(['details' => fn ($query) => $query
+                ->select($detailColumns)
+                ->with(['product:id,title'])])
             ->paginate(10)
-            ->withQueryString();
+            ->withQueryString()
+            ->through(fn (Transaction $transaction) => $this->transformTransactionRow($transaction));
 
         $aggregateQuery = $this->applyFilters(Transaction::query(), $filters);
 
@@ -68,13 +75,22 @@ class SalesReportController extends Controller
         $itemsSold = $transactionIds->isNotEmpty()
             ? TransactionDetail::whereIn('transaction_id', $transactionIds)->sum('qty')
             : 0;
+        $discountSplit = $transactionIds->isNotEmpty()
+            && Schema::hasColumn('transaction_details', 'tenant_discount_total')
+            && Schema::hasColumn('transaction_details', 'owner_discount_total')
+            ? TransactionDetail::query()
+                ->whereIn('transaction_id', $transactionIds)
+                ->selectRaw('COALESCE(SUM(tenant_discount_total), 0) as tenant_discount_total')
+                ->selectRaw('COALESCE(SUM(owner_discount_total), 0) as owner_discount_total')
+                ->first()
+            : null;
 
         $profitTotal = $transactionIds->isNotEmpty()
             ? Profit::whereIn('transaction_id', $transactionIds)->sum('total')
             : 0;
 
         $tenantAllocationBaseQuery = $this->applyAllocationFilters(
-            TransactionTenantAllocation::query()
+            $this->withAllocationDiscountSplit(TransactionTenantAllocation::query())
                 ->with(['tenantOutlet:id,name,code,commission_rate_percent', 'transaction:id,invoice,created_at,payment_status', 'validatedBy:id,name'])
                 ->select('transaction_tenant_allocations.*')
                 ->selectSub(
@@ -145,6 +161,8 @@ class SalesReportController extends Controller
             'orders_count' => (int) ($totals->orders_count ?? 0),
             'revenue_total' => (int) ($totals->revenue_total ?? 0),
             'discount_total' => (int) ($totals->discount_total ?? 0),
+            'tenant_discount_total' => (int) ($discountSplit->tenant_discount_total ?? 0),
+            'owner_discount_total' => (int) ($discountSplit->owner_discount_total ?? 0),
             'items_sold' => (int) $itemsSold,
             'profit_total' => (int) $profitTotal,
             'average_order' => ($totals->orders_count ?? 0) > 0
@@ -206,6 +224,77 @@ class SalesReportController extends Controller
             })
             ->when($filters['start_date'] ?? null, fn ($q, $start) => $q->whereDate('created_at', '>=', $start))
             ->when($filters['end_date'] ?? null, fn ($q, $end) => $q->whereDate('created_at', '<=', $end));
+    }
+
+    protected function transactionDetailSelectColumns(): array
+    {
+        $columns = [
+            'id',
+            'transaction_id',
+            'product_id',
+            'qty',
+            'price',
+            'unit_price',
+            'discount_total',
+        ];
+
+        foreach ([
+            'customer_base_unit_price',
+            'tenant_discount_total',
+            'owner_discount_total',
+            'tenant_net_total',
+            'owner_net_total',
+            'pricing_rule_name',
+            'pricing_rule_kind',
+        ] as $column) {
+            if (Schema::hasColumn('transaction_details', $column)) {
+                $columns[] = $column;
+            }
+        }
+
+        return $columns;
+    }
+
+    protected function transformTransactionRow(Transaction $transaction): array
+    {
+        $prePromoSubtotal = (int) $transaction->details->sum(function (TransactionDetail $detail) {
+            $baseUnitPrice = (int) ($detail->customer_base_unit_price ?? $detail->unit_price ?? 0);
+
+            return $baseUnitPrice * (int) $detail->qty;
+        });
+
+        return [
+            ...$transaction->toArray(),
+            'pre_promo_subtotal' => $prePromoSubtotal,
+            'tenant_discount_total' => (int) $transaction->details->sum(
+                fn (TransactionDetail $detail) => (int) ($detail->tenant_discount_total ?? 0)
+            ),
+            'owner_discount_total' => (int) $transaction->details->sum(
+                fn (TransactionDetail $detail) => (int) ($detail->owner_discount_total ?? 0)
+            ),
+            'tenant_net_total' => (int) $transaction->details->sum(
+                fn (TransactionDetail $detail) => (int) ($detail->tenant_net_total ?? 0)
+            ),
+            'owner_net_total' => (int) $transaction->details->sum(
+                fn (TransactionDetail $detail) => (int) ($detail->owner_net_total ?? 0)
+            ),
+            'detail_items' => $transaction->details
+                ->map(fn (TransactionDetail $detail) => [
+                    'id' => $detail->id,
+                    'product_name' => $detail->product?->title ?? 'Produk',
+                    'qty' => (int) $detail->qty,
+                    'line_total' => (int) $detail->price,
+                    'pre_promo_total' => (int) ($detail->customer_base_unit_price ?? $detail->unit_price ?? 0) * (int) $detail->qty,
+                    'tenant_discount_total' => (int) ($detail->tenant_discount_total ?? 0),
+                    'owner_discount_total' => (int) ($detail->owner_discount_total ?? 0),
+                    'tenant_net_total' => (int) ($detail->tenant_net_total ?? 0),
+                    'owner_net_total' => (int) ($detail->owner_net_total ?? 0),
+                    'pricing_rule_name' => $detail->pricing_rule_name,
+                    'pricing_rule_kind' => $detail->pricing_rule_kind,
+                ])
+                ->values()
+                ->all(),
+        ];
     }
 
     protected function targetSummary(array $summary, ?int $outletId, array $filters): array
@@ -291,7 +380,7 @@ class SalesReportController extends Controller
         ];
 
         $allocations = $this->applyAllocationFilters(
-            TransactionTenantAllocation::query()
+            $this->withAllocationDiscountSplit(TransactionTenantAllocation::query())
                 ->with(['tenantOutlet:id,name,code,commission_rate_percent', 'transaction:id,invoice,created_at,payment_status', 'validatedBy:id,name'])
                 ->select('transaction_tenant_allocations.*')
                 ->selectSub(
@@ -320,6 +409,8 @@ class SalesReportController extends Controller
                 'pre_promo_subtotal',
                 'subtotal',
                 'total_discount_total',
+                'tenant_discount_total',
+                'owner_discount_total',
                 'promo_discount_total',
                 'voucher_discount_total',
                 'loyalty_discount_total',
@@ -357,6 +448,8 @@ class SalesReportController extends Controller
                     (int) ($allocation->pre_promo_subtotal ?? 0),
                     (int) ($allocation->subtotal ?? 0),
                     (int) ($allocation->total_discount_total ?? 0),
+                    (int) ($allocation->tenant_discount_total ?? 0),
+                    (int) ($allocation->owner_discount_total ?? 0),
                     (int) ($allocation->promo_discount_total ?? 0),
                     (int) ($allocation->voucher_discount_total ?? 0),
                     (int) ($allocation->loyalty_discount_total ?? 0),
@@ -402,7 +495,7 @@ class SalesReportController extends Controller
         ];
 
         $baseQuery = $this->applyAllocationFilters(
-            TransactionTenantAllocation::query()
+            $this->withAllocationDiscountSplit(TransactionTenantAllocation::query())
                 ->with(['transaction:id,invoice,created_at,payment_status', 'tenantOutlet:id,name,code,commission_rate_percent', 'validatedBy:id,name'])
                 ->select('transaction_tenant_allocations.*')
                 ->selectSub(
@@ -465,7 +558,7 @@ class SalesReportController extends Controller
         ];
 
         $allocations = $this->applyAllocationFilters(
-            TransactionTenantAllocation::query()
+            $this->withAllocationDiscountSplit(TransactionTenantAllocation::query())
                 ->with(['transaction:id,invoice,created_at,payment_status', 'tenantOutlet:id,name,code,commission_rate_percent', 'validatedBy:id,name'])
                 ->select('transaction_tenant_allocations.*')
                 ->selectSub(
@@ -495,6 +588,8 @@ class SalesReportController extends Controller
                 'pre_promo_subtotal',
                 'subtotal_after_item_promo',
                 'total_discount_total',
+                'tenant_discount_total',
+                'owner_discount_total',
                 'promo_discount_total',
                 'voucher_discount_total',
                 'loyalty_discount_total',
@@ -528,6 +623,8 @@ class SalesReportController extends Controller
                     (int) ($allocation->pre_promo_subtotal ?? 0),
                     (int) ($allocation->subtotal ?? 0),
                     (int) ($allocation->total_discount_total ?? 0),
+                    (int) ($allocation->tenant_discount_total ?? 0),
+                    (int) ($allocation->owner_discount_total ?? 0),
                     (int) ($allocation->promo_discount_total ?? 0),
                     (int) ($allocation->voucher_discount_total ?? 0),
                     (int) ($allocation->loyalty_discount_total ?? 0),
@@ -658,7 +755,7 @@ class SalesReportController extends Controller
         ];
 
         $allocations = $this->applyAllocationFilters(
-            TransactionTenantAllocation::query()
+            $this->withAllocationDiscountSplit(TransactionTenantAllocation::query())
                 ->with([
                     'tenantOutlet:id,name,code,commission_rate_percent',
                     'transaction:id,invoice,created_at,payment_status',
@@ -683,6 +780,8 @@ class SalesReportController extends Controller
             'revenue_total' => (int) $allocations->sum('grand_total'),
             'cost_total' => (int) $allocations->sum('cost_total'),
             'profit_total' => (int) $allocations->sum('profit_total'),
+            'tenant_discount_total' => (int) $allocations->sum('tenant_discount_total'),
+            'owner_discount_total' => (int) $allocations->sum('owner_discount_total'),
             'management_fee_total' => (int) round($allocations->sum('management_fee_total')),
             'tenant_payout_total' => (int) round($allocations->sum('tenant_payout_total')),
             'settled_total' => (int) $allocations->filter(fn ($allocation) => filled($allocation->settled_at))->sum('tenant_payout_total'),
@@ -701,7 +800,7 @@ class SalesReportController extends Controller
     {
         $activeOutletId = $this->outletResolver->resolve($request, $request->user())?->id;
 
-        $query = TransactionTenantAllocation::query()
+        $query = $this->withAllocationDiscountSplit(TransactionTenantAllocation::query())
             ->with([
                 'tenantOutlet:id,name,code,commission_rate_percent',
                 'transaction:id,invoice,created_at,payment_status,payment_method',
@@ -766,9 +865,38 @@ class SalesReportController extends Controller
                 + (int) ($allocation->payout_transfer_amount ?? 0)
                 + (int) ($allocation->payout_other_amount ?? 0)
             );
+            $allocation->setAttribute('tenant_discount_total', (int) ($allocation->tenant_discount_total ?? 0));
+            $allocation->setAttribute('owner_discount_total', (int) ($allocation->owner_discount_total ?? 0));
 
             return $allocation;
         });
+    }
+
+    protected function withAllocationDiscountSplit($query)
+    {
+        if (
+            ! Schema::hasColumn('transaction_details', 'tenant_outlet_id')
+            || ! Schema::hasColumn('transaction_details', 'tenant_discount_total')
+            || ! Schema::hasColumn('transaction_details', 'owner_discount_total')
+        ) {
+            return $query;
+        }
+
+        return $query
+            ->selectSub(
+                TransactionDetail::query()
+                    ->selectRaw('COALESCE(SUM(tenant_discount_total), 0)')
+                    ->whereColumn('transaction_id', 'transaction_tenant_allocations.transaction_id')
+                    ->whereColumn('tenant_outlet_id', 'transaction_tenant_allocations.tenant_outlet_id'),
+                'tenant_discount_total'
+            )
+            ->selectSub(
+                TransactionDetail::query()
+                    ->selectRaw('COALESCE(SUM(owner_discount_total), 0)')
+                    ->whereColumn('transaction_id', 'transaction_tenant_allocations.transaction_id')
+                    ->whereColumn('tenant_outlet_id', 'transaction_tenant_allocations.tenant_outlet_id'),
+                'owner_discount_total'
+            );
     }
 
     protected function buildAllocationDailyRecap(Collection $allocations): Collection

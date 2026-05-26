@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Apps;
 
 use App\Http\Controllers\Controller;
 use App\Models\AuditLog;
-use App\Models\Cart;
 use App\Models\Category;
 use App\Models\Customer;
 use App\Models\PricingRule;
@@ -17,7 +16,6 @@ use App\Services\LoyaltyService;
 use App\Services\OutletResolver;
 use App\Services\PricingService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Collection;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 
@@ -274,17 +272,15 @@ class PricingRuleController extends Controller
         $rule->setRelation('bundleItems', collect($validated['relations']['bundle_items'])->map(fn (array $item) => new PricingRuleBundleItem($item)));
         $rule->setRelation('buyGetItems', collect($validated['relations']['buy_get_items'])->map(fn (array $item) => new PricingRuleBuyGetItem($item)));
 
-        $sampleCarts = $this->buildPreviewCarts($rule);
         $customer = $request->filled('preview_customer_id')
             ? Customer::find($request->integer('preview_customer_id'))
             : null;
 
         return response()->json([
             'success' => true,
-            'data' => $this->pricingService->previewCartWithRules(
-                $sampleCarts,
+            'data' => $this->pricingService->previewDraftRule(
+                $rule,
                 $customer,
-                collect([$rule]),
                 $this->outletResolver->resolve($request, $request->user())?->id
             ),
         ]);
@@ -335,6 +331,29 @@ class PricingRuleController extends Controller
 
     private function validateRule(Request $request): array
     {
+        $kind = (string) $request->input('kind');
+        $discountTypeRules = match ($kind) {
+            PricingRule::KIND_BUNDLE_PRICE,
+            PricingRule::KIND_BUY_X_GET_Y,
+            PricingRule::KIND_QTY_BREAK => ['nullable', Rule::in([
+                PricingRule::TYPE_PERCENTAGE,
+                PricingRule::TYPE_FIXED_AMOUNT,
+                PricingRule::TYPE_FIXED_PRICE,
+            ])],
+            default => ['required', Rule::in([
+                PricingRule::TYPE_PERCENTAGE,
+                PricingRule::TYPE_FIXED_AMOUNT,
+                PricingRule::TYPE_FIXED_PRICE,
+            ])],
+        };
+        $discountValueRules = match ($kind) {
+            PricingRule::KIND_STANDARD_DISCOUNT,
+            PricingRule::KIND_BUNDLE_PRICE => ['required', 'numeric', 'min:0.01'],
+            PricingRule::KIND_QTY_BREAK,
+            PricingRule::KIND_BUY_X_GET_Y => ['nullable', 'numeric', 'min:0'],
+            default => ['required', 'numeric', 'min:0.01'],
+        };
+
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'kind' => ['required', Rule::in([
@@ -360,12 +379,8 @@ class PricingRuleController extends Controller
             ])],
             'eligible_loyalty_tiers' => ['nullable', 'array'],
             'eligible_loyalty_tiers.*' => ['string', Rule::in(array_keys($this->loyaltyService->tiers()))],
-            'discount_type' => ['required', Rule::in([
-                PricingRule::TYPE_PERCENTAGE,
-                PricingRule::TYPE_FIXED_AMOUNT,
-                PricingRule::TYPE_FIXED_PRICE,
-            ])],
-            'discount_value' => ['required', 'numeric', 'min:0.01'],
+            'discount_type' => $discountTypeRules,
+            'discount_value' => $discountValueRules,
             'price_basis' => ['nullable', Rule::in([
                 PricingRule::PRICE_BASIS_SELL_PRICE,
                 PricingRule::PRICE_BASIS_BUY_PRICE,
@@ -475,6 +490,12 @@ class PricingRuleController extends Controller
                 ->sortBy('min_qty')
                 ->values()
                 ->all();
+
+            $firstBreak = collect($validated['qty_breaks'])->first();
+            $validated['discount_type'] = $validated['discount_type'] ?? data_get($firstBreak, 'discount_type', PricingRule::TYPE_FIXED_PRICE);
+            $validated['discount_value'] = $validated['discount_value'] !== null && $validated['discount_value'] !== ''
+                ? (float) $validated['discount_value']
+                : (float) data_get($firstBreak, 'discount_value', 0);
         }
 
         $validated['bundle_items'] = collect($validated['bundle_items'] ?? [])
@@ -497,6 +518,7 @@ class PricingRuleController extends Controller
 
         if ($validated['kind'] === PricingRule::KIND_BUNDLE_PRICE) {
             $validated['discount_type'] = PricingRule::TYPE_FIXED_PRICE;
+            $validated['discount_value'] = (float) $validated['discount_value'];
         }
 
         if ($validated['kind'] === PricingRule::KIND_BUY_X_GET_Y) {
@@ -585,59 +607,6 @@ class PricingRuleController extends Controller
             'bundle_items' => $rule->bundleItems->map->only(['product_id', 'quantity', 'sort_order'])->values()->all(),
             'buy_get_items' => $rule->buyGetItems->map->only(['product_id', 'role', 'quantity', 'sort_order'])->values()->all(),
         ];
-    }
-
-    private function buildPreviewCarts(PricingRule $rule): Collection
-    {
-        $products = match ($rule->kind) {
-            PricingRule::KIND_BUNDLE_PRICE => Product::query()
-                ->whereIn('id', $rule->bundleItems->pluck('product_id'))
-                ->get(),
-            PricingRule::KIND_BUY_X_GET_Y => Product::query()
-                ->whereIn('id', $rule->buyGetItems->pluck('product_id'))
-                ->get(),
-            PricingRule::TARGET_PRODUCT => Product::query()
-                ->whereKey($rule->product_id)
-                ->get(),
-            PricingRule::TARGET_CATEGORY => Product::query()
-                ->where('category_id', $rule->category_id)
-                ->orderBy('title')
-                ->limit(3)
-                ->get(),
-            default => Product::query()->orderBy('title')->limit(3)->get(),
-        };
-
-        return $products
-            ->values()
-            ->map(function (Product $product, int $index) use ($rule) {
-                $qty = $this->previewQuantityForRule($rule, $product);
-                $cart = new Cart([
-                    'id' => -($index + 1),
-                    'product_id' => $product->id,
-                    'qty' => $qty,
-                    'price' => (int) $product->sell_price * $qty,
-                ]);
-                $cart->setRelation('product', $product);
-
-                return $cart;
-            });
-    }
-
-    private function previewQuantityForRule(PricingRule $rule, Product $product): int
-    {
-        if ($rule->kind === PricingRule::KIND_QTY_BREAK) {
-            return max(1, (int) ($rule->preview_quantity_multiplier ?: $rule->qtyBreaks->max('min_qty') ?: 1));
-        }
-
-        if ($rule->kind === PricingRule::KIND_BUNDLE_PRICE) {
-            return (int) ($rule->bundleItems->firstWhere('product_id', $product->id)?->quantity ?? 1);
-        }
-
-        if ($rule->kind === PricingRule::KIND_BUY_X_GET_Y) {
-            return (int) ($rule->buyGetItems->where('product_id', $product->id)->sum('quantity') ?: 1);
-        }
-
-        return max(1, (int) ($rule->preview_quantity_multiplier ?: 1));
     }
 
     private function assertRuleVisibleForWorkspace(Request $request, PricingRule $pricingRule): void

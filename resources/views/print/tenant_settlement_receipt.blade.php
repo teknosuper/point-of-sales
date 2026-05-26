@@ -152,6 +152,14 @@
                         <td>{{ $formatMoney($allocation->total_discount_total ?? 0) }}</td>
                     </tr>
                     <tr>
+                        <th>Potongan Tenant</th>
+                        <td>{{ $formatMoney($allocation->tenant_discount_total ?? 0) }}</td>
+                    </tr>
+                    <tr>
+                        <th>Potongan Owner</th>
+                        <td>{{ $formatMoney($allocation->owner_discount_total ?? 0) }}</td>
+                    </tr>
+                    <tr>
                         <th>Revenue Tenant</th>
                         <td>{{ $formatMoney($allocation->grand_total ?? 0) }}</td>
                     </tr>

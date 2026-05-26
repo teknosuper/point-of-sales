@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { Head, useForm } from "@inertiajs/react";
 import axios from "axios";
+import toast from "react-hot-toast";
 import Button from "@/Components/Dashboard/Button";
 import {
     IconArrowLeft,
@@ -47,6 +48,41 @@ function InputError({ message }) {
     return <p className="mt-1 text-xs text-rose-500">{message}</p>;
 }
 
+const formatCurrency = (value) =>
+    `Rp ${Number(value || 0).toLocaleString("id-ID")}`;
+
+const firstErrorByPrefix = (errors, prefix) =>
+    Object.entries(errors).find(([key]) => key === prefix || key.startsWith(`${prefix}.`))?.[1] ?? null;
+
+const buildRulePayload = (data) => {
+    const payload = {
+        ...data,
+        qty_breaks: [],
+        bundle_items: [],
+        buy_get_items: [],
+    };
+
+    if (data.kind === "qty_break") {
+        payload.qty_breaks = data.qty_breaks;
+        payload.bundle_items = [];
+        payload.buy_get_items = [];
+    }
+
+    if (data.kind === "bundle_price") {
+        payload.bundle_items = data.bundle_items;
+        payload.qty_breaks = [];
+        payload.buy_get_items = [];
+    }
+
+    if (data.kind === "buy_x_get_y") {
+        payload.buy_get_items = data.buy_get_items;
+        payload.qty_breaks = [];
+        payload.bundle_items = [];
+    }
+
+    return payload;
+};
+
 function CardSection({ title, description, children }) {
     return (
         <section className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
@@ -77,7 +113,7 @@ export default function Form({
 }) {
     const isEdit = mode === "edit";
     const forcedPriceBasis = pricingContext?.forced_price_basis || null;
-    const { data, setData, post, put, processing, errors } = useForm({
+    const { data, setData, post, put, processing, errors, transform } = useForm({
         name: rule?.name ?? "",
         kind: rule?.kind ?? "standard_discount",
         is_active: Boolean(rule?.is_active ?? true),
@@ -139,16 +175,44 @@ export default function Form({
         loading: false,
         data: null,
     });
+    const validationMessages = Object.values(errors || {});
+    const bundleError =
+        firstErrorByPrefix(errors, "bundle_items") ||
+        firstErrorByPrefix(errors, "bundle_items.*");
+    const buyGetError =
+        firstErrorByPrefix(errors, "buy_get_items") ||
+        firstErrorByPrefix(errors, "buy_get_items.*");
+    const qtyBreakError =
+        firstErrorByPrefix(errors, "qty_breaks") ||
+        firstErrorByPrefix(errors, "qty_breaks.*");
+    const previewSummary = previewState.data?.summary ?? {};
+    const previewItems = previewState.data?.items ?? [];
+    const previewDiagnostics = previewState.data?.diagnostics ?? null;
+    const previewBundleNotApplied =
+        data.kind === "bundle_price" &&
+        previewState.data &&
+        Number(previewSummary.promo_discount_total || 0) <= 0 &&
+        Number(data.discount_value || 0) >= Number(previewSummary.base_subtotal || 0);
 
     const submit = (event) => {
         event.preventDefault();
+        const payload = buildRulePayload(data);
+        transform(() => payload);
+
+        const options = {
+            preserveScroll: true,
+            onError: () => {
+                toast.error("Rule belum tersimpan. Periksa field yang ditandai.");
+                window.scrollTo({ top: 0, behavior: "smooth" });
+            },
+        };
 
         if (isEdit) {
-            put(route("pricing-rules.update", rule.id));
+            put(route("pricing-rules.update", rule.id), options);
             return;
         }
 
-        post(route("pricing-rules.store"));
+        post(route("pricing-rules.store"), options);
     };
 
     const updateArrayRow = (key, index, field, value) => {
@@ -172,7 +236,10 @@ export default function Form({
         setPreviewState({ loading: true, data: null });
 
         try {
-            const response = await axios.post(route("pricing-rules.preview"), data);
+            const response = await axios.post(
+                route("pricing-rules.preview"),
+                buildRulePayload(data)
+            );
             setPreviewState({ loading: false, data: response.data?.data ?? null });
         } catch {
             setPreviewState({ loading: false, data: null });
@@ -233,6 +300,22 @@ export default function Form({
                 </div>
 
                 <form onSubmit={submit} className="space-y-6">
+                    {validationMessages.length > 0 && (
+                        <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-200">
+                            <p className="font-semibold">Rule belum bisa disimpan.</p>
+                            <p className="mt-1">
+                                Periksa field yang masih belum valid di form ini.
+                            </p>
+                            <ul className="mt-3 list-disc space-y-1 pl-5">
+                                {Object.entries(errors).map(([key, message]) => (
+                                    <li key={key}>
+                                        <span className="font-medium">{key}</span>: {message}
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    )}
+
                     <CardSection
                         title="Informasi Rule"
                         description="Identitas dasar rule, jenis promo, dan prioritas penerapan."
@@ -284,6 +367,7 @@ export default function Form({
                                     }
                                     className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
                                 />
+                                <InputError message={errors.priority} />
                             </div>
                             <div>
                                 <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
@@ -605,10 +689,10 @@ export default function Form({
                                         }
                                         className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
                                     />
-                                    <InputError message={errors.discount_value} />
-                                </div>
+                                <InputError message={errors.discount_value} />
                             </div>
-                        </CardSection>
+                        </div>
+                    </CardSection>
                     )}
 
                     {data.kind === "qty_break" && (
@@ -678,6 +762,14 @@ export default function Form({
                                         >
                                             <IconTrash size={16} />
                                         </button>
+                                        <div className="md:col-span-4">
+                                            <InputError
+                                                message={firstErrorByPrefix(
+                                                    errors,
+                                                    `qty_breaks.${index}`
+                                                )}
+                                            />
+                                        </div>
                                     </div>
                                 ))}
                                 <button
@@ -695,7 +787,7 @@ export default function Form({
                                     <IconPlus size={16} />
                                     Tambah Break
                                 </button>
-                                <InputError message={errors.qty_breaks} />
+                                <InputError message={qtyBreakError} />
                             </div>
                         </CardSection>
                     )}
@@ -766,6 +858,14 @@ export default function Form({
                                         >
                                             <IconTrash size={16} />
                                         </button>
+                                        <div className="md:col-span-3">
+                                            <InputError
+                                                message={firstErrorByPrefix(
+                                                    errors,
+                                                    `bundle_items.${index}`
+                                                )}
+                                            />
+                                        </div>
                                     </div>
                                 ))}
                                 <button
@@ -782,6 +882,7 @@ export default function Form({
                                     <IconPlus size={16} />
                                     Tambah Item Bundle
                                 </button>
+                                <InputError message={bundleError} />
                             </div>
                         </CardSection>
                     )}
@@ -852,6 +953,14 @@ export default function Form({
                                         >
                                             <IconTrash size={16} />
                                         </button>
+                                        <div className="md:col-span-4">
+                                            <InputError
+                                                message={firstErrorByPrefix(
+                                                    errors,
+                                                    `buy_get_items.${index}`
+                                                )}
+                                            />
+                                        </div>
                                     </div>
                                 ))}
                                 <button
@@ -869,6 +978,7 @@ export default function Form({
                                     <IconPlus size={16} />
                                     Tambah Item Buy/Get
                                 </button>
+                                <InputError message={buyGetError} />
                             </div>
                         </CardSection>
                     )}
@@ -955,7 +1065,7 @@ export default function Form({
                                             Base subtotal
                                         </p>
                                         <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-white">
-                                            Rp {Number(previewState.data.summary.base_subtotal || 0).toLocaleString("id-ID")}
+                                            {formatCurrency(previewSummary.base_subtotal)}
                                         </p>
                                     </div>
                                     <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800">
@@ -963,7 +1073,10 @@ export default function Form({
                                             Promo discount
                                         </p>
                                         <p className="mt-1 text-lg font-semibold text-rose-600 dark:text-rose-300">
-                                            Rp {Number(previewState.data.summary.promo_discount_total || 0).toLocaleString("id-ID")}
+                                            {formatCurrency(previewSummary.promo_discount_total)}
+                                        </p>
+                                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                            Tenant {formatCurrency(previewSummary.tenant_discount_total)} • Owner {formatCurrency(previewSummary.owner_discount_total)}
                                         </p>
                                     </div>
                                     <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800">
@@ -971,10 +1084,99 @@ export default function Form({
                                             After promo
                                         </p>
                                         <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-white">
-                                            Rp {Number(previewState.data.summary.subtotal_after_promo || 0).toLocaleString("id-ID")}
+                                            {formatCurrency(previewSummary.subtotal_after_promo)}
                                         </p>
                                     </div>
                                 </div>
+
+                                {previewBundleNotApplied && (
+                                    <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100">
+                                        Harga bundle saat ini <span className="font-semibold">{formatCurrency(data.discount_value)}</span>, sedangkan subtotal contoh yang terbaca engine hanya <span className="font-semibold">{formatCurrency(previewSummary.base_subtotal)}</span>. Karena paket tidak lebih hemat, promo bundle tidak diterapkan pada preview ini.
+                                    </div>
+                                )}
+
+                                {previewItems.length > 0 && (
+                                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800">
+                                        <h3 className="mb-3 text-sm font-semibold text-slate-900 dark:text-white">
+                                            Item Preview
+                                        </h3>
+                                        <div className="space-y-2">
+                                            {previewItems.map((item) => (
+                                                <div
+                                                    key={`${item.cart_id}-${item.product_id}`}
+                                                    className="rounded-xl bg-white px-4 py-3 text-sm dark:bg-slate-900"
+                                                >
+                                                    <div className="flex items-start justify-between gap-3">
+                                                        <div>
+                                                            <p className="font-medium text-slate-800 dark:text-slate-100">
+                                                                {item.product_title}
+                                                            </p>
+                                                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                                {item.qty} x {formatCurrency(item.base_unit_price)}
+                                                            </p>
+                                                            {item.pricing_group_label ? (
+                                                                <p className="mt-1 text-xs text-primary-600 dark:text-primary-300">
+                                                                    {item.pricing_group_label}
+                                                                </p>
+                                                            ) : null}
+                                                            {(Number(item.tenant_discount_total || 0) > 0 || Number(item.owner_discount_total || 0) > 0) ? (
+                                                                <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                                                                    Tenant cut {formatCurrency(item.tenant_discount_total || 0)} • Owner cut {formatCurrency(item.owner_discount_total || 0)}
+                                                                </p>
+                                                            ) : null}
+                                                        </div>
+                                                        <div className="text-right">
+                                                            <p className="font-semibold text-slate-900 dark:text-white">
+                                                                {formatCurrency(item.line_total)}
+                                                            </p>
+                                                            {Number(item.line_discount_total || 0) > 0 ? (
+                                                                <p className="mt-1 text-xs text-rose-600 dark:text-rose-300">
+                                                                    Hemat {formatCurrency(item.line_discount_total)}
+                                                                </p>
+                                                            ) : null}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {previewDiagnostics && (
+                                    <details className="rounded-xl border border-dashed border-slate-300 bg-white p-4 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+                                        <summary className="cursor-pointer font-semibold text-slate-900 dark:text-white">
+                                            Diagnostik Preview
+                                        </summary>
+                                        <div className="mt-3 space-y-1">
+                                            <p>
+                                                Kind: <span className="font-medium">{previewDiagnostics.kind}</span>
+                                            </p>
+                                            <p>
+                                                Basis harga: <span className="font-medium">{previewDiagnostics.price_basis}</span>
+                                            </p>
+                                            <p>
+                                                Draft discount: <span className="font-medium">{formatCurrency(previewDiagnostics.draft_discount_value)}</span>
+                                            </p>
+                                            <p>
+                                                Cart count: <span className="font-medium">{previewDiagnostics.cart_count}</span>
+                                            </p>
+                                        </div>
+                                        {Array.isArray(previewDiagnostics.cart_items) && previewDiagnostics.cart_items.length > 0 && (
+                                            <div className="mt-3 space-y-2">
+                                                {previewDiagnostics.cart_items.map((item, index) => (
+                                                    <div key={`diag-${index}`} className="rounded-lg bg-slate-50 px-3 py-2 dark:bg-slate-800">
+                                                        <p className="font-medium text-slate-800 dark:text-slate-100">
+                                                            {item.product_title || `Product #${item.product_id}`}
+                                                        </p>
+                                                        <p>
+                                                            qty {item.qty} • sell {formatCurrency(item.sell_price)} • buy {formatCurrency(item.buy_price)}
+                                                        </p>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </details>
+                                )}
 
                                 {previewGroups.length > 0 && (
                                     <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800">
@@ -991,7 +1193,7 @@ export default function Form({
                                                         {group.label}
                                                     </span>
                                                     <span className="text-rose-600 dark:text-rose-300">
-                                                        -Rp {Number(group.discount_total || 0).toLocaleString("id-ID")}
+                                                        -{formatCurrency(group.discount_total)}
                                                     </span>
                                                 </div>
                                             ))}

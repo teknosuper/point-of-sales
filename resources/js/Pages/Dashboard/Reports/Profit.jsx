@@ -414,9 +414,16 @@ const ProfitReport = ({
         {
             title: "Profit Tenant",
             value: formatCurrency(summary?.tenant_profit_total ?? 0),
-            description: "Akumulasi profit dari alokasi tenant",
+            description: `Diskon tenant ${formatCurrency(summary?.tenant_discount_total ?? 0)}`,
             icon: <IconUsers />,
             tone: "violet",
+        },
+        {
+            title: "Diskon Owner",
+            value: formatCurrency(summary?.owner_discount_total ?? 0),
+            description: "Bagian promo yang mengurangi sisi owner",
+            icon: <IconPercentage />,
+            tone: "rose",
         },
         {
             title: "Margin",
@@ -1049,42 +1056,97 @@ const ProfitReport = ({
                                     </thead>
                                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                                         {rows.map((trx, index) => (
-                                            <tr
-                                                key={trx.id}
-                                                className="hover:bg-slate-50 dark:hover:bg-slate-800/50"
-                                            >
-                                                <td className="px-4 py-4">
-                                                    <p className="font-semibold text-slate-900 dark:text-white">
-                                                        {trx.invoice}
-                                                    </p>
-                                                    <p className="text-xs text-slate-500 dark:text-slate-400">
-                                                        No {index + 1 + (currentPage - 1) * perPage} • {trx.created_at}
-                                                    </p>
-                                                </td>
-                                                <td className="px-4 py-4">
-                                                    <p className="text-sm font-medium text-slate-900 dark:text-white">
-                                                        {trx.cashier?.name ?? "-"}
-                                                    </p>
-                                                    <p className="text-xs text-slate-500 dark:text-slate-400">
-                                                        {trx.customer?.name ?? "Umum / Walk-in"}
-                                                    </p>
-                                                </td>
-                                                <td className="px-4 py-4 text-right text-sm text-slate-900 dark:text-white">
-                                                    {formatCurrency(trx.grand_total)}
-                                                </td>
-                                                <td className="px-4 py-4 text-right text-sm text-slate-700 dark:text-slate-300">
-                                                    {formatCurrency(trx.base_cost_total)}
-                                                </td>
-                                                <td className="px-4 py-4 text-right text-sm font-semibold text-amber-600 dark:text-amber-400">
-                                                    {formatCurrency(trx.markup_total)}
-                                                </td>
-                                                <td className="px-4 py-4 text-right text-sm text-violet-600 dark:text-violet-400">
-                                                    {formatCurrency(trx.tenant_revenue_total)}
-                                                </td>
-                                                <td className="px-4 py-4 text-right text-sm font-semibold text-emerald-600 dark:text-emerald-400">
-                                                    {formatCurrency(trx.total_profit ?? 0)}
-                                                </td>
-                                            </tr>
+                                            <React.Fragment key={trx.id}>
+                                                <tr className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                                                    <td className="px-4 py-4">
+                                                        <p className="font-semibold text-slate-900 dark:text-white">
+                                                            {trx.invoice}
+                                                        </p>
+                                                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                                                            No {index + 1 + (currentPage - 1) * perPage} • {trx.created_at}
+                                                        </p>
+                                                    </td>
+                                                    <td className="px-4 py-4">
+                                                        <p className="text-sm font-medium text-slate-900 dark:text-white">
+                                                            {trx.cashier?.name ?? "-"}
+                                                        </p>
+                                                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                                                            {trx.customer?.name ?? "Umum / Walk-in"}
+                                                        </p>
+                                                    </td>
+                                                    <td className="px-4 py-4 text-right text-sm text-slate-900 dark:text-white">
+                                                        <div>{formatCurrency(trx.grand_total)}</div>
+                                                        <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                                                            Sebelum promo {formatCurrency(trx.pre_promo_subtotal ?? trx.grand_total ?? 0)}
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-4 py-4 text-right text-sm text-slate-700 dark:text-slate-300">
+                                                        {formatCurrency(trx.base_cost_total)}
+                                                    </td>
+                                                    <td className="px-4 py-4 text-right text-sm font-semibold text-amber-600 dark:text-amber-400">
+                                                        {formatCurrency(trx.markup_total)}
+                                                    </td>
+                                                    <td className="px-4 py-4 text-right text-sm text-violet-600 dark:text-violet-400">
+                                                        <div>{formatCurrency(trx.tenant_revenue_total)}</div>
+                                                        <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                                                            Diskon {formatCurrency(trx.tenant_discount_total ?? 0)}
+                                                        </div>
+                                                        <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                                                            Net {formatCurrency(trx.tenant_net_total ?? 0)}
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-4 py-4 text-right text-sm font-semibold text-emerald-600 dark:text-emerald-400">
+                                                        <div>{formatCurrency(trx.total_profit ?? 0)}</div>
+                                                        <div className="text-[11px] font-normal text-slate-500 dark:text-slate-400">
+                                                            Owner cut {formatCurrency(trx.owner_discount_total ?? 0)}
+                                                        </div>
+                                                        <div className="text-[11px] font-normal text-slate-500 dark:text-slate-400">
+                                                            Owner net {formatCurrency(trx.owner_net_total ?? 0)}
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                                {Array.isArray(trx.detail_items) && trx.detail_items.length > 0 ? (
+                                                    <tr className="bg-slate-50/70 dark:bg-slate-950/30">
+                                                        <td colSpan={7} className="px-4 pb-4 pt-0">
+                                                            <div className="rounded-2xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
+                                                                <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                                                    Rincian Item
+                                                                </div>
+                                                                <div className="space-y-2">
+                                                                    {trx.detail_items.map((item) => (
+                                                                        <div
+                                                                            key={item.id}
+                                                                            className="grid gap-2 rounded-xl border border-slate-100 px-3 py-2 text-xs dark:border-slate-800 md:grid-cols-[1.3fr,0.7fr,0.8fr,0.8fr]"
+                                                                        >
+                                                                            <div>
+                                                                                <div className="font-semibold text-slate-800 dark:text-slate-200">
+                                                                                    {item.product_name}
+                                                                                </div>
+                                                                                <div className="text-slate-500 dark:text-slate-400">
+                                                                                    {item.qty} item
+                                                                                    {item.pricing_rule_name ? ` • ${item.pricing_rule_name}` : ""}
+                                                                                </div>
+                                                                            </div>
+                                                                            <div className="text-slate-600 dark:text-slate-300">
+                                                                                <div>Sblm promo {formatCurrency(item.pre_promo_total ?? item.line_total ?? 0)}</div>
+                                                                                <div>Line total {formatCurrency(item.line_total ?? 0)}</div>
+                                                                            </div>
+                                                                            <div className="text-slate-600 dark:text-slate-300">
+                                                                                <div>Tenant cut {formatCurrency(item.tenant_discount_total ?? 0)}</div>
+                                                                                <div>Tenant net {formatCurrency(item.tenant_net_total ?? 0)}</div>
+                                                                            </div>
+                                                                            <div className="text-slate-600 dark:text-slate-300">
+                                                                                <div>Owner cut {formatCurrency(item.owner_discount_total ?? 0)}</div>
+                                                                                <div>Base cost {formatCurrency(item.base_cost_total ?? 0)}</div>
+                                                                            </div>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                ) : null}
+                                            </React.Fragment>
                                         ))}
                                     </tbody>
                                 </table>

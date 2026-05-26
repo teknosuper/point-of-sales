@@ -81,6 +81,17 @@ class PricingService
         return $this->buildPreview($cartCollection, $customer, $rules->values(), $outletId);
     }
 
+    public function previewDraftRule(PricingRule $rule, ?Customer $customer = null, ?int $outletId = null): array
+    {
+        $carts = $this->buildPreviewCartsForRule($rule);
+        $preview = $this->buildPreview($carts, $customer, collect([$rule]), $outletId);
+
+        return [
+            ...$preview,
+            'diagnostics' => $this->buildDraftDiagnostics($rule, $carts, $preview),
+        ];
+    }
+
     public function previewProducts(iterable $products, ?Customer $customer = null, ?CarbonInterface $at = null, ?int $outletId = null): Collection
     {
         $rules = $this->getActiveRules($at, $outletId);
@@ -126,19 +137,29 @@ class PricingService
             ->first();
 
         if ($directCandidates) {
-            $baseUnitPrice = (int) $directCandidates['base_unit_price'];
+            $components = $this->productPricingComponents($product, $quantity);
+            $baseUnitPrice = (int) $components['customer_base_unit_price'];
             $effectiveUnitPrice = (int) round(
-                $directCandidates['line_total'] / max(1, (int) $directCandidates['quantity'])
+                $directCandidates['line_total'] / max(1, (int) $quantity)
             );
             $rule = $directCandidates['rule'];
 
             return [
                 'base_unit_price' => $baseUnitPrice,
+                'customer_base_unit_price' => $baseUnitPrice,
+                'tenant_base_unit_price' => (int) $components['tenant_base_unit_price'],
+                'owner_markup_unit_price' => (int) $components['owner_markup_unit_price'],
                 'effective_unit_price' => $effectiveUnitPrice,
-                'quantity' => (int) $directCandidates['quantity'],
-                'line_base_total' => (int) $directCandidates['line_base_total'],
+                'quantity' => (int) $quantity,
+                'line_base_total' => (int) $components['customer_base_total'],
                 'line_total' => (int) $directCandidates['line_total'],
                 'line_discount_total' => (int) $directCandidates['line_discount'],
+                'tenant_base_total' => (int) $components['tenant_base_total'],
+                'owner_base_total' => (int) $components['owner_base_total'],
+                'tenant_discount_total' => (int) ($directCandidates['tenant_discount_total'] ?? 0),
+                'owner_discount_total' => (int) ($directCandidates['owner_discount_total'] ?? 0),
+                'tenant_net_total' => max(0, (int) $components['tenant_base_total'] - (int) ($directCandidates['tenant_discount_total'] ?? 0)),
+                'owner_net_total' => max(0, (int) $components['owner_base_total'] - (int) ($directCandidates['owner_discount_total'] ?? 0)),
                 'pricing_rule' => $this->serializeRule($rule),
             ];
         }
@@ -154,13 +175,24 @@ class PricingService
             ])
             ->first();
 
+        $components = $this->productPricingComponents($product, $quantity);
+
         return [
-            'base_unit_price' => $this->resolveBaseUnitPrice($product, null),
-            'effective_unit_price' => $this->resolveBaseUnitPrice($product, null),
+            'base_unit_price' => (int) $components['customer_base_unit_price'],
+            'customer_base_unit_price' => (int) $components['customer_base_unit_price'],
+            'tenant_base_unit_price' => (int) $components['tenant_base_unit_price'],
+            'owner_markup_unit_price' => (int) $components['owner_markup_unit_price'],
+            'effective_unit_price' => (int) $components['customer_base_unit_price'],
             'quantity' => $quantity,
-            'line_base_total' => $this->resolveBaseUnitPrice($product, null) * $quantity,
-            'line_total' => $this->resolveBaseUnitPrice($product, null) * $quantity,
+            'line_base_total' => (int) $components['customer_base_total'],
+            'line_total' => (int) $components['customer_base_total'],
             'line_discount_total' => 0,
+            'tenant_base_total' => (int) $components['tenant_base_total'],
+            'owner_base_total' => (int) $components['owner_base_total'],
+            'tenant_discount_total' => 0,
+            'owner_discount_total' => 0,
+            'tenant_net_total' => (int) $components['tenant_base_total'],
+            'owner_net_total' => (int) $components['owner_base_total'],
             'pricing_rule' => $complexRule ? $this->serializeRule($complexRule, false) : null,
         ];
     }
@@ -178,22 +210,30 @@ class PricingService
     private function buildPreview(Collection $carts, ?Customer $customer, Collection $rules, ?int $outletId = null): array
     {
         $items = $carts->map(function (Cart $cart) {
-            $baseUnitPrice = $this->resolveBaseUnitPrice($cart->product, null);
+            $components = $this->productPricingComponents($cart->product, (int) $cart->qty);
             $modifierTotal = (int) $cart->modifiers->sum('total_price');
-            $baseProductTotal = $baseUnitPrice * (int) $cart->qty;
 
             return [
                 'cart_id' => $cart->id,
                 'product_id' => $cart->product_id,
                 'product_title' => $cart->product?->title,
                 'qty' => (int) $cart->qty,
-                'base_unit_price' => $baseUnitPrice,
-                'effective_unit_price' => $baseUnitPrice,
-                'line_base_total' => $baseProductTotal + $modifierTotal,
-                'line_total' => $baseProductTotal,
+                'base_unit_price' => (int) $components['customer_base_unit_price'],
+                'customer_base_unit_price' => (int) $components['customer_base_unit_price'],
+                'tenant_base_unit_price' => (int) $components['tenant_base_unit_price'],
+                'owner_markup_unit_price' => (int) $components['owner_markup_unit_price'],
+                'effective_unit_price' => (int) $components['customer_base_unit_price'],
+                'line_base_total' => (int) $components['customer_base_total'] + $modifierTotal,
+                'line_total' => (int) $components['customer_base_total'],
                 'line_discount_total' => 0,
                 'modifier_total' => $modifierTotal,
-                'base_product_total' => $baseProductTotal,
+                'base_product_total' => (int) $components['customer_base_total'],
+                'tenant_base_total' => (int) $components['tenant_base_total'],
+                'owner_base_total' => (int) $components['owner_base_total'],
+                'tenant_discount_total' => 0,
+                'owner_discount_total' => 0,
+                'tenant_net_total' => (int) $components['tenant_base_total'],
+                'owner_net_total' => (int) $components['owner_base_total'],
                 'pricing_rule' => null,
                 'pricing_group_key' => null,
                 'pricing_group_label' => null,
@@ -259,6 +299,10 @@ class PricingService
             $currentItem = $items->get($cartId);
             $currentItem['line_total'] -= (int) $candidate['line_discount'];
             $currentItem['line_discount_total'] += (int) $candidate['line_discount'];
+            $currentItem['tenant_discount_total'] += (int) $candidate['tenant_discount_total'];
+            $currentItem['owner_discount_total'] += (int) $candidate['owner_discount_total'];
+            $currentItem['tenant_net_total'] = max(0, (int) $currentItem['tenant_base_total'] - (int) $currentItem['tenant_discount_total']);
+            $currentItem['owner_net_total'] = max(0, (int) $currentItem['owner_base_total'] - (int) $currentItem['owner_discount_total']);
             $currentItem['pricing_rule'] = $this->serializeRule($candidate['rule']);
             $currentItem['applied_rules'][] = $this->serializeRule($candidate['rule']);
             $currentItem['pricing_group_key'] ??= 'rule-'.$candidate['rule']->id;
@@ -272,6 +316,8 @@ class PricingService
             $lineTotal += $modifierTotal;
             $item['line_total'] = $lineTotal;
             $item['line_discount_total'] = max(0, (int) $item['line_discount_total']);
+            $item['owner_base_total'] = max(0, (int) $item['owner_base_total']) + $modifierTotal;
+            $item['owner_net_total'] = max(0, (int) $item['owner_net_total']) + $modifierTotal;
             $item['effective_unit_price'] = (int) round($lineTotal / max(1, (int) $item['qty']));
 
             return $item;
@@ -279,6 +325,8 @@ class PricingService
 
         $baseSubtotal = (int) $items->sum('line_base_total');
         $promoDiscountTotal = (int) $items->sum('line_discount_total');
+        $tenantDiscountTotal = (int) $items->sum('tenant_discount_total');
+        $ownerDiscountTotal = (int) $items->sum('owner_discount_total');
         $subtotalAfterPromo = max(0, $baseSubtotal - $promoDiscountTotal);
 
         return [
@@ -298,6 +346,8 @@ class PricingService
             'summary' => [
                 'base_subtotal' => $baseSubtotal,
                 'promo_discount_total' => $promoDiscountTotal,
+                'tenant_discount_total' => $tenantDiscountTotal,
+                'owner_discount_total' => $ownerDiscountTotal,
                 'subtotal_after_promo' => $subtotalAfterPromo,
             ],
         ];
@@ -339,6 +389,10 @@ class PricingService
                 $currentItem = $items->get($cartId);
                 $currentItem['line_total'] -= (int) $participant['discount_total'];
                 $currentItem['line_discount_total'] += (int) $participant['discount_total'];
+                $currentItem['tenant_discount_total'] += (int) ($participant['tenant_discount_total'] ?? 0);
+                $currentItem['owner_discount_total'] += (int) ($participant['owner_discount_total'] ?? 0);
+                $currentItem['tenant_net_total'] = max(0, (int) $currentItem['tenant_base_total'] - (int) $currentItem['tenant_discount_total']);
+                $currentItem['owner_net_total'] = max(0, (int) $currentItem['owner_base_total'] - (int) $currentItem['owner_discount_total']);
                 $currentItem['pricing_group_key'] = $candidate['group_key'];
                 $currentItem['pricing_group_label'] = $candidate['group_label'];
                 $currentItem['pricing_rule'] = $this->serializeRule($candidate['rule']);
@@ -380,11 +434,18 @@ class PricingService
                 return null;
             }
 
-            $participants = array_merge($participants, $matched);
+            $participants = array_merge(
+                $participants,
+                array_map(function (array $participant) use ($rule) {
+                    $participant['basis_total'] = $this->participantBasisTotal($rule, $participant);
+
+                    return $participant;
+                }, $matched)
+            );
         }
 
         foreach ($participants as $participant) {
-            $baseTotal += (int) $participant['base_total'];
+            $baseTotal += (int) $participant['basis_total'];
         }
 
         $bundlePrice = (int) round((float) $rule->discount_value);
@@ -394,7 +455,12 @@ class PricingService
 
         $allocations = $this->allocateDiscount(
             $participants,
-            $baseTotal - $bundlePrice
+            $baseTotal - $bundlePrice,
+            'basis_total'
+        );
+        $allocations = array_map(
+            fn (array $participant) => $this->applyParticipantDiscountSplit($participant, $rule, (int) $participant['discount_total']),
+            $allocations
         );
 
         return [
@@ -437,7 +503,10 @@ class PricingService
             }
 
             foreach ($matched as $match) {
+                $match['basis_total'] = $this->participantBasisTotal($rule, $match);
                 $match['discount_total'] = 0;
+                $match['tenant_discount_total'] = 0;
+                $match['owner_discount_total'] = 0;
                 $participants[] = $match;
             }
         }
@@ -456,9 +525,11 @@ class PricingService
             }
 
             foreach ($matched as $match) {
-                $match['discount_total'] = (int) $match['base_total'];
-                $rewardParticipants[] = $match;
-                $participants[] = $match;
+                $match['basis_total'] = $this->participantBasisTotal($rule, $match);
+                $basisDiscount = (int) $match['basis_total'];
+                $discounted = $this->applyParticipantDiscountSplit($match, $rule, $basisDiscount);
+                $rewardParticipants[] = $discounted;
+                $participants[] = $discounted;
             }
         }
 
@@ -508,16 +579,19 @@ class PricingService
                 'product_title' => $item['product_title'],
                 'quantity' => $take,
                 'base_total' => (int) $item['base_unit_price'] * $take,
+                'tenant_base_total' => (int) $item['tenant_base_unit_price'] * $take,
+                'owner_base_total' => (int) $item['owner_markup_unit_price'] * $take,
             ];
+            $remainingQuantities[$cartId] = max(0, $availableQty - $take);
             $required -= $take;
         }
 
         return $required === 0 ? $matches : null;
     }
 
-    private function allocateDiscount(array $participants, int $discountTotal): array
+    private function allocateDiscount(array $participants, int $discountTotal, string $weightKey = 'base_total'): array
     {
-        $baseTotal = max(1, (int) collect($participants)->sum('base_total'));
+        $baseTotal = max(1, (int) collect($participants)->sum($weightKey));
         $allocated = [];
         $running = 0;
         $lastIndex = array_key_last($participants);
@@ -525,8 +599,8 @@ class PricingService
         foreach ($participants as $index => $participant) {
             $share = $index === $lastIndex
                 ? $discountTotal - $running
-                : (int) floor($discountTotal * ((int) $participant['base_total'] / $baseTotal));
-            $share = max(0, min((int) $participant['base_total'], $share));
+                : (int) floor($discountTotal * ((int) $participant[$weightKey] / $baseTotal));
+            $share = max(0, min((int) $participant[$weightKey], $share));
             $running += $share;
             $participant['discount_total'] = $share;
             $allocated[] = $participant;
@@ -541,8 +615,9 @@ class PricingService
             return null;
         }
 
-        $baseUnitPrice = $this->resolveBaseUnitPrice($product, $rule);
-        $lineBaseTotal = $baseUnitPrice * $quantity;
+        $components = $this->productPricingComponents($product, $quantity);
+        $basisUnitPrice = $this->resolveBaseUnitPrice($product, $rule);
+        $lineBaseTotal = (int) $components['customer_base_total'];
 
         if ($rule->kind === PricingRule::KIND_QTY_BREAK) {
             $break = $rule->qtyBreaks
@@ -561,34 +636,141 @@ class PricingService
             $discount = $this->resolveLineDiscount(
                 $break->discount_type,
                 (float) $break->discount_value,
-                $baseUnitPrice,
+                $basisUnitPrice,
                 $quantity
+            );
+            ['tenant_discount_total' => $tenantDiscountTotal, 'owner_discount_total' => $ownerDiscountTotal] = $this->splitDiscountBetweenTenantAndOwner(
+                $rule,
+                $discount,
+                (int) $components['tenant_base_total'],
+                (int) $components['owner_base_total']
             );
 
             return [
                 'rule' => $rule,
                 'quantity' => $quantity,
-                'base_unit_price' => $baseUnitPrice,
+                'base_unit_price' => (int) $components['customer_base_unit_price'],
                 'line_base_total' => $lineBaseTotal,
                 'line_total' => max(0, $lineBaseTotal - $discount),
                 'line_discount' => $discount,
+                'tenant_discount_total' => $tenantDiscountTotal,
+                'owner_discount_total' => $ownerDiscountTotal,
             ];
         }
 
         $discount = $this->resolveLineDiscount(
             $rule->discount_type,
             (float) $rule->discount_value,
-            $baseUnitPrice,
+            $basisUnitPrice,
             $quantity
+        );
+        ['tenant_discount_total' => $tenantDiscountTotal, 'owner_discount_total' => $ownerDiscountTotal] = $this->splitDiscountBetweenTenantAndOwner(
+            $rule,
+            $discount,
+            (int) $components['tenant_base_total'],
+            (int) $components['owner_base_total']
         );
 
         return [
             'rule' => $rule,
             'quantity' => $quantity,
-            'base_unit_price' => $baseUnitPrice,
+            'base_unit_price' => (int) $components['customer_base_unit_price'],
             'line_base_total' => $lineBaseTotal,
             'line_total' => max(0, $lineBaseTotal - $discount),
             'line_discount' => $discount,
+            'tenant_discount_total' => $tenantDiscountTotal,
+            'owner_discount_total' => $ownerDiscountTotal,
+        ];
+    }
+
+    private function productPricingComponents(Product $product, int $quantity): array
+    {
+        $qty = max(1, $quantity);
+        $tenantBaseUnitPrice = (int) ($product->buy_price ?? 0);
+        $customerBaseUnitPrice = (int) ($product->sell_price ?? 0);
+        $ownerMarkupUnitPrice = max(0, $customerBaseUnitPrice - $tenantBaseUnitPrice);
+
+        return [
+            'customer_base_unit_price' => $customerBaseUnitPrice,
+            'tenant_base_unit_price' => $tenantBaseUnitPrice,
+            'owner_markup_unit_price' => $ownerMarkupUnitPrice,
+            'customer_base_total' => $customerBaseUnitPrice * $qty,
+            'tenant_base_total' => $tenantBaseUnitPrice * $qty,
+            'owner_base_total' => $ownerMarkupUnitPrice * $qty,
+        ];
+    }
+
+    private function rulePriceBasis(PricingRule $rule): string
+    {
+        return $rule->price_basis ?: PricingRule::PRICE_BASIS_SELL_PRICE;
+    }
+
+    private function participantBasisTotal(PricingRule $rule, array $participant): int
+    {
+        return $this->rulePriceBasis($rule) === PricingRule::PRICE_BASIS_BUY_PRICE
+            ? (int) ($participant['tenant_base_total'] ?? 0)
+            : (int) ($participant['base_total'] ?? 0);
+    }
+
+    private function applyParticipantDiscountSplit(array $participant, PricingRule $rule, int $discountTotal): array
+    {
+        ['tenant_discount_total' => $tenantDiscountTotal, 'owner_discount_total' => $ownerDiscountTotal] = $this->splitDiscountBetweenTenantAndOwner(
+            $rule,
+            $discountTotal,
+            (int) ($participant['tenant_base_total'] ?? 0),
+            (int) ($participant['owner_base_total'] ?? 0)
+        );
+
+        $participant['discount_total'] = $discountTotal;
+        $participant['tenant_discount_total'] = $tenantDiscountTotal;
+        $participant['owner_discount_total'] = $ownerDiscountTotal;
+
+        return $participant;
+    }
+
+    private function splitDiscountBetweenTenantAndOwner(
+        PricingRule $rule,
+        int $discountTotal,
+        int $tenantBaseTotal,
+        int $ownerBaseTotal
+    ): array {
+        $discount = max(0, $discountTotal);
+        $tenantBase = max(0, $tenantBaseTotal);
+        $ownerBase = max(0, $ownerBaseTotal);
+
+        if ($discount <= 0) {
+            return [
+                'tenant_discount_total' => 0,
+                'owner_discount_total' => 0,
+            ];
+        }
+
+        if ($this->rulePriceBasis($rule) === PricingRule::PRICE_BASIS_BUY_PRICE) {
+            return [
+                'tenant_discount_total' => min($tenantBase, $discount),
+                'owner_discount_total' => 0,
+            ];
+        }
+
+        $combinedBase = max(1, $tenantBase + $ownerBase);
+        $tenantShare = $ownerBase <= 0
+            ? $discount
+            : (int) floor($discount * ($tenantBase / $combinedBase));
+        $tenantShare = max(0, min($tenantBase, $tenantShare));
+        $ownerShare = max(0, min($ownerBase, $discount - $tenantShare));
+
+        if (($tenantShare + $ownerShare) < $discount) {
+            $remaining = $discount - ($tenantShare + $ownerShare);
+            if ($ownerBase - $ownerShare >= $remaining) {
+                $ownerShare += $remaining;
+            } else {
+                $tenantShare = min($tenantBase, $tenantShare + $remaining);
+            }
+        }
+
+        return [
+            'tenant_discount_total' => $tenantShare,
+            'owner_discount_total' => $ownerShare,
         ];
     }
 
@@ -831,5 +1013,120 @@ class PricingService
             PricingRule::PRICE_BASIS_BUY_PRICE => (int) ($product->buy_price ?? 0),
             default => (int) ($product->sell_price ?? 0),
         };
+    }
+
+    private function buildPreviewCartsForRule(PricingRule $rule): Collection
+    {
+        return match ($rule->kind) {
+            PricingRule::KIND_BUNDLE_PRICE => $this->buildRelationPreviewCarts(
+                $rule->bundleItems,
+                'product_id',
+                'quantity'
+            ),
+            PricingRule::KIND_BUY_X_GET_Y => $this->buildRelationPreviewCarts(
+                $rule->buyGetItems,
+                'product_id',
+                'quantity'
+            ),
+            default => $this->buildTargetPreviewCarts($rule),
+        };
+    }
+
+    private function buildRelationPreviewCarts(
+        Collection $rows,
+        string $productKey = 'product_id',
+        string $quantityKey = 'quantity'
+    ): Collection {
+        $products = Product::query()
+            ->whereIn('id', $rows->pluck($productKey)->filter()->map(fn ($id) => (int) $id)->all())
+            ->get()
+            ->keyBy('id');
+
+        return $rows
+            ->values()
+            ->map(function ($row, int $index) use ($products, $productKey, $quantityKey) {
+                $productId = (int) data_get($row, $productKey);
+                $product = data_get($row, 'product') ?: $products->get($productId);
+
+                if (! $product) {
+                    return null;
+                }
+
+                return $this->makePreviewCart(
+                    $product,
+                    max(1, (int) data_get($row, $quantityKey, 1)),
+                    $index
+                );
+            })
+            ->filter()
+            ->values();
+    }
+
+    private function buildTargetPreviewCarts(PricingRule $rule): Collection
+    {
+        $products = match ($rule->target_type) {
+            PricingRule::TARGET_PRODUCT => Product::query()
+                ->whereKey($rule->product_id)
+                ->get(),
+            PricingRule::TARGET_CATEGORY => Product::query()
+                ->where('category_id', $rule->category_id)
+                ->orderBy('title')
+                ->limit(3)
+                ->get(),
+            default => Product::query()
+                ->orderBy('title')
+                ->limit(3)
+                ->get(),
+        };
+
+        return $products
+            ->values()
+            ->map(fn (Product $product, int $index) => $this->makePreviewCart(
+                $product,
+                $this->previewQuantityForRule($rule, $product),
+                $index
+            ));
+    }
+
+    private function makePreviewCart(Product $product, int $qty, int $index): Cart
+    {
+        $quantity = max(1, $qty);
+        $cart = new Cart([
+            'product_id' => $product->id,
+            'qty' => $quantity,
+            'price' => (int) ($product->sell_price ?? 0) * $quantity,
+        ]);
+        $cart->id = -($index + 1);
+        $cart->setRelation('product', $product);
+        $cart->setRelation('modifiers', collect());
+
+        return $cart;
+    }
+
+    private function previewQuantityForRule(PricingRule $rule, Product $product): int
+    {
+        if ($rule->kind === PricingRule::KIND_QTY_BREAK) {
+            return max(1, (int) ($rule->preview_quantity_multiplier ?: $rule->qtyBreaks->max('min_qty') ?: 1));
+        }
+
+        return max(1, (int) ($rule->preview_quantity_multiplier ?: 1));
+    }
+
+    private function buildDraftDiagnostics(PricingRule $rule, Collection $carts, array $preview): array
+    {
+        return [
+            'kind' => $rule->kind,
+            'price_basis' => $rule->price_basis ?: PricingRule::PRICE_BASIS_SELL_PRICE,
+            'draft_discount_value' => (float) ($rule->discount_value ?? 0),
+            'cart_count' => $carts->count(),
+            'cart_items' => $carts->map(fn (Cart $cart) => [
+                'product_id' => (int) $cart->product_id,
+                'product_title' => $cart->product?->title,
+                'qty' => (int) $cart->qty,
+                'sell_price' => (int) ($cart->product?->sell_price ?? 0),
+                'buy_price' => (int) ($cart->product?->buy_price ?? 0),
+            ])->values()->all(),
+            'base_subtotal' => (int) data_get($preview, 'summary.base_subtotal', 0),
+        ];
     }
 }

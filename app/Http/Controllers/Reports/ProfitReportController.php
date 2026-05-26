@@ -49,7 +49,9 @@ class ProfitReportController extends Controller
 
         $detailColumns = $this->transactionDetailSelectColumns();
         $transactionRelations = [
-            'details' => fn ($query) => $query->select($detailColumns),
+            'details' => fn ($query) => $query
+                ->select($detailColumns)
+                ->with(['product:id,title']),
         ];
 
         if (Schema::hasTable('transaction_tenant_allocations')) {
@@ -159,6 +161,7 @@ class ProfitReportController extends Controller
         $tenantRevenueTotal = (int) $tenantSummary->sum('after_promo_total');
         $tenantProfitTotal = (int) $tenantSummary->sum('profit_total');
         $tenantDiscountTotal = (int) $tenantSummary->sum('discount_total');
+        $detailDiscountSplit = $this->transactionDiscountSplit($transactionIds);
 
         $ownerMarkupSummary = $this->ownerMarkupBreakdown($transactionIds, $outletId, null);
         $ownerDirectRow = $ownerMarkupSummary->firstWhere('kind', 'owner_direct');
@@ -180,6 +183,7 @@ class ProfitReportController extends Controller
             'tenant_revenue_total' => $tenantRevenueTotal,
             'tenant_profit_total' => $tenantProfitTotal,
             'tenant_discount_total' => $tenantDiscountTotal,
+            'owner_discount_total' => (int) ($detailDiscountSplit['owner_discount_total'] ?? 0),
             'owner_direct_revenue_total' => (int) ($ownerDirectRow['revenue_total'] ?? 0),
             'owner_direct_markup_total' => (int) ($ownerDirectRow['markup_total'] ?? 0),
             'tenant_markup_total' => (int) ($tenantMarkupRow['markup_total'] ?? 0),
@@ -527,15 +531,42 @@ class ProfitReportController extends Controller
             ->sum(fn (TransactionDetail $detail) => ((int) ($detail->base_unit_price ?? 0)) > 0
                 ? (int) $detail->base_unit_price * (int) $detail->qty
                 : (int) $detail->price);
+        $prePromoSubtotal = (int) $transaction->details->sum(fn (TransactionDetail $detail) => (int) ($detail->customer_base_unit_price ?? $detail->unit_price ?? 0) * (int) $detail->qty);
+        $tenantNetTotal = (int) $transaction->details->sum(fn (TransactionDetail $detail) => (int) ($detail->tenant_net_total ?? 0));
+        $ownerNetTotal = (int) $transaction->details->sum(fn (TransactionDetail $detail) => (int) ($detail->owner_net_total ?? 0));
 
         return [
             ...$transaction->toArray(),
             'total_profit' => max(0, (int) $transaction->grand_total - $baseCostTotal),
             'base_cost_total' => $baseCostTotal,
             'markup_total' => (int) $transaction->grand_total - $baseCostTotal,
+            'pre_promo_subtotal' => $prePromoSubtotal,
             'tenant_revenue_total' => $tenantRevenueTotal,
+            'tenant_discount_total' => (int) $transaction->details->sum(fn (TransactionDetail $detail) => (int) ($detail->tenant_discount_total ?? 0)),
+            'owner_discount_total' => (int) $transaction->details->sum(fn (TransactionDetail $detail) => (int) ($detail->owner_discount_total ?? 0)),
+            'tenant_net_total' => $tenantNetTotal,
+            'owner_net_total' => $ownerNetTotal,
             'owner_direct_revenue_total' => $ownerDirectRevenueTotal,
             'owner_direct_markup_total' => $ownerDirectRevenueTotal - $ownerDirectBaseTotal,
+            'detail_items' => $transaction->details
+                ->map(fn (TransactionDetail $detail) => [
+                    'id' => $detail->id,
+                    'product_name' => $detail->product?->title ?? 'Produk',
+                    'qty' => (int) $detail->qty,
+                    'line_total' => (int) $detail->price,
+                    'base_cost_total' => ((int) ($detail->base_unit_price ?? 0)) > 0
+                        ? (int) $detail->base_unit_price * (int) $detail->qty
+                        : (int) $detail->price,
+                    'pre_promo_total' => (int) ($detail->customer_base_unit_price ?? $detail->unit_price ?? 0) * (int) $detail->qty,
+                    'tenant_discount_total' => (int) ($detail->tenant_discount_total ?? 0),
+                    'owner_discount_total' => (int) ($detail->owner_discount_total ?? 0),
+                    'tenant_net_total' => (int) ($detail->tenant_net_total ?? 0),
+                    'owner_net_total' => (int) ($detail->owner_net_total ?? 0),
+                    'pricing_rule_name' => $detail->pricing_rule_name,
+                    'pricing_rule_kind' => $detail->pricing_rule_kind,
+                ])
+                ->values()
+                ->all(),
         ];
     }
 
@@ -609,15 +640,51 @@ class ProfitReportController extends Controller
             'product_id',
             'qty',
             'price',
+            'unit_price',
         ];
 
-        foreach (['tenant_outlet_id', 'base_unit_price'] as $optionalColumn) {
+        foreach ([
+            'tenant_outlet_id',
+            'base_unit_price',
+            'customer_base_unit_price',
+            'tenant_discount_total',
+            'owner_discount_total',
+            'tenant_net_total',
+            'owner_net_total',
+            'pricing_rule_name',
+            'pricing_rule_kind',
+        ] as $optionalColumn) {
             if (Schema::hasColumn('transaction_details', $optionalColumn)) {
                 $columns[] = $optionalColumn;
             }
         }
 
         return $columns;
+    }
+
+    protected function transactionDiscountSplit(Collection $transactionIds): array
+    {
+        if (
+            $transactionIds->isEmpty()
+            || ! Schema::hasColumn('transaction_details', 'tenant_discount_total')
+            || ! Schema::hasColumn('transaction_details', 'owner_discount_total')
+        ) {
+            return [
+                'tenant_discount_total' => 0,
+                'owner_discount_total' => 0,
+            ];
+        }
+
+        $row = TransactionDetail::query()
+            ->whereIn('transaction_id', $transactionIds)
+            ->selectRaw('COALESCE(SUM(tenant_discount_total), 0) as tenant_discount_total')
+            ->selectRaw('COALESCE(SUM(owner_discount_total), 0) as owner_discount_total')
+            ->first();
+
+        return [
+            'tenant_discount_total' => (int) ($row->tenant_discount_total ?? 0),
+            'owner_discount_total' => (int) ($row->owner_discount_total ?? 0),
+        ];
     }
 
     protected function resolvePeriodLabel(array $filters): string

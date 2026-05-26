@@ -48,6 +48,8 @@
     <div class="card"><div class="label">Outstanding</div><div class="value">{{ $formatMoney($summary['outstanding_total']) }}</div></div>
     <div class="card"><div class="label">Revenue</div><div class="value">{{ $formatMoney($summary['revenue_total']) }}</div></div>
     <div class="card"><div class="label">Profit</div><div class="value">{{ $formatMoney($summary['profit_total']) }}</div></div>
+    <div class="card"><div class="label">Potongan Tenant</div><div class="value">{{ $formatMoney($summary['tenant_discount_total'] ?? 0) }}</div></div>
+    <div class="card"><div class="label">Potongan Owner</div><div class="value">{{ $formatMoney($summary['owner_discount_total'] ?? 0) }}</div></div>
     <div class="card"><div class="label">Fee</div><div class="value">{{ $formatMoney($summary['management_fee_total']) }}</div></div>
 </div>
 
@@ -58,6 +60,7 @@
             <th>Tenant</th>
             <th>Invoice</th>
             <th>Promo</th>
+            <th>Split Promo</th>
             <th>Revenue</th>
             <th>Payout</th>
             <th>Breakdown</th>
@@ -80,6 +83,10 @@
                 <span class="muted">{{ $allocation->total_items ?? 0 }} item</span>
             </td>
             <td>{{ $formatMoney($allocation->total_discount_total ?? 0) }}</td>
+            <td>
+                Tenant {{ $formatMoney($allocation->tenant_discount_total ?? 0) }}<br>
+                <span class="muted">Owner {{ $formatMoney($allocation->owner_discount_total ?? 0) }}</span>
+            </td>
             <td>{{ $formatMoney($allocation->grand_total ?? 0) }}</td>
             <td>{{ $formatMoney($allocation->tenant_payout_total ?? 0) }}</td>
             <td>
