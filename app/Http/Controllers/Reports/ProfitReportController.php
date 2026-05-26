@@ -37,6 +37,8 @@ class ProfitReportController extends Controller
             'cashier_id' => $request->input('cashier_id'),
             'customer_id' => $request->input('customer_id'),
             'tenant_outlet_id' => $request->input('tenant_outlet_id'),
+            'item_keyword' => $request->input('item_keyword'),
+            'pricing_rule_kind' => $request->input('pricing_rule_kind'),
             'outlet_id' => $outletId,
         ];
 
@@ -68,9 +70,11 @@ class ProfitReportController extends Controller
         $transactionIds = (clone $baseQuery)->pluck('id');
         $summary = $this->buildSummary($baseQuery, $transactionIds, $outletId);
         $targets = $this->targetSummary($summary, $outletId, $filters);
+        $itemBreakdown = $this->itemBreakdownPaginator($filters);
 
         return Inertia::render('Dashboard/Reports/Profit', [
             'transactions' => $transactions,
+            'itemBreakdown' => $itemBreakdown,
             'summary' => $summary,
             'targets' => $targets,
             'cashierSummary' => $this->cashierSummary($filters),
@@ -80,6 +84,12 @@ class ProfitReportController extends Controller
             'filters' => $filters,
             'cashiers' => User::select('id', 'name')->orderBy('name')->get(),
             'customers' => Customer::select('id', 'name')->orderBy('name')->get(),
+            'pricingRuleKinds' => [
+                ['id' => 'standard_discount', 'name' => 'Standard Discount'],
+                ['id' => 'qty_break', 'name' => 'Qty Break'],
+                ['id' => 'bundle_price', 'name' => 'Bundle Price'],
+                ['id' => 'buy_x_get_y', 'name' => 'Buy X Get Y'],
+            ],
             'tenantOutlets' => Outlet::query()
                 ->active()
                 ->ordered()
@@ -143,6 +153,67 @@ class ProfitReportController extends Controller
 
         return response()->json([
             'data' => $items->values(),
+        ]);
+    }
+
+    public function exportItems(Request $request)
+    {
+        $activeOutlet = $this->outletResolver->resolve($request, $request->user());
+        $filters = [
+            'start_date' => $request->input('start_date'),
+            'end_date' => $request->input('end_date'),
+            'invoice' => $request->input('invoice'),
+            'cashier_id' => $request->input('cashier_id'),
+            'customer_id' => $request->input('customer_id'),
+            'tenant_outlet_id' => $request->input('tenant_outlet_id'),
+            'item_keyword' => $request->input('item_keyword'),
+            'pricing_rule_kind' => $request->input('pricing_rule_kind'),
+            'outlet_id' => $activeOutlet?->id,
+        ];
+
+        $rows = $this->itemBreakdownQuery($filters)
+            ->orderByDesc('gross_profit_total')
+            ->get();
+
+        $filename = 'profit-items-'.now()->format('Ymd-His').'.csv';
+
+        return response()->streamDownload(function () use ($rows) {
+            $handle = fopen('php://output', 'w');
+            fputcsv($handle, [
+                'product_name',
+                'tenant_outlet_name',
+                'orders_count',
+                'qty_sold',
+                'revenue_total',
+                'base_cost_total',
+                'gross_profit_total',
+                'tenant_discount_total',
+                'owner_discount_total',
+                'tenant_net_total',
+                'owner_net_total',
+                'promo_lines_count',
+            ]);
+
+            foreach ($rows as $row) {
+                fputcsv($handle, [
+                    (string) ($row->product_name ?? 'Produk'),
+                    (string) ($row->tenant_outlet_name ?? ''),
+                    (int) ($row->orders_count ?? 0),
+                    (int) ($row->qty_sold ?? 0),
+                    (int) ($row->revenue_total ?? 0),
+                    (int) ($row->base_cost_total ?? 0),
+                    (int) ($row->gross_profit_total ?? 0),
+                    (int) ($row->tenant_discount_total ?? 0),
+                    (int) ($row->owner_discount_total ?? 0),
+                    (int) ($row->tenant_net_total ?? 0),
+                    (int) ($row->owner_net_total ?? 0),
+                    (int) ($row->promo_lines_count ?? 0),
+                ]);
+            }
+
+            fclose($handle);
+        }, $filename, [
+            'Content-Type' => 'text/csv; charset=UTF-8',
         ]);
     }
 
@@ -702,5 +773,100 @@ class ProfitReportController extends Controller
         }
 
         return 'Periode berjalan';
+    }
+
+    protected function itemBreakdownPaginator(array $filters)
+    {
+        return $this->itemBreakdownQuery($filters)
+            ->orderByDesc('gross_profit_total')
+            ->paginate(15, ['*'], 'item_page')
+            ->withQueryString()
+            ->through(fn ($row) => [
+                'product_id' => $row->product_id ? (int) $row->product_id : null,
+                'product_name' => $row->product_name ?? 'Produk',
+                'tenant_outlet_id' => $row->tenant_outlet_id ? (int) $row->tenant_outlet_id : null,
+                'tenant_outlet_name' => $row->tenant_outlet_name,
+                'orders_count' => (int) ($row->orders_count ?? 0),
+                'qty_sold' => (int) ($row->qty_sold ?? 0),
+                'revenue_total' => (int) ($row->revenue_total ?? 0),
+                'base_cost_total' => (int) ($row->base_cost_total ?? 0),
+                'gross_profit_total' => (int) ($row->gross_profit_total ?? 0),
+                'tenant_discount_total' => (int) ($row->tenant_discount_total ?? 0),
+                'owner_discount_total' => (int) ($row->owner_discount_total ?? 0),
+                'tenant_net_total' => (int) ($row->tenant_net_total ?? 0),
+                'owner_net_total' => (int) ($row->owner_net_total ?? 0),
+                'promo_lines_count' => (int) ($row->promo_lines_count ?? 0),
+            ]);
+    }
+
+    protected function itemBreakdownQuery(array $filters)
+    {
+        $hasBaseUnitPrice = Schema::hasColumn('transaction_details', 'base_unit_price');
+        $hasTenantOutletId = Schema::hasColumn('transaction_details', 'tenant_outlet_id');
+        $baseExpression = $hasBaseUnitPrice
+            ? 'COALESCE(transaction_details.base_unit_price, 0) * COALESCE(transaction_details.qty, 0)'
+            : 'COALESCE(transaction_details.price, 0)';
+
+        return $this->applyItemFilters(
+            TransactionDetail::query()
+                ->join('transactions', 'transactions.id', '=', 'transaction_details.transaction_id')
+                ->leftJoin('products', 'products.id', '=', 'transaction_details.product_id')
+                ->when(
+                    $hasTenantOutletId,
+                    fn ($query) => $query->leftJoin('outlets as tenant_outlets', 'tenant_outlets.id', '=', 'transaction_details.tenant_outlet_id')
+                )
+                ->selectRaw('transaction_details.product_id')
+                ->selectRaw('MAX(products.title) as product_name')
+                ->selectRaw($hasTenantOutletId ? 'MAX(transaction_details.tenant_outlet_id) as tenant_outlet_id' : 'NULL as tenant_outlet_id')
+                ->selectRaw($hasTenantOutletId ? 'MAX(tenant_outlets.name) as tenant_outlet_name' : 'NULL as tenant_outlet_name')
+                ->selectRaw('COUNT(DISTINCT transaction_details.transaction_id) as orders_count')
+                ->selectRaw('COALESCE(SUM(transaction_details.qty), 0) as qty_sold')
+                ->selectRaw('COALESCE(SUM(transaction_details.price), 0) as revenue_total')
+                ->selectRaw("COALESCE(SUM({$baseExpression}), 0) as base_cost_total")
+                ->selectRaw("COALESCE(SUM(transaction_details.price), 0) - COALESCE(SUM({$baseExpression}), 0) as gross_profit_total")
+                ->selectRaw(Schema::hasColumn('transaction_details', 'tenant_discount_total') ? 'COALESCE(SUM(transaction_details.tenant_discount_total), 0) as tenant_discount_total' : '0 as tenant_discount_total')
+                ->selectRaw(Schema::hasColumn('transaction_details', 'owner_discount_total') ? 'COALESCE(SUM(transaction_details.owner_discount_total), 0) as owner_discount_total' : '0 as owner_discount_total')
+                ->selectRaw(Schema::hasColumn('transaction_details', 'tenant_net_total') ? 'COALESCE(SUM(transaction_details.tenant_net_total), 0) as tenant_net_total' : '0 as tenant_net_total')
+                ->selectRaw(Schema::hasColumn('transaction_details', 'owner_net_total') ? 'COALESCE(SUM(transaction_details.owner_net_total), 0) as owner_net_total' : '0 as owner_net_total')
+                ->selectRaw(Schema::hasColumn('transaction_details', 'pricing_rule_name') ? "COALESCE(SUM(CASE WHEN transaction_details.pricing_rule_name IS NOT NULL AND transaction_details.pricing_rule_name <> '' THEN 1 ELSE 0 END), 0) as promo_lines_count" : '0 as promo_lines_count')
+                ->groupBy('transaction_details.product_id'),
+            $filters
+        );
+    }
+
+    protected function applyItemFilters($query, array $filters)
+    {
+        return $query
+            ->when($filters['outlet_id'] ?? null, fn ($q, $outletId) => $q->where('transactions.outlet_id', $outletId))
+            ->when($filters['invoice'] ?? null, fn ($q, $invoice) => $q->where('transactions.invoice', 'like', '%'.$invoice.'%'))
+            ->when($filters['cashier_id'] ?? null, fn ($q, $cashier) => $q->where('transactions.cashier_id', $cashier))
+            ->when($filters['tenant_outlet_id'] ?? null, function ($q, $tenantOutletId) {
+                if (! Schema::hasColumn('transaction_details', 'tenant_outlet_id')) {
+                    return;
+                }
+
+                $q->where('transaction_details.tenant_outlet_id', $tenantOutletId);
+            })
+            ->when($filters['customer_id'] ?? null, function ($q, $customer) {
+                return match ((string) $customer) {
+                    'walk_in' => $q->whereNull('transactions.customer_id'),
+                    default => $q->where('transactions.customer_id', $customer),
+                };
+            })
+            ->when($filters['item_keyword'] ?? null, function ($q, $keyword) {
+                $q->where(function ($nested) use ($keyword) {
+                    $nested->where('products.title', 'like', '%'.$keyword.'%')
+                        ->orWhere('transactions.invoice', 'like', '%'.$keyword.'%');
+                });
+            })
+            ->when($filters['pricing_rule_kind'] ?? null, function ($q, $kind) {
+                if (! Schema::hasColumn('transaction_details', 'pricing_rule_kind')) {
+                    return;
+                }
+
+                $q->where('transaction_details.pricing_rule_kind', $kind);
+            })
+            ->when($filters['start_date'] ?? null, fn ($q, $start) => $q->whereDate('transactions.created_at', '>=', $start))
+            ->when($filters['end_date'] ?? null, fn ($q, $end) => $q->whereDate('transactions.created_at', '<=', $end));
     }
 }

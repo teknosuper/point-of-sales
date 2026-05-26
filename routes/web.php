@@ -417,6 +417,7 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
     Route::get('/reports/setup-audit', [SetupAuditController::class, 'index'])->middleware('permission:reports-access')->name('reports.setup-audit.index');
     Route::get('/reports/profits', [ProfitReportController::class, 'index'])->middleware('permission:profits-access')->name('reports.profits.index');
     Route::get('/reports/profits/filter-options', [ProfitReportController::class, 'filterOptions'])->middleware('permission:profits-access')->name('reports.profits.filter-options');
+    Route::get('/reports/profits/items/export', [ProfitReportController::class, 'exportItems'])->middleware('permission:profits-access')->name('reports.profits.items.export');
     Route::get('/reports/insights', [AdvancedSalesInsightsController::class, 'index'])->middleware('permission:reports-access')->name('reports.insights.index');
 
     // aging & reminders

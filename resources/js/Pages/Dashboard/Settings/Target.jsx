@@ -84,6 +84,63 @@ export default function Target({ settings, products = [], targetMeta = {} }) {
     const totalDailyItems = totalMonthlyItems / (daysInMonth || 1);
     const globalDailyItemTarget = Number(data.daily_global_item_target || 0);
     const globalMonthlyItemTarget = globalDailyItemTarget * (daysInMonth || 1);
+    const stationSummaries = useMemo(() => {
+        const grouped = indexedProducts.reduce((accumulator, product) => {
+            const key = product.kitchen_station_id || "unassigned_station";
+            const ownerMarginPerItem = Math.max(
+                0,
+                Number(product.sell_price || 0) - Number(product.buy_price || 0)
+            );
+            const monthlyTarget = Number(product.monthly_target || 0);
+
+            if (!accumulator[key]) {
+                accumulator[key] = {
+                    kitchen_station_id: product.kitchen_station_id,
+                    kitchen_station_name:
+                        product.kitchen_station_name || "Belum Dipetakan",
+                    monthly_target_items: 0,
+                    daily_target_items: 0,
+                    estimated_owner_margin_monthly: 0,
+                    estimated_owner_margin_daily: 0,
+                    product_count: 0,
+                };
+            }
+
+            accumulator[key].monthly_target_items += monthlyTarget;
+            accumulator[key].daily_target_items += monthlyTarget / (daysInMonth || 1);
+            accumulator[key].estimated_owner_margin_monthly +=
+                monthlyTarget * ownerMarginPerItem;
+            accumulator[key].estimated_owner_margin_daily +=
+                (monthlyTarget / (daysInMonth || 1)) * ownerMarginPerItem;
+            accumulator[key].product_count += 1;
+
+            return accumulator;
+        }, {});
+
+        return Object.values(grouped).sort((left, right) =>
+            String(left.kitchen_station_name).localeCompare(
+                String(right.kitchen_station_name)
+            )
+        );
+    }, [indexedProducts, daysInMonth]);
+    const totalEstimatedOwnerMargin = useMemo(
+        () =>
+            stationSummaries.reduce(
+                (sum, station) =>
+                    sum + Number(station.estimated_owner_margin_monthly || 0),
+                0
+            ),
+        [stationSummaries]
+    );
+    const totalEstimatedOwnerMarginDaily = useMemo(
+        () =>
+            stationSummaries.reduce(
+                (sum, station) =>
+                    sum + Number(station.estimated_owner_margin_daily || 0),
+                0
+            ),
+        [stationSummaries]
+    );
 
     const setProductTarget = (index, value) => {
         const nextTargets = [...data.product_targets];
@@ -154,7 +211,7 @@ export default function Target({ settings, products = [], targetMeta = {} }) {
                     </p>
                 </div>
 
-                <div className="grid gap-4 lg:grid-cols-3">
+                <div className="grid gap-4 lg:grid-cols-4">
                     <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
                         <div className="flex items-center gap-3">
                             <div className="rounded-xl bg-primary-100 p-3 dark:bg-primary-900/30">
@@ -368,6 +425,9 @@ export default function Target({ settings, products = [], targetMeta = {} }) {
                                                             )}
                                                         </div>
                                                         <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                            Kategori {product.category_name}
+                                                        </div>
+                                                        <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                                                             Stok referensi{" "}
                                                             {formatNumber(
                                                                 product.stock
@@ -537,6 +597,166 @@ export default function Target({ settings, products = [], targetMeta = {} }) {
                             {processing ? "Menyimpan..." : "Simpan Target"}
                         </button>
                     </div>
+
+                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/40">
+                        <div className="mb-4 flex items-start justify-between gap-4">
+                            <div>
+                                <h2 className="text-base font-semibold text-slate-900 dark:text-white">
+                                    Ringkasan Target per Dapur
+                                </h2>
+                                <p className="text-sm text-slate-500 dark:text-slate-400">
+                                    Menjumlahkan target item per dapur/station dan
+                                    estimasi margin owner outlet secara bulanan dan harian.
+                                </p>
+                            </div>
+                            <div className="rounded-xl bg-white px-4 py-3 text-right shadow-sm dark:bg-slate-900">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                    Total Margin Owner Bulanan
+                                </p>
+                                <p className="text-lg font-bold text-slate-900 dark:text-white">
+                                    {formatCurrency(totalEstimatedOwnerMargin)}
+                                </p>
+                                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                    Harian {formatCurrency(totalEstimatedOwnerMarginDaily)}
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="space-y-3">
+                            {stationSummaries.length > 0 ? (
+                                <>
+                                    {stationSummaries.map((station) => {
+                                        const stationProducts = indexedProducts.filter(
+                                            (product) =>
+                                                String(product.kitchen_station_id || "unassigned_station") ===
+                                                String(station.kitchen_station_id || "unassigned_station")
+                                        );
+
+                                        return (
+                                            <details
+                                                key={station.kitchen_station_id ?? station.kitchen_station_name}
+                                                className="overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900"
+                                            >
+                                                <summary className="cursor-pointer list-none px-4 py-3">
+                                                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                                                        <div>
+                                                            <div className="font-medium text-slate-900 dark:text-white">
+                                                                {station.kitchen_station_name}
+                                                            </div>
+                                                            <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                                {formatNumber(station.product_count)} produk • {formatNumber(station.monthly_target_items)} item/bulan
+                                                            </div>
+                                                        </div>
+                                                        <div className="grid gap-3 text-right sm:grid-cols-3">
+                                                            <div>
+                                                                <div className="text-xs uppercase tracking-wide text-slate-400">
+                                                                    Target/Hari
+                                                                </div>
+                                                                <div className="font-semibold text-slate-700 dark:text-slate-200">
+                                                                    {formatNumber(station.daily_target_items, 2)}
+                                                                </div>
+                                                            </div>
+                                                            <div>
+                                                                <div className="text-xs uppercase tracking-wide text-slate-400">
+                                                                    Margin/Bulan
+                                                                </div>
+                                                                <div className="font-semibold text-emerald-600 dark:text-emerald-400">
+                                                                    {formatCurrency(station.estimated_owner_margin_monthly)}
+                                                                </div>
+                                                                <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                                                                    Harian {formatCurrency(station.estimated_owner_margin_daily)}
+                                                                </div>
+                                                            </div>
+                                                            <div>
+                                                                <div className="text-xs uppercase tracking-wide text-slate-400">
+                                                                    Detail
+                                                                </div>
+                                                                <div className="font-semibold text-primary-600 dark:text-primary-400">
+                                                                    Lihat Item
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </summary>
+                                                <div className="border-t border-slate-100 px-4 py-3 dark:border-slate-800">
+                                                    <div className="space-y-2">
+                                                        {stationProducts.map((product) => {
+                                                            const monthlyTarget = Number(product.monthly_target || 0);
+                                                            const ownerMarginPerItem = Math.max(
+                                                                0,
+                                                                Number(product.sell_price || 0) -
+                                                                    Number(product.buy_price || 0)
+                                                            );
+                                                            const dailyTarget = monthlyTarget / (daysInMonth || 1);
+
+                                                            return (
+                                                                <div
+                                                                    key={product.id}
+                                                                    className="grid gap-2 rounded-xl border border-slate-100 px-3 py-2 text-xs dark:border-slate-800 md:grid-cols-[1.4fr,0.8fr,0.8fr,0.8fr]"
+                                                                >
+                                                                    <div>
+                                                                        <div className="font-semibold text-slate-800 dark:text-slate-200">
+                                                                            {product.title}
+                                                                        </div>
+                                                                        <div className="text-slate-500 dark:text-slate-400">
+                                                                            Harga beli {formatCurrency(product.buy_price)} • Harga jual {formatCurrency(product.sell_price)}
+                                                                        </div>
+                                                                    </div>
+                                                                    <div className="text-slate-600 dark:text-slate-300">
+                                                                        <div>Target/Bulan {formatNumber(monthlyTarget)}</div>
+                                                                        <div>Target/Hari {formatNumber(dailyTarget, 2)}</div>
+                                                                    </div>
+                                                                    <div className="text-slate-600 dark:text-slate-300">
+                                                                        <div>Margin/Item {formatCurrency(ownerMarginPerItem)}</div>
+                                                                        <div>Stok {formatNumber(product.stock)}</div>
+                                                                    </div>
+                                                                    <div className="text-emerald-600 dark:text-emerald-400">
+                                                                        <div className="font-semibold">
+                                                                            {formatCurrency(monthlyTarget * ownerMarginPerItem)}
+                                                                        </div>
+                                                                        <div className="text-slate-500 dark:text-slate-400">
+                                                                            Bulanan
+                                                                        </div>
+                                                                        <div className="text-slate-500 dark:text-slate-400">
+                                                                            Harian {formatCurrency(dailyTarget * ownerMarginPerItem)}
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                </div>
+                                            </details>
+                                        );
+                                    })}
+
+                                    <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-900">
+                                            <div className="grid gap-3 lg:grid-cols-[1.2fr,0.8fr,0.8fr,0.8fr]">
+                                                <div className="font-semibold text-slate-900 dark:text-white">
+                                                Total Semua Dapur
+                                                </div>
+                                                <div className="text-right font-semibold text-slate-700 dark:text-slate-200">
+                                                {formatNumber(stationSummaries.reduce((sum, station) => sum + Number(station.monthly_target_items || 0), 0))} item/bulan
+                                                </div>
+                                                <div className="text-right font-semibold text-slate-700 dark:text-slate-200">
+                                                {formatNumber(stationSummaries.reduce((sum, station) => sum + Number(station.daily_target_items || 0), 0), 2)} item/hari
+                                                </div>
+                                                <div className="text-right font-semibold text-emerald-600 dark:text-emerald-400">
+                                                <div>{formatCurrency(totalEstimatedOwnerMargin)}</div>
+                                                <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                                                    Harian {formatCurrency(totalEstimatedOwnerMarginDaily)}
+                                                </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </>
+                                ) : (
+                                    <div className="rounded-2xl border border-slate-200 bg-white px-4 py-8 text-center text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
+                                    Belum ada data dapur untuk diringkas.
+                                    </div>
+                                )}
+                            </div>
+                        </div>
                 </form>
             </div>
         </>

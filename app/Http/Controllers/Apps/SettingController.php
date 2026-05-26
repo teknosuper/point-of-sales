@@ -42,8 +42,15 @@ class SettingController extends Controller
         ];
 
         $products = Product::query()
-            ->select('id', 'title', 'buy_price', 'sell_price', 'tenant_outlet_id', 'stock')
-            ->with(['tenantOutlet:id,name,code'])
+            ->select('id', 'title', 'buy_price', 'sell_price', 'category_id', 'tenant_outlet_id', 'stock')
+            ->with([
+                'category:id,name',
+                'tenantOutlet:id,name,code',
+                'kitchenStationMappings' => fn ($query) => $query
+                    ->where('is_active', true)
+                    ->orderBy('priority')
+                    ->with(['kitchenStation:id,name,code,outlet_id']),
+            ])
             ->orderBy('title')
             ->when($outlet && Schema::hasTable('product_outlet_stocks'), function ($query) use ($outlet) {
                 $query->with(['outletStocks' => fn ($stockQuery) => $stockQuery
@@ -56,18 +63,26 @@ class SettingController extends Controller
                 $stock = $outlet && Schema::hasTable('product_outlet_stocks')
                     ? (int) ($product->outletStocks->first()?->stock ?? 0)
                     : (int) ($product->stock ?? 0);
+                $stationMapping = $product->kitchenStationMappings->first();
 
                 return [
                     'id' => $product->id,
                     'title' => $product->title,
                     'buy_price' => (int) ($product->buy_price ?? 0),
                     'sell_price' => (int) ($product->sell_price ?? 0),
+                    'category_id' => $product->category_id ? (int) $product->category_id : null,
+                    'category_name' => $product->category?->name ?? 'Tanpa Kategori',
                     'tenant_outlet_id' => $product->tenant_outlet_id ? (int) $product->tenant_outlet_id : null,
                     'tenant_outlet' => $product->tenantOutlet ? [
                         'id' => $product->tenantOutlet->id,
                         'name' => $product->tenantOutlet->name,
                         'code' => $product->tenantOutlet->code,
                     ] : null,
+                    'kitchen_station_id' => $stationMapping?->kitchenStation?->id
+                        ? (int) $stationMapping->kitchenStation->id
+                        : null,
+                    'kitchen_station_name' => $stationMapping?->kitchenStation?->name ?? 'Belum Dipetakan',
+                    'kitchen_station_code' => $stationMapping?->kitchenStation?->code,
                     'stock' => $stock,
                     'monthly_target' => $monthlyTarget,
                     'daily_target' => $monthlyTarget > 0 ? round($monthlyTarget / $daysInMonth, 2) : 0,

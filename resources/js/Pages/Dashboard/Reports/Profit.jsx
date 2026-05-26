@@ -24,6 +24,8 @@ const defaultFilters = {
     cashier_id: "",
     customer_id: "",
     tenant_outlet_id: "",
+    item_keyword: "",
+    pricing_rule_kind: "",
 };
 
 const WALK_IN_CUSTOMER_OPTION = {
@@ -40,6 +42,51 @@ const formatCurrency = (value = 0) =>
 
 const formatNumber = (value = 0) =>
     new Intl.NumberFormat("id-ID").format(Number(value || 0));
+
+const toDateInput = (date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+
+    return `${year}-${month}-${day}`;
+};
+
+const datePresets = () => {
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(today.getDate() - 1);
+    const last7Days = new Date(today);
+    last7Days.setDate(today.getDate() - 6);
+    const last30Days = new Date(today);
+    last30Days.setDate(today.getDate() - 29);
+
+    return [
+        {
+            key: "today",
+            label: "Hari Ini",
+            start_date: toDateInput(today),
+            end_date: toDateInput(today),
+        },
+        {
+            key: "yesterday",
+            label: "Kemarin",
+            start_date: toDateInput(yesterday),
+            end_date: toDateInput(yesterday),
+        },
+        {
+            key: "last_7_days",
+            label: "7 Hari",
+            start_date: toDateInput(last7Days),
+            end_date: toDateInput(today),
+        },
+        {
+            key: "last_30_days",
+            label: "1 Bulan",
+            start_date: toDateInput(last30Days),
+            end_date: toDateInput(today),
+        },
+    ];
+};
 
 const SummaryCard = ({ title, value, description, icon, tone = "slate" }) => {
     const toneClasses = {
@@ -260,6 +307,7 @@ const RemoteSelect = ({
 
 const ProfitReport = ({
     transactions,
+    itemBreakdown,
     summary,
     targets,
     cashierSummary = [],
@@ -269,6 +317,7 @@ const ProfitReport = ({
     filters,
     cashiers = [],
     customers = [],
+    pricingRuleKinds = [],
     tenantOutlets = [],
 }) => {
     const [showFilters, setShowFilters] = useState(false);
@@ -360,6 +409,12 @@ const ProfitReport = ({
     const perPage = transactions?.per_page
         ? Number(transactions?.per_page)
         : rows.length || 1;
+    const itemRows = itemBreakdown?.data ?? [];
+    const itemLinks = itemBreakdown?.links ?? [];
+    const itemCurrentPage = itemBreakdown?.current_page ?? 1;
+    const itemPerPage = itemBreakdown?.per_page
+        ? Number(itemBreakdown?.per_page)
+        : itemRows.length || 1;
 
     const hasActiveFilters =
         filterData.invoice ||
@@ -367,7 +422,14 @@ const ProfitReport = ({
         filterData.end_date ||
         filterData.cashier_id ||
         filterData.customer_id ||
-        filterData.tenant_outlet_id;
+        filterData.tenant_outlet_id ||
+        filterData.item_keyword ||
+        filterData.pricing_rule_kind;
+    const quickDatePresets = useMemo(() => datePresets(), []);
+
+    const exportItemQuery = new URLSearchParams(
+        Object.entries(filterData).filter(([, value]) => value !== "")
+    ).toString();
 
     const activeDaySummary = useMemo(
         () => dailyProfitTrend.find((item) => item.day === activeDay) || null,
@@ -567,6 +629,24 @@ const ProfitReport = ({
                         description="Gunakan rentang waktu, invoice, kasir, customer, atau tenant untuk menyempitkan analisis."
                     >
                         <form onSubmit={applyFilters} className="space-y-4">
+                            <div className="flex flex-wrap gap-2">
+                                {quickDatePresets.map((preset) => (
+                                    <button
+                                        key={preset.key}
+                                        type="button"
+                                        onClick={() =>
+                                            setFilterData((prev) => ({
+                                                ...prev,
+                                                start_date: preset.start_date,
+                                                end_date: preset.end_date,
+                                            }))
+                                        }
+                                        className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                                    >
+                                        {preset.label}
+                                    </button>
+                                ))}
+                            </div>
                             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
                                 <input
                                     type="date"
@@ -593,6 +673,29 @@ const ProfitReport = ({
                                     }
                                     className="h-11 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-800 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
                                 />
+                                <input
+                                    type="text"
+                                    value={filterData.item_keyword}
+                                    placeholder="Cari item / invoice"
+                                    onChange={(event) =>
+                                        handleChange("item_keyword", event.target.value)
+                                    }
+                                    className="h-11 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-800 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                                />
+                                <select
+                                    value={filterData.pricing_rule_kind}
+                                    onChange={(event) =>
+                                        handleChange("pricing_rule_kind", event.target.value)
+                                    }
+                                    className="h-11 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-800 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                                >
+                                    <option value="">Semua Jenis Promo</option>
+                                    {pricingRuleKinds.map((kind) => (
+                                        <option key={kind.id} value={kind.id}>
+                                            {kind.name}
+                                        </option>
+                                    ))}
+                                </select>
                                 <RemoteSelect
                                     type="cashier"
                                     label="Kasir"
@@ -646,6 +749,103 @@ const ProfitReport = ({
                         </form>
                     </SectionCard>
                 )}
+
+                <SectionCard
+                    title="Laporan Profit per Item"
+                    description="Ringkasan profit per produk dengan filter lanjutan, pagination, dan export CSV sesuai filter aktif."
+                    actions={
+                        <a
+                            href={`${route("reports.profits.items.export")}${exportItemQuery ? `?${exportItemQuery}` : ""}`}
+                            className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                        >
+                            <IconSearch size={16} />
+                            Export Item CSV
+                        </a>
+                    }
+                >
+                    {itemRows.length > 0 ? (
+                        <>
+                            <div className="overflow-x-auto">
+                                <table className="w-full">
+                                    <thead>
+                                        <tr className="border-b border-slate-100 dark:border-slate-800">
+                                            <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500">
+                                                Item
+                                            </th>
+                                            <th className="px-4 py-3 text-center text-xs font-semibold uppercase text-slate-500">
+                                                Order
+                                            </th>
+                                            <th className="px-4 py-3 text-center text-xs font-semibold uppercase text-slate-500">
+                                                Qty
+                                            </th>
+                                            <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500">
+                                                Omzet
+                                            </th>
+                                            <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500">
+                                                Base Cost
+                                            </th>
+                                            <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500">
+                                                Gross Profit
+                                            </th>
+                                            <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500">
+                                                Split Promo
+                                            </th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                        {itemRows.map((item, index) => (
+                                            <tr key={`${item.product_id ?? "item"}-${index}`}>
+                                                <td className="px-4 py-4">
+                                                    <p className="font-semibold text-slate-900 dark:text-white">
+                                                        {item.product_name}
+                                                    </p>
+                                                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                                                        {item.tenant_outlet_name
+                                                            ? `Tenant ${item.tenant_outlet_name}`
+                                                            : "Owner direct"}{" "}
+                                                        • Promo lines {formatNumber(item.promo_lines_count)}
+                                                    </p>
+                                                </td>
+                                                <td className="px-4 py-4 text-center text-sm text-slate-700 dark:text-slate-300">
+                                                    {formatNumber(item.orders_count)}
+                                                </td>
+                                                <td className="px-4 py-4 text-center text-sm text-slate-700 dark:text-slate-300">
+                                                    {formatNumber(item.qty_sold)}
+                                                </td>
+                                                <td className="px-4 py-4 text-right text-sm text-slate-900 dark:text-white">
+                                                    {formatCurrency(item.revenue_total)}
+                                                </td>
+                                                <td className="px-4 py-4 text-right text-sm text-slate-700 dark:text-slate-300">
+                                                    {formatCurrency(item.base_cost_total)}
+                                                </td>
+                                                <td className="px-4 py-4 text-right text-sm font-semibold text-emerald-600 dark:text-emerald-400">
+                                                    <div>{formatCurrency(item.gross_profit_total)}</div>
+                                                    <div className="text-[11px] font-normal text-slate-500 dark:text-slate-400">
+                                                        Owner net {formatCurrency(item.owner_net_total)}
+                                                    </div>
+                                                </td>
+                                                <td className="px-4 py-4 text-right text-sm text-slate-700 dark:text-slate-300">
+                                                    <div>Tenant {formatCurrency(item.tenant_discount_total)}</div>
+                                                    <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                                                        Owner {formatCurrency(item.owner_discount_total)}
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div className="mt-4">
+                                <Pagination links={itemLinks} />
+                            </div>
+                        </>
+                    ) : (
+                        <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-950/30 dark:text-slate-400">
+                            <IconDatabaseOff size={24} className="mx-auto mb-3 opacity-60" />
+                            Tidak ada data item pada filter ini.
+                        </div>
+                    )}
+                </SectionCard>
 
                 <div className="grid gap-6 xl:grid-cols-[1.6fr,1fr]">
                     <SectionCard
