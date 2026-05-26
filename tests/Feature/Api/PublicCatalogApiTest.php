@@ -243,6 +243,105 @@ class PublicCatalogApiTest extends TestCase
         Carbon::setTestNow();
     }
 
+    public function test_public_catalog_display_feed_returns_all_promos_for_specific_outlet(): void
+    {
+        $outletA = $this->createOutlet('DISP-A', 'Outlet Display A', true);
+        $outletB = $this->createOutlet('DISP-B', 'Outlet Display B');
+        $category = $this->createCategory('Menu');
+        $productA = $this->createProduct($category, 'Nasi Goreng', 25000);
+        $productB = $this->createProduct($category, 'Mie Ayam', 22000);
+        $productOtherOutlet = $this->createProduct($category, 'Es Teh', 8000);
+
+        foreach ([[$outletA, $productA], [$outletA, $productB], [$outletB, $productOtherOutlet]] as [$outlet, $product]) {
+            ProductOutletStock::create([
+                'outlet_id' => $outlet->id,
+                'product_id' => $product->id,
+                'stock' => 10,
+            ]);
+        }
+
+        PricingRule::create([
+            'name' => 'Promo A1',
+            'kind' => PricingRule::KIND_STANDARD_DISCOUNT,
+            'is_active' => true,
+            'priority' => 200,
+            'target_type' => PricingRule::TARGET_PRODUCT,
+            'product_id' => $productA->id,
+            'outlet_id' => $outletA->id,
+            'customer_scope' => PricingRule::SCOPE_ALL,
+            'discount_type' => PricingRule::TYPE_FIXED_PRICE,
+            'discount_value' => 20000,
+        ]);
+
+        PricingRule::create([
+            'name' => 'Promo A2',
+            'kind' => PricingRule::KIND_STANDARD_DISCOUNT,
+            'is_active' => true,
+            'priority' => 250,
+            'target_type' => PricingRule::TARGET_PRODUCT,
+            'product_id' => $productB->id,
+            'outlet_id' => $outletA->id,
+            'customer_scope' => PricingRule::SCOPE_ALL,
+            'discount_type' => PricingRule::TYPE_FIXED_PRICE,
+            'discount_value' => 18000,
+        ]);
+
+        PricingRule::create([
+            'name' => 'Promo B1',
+            'kind' => PricingRule::KIND_STANDARD_DISCOUNT,
+            'is_active' => true,
+            'priority' => 300,
+            'target_type' => PricingRule::TARGET_PRODUCT,
+            'product_id' => $productOtherOutlet->id,
+            'outlet_id' => $outletB->id,
+            'customer_scope' => PricingRule::SCOPE_ALL,
+            'discount_type' => PricingRule::TYPE_FIXED_PRICE,
+            'discount_value' => 6000,
+        ]);
+
+        $response = $this->getJson(route('public.catalog.display-feed', [
+            'outlet_code' => $outletA->code,
+        ]));
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('data.source', 'promos')
+            ->assertJsonPath('meta.total', 2)
+            ->assertJsonPath('meta.promo_count', 2)
+            ->assertJsonPath('data.slides.0.name', 'Promo A2')
+            ->assertJsonPath('data.slides.1.name', 'Promo A1')
+            ->assertJsonPath('context.outlet.code', $outletA->code);
+    }
+
+    public function test_public_catalog_display_feed_falls_back_to_products_when_no_promos_exist(): void
+    {
+        $outlet = $this->createOutlet('DISP-FB', 'Outlet Display Fallback', true);
+        $category = $this->createCategory('Fallback');
+        $productA = $this->createProduct($category, 'Kopi Hitam', 12000);
+        $productB = $this->createProduct($category, 'Roti Bakar', 15000);
+
+        foreach ([$productA, $productB] as $product) {
+            ProductOutletStock::create([
+                'outlet_id' => $outlet->id,
+                'product_id' => $product->id,
+                'stock' => 7,
+            ]);
+        }
+
+        $response = $this->getJson(route('public.catalog.display-feed', [
+            'outlet_id' => $outlet->id,
+        ]));
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('data.source', 'products')
+            ->assertJsonPath('meta.total', 2)
+            ->assertJsonPath('meta.promo_count', 0)
+            ->assertJsonPath('data.slides.0.title', 'Kopi Hitam')
+            ->assertJsonPath('data.slides.1.title', 'Roti Bakar')
+            ->assertJsonPath('context.outlet.id', $outlet->id);
+    }
+
     private function createOutlet(string $code, string $name, bool $isDefault = false): Outlet
     {
         return Outlet::create([

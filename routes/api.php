@@ -48,6 +48,7 @@ Route::prefix('public/catalog')
         Route::get('/products', [PublicCatalogController::class, 'products'])->name('public.catalog.products');
         Route::get('/products/{product}', [PublicCatalogController::class, 'show'])->name('public.catalog.products.show');
         Route::get('/promos', [PublicCatalogController::class, 'promos'])->name('public.catalog.promos');
+        Route::get('/display-feed', [PublicCatalogController::class, 'displayFeed'])->name('public.catalog.display-feed');
         Route::get('/promo-banners', [PublicCatalogController::class, 'promoBanners'])->name('public.catalog.promo-banners');
         Route::get('/home-sections', [PublicCatalogController::class, 'homeSections'])->name('public.catalog.home-sections');
         Route::get('/highlights', [PublicCatalogController::class, 'highlights'])->name('public.catalog.highlights');

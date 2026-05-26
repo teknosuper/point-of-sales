@@ -166,6 +166,47 @@ class PublicCatalogController extends Controller
         ]);
     }
 
+    public function displayFeed(Request $request): JsonResponse
+    {
+        $outlet = $this->resolveOutlet($request);
+        $promos = $this->filterPromoRules(
+            $this->pricingService->getActiveRules(outletId: $outlet?->id),
+            $request
+        )
+            ->map(fn (PricingRule $rule) => $this->promoRulePayload($rule, $outlet?->id))
+            ->sortBy([
+                ['priority', 'desc'],
+                ['id', 'desc'],
+            ])
+            ->values();
+
+        $source = 'promos';
+        $slides = $promos;
+
+        if ($slides->isEmpty()) {
+            $source = 'products';
+            $slides = $this->sortProducts(
+                $this->mapProductsWithPricing($this->catalogProducts($request, $outlet), $outlet?->id),
+                'promo_first'
+            )->values();
+        }
+
+        return response()->json([
+            'data' => [
+                'source' => $source,
+                'slides' => $slides->values()->all(),
+            ],
+            'meta' => [
+                'total' => $slides->count(),
+                'promo_count' => $promos->count(),
+                'product_fallback_count' => $source === 'products' ? $slides->count() : 0,
+            ],
+            'context' => [
+                'outlet' => $this->outletPayload($outlet),
+            ],
+        ]);
+    }
+
     public function highlights(Request $request): JsonResponse
     {
         $outlet = $this->resolveOutlet($request);
