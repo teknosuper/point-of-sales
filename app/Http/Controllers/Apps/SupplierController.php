@@ -4,13 +4,19 @@ namespace App\Http\Controllers\Apps;
 
 use App\Http\Controllers\Controller;
 use App\Models\Supplier;
+use App\Services\OutletResolver;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 
 class SupplierController extends Controller
 {
+    public function __construct(
+        private readonly OutletResolver $outletResolver
+    ) {}
+
     public function index(Request $request)
     {
+        $outlet = $this->outletResolver->resolve($request, $request->user());
         $filters = [
             'search' => trim((string) $request->input('search', '')),
             'has_contact' => $request->input('has_contact', ''),
@@ -24,6 +30,11 @@ class SupplierController extends Controller
         }
 
         $suppliers = Supplier::query()
+            ->when(
+                $outlet,
+                fn ($query) => $query->where('outlet_id', $outlet->id),
+                fn ($query) => $query->whereNull('outlet_id')
+            )
             ->when($filters['search'] !== '', function ($query) use ($filters) {
                 $search = $filters['search'];
 
@@ -70,11 +81,22 @@ class SupplierController extends Controller
             'meta' => [
                 'per_page_options' => $allowedPerPage,
             ],
+            'workspace' => [
+                'active_outlet' => $outlet
+                    ? [
+                        'id' => $outlet->id,
+                        'name' => $outlet->name,
+                        'code' => $outlet->code,
+                        'outlet_type' => $outlet->outlet_type,
+                    ]
+                    : null,
+            ],
         ]);
     }
 
     public function store(Request $request)
     {
+        $outlet = $this->outletResolver->resolve($request, $request->user());
         $data = $request->validate([
             'name' => ['required', 'string', 'max:150'],
             'phone' => ['nullable', 'string', 'max:50'],
@@ -82,13 +104,18 @@ class SupplierController extends Controller
             'address' => ['nullable', 'string'],
         ]);
 
-        Supplier::create($data);
+        Supplier::create([
+            ...$data,
+            'outlet_id' => $outlet?->id,
+        ]);
 
         return back()->with('success', 'Supplier berhasil ditambahkan.');
     }
 
     public function update(Request $request, Supplier $supplier)
     {
+        $this->abortIfSupplierOutsideOutlet($request, $supplier);
+
         $data = $request->validate([
             'name' => ['required', 'string', 'max:150'],
             'phone' => ['nullable', 'string', 'max:50'],
@@ -103,11 +130,26 @@ class SupplierController extends Controller
 
     public function destroy(Supplier $supplier)
     {
+        $this->abortIfSupplierOutsideOutlet(request(), $supplier);
+
         if ($supplier->payables()->exists()) {
             return back()->with('error', 'Supplier memiliki hutang, tidak dapat dihapus.');
         }
         $supplier->delete();
 
         return back()->with('success', 'Supplier dihapus.');
+    }
+
+    private function abortIfSupplierOutsideOutlet(Request $request, Supplier $supplier): void
+    {
+        $outlet = $this->outletResolver->resolve($request, $request->user());
+
+        if ($outlet && (int) $supplier->outlet_id !== (int) $outlet->id) {
+            abort(404);
+        }
+
+        if (! $outlet && $supplier->outlet_id !== null) {
+            abort(404);
+        }
     }
 }

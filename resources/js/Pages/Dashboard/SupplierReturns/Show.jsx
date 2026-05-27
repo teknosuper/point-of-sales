@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import { Head, Link, router } from "@inertiajs/react";
 import Button from "@/Components/Dashboard/Button";
@@ -7,6 +7,8 @@ import { useAuthorization } from "@/Utils/authorization";
 import {
     IconArrowLeft,
     IconCheck,
+    IconChevronDown,
+    IconChevronUp,
     IconCircleX,
     IconTruckReturn,
 } from "@tabler/icons-react";
@@ -45,6 +47,8 @@ const statusBadge = (status) => {
 export default function Show({ return: ret }) {
     const { can } = useAuthorization();
     const canEdit = can("supplier-returns-update");
+    const [showNotes, setShowNotes] = useState(Boolean(ret.notes));
+    const [showInfo, setShowInfo] = useState(false);
 
     const completeReturn = () => {
         router.post(route("supplier-returns.complete", ret.id), {}, {
@@ -78,9 +82,12 @@ export default function Show({ return: ret }) {
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                     <div>
                         <div className="mb-2 flex items-center gap-2">
-                            <h1 className="text-2xl font-bold text-slate-900 dark:text-white">{ret.document_number}</h1>
+                            <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Detail Retur Supplier</h1>
                             {statusBadge(ret.status)}
                         </div>
+                        <p className="text-sm text-slate-500 dark:text-slate-400">
+                            Dokumen {ret.document_number} untuk pengembalian barang ke supplier.
+                        </p>
                         <p className="text-sm text-slate-500 dark:text-slate-400">
                             Supplier: {ret.supplier?.name || "-"}
                             &bull; Dibuat oleh {ret.creator?.name || "-"}
@@ -172,55 +179,85 @@ export default function Show({ return: ret }) {
                 <div className="space-y-6">
                     {ret.notes && (
                         <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
-                            <h2 className="mb-3 text-lg font-semibold text-slate-900 dark:text-white">Catatan</h2>
-                            <p className="text-sm text-slate-600 dark:text-slate-400">{ret.notes}</p>
+                            <div className="flex items-center justify-between gap-3">
+                                <div>
+                                    <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Catatan</h2>
+                                    <p className="text-xs text-slate-500">Buka jika ada catatan khusus pada retur ini.</p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowNotes((prev) => !prev)}
+                                    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                                >
+                                    {showNotes ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                                    {showNotes ? "Sembunyikan" : "Buka"}
+                                </button>
+                            </div>
+                            {showNotes && (
+                                <p className="mt-3 text-sm text-slate-600 dark:text-slate-400">{ret.notes}</p>
+                            )}
                         </div>
                     )}
 
                     <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
-                        <h2 className="mb-3 text-lg font-semibold text-slate-900 dark:text-white">Informasi</h2>
-                        <div className="space-y-2 text-sm">
-                            <div className="flex justify-between">
-                                <span className="text-slate-500">Dokumen</span>
-                                <span className="font-semibold text-slate-800 dark:text-white">{ret.document_number}</span>
+                        <div className="flex items-center justify-between gap-3">
+                            <div>
+                                <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Informasi</h2>
+                                <p className="text-xs text-slate-500">Buka jika ingin melihat relasi dokumen retur ini.</p>
                             </div>
-                            {ret.goodsReceiving && (
-                                <div className="flex justify-between">
-                                    <span className="text-slate-500">GR Referensi</span>
-                                    <Link
-                                        href={route("goods-receivings.show", ret.goodsReceiving.id)}
-                                        className="font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400"
-                                    >
-                                        {ret.goodsReceiving.document_number}
-                                    </Link>
-                                </div>
-                            )}
-                            {ret.payable && (
-                                <div className="flex justify-between">
-                                    <span className="text-slate-500">Hutang Supplier</span>
-                                    <Link
-                                        href={route("payables.show", ret.payable.id)}
-                                        className="font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400"
-                                    >
-                                        {formatCurrency(ret.payable.total)} (Sisa: {formatCurrency(ret.payable.total - ret.payable.paid)})
-                                    </Link>
-                                </div>
-                            )}
-                            <div className="flex justify-between">
-                                <span className="text-slate-500">Supplier</span>
-                                <span className="font-semibold text-slate-800 dark:text-white">{ret.supplier?.name || "-"}</span>
-                            </div>
-                            <div className="flex justify-between">
-                                <span className="text-slate-500">Tanggal Dibuat</span>
-                                <span className="text-slate-800 dark:text-white">{formatDateTime(ret.created_at)}</span>
-                            </div>
-                            {ret.returned_at && (
-                                <div className="flex justify-between">
-                                    <span className="text-slate-500">Tanggal Selesai</span>
-                                    <span className="text-slate-800 dark:text-white">{formatDateTime(ret.returned_at)}</span>
-                                </div>
-                            )}
+                            <button
+                                type="button"
+                                onClick={() => setShowInfo((prev) => !prev)}
+                                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                            >
+                                {showInfo ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                                {showInfo ? "Sembunyikan" : "Buka"}
+                            </button>
                         </div>
+                        {showInfo && (
+                            <div className="mt-3 space-y-2 text-sm">
+                                <div className="flex justify-between">
+                                    <span className="text-slate-500">Dokumen</span>
+                                    <span className="font-semibold text-slate-800 dark:text-white">{ret.document_number}</span>
+                                </div>
+                                {ret.goodsReceiving && (
+                                    <div className="flex justify-between">
+                                        <span className="text-slate-500">GR Referensi</span>
+                                        <Link
+                                            href={route("goods-receivings.show", ret.goodsReceiving.id)}
+                                            className="font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400"
+                                        >
+                                            {ret.goodsReceiving.document_number}
+                                        </Link>
+                                    </div>
+                                )}
+                                {ret.payable && (
+                                    <div className="flex justify-between">
+                                        <span className="text-slate-500">Hutang Supplier</span>
+                                        <Link
+                                            href={route("payables.show", ret.payable.id)}
+                                            className="font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400"
+                                        >
+                                            {formatCurrency(ret.payable.total)} (Sisa: {formatCurrency(ret.payable.total - ret.payable.paid)})
+                                        </Link>
+                                    </div>
+                                )}
+                                <div className="flex justify-between">
+                                    <span className="text-slate-500">Supplier</span>
+                                    <span className="font-semibold text-slate-800 dark:text-white">{ret.supplier?.name || "-"}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                    <span className="text-slate-500">Tanggal Dibuat</span>
+                                    <span className="text-slate-800 dark:text-white">{formatDateTime(ret.created_at)}</span>
+                                </div>
+                                {ret.returned_at && (
+                                    <div className="flex justify-between">
+                                        <span className="text-slate-500">Tanggal Selesai</span>
+                                        <span className="text-slate-800 dark:text-white">{formatDateTime(ret.returned_at)}</span>
+                                    </div>
+                                )}
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>

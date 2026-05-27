@@ -199,7 +199,7 @@ export default function Index({ customers, filters = {}, meta = {} }) {
                             Pelanggan
                         </h1>
                         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                            Menampilkan {from || 0}-{to || 0} dari {total} pelanggan.
+                            Cek dan kelola data pelanggan yang sudah masuk.
                         </p>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
@@ -213,7 +213,7 @@ export default function Index({ customers, filters = {}, meta = {} }) {
                             }`}
                         >
                             <IconAdjustmentsHorizontal size={18} />
-                            Filter
+                            {showFilters ? "Sembunyikan filter" : "Buka filter"}
                         </button>
                         {canCreateCustomers ? (
                             <Button
@@ -333,7 +333,7 @@ export default function Index({ customers, filters = {}, meta = {} }) {
 
                 <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-900 sm:flex-row sm:items-center sm:justify-between">
                     <div className="text-sm text-slate-500 dark:text-slate-400">
-                        Halaman {currentPage} • {rows.length} row tampil • total {total} data
+                        Halaman {currentPage} • {rows.length} tampil • total {total}
                     </div>
 
                     <div className="flex flex-wrap items-center gap-3">
@@ -494,7 +494,7 @@ export default function Index({ customers, filters = {}, meta = {} }) {
                                 type="link"
                                 icon={<IconCirclePlus size={18} />}
                                 className="bg-primary-500 text-white hover:bg-primary-600"
-                                label="Tambah Pelanggan"
+                                label="Buat pelanggan"
                                 href={route("customers.create")}
                             />
                         ) : null}

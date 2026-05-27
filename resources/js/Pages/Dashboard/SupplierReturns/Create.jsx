@@ -4,6 +4,8 @@ import { Head, Link, useForm, usePage } from "@inertiajs/react";
 import Button from "@/Components/Dashboard/Button";
 import {
     IconArrowLeft,
+    IconChevronDown,
+    IconChevronUp,
     IconPlus,
     IconTrash,
     IconTruckReturn,
@@ -19,6 +21,8 @@ const formatCurrency = (value = 0) =>
 
 export default function Create({ suppliers, goodsReceivings, products }) {
     const { errors } = usePage().props;
+    const [showReturnInfo, setShowReturnInfo] = useState(true);
+    const [showItemPicker, setShowItemPicker] = useState(true);
     const { data, setData, post, processing } = useForm({
         supplier_id: "",
         goods_receiving_id: "",
@@ -122,15 +126,33 @@ export default function Create({ suppliers, goodsReceivings, products }) {
                     Kembali ke daftar retur
                 </Link>
                 <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900 dark:text-white">
-                    <IconTruckReturn size={28} className="text-primary-500" />
                     Buat Retur Supplier
                 </h1>
+                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                    Catat barang yang dikembalikan ke supplier.
+                </p>
             </div>
 
             <form onSubmit={submit} className="max-w-5xl">
                 <div className="space-y-6">
                     <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
-                        <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">Informasi Retur</h2>
+                        <div className="mb-4 flex items-center justify-between gap-3">
+                            <div>
+                                <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Informasi Retur</h2>
+                                <p className="text-sm text-slate-500 dark:text-slate-400">
+                                    Pilih supplier dan dokumen asal jika ada.
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setShowReturnInfo((value) => !value)}
+                                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                            >
+                                {showReturnInfo ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                                {showReturnInfo ? "Sembunyikan" : "Buka"}
+                            </button>
+                        </div>
+                        {showReturnInfo ? (
                         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                             <div>
                                 <label className="mb-1 block text-sm font-semibold text-slate-700 dark:text-slate-200">Supplier</label>
@@ -180,12 +202,28 @@ export default function Create({ suppliers, goodsReceivings, products }) {
                                 />
                             </div>
                         </div>
+                        ) : null}
                     </div>
 
                     <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
-                        <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">Item Retur</h2>
+                        <div className="mb-4 flex items-center justify-between gap-3">
+                            <div>
+                                <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Item Retur</h2>
+                                <p className="text-sm text-slate-500 dark:text-slate-400">
+                                    Ambil item dari penerimaan barang atau cari produk langsung.
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setShowItemPicker((value) => !value)}
+                                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                            >
+                                {showItemPicker ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                                {showItemPicker ? "Sembunyikan" : "Buka"}
+                            </button>
+                        </div>
 
-                        {selectedGr && (
+                        {showItemPicker && selectedGr && (
                             <div className="mb-4">
                                 <p className="mb-2 text-sm font-medium text-slate-600 dark:text-slate-400">
                                     Item dari GR {selectedGr.document_number}
@@ -216,6 +254,8 @@ export default function Create({ suppliers, goodsReceivings, products }) {
                             </div>
                         )}
 
+                        {showItemPicker ? (
+                        <>
                         <div className="mb-4 flex gap-3">
                             <input
                                 type="text"
@@ -243,6 +283,8 @@ export default function Create({ suppliers, goodsReceivings, products }) {
                                 ))}
                             </div>
                         )}
+                        </>
+                        ) : null}
 
                         {data.items.length > 0 ? (
                             <div className="overflow-x-auto">

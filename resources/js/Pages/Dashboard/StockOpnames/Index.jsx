@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import { Head, Link, router } from "@inertiajs/react";
 import Button from "@/Components/Dashboard/Button";
@@ -7,6 +7,8 @@ import Pagination from "@/Components/Dashboard/Pagination";
 import { useAuthorization } from "@/Utils/authorization";
 import {
     IconCirclePlus,
+    IconChevronDown,
+    IconChevronUp,
     IconClipboardCheck,
     IconEye,
     IconSearch,
@@ -24,6 +26,7 @@ function formatDateTime(value) {
 export default function Index({ stockOpnames, filters }) {
     const { can } = useAuthorization();
     const canCreateStockOpnames = can("stock-opnames-create");
+    const [showFilters, setShowFilters] = useState(false);
 
     const handleFilterChange = (key, value) => {
         router.get(
@@ -49,20 +52,31 @@ export default function Index({ stockOpnames, filters }) {
                         Stock Opname
                     </h1>
                     <p className="text-sm text-slate-500 dark:text-slate-400">
-                        Kelola sesi audit stok fisik dan finalisasi adjustment stok.
+                        Buat sesi audit stok dan cek hasilnya di sini.
                     </p>
                 </div>
-                {canCreateStockOpnames && (
-                    <Button
-                        type="link"
-                        href={route("stock-opnames.create")}
-                        icon={<IconCirclePlus size={18} strokeWidth={1.5} />}
-                        className="bg-primary-500 hover:bg-primary-600 text-white shadow-lg shadow-primary-500/30"
-                        label="Buat Sesi Opname"
-                    />
-                )}
+                <div className="flex gap-2">
+                    <button
+                        type="button"
+                        onClick={() => setShowFilters((value) => !value)}
+                        className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                    >
+                        {showFilters ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                        {showFilters ? "Sembunyikan filter" : "Buka filter"}
+                    </button>
+                    {canCreateStockOpnames && (
+                        <Button
+                            type="link"
+                            href={route("stock-opnames.create")}
+                            icon={<IconCirclePlus size={18} strokeWidth={1.5} />}
+                            className="bg-primary-500 hover:bg-primary-600 text-white shadow-lg shadow-primary-500/30"
+                            label="Buat Sesi"
+                        />
+                    )}
+                </div>
             </div>
 
+            {showFilters ? (
             <div className="mb-4 grid grid-cols-1 gap-3 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 md:grid-cols-4">
                 <div className="relative md:col-span-2">
                     <input
@@ -110,6 +124,7 @@ export default function Index({ stockOpnames, filters }) {
                     />
                 </div>
             </div>
+            ) : null}
 
             <Table.Card title="Daftar Sesi Stock Opname">
                 <Table>

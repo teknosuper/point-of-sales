@@ -15,6 +15,7 @@ class Product extends Model
     protected $casts = [
         'id' => 'integer',
         'category_id' => 'integer',
+        'tenant_hpp_price' => 'integer',
         'buy_price' => 'integer',
         'sell_price' => 'integer',
         'tenant_discount_price' => 'integer',
@@ -34,6 +35,7 @@ class Product extends Model
         'sku',
         'title',
         'description',
+        'tenant_hpp_price',
         'buy_price',
         'sell_price',
         'tenant_discount_price',

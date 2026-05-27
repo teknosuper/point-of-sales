@@ -6,6 +6,8 @@ import Button from "@/Components/Dashboard/Button";
 import Table from "@/Components/Dashboard/Table";
 import Pagination from "@/Components/Dashboard/Pagination";
 import {
+    IconChevronDown,
+    IconChevronUp,
     IconCoin,
     IconDatabaseOff,
     IconDiscount2,
@@ -26,26 +28,17 @@ import {
 } from "@tabler/icons-react";
 
 // Summary Card Component
-const SummaryCard = ({ icon, title, value, description, gradient }) => (
-    <div
-        className={`relative overflow-hidden rounded-2xl p-5 bg-gradient-to-br ${gradient} text-white shadow-lg`}
-    >
-        <div className="absolute top-0 right-0 w-24 h-24 opacity-20">
-            {React.cloneElement(icon, {
-                size: 96,
-                strokeWidth: 0.5,
-                className: "transform translate-x-4 -translate-y-4",
-            })}
-        </div>
-        <div className="relative z-10">
-            <div className="flex items-center gap-2 mb-2">
-                <div className="p-2 rounded-xl bg-white/20">
-                    {React.cloneElement(icon, { size: 18 })}
-                </div>
-                <span className="text-sm font-medium opacity-90">{title}</span>
+const SummaryCard = ({ icon, title, value, description }) => (
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+        <div className="flex items-start gap-3">
+            <div className="rounded-xl bg-slate-100 p-2.5 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                {React.cloneElement(icon, { size: 18 })}
             </div>
-            <p className="text-2xl font-bold">{value}</p>
-            <p className="text-sm opacity-80 mt-1">{description}</p>
+            <div>
+                <p className="text-sm font-medium text-slate-500 dark:text-slate-400">{title}</p>
+                <p className="mt-1 text-xl font-bold text-slate-900 dark:text-white">{value}</p>
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{description}</p>
+            </div>
         </div>
     </div>
 );
@@ -332,7 +325,6 @@ const Sales = ({
             value: formatCurrency(safeSummary.revenue_total),
             description: "Total setelah diskon",
             icon: <IconReceipt2 />,
-            gradient: "from-primary-500 to-primary-700",
         },
         {
             title: "Total Profit",
@@ -341,35 +333,30 @@ const Sales = ({
                 safeSummary.average_order
             )}`,
             icon: <IconCoin />,
-            gradient: "from-success-500 to-success-700",
         },
         {
             title: "Item Terjual",
             value: safeSummary.items_sold.toLocaleString("id-ID"),
             description: `${safeSummary.orders_count} transaksi`,
             icon: <IconShoppingBag />,
-            gradient: "from-accent-500 to-accent-700",
         },
         {
             title: "Diskon Diberikan",
             value: formatCurrency(safeSummary.discount_total),
             description: `Tenant ${formatCurrency(safeSummary.tenant_discount_total)} • Owner ${formatCurrency(safeSummary.owner_discount_total)}`,
             icon: <IconDiscount2 />,
-            gradient: "from-warning-500 to-warning-600",
         },
         {
             title: "Transaksi Walk-in",
             value: safeSummary.walk_in_count.toLocaleString("id-ID"),
             description: `${safeSummary.orders_count > 0 ? ((safeSummary.walk_in_count / safeSummary.orders_count) * 100).toFixed(0) : 0}% dari transaksi`,
             icon: <IconUsers />,
-            gradient: "from-slate-500 to-slate-700",
         },
         {
             title: "Customer Terdaftar",
             value: safeSummary.registered_customer_count.toLocaleString("id-ID"),
             description: `${safeSummary.orders_count > 0 ? ((safeSummary.registered_customer_count / safeSummary.orders_count) * 100).toFixed(0) : 0}% dari transaksi`,
             icon: <IconWallet />,
-            gradient: "from-cyan-500 to-cyan-700",
         },
     ];
 
@@ -381,15 +368,11 @@ const Sales = ({
                 {/* Header */}
                 <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
                     <div>
-                        <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                            <IconTrendingUp
-                                size={28}
-                                className="text-primary-500"
-                            />
+                        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
                             Laporan Penjualan
                         </h1>
                         <p className="text-sm text-slate-500 dark:text-slate-400">
-                            Analisis dan ringkasan penjualan
+                            Cek hasil penjualan, target, dan settlement tenant.
                         </p>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
@@ -402,7 +385,8 @@ const Sales = ({
                             }`}
                         >
                             <IconFilter size={18} />
-                            <span>Filter</span>
+                            <span>{showFilters ? "Sembunyikan filter" : "Buka filter"}</span>
+                            {showFilters ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
                             {hasActiveFilters && (
                                 <span className="w-2 h-2 rounded-full bg-primary-500"></span>
                             )}
@@ -427,7 +411,7 @@ const Sales = ({
                 </div>
 
                 {/* Summary Cards */}
-                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                     {summaryCards.map((card) => (
                         <SummaryCard key={card.title} {...card} />
                     ))}

@@ -37,6 +37,7 @@ use App\Http\Controllers\PublicTableOrderController;
 use App\Http\Controllers\Reports\AdvancedSalesInsightsController;
 use App\Http\Controllers\Reports\OutletAnalyticsController;
 use App\Http\Controllers\Reports\ProfitReportController;
+use App\Http\Controllers\Reports\ProcurementReportController;
 use App\Http\Controllers\Reports\SalesReportController;
 use App\Http\Controllers\Reports\SetupAuditController;
 use App\Http\Controllers\RoleController;
@@ -418,6 +419,8 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
     Route::get('/reports/profits', [ProfitReportController::class, 'index'])->middleware('permission:profits-access')->name('reports.profits.index');
     Route::get('/reports/profits/filter-options', [ProfitReportController::class, 'filterOptions'])->middleware('permission:profits-access')->name('reports.profits.filter-options');
     Route::get('/reports/profits/items/export', [ProfitReportController::class, 'exportItems'])->middleware('permission:profits-access')->name('reports.profits.items.export');
+    Route::get('/reports/procurement', [ProcurementReportController::class, 'index'])->middleware('permission:reports-access')->name('reports.procurement.index');
+    Route::get('/reports/procurement/export', [ProcurementReportController::class, 'export'])->middleware('permission:reports-access')->name('reports.procurement.export');
     Route::get('/reports/insights', [AdvancedSalesInsightsController::class, 'index'])->middleware('permission:reports-access')->name('reports.insights.index');
 
     // aging & reminders

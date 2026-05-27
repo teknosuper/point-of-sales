@@ -686,16 +686,22 @@ class PricingService
     private function productPricingComponents(Product $product, int $quantity): array
     {
         $qty = max(1, $quantity);
+        $tenantHppUnitPrice = (int) ($product->tenant_hpp_price ?? $product->buy_price ?? 0);
         $tenantBaseUnitPrice = (int) ($product->buy_price ?? 0);
         $customerBaseUnitPrice = (int) ($product->sell_price ?? 0);
         $ownerMarkupUnitPrice = max(0, $customerBaseUnitPrice - $tenantBaseUnitPrice);
+        $tenantMarginUnitPrice = max(0, $tenantBaseUnitPrice - $tenantHppUnitPrice);
 
         return [
+            'tenant_hpp_unit_price' => $tenantHppUnitPrice,
             'customer_base_unit_price' => $customerBaseUnitPrice,
             'tenant_base_unit_price' => $tenantBaseUnitPrice,
+            'tenant_margin_unit_price' => $tenantMarginUnitPrice,
             'owner_markup_unit_price' => $ownerMarkupUnitPrice,
             'customer_base_total' => $customerBaseUnitPrice * $qty,
+            'tenant_hpp_total' => $tenantHppUnitPrice * $qty,
             'tenant_base_total' => $tenantBaseUnitPrice * $qty,
+            'tenant_margin_total' => $tenantMarginUnitPrice * $qty,
             'owner_base_total' => $ownerMarkupUnitPrice * $qty,
         ];
     }

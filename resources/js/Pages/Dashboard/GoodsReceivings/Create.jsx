@@ -4,11 +4,17 @@ import { Head, Link, useForm, usePage } from "@inertiajs/react";
 import Button from "@/Components/Dashboard/Button";
 import {
     IconArrowLeft,
+    IconChevronDown,
+    IconChevronUp,
     IconTruckDelivery,
 } from "@tabler/icons-react";
 import toast from "react-hot-toast";
 
 export default function Create({ orders }) {
+    const { activeOutlet } = usePage().props;
+    const isTenantMode = activeOutlet?.outlet_type === "tenant";
+    const [showPoPicker, setShowPoPicker] = useState(true);
+    const [showNotes, setShowNotes] = useState(false);
     const { data, setData, post, processing, errors } = useForm({
         purchase_order_id: "",
         notes: "",
@@ -83,15 +89,40 @@ export default function Create({ orders }) {
                     Kembali ke daftar penerimaan
                 </Link>
                 <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900 dark:text-white">
-                    <IconTruckDelivery size={28} className="text-primary-500" />
                     Terima Barang
                 </h1>
+                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                    {isTenantMode
+                        ? "Terima barang dari PO tenant aktif."
+                        : "Terima barang dari PO yang sudah dibuat."}
+                </p>
             </div>
 
             <form onSubmit={submit} className="max-w-4xl">
                 <div className="space-y-6">
                     <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
-                        <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">Pilih Purchase Order</h2>
+                        <div className="mb-4 flex items-center justify-between gap-3">
+                            <div>
+                                <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Pilih Purchase Order</h2>
+                                <p className="text-sm text-slate-500 dark:text-slate-400">
+                                    Pilih PO yang barangnya baru datang.
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setShowPoPicker((value) => !value)}
+                                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                            >
+                                {showPoPicker ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                                {showPoPicker ? "Sembunyikan" : "Buka"}
+                            </button>
+                        </div>
+                        {isTenantMode ? (
+                            <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100">
+                                Daftar PO sudah difilter untuk tenant <strong>{activeOutlet?.name}</strong>.
+                            </div>
+                        ) : null}
+                        {showPoPicker ? (
                         <select
                             value={selectedPoId}
                             onChange={(e) => selectPO(e.target.value)}
@@ -104,6 +135,7 @@ export default function Create({ orders }) {
                                 </option>
                             ))}
                         </select>
+                        ) : null}
                         {errors.purchase_order_id && <p className="mt-1 text-xs text-danger-500">{errors.purchase_order_id}</p>}
                     </div>
 
@@ -167,14 +199,31 @@ export default function Create({ orders }) {
 
                     {selectedOrder && data.items.length > 0 && (
                         <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
-                            <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">Catatan Penerimaan</h2>
-                            <textarea
-                                value={data.notes}
-                                onChange={(e) => setData("notes", e.target.value)}
-                                rows={3}
-                                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
-                                placeholder="Catatan penerimaan barang (opsional)"
-                            />
+                            <div className="flex items-center justify-between gap-3">
+                                <div>
+                                    <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Catatan Penerimaan</h2>
+                                    <p className="text-sm text-slate-500 dark:text-slate-400">
+                                        Isi hanya jika ada catatan khusus.
+                                    </p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowNotes((value) => !value)}
+                                    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                                >
+                                    {showNotes ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                                    {showNotes ? "Sembunyikan" : "Buka"}
+                                </button>
+                            </div>
+                            {showNotes ? (
+                                <textarea
+                                    value={data.notes}
+                                    onChange={(e) => setData("notes", e.target.value)}
+                                    rows={3}
+                                    className="mt-4 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                                    placeholder="Catatan penerimaan barang (opsional)"
+                                />
+                            ) : null}
                         </div>
                     )}
 

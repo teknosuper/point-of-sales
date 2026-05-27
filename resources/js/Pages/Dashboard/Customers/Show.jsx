@@ -71,7 +71,7 @@ export default function Show({
                         <div>
                             <div className="mb-2 flex items-center gap-2">
                                 <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
-                                    {customer.name}
+                                    Detail Pelanggan
                                 </h1>
                                 <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">
                                     <IconCrown size={14} />
@@ -81,7 +81,7 @@ export default function Show({
                                 </span>
                             </div>
                             <p className="text-sm text-slate-500 dark:text-slate-400">
-                                {customer.no_telp || "-"}{" "}
+                                {customer.name} • {customer.no_telp || "-"}{" "}
                                 {customer.address ? `• ${customer.address}` : ""}
                             </p>
                             {customer.member_code && (
@@ -126,7 +126,7 @@ export default function Show({
                                             Pelanggan ini masih non-member
                                         </h2>
                                         <p className="mt-1 text-sm text-amber-700/90 dark:text-amber-300/90">
-                                            Riwayat transaksi tetap tercatat, tetapi benefit loyalty seperti redeem poin, tier member, dan voucher personal belum aktif sampai pelanggan di-upgrade menjadi member.
+                                            Upgrade ke member jika pelanggan perlu poin, voucher, dan benefit loyalty.
                                         </p>
                                     </div>
                                 </div>

@@ -10,6 +10,7 @@ use App\Services\OutletResolver;
 use App\Services\StockMutationService;
 use App\Services\PurchaseOrderService;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 
 class PurchaseOrderController extends Controller
@@ -42,7 +43,7 @@ class PurchaseOrderController extends Controller
             ->when($filters['search'], fn ($q, $s) => $q->where('document_number', 'like', "%{$s}%"));
 
         $orders = $query->paginate(10)->withQueryString();
-        $suppliers = Supplier::orderBy('name')->get(['id', 'name']);
+        $suppliers = $this->supplierOptions($outlet);
 
         return Inertia::render('Dashboard/PurchaseOrders/Index', [
             'orders' => $orders,
@@ -54,8 +55,14 @@ class PurchaseOrderController extends Controller
     public function create(Request $request)
     {
         $outlet = $this->outletResolver->resolve($request, $request->user());
-        $suppliers = Supplier::orderBy('name')->get(['id', 'name']);
-        $products = Product::orderBy('title')->get(['id', 'title', 'sku', 'buy_price', 'stock'])
+        $suppliers = $this->supplierOptions($outlet);
+        $products = Product::query()
+            ->when(
+                $outlet?->outlet_type === 'tenant',
+                fn ($query) => $query->where('tenant_outlet_id', $outlet->id)
+            )
+            ->orderBy('title')
+            ->get(['id', 'title', 'sku', 'buy_price', 'stock', 'tenant_outlet_id'])
             ->map(function (Product $product) use ($outlet) {
                 if ($outlet) {
                     $product->setAttribute('stock', $this->stockMutationService->stockForOutlet($product, $outlet->id));
@@ -82,6 +89,9 @@ class PurchaseOrderController extends Controller
             'items.*.qty_ordered' => ['required', 'integer', 'min:1'],
             'items.*.unit_price' => ['required', 'numeric', 'min:0'],
         ]);
+
+        $this->assertSupplierBelongsToOutlet($outlet?->id, $data['supplier_id'] ?? null);
+        $this->assertProductsBelongToOutlet($outlet?->id, $outlet?->outlet_type, $data['items'] ?? []);
 
         $order = $this->purchaseOrderService->createOrder([
             ...$data,
@@ -149,5 +159,64 @@ class PurchaseOrderController extends Controller
         return redirect()
             ->route('purchase-orders.index')
             ->with('success', 'Purchase order dibatalkan.');
+    }
+
+    private function supplierOptions($outlet)
+    {
+        return Supplier::query()
+            ->when(
+                $outlet,
+                fn ($query) => $query->where('outlet_id', $outlet->id),
+                fn ($query) => $query->whereNull('outlet_id')
+            )
+            ->orderBy('name')
+            ->get(['id', 'name']);
+    }
+
+    private function assertSupplierBelongsToOutlet(?int $outletId, ?int $supplierId): void
+    {
+        if (! $supplierId) {
+            return;
+        }
+
+        $exists = Supplier::query()
+            ->whereKey($supplierId)
+            ->when(
+                $outletId,
+                fn ($query) => $query->where('outlet_id', $outletId),
+                fn ($query) => $query->whereNull('outlet_id')
+            )
+            ->exists();
+
+        if (! $exists) {
+            throw ValidationException::withMessages([
+                'supplier_id' => 'Supplier tidak tersedia untuk outlet aktif.',
+            ]);
+        }
+    }
+
+    private function assertProductsBelongToOutlet(?int $outletId, ?string $outletType, array $items): void
+    {
+        if ($outletType !== 'tenant' || ! $outletId || $items === []) {
+            return;
+        }
+
+        $productIds = collect($items)
+            ->pluck('product_id')
+            ->filter()
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values();
+
+        $allowedCount = Product::query()
+            ->whereIn('id', $productIds)
+            ->where('tenant_outlet_id', $outletId)
+            ->count();
+
+        if ($allowedCount !== $productIds->count()) {
+            throw ValidationException::withMessages([
+                'items' => 'Tenant hanya dapat membuat procurement untuk produk miliknya sendiri.',
+            ]);
+        }
     }
 }

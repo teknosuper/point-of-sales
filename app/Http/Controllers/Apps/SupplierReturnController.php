@@ -11,6 +11,7 @@ use App\Services\OutletResolver;
 use App\Services\StockMutationService;
 use App\Services\SupplierReturnService;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 
 class SupplierReturnController extends Controller
@@ -42,7 +43,7 @@ class SupplierReturnController extends Controller
             ->when($filters['search'], fn ($q, $s) => $q->where('document_number', 'like', "%{$s}%"));
 
         $returns = $query->paginate(10)->withQueryString();
-        $suppliers = Supplier::orderBy('name')->get(['id', 'name']);
+        $suppliers = $this->supplierOptions($outlet);
 
         return Inertia::render('Dashboard/SupplierReturns/Index', [
             'returns' => $returns,
@@ -54,7 +55,7 @@ class SupplierReturnController extends Controller
     public function create(Request $request)
     {
         $outlet = $this->outletResolver->resolve($request, $request->user());
-        $suppliers = Supplier::orderBy('name')->get(['id', 'name']);
+        $suppliers = $this->supplierOptions($outlet);
 
         $goodsReceivings = collect();
         if ($request->input('supplier_id')) {
@@ -69,7 +70,13 @@ class SupplierReturnController extends Controller
                 ->get();
         }
 
-        $products = Product::orderBy('title')->get(['id', 'title', 'sku', 'buy_price', 'stock'])
+        $products = Product::query()
+            ->when(
+                $outlet?->outlet_type === 'tenant',
+                fn ($query) => $query->where('tenant_outlet_id', $outlet->id)
+            )
+            ->orderBy('title')
+            ->get(['id', 'title', 'sku', 'buy_price', 'stock', 'tenant_outlet_id'])
             ->map(function (Product $product) use ($outlet) {
                 if ($outlet) {
                     $product->setAttribute('stock', $this->stockMutationService->stockForOutlet($product, $outlet->id));
@@ -87,6 +94,7 @@ class SupplierReturnController extends Controller
 
     public function store(Request $request)
     {
+        $outlet = $this->outletResolver->resolve($request, $request->user());
         $data = $request->validate([
             'supplier_id' => ['nullable', 'exists:suppliers,id'],
             'goods_receiving_id' => ['nullable', 'exists:goods_receivings,id'],
@@ -100,10 +108,13 @@ class SupplierReturnController extends Controller
             'items.*.notes' => ['nullable', 'string', 'max:500'],
         ]);
 
+        $this->assertSupplierBelongsToOutlet($outlet?->id, $data['supplier_id'] ?? null);
+        $this->assertProductsBelongToOutlet($outlet?->id, $outlet?->outlet_type, $data['items'] ?? []);
+
         $return = $this->supplierReturnService->createReturn(
             [
                 ...$data,
-                'outlet_id' => $this->outletResolver->resolve($request, $request->user())?->id,
+                'outlet_id' => $outlet?->id,
             ],
             $data['items'],
             $request->user()->id,
@@ -169,5 +180,64 @@ class SupplierReturnController extends Controller
         return redirect()
             ->route('supplier-returns.index')
             ->with('success', 'Retur supplier dibatalkan.');
+    }
+
+    private function supplierOptions($outlet)
+    {
+        return Supplier::query()
+            ->when(
+                $outlet,
+                fn ($query) => $query->where('outlet_id', $outlet->id),
+                fn ($query) => $query->whereNull('outlet_id')
+            )
+            ->orderBy('name')
+            ->get(['id', 'name']);
+    }
+
+    private function assertSupplierBelongsToOutlet(?int $outletId, ?int $supplierId): void
+    {
+        if (! $supplierId) {
+            return;
+        }
+
+        $exists = Supplier::query()
+            ->whereKey($supplierId)
+            ->when(
+                $outletId,
+                fn ($query) => $query->where('outlet_id', $outletId),
+                fn ($query) => $query->whereNull('outlet_id')
+            )
+            ->exists();
+
+        if (! $exists) {
+            throw ValidationException::withMessages([
+                'supplier_id' => 'Supplier tidak tersedia untuk outlet aktif.',
+            ]);
+        }
+    }
+
+    private function assertProductsBelongToOutlet(?int $outletId, ?string $outletType, array $items): void
+    {
+        if ($outletType !== 'tenant' || ! $outletId || $items === []) {
+            return;
+        }
+
+        $productIds = collect($items)
+            ->pluck('product_id')
+            ->filter()
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values();
+
+        $allowedCount = Product::query()
+            ->whereIn('id', $productIds)
+            ->where('tenant_outlet_id', $outletId)
+            ->count();
+
+        if ($allowedCount !== $productIds->count()) {
+            throw ValidationException::withMessages([
+                'items' => 'Tenant hanya dapat membuat retur untuk produk miliknya sendiri.',
+            ]);
+        }
     }
 }

@@ -7,6 +7,8 @@ import {
     IconBrandWhatsapp,
     IconCash,
     IconPrinter,
+    IconChevronDown,
+    IconChevronUp,
 } from "@tabler/icons-react";
 import toast from "react-hot-toast";
 import { useAuthorization } from "@/Utils/authorization";
@@ -23,6 +25,8 @@ export default function ReceivableShow({ receivable, bankAccounts = [] }) {
     const { can } = useAuthorization();
     const [showForm, setShowForm] = useState(false);
     const [showPreview, setShowPreview] = useState(false);
+    const [showPaymentHistory, setShowPaymentHistory] = useState(true);
+    const [showCollectionNotes, setShowCollectionNotes] = useState(false);
     const printRef = useRef(null);
     const { data, setData, post, processing, reset, errors } = useForm({
         amount: "",
@@ -129,10 +133,12 @@ export default function ReceivableShow({ receivable, bankAccounts = [] }) {
                             Kembali
                         </Link>
                         <div>
-                            <p className="text-xs text-slate-500">Invoice</p>
                             <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
-                                {receivable.invoice}
+                                Piutang {receivable.invoice}
                             </h1>
+                            <p className="text-sm text-slate-500 dark:text-slate-400">
+                                Lihat sisa tagihan, pembayaran, dan catatan penagihan.
+                            </p>
                         </div>
                     </div>
                     <div className="flex items-center gap-2">
@@ -207,49 +213,67 @@ export default function ReceivableShow({ receivable, bankAccounts = [] }) {
                                 </p>
                             </div>
                         </div>
-                        <div className="flex items-center justify-between">
-                            <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-                                Riwayat Pembayaran
-                            </p>
-                            {receivable.status !== "paid" && canPayReceivable && (
-                                <button
-                                    onClick={() => setShowForm(!showForm)}
-                                    className="px-3 py-2 rounded-xl text-sm font-semibold bg-primary-500 hover:bg-primary-600 text-white transition-colors"
-                                >
-                                    Tambah Pembayaran
-                                </button>
-                            )}
-                        </div>
-
-                        <div className="space-y-2">
-                            {receivable.payments?.length ? (
-                                receivable.payments.map((pay) => (
-                                    <div
-                                        key={pay.id}
-                                        className="p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 flex items-center justify-between"
+                        <div className="rounded-2xl border border-slate-200 p-4 dark:border-slate-700">
+                            <div className="flex items-center justify-between gap-3">
+                                <div>
+                                    <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                                        Riwayat Pembayaran
+                                    </p>
+                                    <p className="text-xs text-slate-500">
+                                        Buka jika ingin melihat pembayaran yang sudah masuk.
+                                    </p>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    {receivable.status !== "paid" && canPayReceivable && (
+                                        <button
+                                            onClick={() => setShowForm(!showForm)}
+                                            className="px-3 py-2 rounded-xl text-sm font-semibold bg-primary-500 hover:bg-primary-600 text-white transition-colors"
+                                        >
+                                            {showForm ? "Tutup form" : "Tambah pembayaran"}
+                                        </button>
+                                    )}
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowPaymentHistory((prev) => !prev)}
+                                        className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
                                     >
-                                        <div>
-                                            <p className="text-sm font-semibold text-slate-800 dark:text-white">
-                                                {formatCurrency(pay.amount)}
-                                            </p>
-                                            <p className="text-xs text-slate-500">
-                                                {pay.paid_at || "-"} • {pay.method || "metode"}
-                                                {pay.bank_account && ` • ${pay.bank_account.bank_name}`}
-                                            </p>
-                                            {pay.note && (
-                                                <p className="text-xs text-slate-500 mt-1">
-                                                    {pay.note}
-                                                </p>
-                                            )}
+                                        {showPaymentHistory ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                                        {showPaymentHistory ? "Sembunyikan" : "Buka"}
+                                    </button>
+                                </div>
+                            </div>
+                            {showPaymentHistory && (
+                                <div className="mt-4 space-y-2">
+                                    {receivable.payments?.length ? (
+                                        receivable.payments.map((pay) => (
+                                            <div
+                                                key={pay.id}
+                                                className="p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 flex items-center justify-between"
+                                            >
+                                                <div>
+                                                    <p className="text-sm font-semibold text-slate-800 dark:text-white">
+                                                        {formatCurrency(pay.amount)}
+                                                    </p>
+                                                    <p className="text-xs text-slate-500">
+                                                        {pay.paid_at || "-"} • {pay.method || "metode"}
+                                                        {pay.bank_account && ` • ${pay.bank_account.bank_name}`}
+                                                    </p>
+                                                    {pay.note && (
+                                                        <p className="text-xs text-slate-500 mt-1">
+                                                            {pay.note}
+                                                        </p>
+                                                    )}
+                                                </div>
+                                                <span className="text-xs text-slate-500">
+                                                    {pay.user?.name || "-"}
+                                                </span>
+                                            </div>
+                                        ))
+                                    ) : (
+                                        <div className="text-sm text-slate-500">
+                                            Belum ada pembayaran.
                                         </div>
-                                        <span className="text-xs text-slate-500">
-                                            {pay.user?.name || "-"}
-                                        </span>
-                                    </div>
-                                ))
-                            ) : (
-                                <div className="text-sm text-slate-500">
-                                    Belum ada pembayaran.
+                                    )}
                                 </div>
                             )}
                         </div>
@@ -287,35 +311,54 @@ export default function ReceivableShow({ receivable, bankAccounts = [] }) {
                             )}
                         </div>
 
-                        <form onSubmit={submitCollectionNotes} className="mt-4 space-y-3">
-                            <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-                                Catatan Penagihan
-                            </label>
-                            <textarea
-                                rows={3}
-                                value={collectionNotesForm.data.collection_notes}
-                                onChange={(e) =>
-                                    collectionNotesForm.setData("collection_notes", e.target.value)
-                                }
-                                className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm text-slate-800 dark:text-slate-200 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20"
-                                placeholder="Catatan proses penagihan..."
-                            />
-                            {collectionNotesForm.errors.collection_notes && (
-                                <p className="text-xs text-danger-500">
-                                    {collectionNotesForm.errors.collection_notes}
-                                </p>
+                        <div className="mt-4 rounded-2xl border border-slate-200 p-4 dark:border-slate-700">
+                            <div className="flex items-center justify-between gap-3">
+                                <div>
+                                    <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                                        Catatan Penagihan
+                                    </p>
+                                    <p className="text-xs text-slate-500">
+                                        Buka jika ingin menyimpan progres penagihan.
+                                    </p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowCollectionNotes((prev) => !prev)}
+                                    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                                >
+                                    {showCollectionNotes ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                                    {showCollectionNotes ? "Sembunyikan" : "Buka"}
+                                </button>
+                            </div>
+                            {showCollectionNotes && (
+                                <form onSubmit={submitCollectionNotes} className="mt-4 space-y-3">
+                                    <textarea
+                                        rows={3}
+                                        value={collectionNotesForm.data.collection_notes}
+                                        onChange={(e) =>
+                                            collectionNotesForm.setData("collection_notes", e.target.value)
+                                        }
+                                        className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm text-slate-800 dark:text-slate-200 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20"
+                                        placeholder="Catatan proses penagihan..."
+                                    />
+                                    {collectionNotesForm.errors.collection_notes && (
+                                        <p className="text-xs text-danger-500">
+                                            {collectionNotesForm.errors.collection_notes}
+                                        </p>
+                                    )}
+                                    {collectionNotesForm.wasSuccessful && (
+                                        <p className="text-xs text-success-500">Tersimpan!</p>
+                                    )}
+                                    <button
+                                        type="submit"
+                                        disabled={collectionNotesForm.processing}
+                                        className="w-full h-10 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors disabled:opacity-50"
+                                    >
+                                        {collectionNotesForm.processing ? "Menyimpan..." : "Simpan Catatan"}
+                                    </button>
+                                </form>
                             )}
-                            {collectionNotesForm.wasSuccessful && (
-                                <p className="text-xs text-success-500">Tersimpan!</p>
-                            )}
-                            <button
-                                type="submit"
-                                disabled={collectionNotesForm.processing}
-                                className="w-full h-10 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors disabled:opacity-50"
-                            >
-                                {collectionNotesForm.processing ? "Menyimpan..." : "Simpan Catatan"}
-                            </button>
-                        </form>
+                        </div>
 
                         {showForm && canPayReceivable && (
                             <form onSubmit={submitPayment} className="mt-4 space-y-3">

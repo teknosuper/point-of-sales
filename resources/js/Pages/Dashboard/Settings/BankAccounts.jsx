@@ -1,8 +1,10 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { Head, usePage, router, Link } from "@inertiajs/react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import {
     IconBuildingBank,
+    IconChevronDown,
+    IconChevronUp,
     IconPlus,
     IconPencil,
     IconTrash,
@@ -19,6 +21,7 @@ export default function BankAccounts({ bankAccounts = [] }) {
     const { flash } = usePage().props;
     const { can } = useAuthorization();
     const canUpdatePaymentSettings = can("payment-settings-update");
+    const [showList, setShowList] = useState(true);
 
     useEffect(() => {
         if (flash?.success) toast.success(flash.success);
@@ -40,12 +43,11 @@ export default function BankAccounts({ bankAccounts = [] }) {
             <Head title="Pengaturan Rekening Bank" />
 
             <div className="mb-6">
-                <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                    <IconBuildingBank size={28} className="text-primary-500" />
+                <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
                     Rekening Bank
                 </h1>
                 <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-                    Kelola rekening bank untuk pembayaran transfer
+                    Kelola rekening transfer yang dipakai di pembayaran.
                 </p>
             </div>
 
@@ -55,18 +57,28 @@ export default function BankAccounts({ bankAccounts = [] }) {
                         <h3 className="font-semibold text-slate-800 dark:text-white">
                             Daftar Rekening ({bankAccounts.length})
                         </h3>
-                        {canUpdatePaymentSettings && (
-                            <Link
-                                href={route("settings.bank-accounts.create")}
-                                className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-primary-500 hover:bg-primary-600 text-white text-sm font-medium transition-colors"
+                        <div className="flex items-center gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setShowList((value) => !value)}
+                                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
                             >
-                                <IconPlus size={18} />
-                                Tambah Bank
-                            </Link>
-                        )}
+                                {showList ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                                {showList ? "Sembunyikan" : "Lihat daftar"}
+                            </button>
+                            {canUpdatePaymentSettings && (
+                                <Link
+                                    href={route("settings.bank-accounts.create")}
+                                    className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-primary-500 hover:bg-primary-600 text-white text-sm font-medium transition-colors"
+                                >
+                                    <IconPlus size={18} />
+                                    Tambah Rekening
+                                </Link>
+                            )}
+                        </div>
                     </div>
 
-                    {bankAccounts.length > 0 ? (
+                    {showList ? bankAccounts.length > 0 ? (
                         <div className="divide-y divide-slate-200 dark:divide-slate-800">
                             {bankAccounts.map((bank) => (
                                 <div
@@ -146,8 +158,12 @@ export default function BankAccounts({ bankAccounts = [] }) {
                                 className="mx-auto text-slate-300 dark:text-slate-600 mb-3"
                             />
                             <p className="text-slate-500 dark:text-slate-400">
-                                Belum ada rekening bank
+                                Belum ada rekening tersimpan.
                             </p>
+                        </div>
+                    ) : (
+                        <div className="p-6 text-sm text-slate-500 dark:text-slate-400">
+                            Daftar rekening sedang disembunyikan.
                         </div>
                     )}
                 </div>

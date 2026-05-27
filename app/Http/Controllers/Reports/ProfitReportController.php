@@ -41,6 +41,7 @@ class ProfitReportController extends Controller
             'pricing_rule_kind' => $request->input('pricing_rule_kind'),
             'outlet_id' => $outletId,
         ];
+        $filters = $this->applyDefaultDatePreset($filters);
 
         $baseQuery = $this->applyFilters(
             Transaction::query()
@@ -773,6 +774,30 @@ class ProfitReportController extends Controller
         }
 
         return 'Periode berjalan';
+    }
+
+    protected function applyDefaultDatePreset(array $filters): array
+    {
+        $hasExplicitFilters = collect([
+            $filters['start_date'] ?? null,
+            $filters['end_date'] ?? null,
+            $filters['invoice'] ?? null,
+            $filters['cashier_id'] ?? null,
+            $filters['customer_id'] ?? null,
+            $filters['tenant_outlet_id'] ?? null,
+            $filters['item_keyword'] ?? null,
+            $filters['pricing_rule_kind'] ?? null,
+        ])->contains(fn ($value) => filled($value));
+
+        if ($hasExplicitFilters) {
+            return $filters;
+        }
+
+        return [
+            ...$filters,
+            'start_date' => now()->subDays(6)->toDateString(),
+            'end_date' => now()->toDateString(),
+        ];
     }
 
     protected function itemBreakdownPaginator(array $filters)

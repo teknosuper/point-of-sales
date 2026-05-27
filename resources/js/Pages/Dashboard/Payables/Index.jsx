@@ -2,10 +2,12 @@ import React, { useEffect, useState } from "react";
 import { Head, Link, router, usePage, useForm } from "@inertiajs/react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import {
-    IconClockHour6,
-    IconSearch,
-    IconCalendar,
     IconAlertCircle,
+    IconCalendar,
+    IconClockHour6,
+    IconChevronDown,
+    IconChevronUp,
+    IconSearch,
     IconPlus,
 } from "@tabler/icons-react";
 import toast from "react-hot-toast";
@@ -29,7 +31,10 @@ const formatDate = (value) => {
 };
 
 export default function PayablesIndex({ payables, filters = {}, suppliers = [] }) {
-    const { flash } = usePage().props;
+    const { flash, activeOutlet } = usePage().props;
+    const isTenantMode = activeOutlet?.outlet_type === "tenant";
+    const [showCreateForm, setShowCreateForm] = useState(false);
+    const [showFilters, setShowFilters] = useState(false);
     const [search, setSearch] = useState(filters.invoice || "");
     const [status, setStatus] = useState(filters.status || "");
     const [supplierId, setSupplierId] = useState(filters.supplier || "");
@@ -84,21 +89,46 @@ export default function PayablesIndex({ payables, filters = {}, suppliers = [] }
             <div className="space-y-6">
                 <div className="flex items-center justify-between flex-wrap gap-3">
                     <div>
-                        <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                            <IconClockHour6 size={26} className="text-primary-500" />
+                        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
                             Hutang Supplier
                         </h1>
                         <p className="text-sm text-slate-500">
-                            Catat dan lacak pembayaran hutang ke supplier.
+                            {isTenantMode
+                                ? "Catat dan cek hutang supplier tenant aktif."
+                                : "Catat dan cek hutang supplier outlet aktif."}
                         </p>
+                    </div>
+                    <div className="flex gap-2">
+                        <button
+                            type="button"
+                            onClick={() => setShowCreateForm((value) => !value)}
+                            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                        >
+                            {showCreateForm ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                            {showCreateForm ? "Sembunyikan form" : "Tambah hutang"}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setShowFilters((value) => !value)}
+                            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                        >
+                            {showFilters ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                            {showFilters ? "Sembunyikan filter" : "Buka filter"}
+                        </button>
                     </div>
                 </div>
 
                 {/* Create form */}
+                {showCreateForm ? (
                 <form
                     onSubmit={submitCreate}
                     className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 grid grid-cols-1 md:grid-cols-5 gap-3"
                 >
+                    {isTenantMode ? (
+                        <div className="md:col-span-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100">
+                            Mode tenant aktif. Daftar supplier dan hutang di halaman ini sudah dibatasi ke <strong>{activeOutlet?.name}</strong>.
+                        </div>
+                    ) : null}
                     <div>
                         <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">
                             Supplier
@@ -175,8 +205,10 @@ export default function PayablesIndex({ payables, filters = {}, suppliers = [] }
                         />
                     </div>
                 </form>
+                ) : null}
 
                 {/* Filters */}
+                {showFilters ? (
                 <form
                     onSubmit={applyFilter}
                     className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-end"
@@ -231,6 +263,7 @@ export default function PayablesIndex({ payables, filters = {}, suppliers = [] }
                         Terapkan
                     </button>
                 </form>
+                ) : null}
 
                 {/* Table + Cards */}
                 <div className="bg-transparent border-0 shadow-none rounded-2xl sm:bg-white sm:dark:bg-slate-900 sm:border sm:border-slate-200 sm:dark:border-slate-800 sm:overflow-hidden">

@@ -4,6 +4,8 @@ import { useMemo, useState } from "react";
 import toast from "react-hot-toast";
 import {
     IconTarget,
+    IconChevronDown,
+    IconChevronUp,
     IconDeviceFloppy,
     IconCoin,
     IconChartBar,
@@ -28,7 +30,18 @@ const formatNumber = (value = 0, maximumFractionDigits = 0) =>
 export default function Target({ settings, products = [], targetMeta = {} }) {
     const { activeOutlet } = usePage().props;
     const daysInMonth = Number(targetMeta?.days_in_month || 30);
+    const daysElapsed = Number(targetMeta?.days_elapsed || 1);
+    const targetMode = targetMeta?.mode === "tenant" ? "tenant" : "owner";
+    const isTenantMode = targetMode === "tenant";
+    const primaryMarginLabel = isTenantMode
+        ? "Estimasi Margin Tenant"
+        : "Estimasi Markup Owner";
+    const primaryUnitLabel = isTenantMode
+        ? "margin_tenant_per_item"
+        : "owner_markup_per_item";
     const [search, setSearch] = useState("");
+    const [showValueTargets, setShowValueTargets] = useState(false);
+    const [showStationSummary, setShowStationSummary] = useState(false);
     const { data, setData, post, processing, errors } = useForm({
         monthly_sales_target: settings?.monthly_sales_target || "",
         monthly_profit_target: settings?.monthly_profit_target || "",
@@ -82,12 +95,26 @@ export default function Target({ settings, products = [], targetMeta = {} }) {
         [indexedProducts]
     );
     const totalDailyItems = totalMonthlyItems / (daysInMonth || 1);
+    const totalActualMonthlyItems = useMemo(
+        () =>
+            indexedProducts.reduce(
+                (sum, product) => sum + Number(product.actual_monthly_qty || 0),
+                0
+            ),
+        [indexedProducts]
+    );
+    const totalActualDailyItems = totalActualMonthlyItems / Math.max(1, daysElapsed);
     const globalDailyItemTarget = Number(data.daily_global_item_target || 0);
     const globalMonthlyItemTarget = globalDailyItemTarget * (daysInMonth || 1);
     const stationSummaries = useMemo(() => {
         const grouped = indexedProducts.reduce((accumulator, product) => {
             const key = product.kitchen_station_id || "unassigned_station";
-            const ownerMarginPerItem = Math.max(
+            const tenantMarginPerItem = Math.max(
+                0,
+                Number(product.buy_price || 0) -
+                    Number(product.tenant_hpp_price || product.buy_price || 0)
+            );
+            const ownerMarkupPerItem = Math.max(
                 0,
                 Number(product.sell_price || 0) - Number(product.buy_price || 0)
             );
@@ -100,6 +127,8 @@ export default function Target({ settings, products = [], targetMeta = {} }) {
                         product.kitchen_station_name || "Belum Dipetakan",
                     monthly_target_items: 0,
                     daily_target_items: 0,
+                    estimated_tenant_margin_monthly: 0,
+                    estimated_tenant_margin_daily: 0,
                     estimated_owner_margin_monthly: 0,
                     estimated_owner_margin_daily: 0,
                     product_count: 0,
@@ -108,10 +137,14 @@ export default function Target({ settings, products = [], targetMeta = {} }) {
 
             accumulator[key].monthly_target_items += monthlyTarget;
             accumulator[key].daily_target_items += monthlyTarget / (daysInMonth || 1);
+            accumulator[key].estimated_tenant_margin_monthly +=
+                monthlyTarget * tenantMarginPerItem;
+            accumulator[key].estimated_tenant_margin_daily +=
+                (monthlyTarget / (daysInMonth || 1)) * tenantMarginPerItem;
             accumulator[key].estimated_owner_margin_monthly +=
-                monthlyTarget * ownerMarginPerItem;
+                monthlyTarget * ownerMarkupPerItem;
             accumulator[key].estimated_owner_margin_daily +=
-                (monthlyTarget / (daysInMonth || 1)) * ownerMarginPerItem;
+                (monthlyTarget / (daysInMonth || 1)) * ownerMarkupPerItem;
             accumulator[key].product_count += 1;
 
             return accumulator;
@@ -137,6 +170,24 @@ export default function Target({ settings, products = [], targetMeta = {} }) {
             stationSummaries.reduce(
                 (sum, station) =>
                     sum + Number(station.estimated_owner_margin_daily || 0),
+                0
+            ),
+        [stationSummaries]
+    );
+    const totalEstimatedTenantMargin = useMemo(
+        () =>
+            stationSummaries.reduce(
+                (sum, station) =>
+                    sum + Number(station.estimated_tenant_margin_monthly || 0),
+                0
+            ),
+        [stationSummaries]
+    );
+    const totalEstimatedTenantMarginDaily = useMemo(
+        () =>
+            stationSummaries.reduce(
+                (sum, station) =>
+                    sum + Number(station.estimated_tenant_margin_daily || 0),
                 0
             ),
         [stationSummaries]
@@ -195,8 +246,9 @@ export default function Target({ settings, products = [], targetMeta = {} }) {
                         Target Bisnis
                     </h1>
                     <p className="text-sm text-slate-500 dark:text-slate-400">
-                        Fokuskan target utama pada jumlah item terjual per produk
-                        setiap bulan, lalu turunkan otomatis menjadi target harian.
+                        {isTenantMode
+                            ? "Tenant mengatur target item dan margin dapur sendiri berdasarkan harga jual ke outlet owner dan HPP produksi."
+                            : "Owner outlet mengatur target item dan markup outlet per produk setiap bulan, lalu sistem menurunkannya menjadi target harian."}
                     </p>
                     {activeOutlet?.name && (
                         <p className="mt-2 text-xs font-medium uppercase tracking-[0.16em] text-primary-600 dark:text-primary-300">
@@ -204,14 +256,11 @@ export default function Target({ settings, products = [], targetMeta = {} }) {
                         </p>
                     )}
                     <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
-                        Produk terbaca untuk target item:{" "}
-                        <span className="font-semibold text-slate-700 dark:text-slate-200">
-                            {formatNumber(products.length)}
-                        </span>
+                        {formatNumber(products.length)} produk siap dipakai untuk target item.
                     </p>
                 </div>
 
-                <div className="grid gap-4 lg:grid-cols-4">
+                <div className="grid gap-4 lg:grid-cols-5">
                     <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
                         <div className="flex items-center gap-3">
                             <div className="rounded-xl bg-primary-100 p-3 dark:bg-primary-900/30">
@@ -279,14 +328,37 @@ export default function Target({ settings, products = [], targetMeta = {} }) {
                                 />
                             </div>
                             <div>
-                                <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
-                                    Target Harian Global
-                                </p>
+                                    <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
+                                        {isTenantMode
+                                            ? "Target Harian Global Tenant"
+                                            : "Target Harian Global Owner"}
+                                    </p>
                                 <p className="text-2xl font-bold text-slate-900 dark:text-white">
                                     {formatNumber(globalDailyItemTarget)}
                                 </p>
                                 <p className="text-xs text-slate-500 dark:text-slate-400">
                                     Setara {formatNumber(globalMonthlyItemTarget)} item/bulan
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                    <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+                        <div className="flex items-center gap-3">
+                            <div className="rounded-xl bg-cyan-100 p-3 dark:bg-cyan-900/30">
+                                <IconCoin
+                                    size={22}
+                                    className="text-cyan-600 dark:text-cyan-400"
+                                />
+                            </div>
+                            <div>
+                                <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
+                                    Actual Bulan Berjalan
+                                </p>
+                                <p className="text-2xl font-bold text-slate-900 dark:text-white">
+                                    {formatNumber(totalActualMonthlyItems)}
+                                </p>
+                                <p className="text-xs text-slate-500 dark:text-slate-400">
+                                    Harian avg {formatNumber(totalActualDailyItems, 2)}
                                 </p>
                             </div>
                         </div>
@@ -307,14 +379,16 @@ export default function Target({ settings, products = [], targetMeta = {} }) {
                                     />
                                 </div>
                                 <div className="flex-1">
-                                    <h2 className="text-base font-semibold text-slate-900 dark:text-white">
-                                        Target Penjualan Item per Bulan
-                                    </h2>
-                                    <p className="text-sm text-slate-500 dark:text-slate-400">
-                                        Isi jumlah item yang ingin terjual untuk
-                                        setiap produk. Sistem akan menampilkan
-                                        konversi target harian secara otomatis.
-                                    </p>
+                                        <h2 className="text-base font-semibold text-slate-900 dark:text-white">
+                                        {isTenantMode
+                                            ? "Target Item Tenant per Bulan"
+                                            : "Target Penjualan Item per Bulan"}
+                                        </h2>
+                                        <p className="text-sm text-slate-500 dark:text-slate-400">
+                                        {isTenantMode
+                                            ? "Isi jumlah item yang ingin dijual tenant ke outlet owner. Sistem akan menghitung target harian dan estimasi margin tenant otomatis."
+                                            : "Isi jumlah item yang ingin terjual untuk setiap produk. Sistem akan menampilkan konversi target harian dan estimasi markup owner otomatis."}
+                                        </p>
                                 </div>
                             </div>
 
@@ -398,6 +472,15 @@ export default function Target({ settings, products = [], targetMeta = {} }) {
                                             <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                                                 Target/Hari
                                             </th>
+                                            <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                                Actual/Bulan
+                                            </th>
+                                            <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                                Gap
+                                            </th>
+                                            <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                                Achv
+                                            </th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -415,7 +498,11 @@ export default function Target({ settings, products = [], targetMeta = {} }) {
                                                             {product.title}
                                                         </div>
                                                         <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                                            Harga beli{" "}
+                                                            HPP tenant{" "}
+                                                            {formatCurrency(
+                                                                product.tenant_hpp_price
+                                                            )}{" "}
+                                                            • Beli outlet{" "}
                                                             {formatCurrency(
                                                                 product.buy_price
                                                             )}{" "}
@@ -466,19 +553,55 @@ export default function Target({ settings, products = [], targetMeta = {} }) {
                                                         )}
                                                     </td>
                                                     <td className="px-4 py-3 text-right align-top font-medium text-slate-700 dark:text-slate-300">
-                                                        {monthlyTarget > 0
-                                                            ? formatNumber(
-                                                                  dailyTarget,
-                                                                  2
-                                                              )
+                                                            {monthlyTarget > 0
+                                                                ? formatNumber(
+                                                                      dailyTarget,
+                                                                      2
+                                                                  )
                                                             : "0"}
+                                                    </td>
+                                                    <td className="px-4 py-3 text-right align-top font-medium text-slate-700 dark:text-slate-300">
+                                                        <div>
+                                                            {formatNumber(
+                                                                product.actual_monthly_qty || 0
+                                                            )}
+                                                        </div>
+                                                        <div className="text-xs text-slate-500 dark:text-slate-400">
+                                                            {formatNumber(
+                                                                product.actual_daily_avg || 0,
+                                                                2
+                                                            )}
+                                                            /hari
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-4 py-3 text-right align-top font-medium text-amber-600 dark:text-amber-400">
+                                                        {formatNumber(
+                                                            product.target_gap_qty || 0
+                                                        )}
+                                                    </td>
+                                                    <td className="px-4 py-3 text-right align-top">
+                                                        <span
+                                                            className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
+                                                                Number(product.achievement_percentage || 0) >= 100
+                                                                    ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300"
+                                                                    : Number(product.achievement_percentage || 0) >= 60
+                                                                    ? "bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300"
+                                                                    : "bg-rose-50 text-rose-700 dark:bg-rose-950/30 dark:text-rose-300"
+                                                            }`}
+                                                        >
+                                                            {formatNumber(
+                                                                product.achievement_percentage || 0,
+                                                                1
+                                                            )}
+                                                            %
+                                                        </span>
                                                     </td>
                                                 </tr>
                                             );
                                         }) : (
                                             <tr>
                                                 <td
-                                                    colSpan={3}
+                                                    colSpan={6}
                                                     className="px-4 py-8 text-center text-sm text-slate-500 dark:text-slate-400"
                                                 >
                                                     Tidak ada produk yang cocok
@@ -493,24 +616,34 @@ export default function Target({ settings, products = [], targetMeta = {} }) {
 
                         <div className="space-y-5">
                             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/40">
-                                <div className="mb-4 flex items-start gap-4">
-                                    <div className="rounded-xl bg-cyan-100 p-3 dark:bg-cyan-900/30">
-                                        <IconCoin
-                                            size={24}
-                                            className="text-cyan-600 dark:text-cyan-400"
-                                        />
+                                <div className="mb-4 flex items-start justify-between gap-4">
+                                    <div className="flex items-start gap-4">
+                                        <div className="rounded-xl bg-cyan-100 p-3 dark:bg-cyan-900/30">
+                                            <IconCoin
+                                                size={24}
+                                                className="text-cyan-600 dark:text-cyan-400"
+                                            />
+                                        </div>
+                                        <div>
+                                            <h2 className="text-base font-semibold text-slate-900 dark:text-white">
+                                                Target Nilai Bulanan
+                                            </h2>
+                                            <p className="text-sm text-slate-500 dark:text-slate-400">
+                                                Opsional untuk laporan omzet dan profit.
+                                            </p>
+                                        </div>
                                     </div>
-                                    <div>
-                                        <h2 className="text-base font-semibold text-slate-900 dark:text-white">
-                                            Target Nilai Bulanan
-                                        </h2>
-                                        <p className="text-sm text-slate-500 dark:text-slate-400">
-                                            Tetap dipertahankan untuk kompatibilitas
-                                            laporan omzet dan profit.
-                                        </p>
-                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowValueTargets((value) => !value)}
+                                        className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                                    >
+                                        {showValueTargets ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                                        {showValueTargets ? "Sembunyikan" : "Lihat detail"}
+                                    </button>
                                 </div>
 
+                                {showValueTargets ? (
                                 <div className="space-y-4">
                                     <div>
                                         <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
@@ -572,6 +705,7 @@ export default function Target({ settings, products = [], targetMeta = {} }) {
                                         )}
                                     </div>
                                 </div>
+                                ) : null}
                             </div>
 
                             <div className="rounded-xl border border-primary-200 bg-primary-50 p-4 dark:border-primary-900 dark:bg-primary-950/30">
@@ -580,8 +714,9 @@ export default function Target({ settings, products = [], targetMeta = {} }) {
                                     dihitung otomatis dari target bulanan dibagi{" "}
                                     {daysInMonth} hari di{" "}
                                     {targetMeta?.month_label || "bulan aktif"}.
-                                    Ini lebih relevan untuk owner outlet yang
-                                    mengejar volume item, bukan hanya markup nominal.
+                                    {isTenantMode
+                                        ? " Tenant bisa fokus pada volume produksi dan margin tenant per item."
+                                        : " Ini lebih relevan untuk owner outlet yang mengejar volume item dan markup outlet, bukan hanya target nominal."}
                                 </p>
                             </div>
                         </div>
@@ -605,23 +740,44 @@ export default function Target({ settings, products = [], targetMeta = {} }) {
                                     Ringkasan Target per Dapur
                                 </h2>
                                 <p className="text-sm text-slate-500 dark:text-slate-400">
-                                    Menjumlahkan target item per dapur/station dan
-                                    estimasi margin owner outlet secara bulanan dan harian.
+                                    Menjumlahkan target item per dapur/station dan estimasi margin tenant serta markup owner secara bulanan dan harian.
                                 </p>
                             </div>
-                            <div className="rounded-xl bg-white px-4 py-3 text-right shadow-sm dark:bg-slate-900">
-                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                                    Total Margin Owner Bulanan
-                                </p>
-                                <p className="text-lg font-bold text-slate-900 dark:text-white">
-                                    {formatCurrency(totalEstimatedOwnerMargin)}
-                                </p>
-                                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                    Harian {formatCurrency(totalEstimatedOwnerMarginDaily)}
-                                </p>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setShowStationSummary((value) => !value)}
+                                    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                                >
+                                    {showStationSummary ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                                    {showStationSummary ? "Sembunyikan" : "Lihat detail"}
+                                </button>
+                                <div className="rounded-xl bg-white px-4 py-3 text-right shadow-sm dark:bg-slate-900">
+                                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                        {isTenantMode
+                                            ? "Total Margin Tenant Bulanan"
+                                            : "Total Markup Owner Bulanan"}
+                                    </p>
+                                    <p className="text-lg font-bold text-slate-900 dark:text-white">
+                                        {formatCurrency(
+                                            isTenantMode
+                                                ? totalEstimatedTenantMargin
+                                                : totalEstimatedOwnerMargin
+                                        )}
+                                    </p>
+                                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                        Harian{" "}
+                                        {formatCurrency(
+                                            isTenantMode
+                                                ? totalEstimatedTenantMarginDaily
+                                                : totalEstimatedOwnerMarginDaily
+                                        )}
+                                    </p>
+                                </div>
                             </div>
                         </div>
 
+                        {showStationSummary && (
                         <div className="space-y-3">
                             {stationSummaries.length > 0 ? (
                                 <>
@@ -652,19 +808,42 @@ export default function Target({ settings, products = [], targetMeta = {} }) {
                                                                 <div className="text-xs uppercase tracking-wide text-slate-400">
                                                                     Target/Hari
                                                                 </div>
-                                                                <div className="font-semibold text-slate-700 dark:text-slate-200">
-                                                                    {formatNumber(station.daily_target_items, 2)}
+                                                                    <div className="font-semibold text-slate-700 dark:text-slate-200">
+                                                                        {formatNumber(station.daily_target_items, 2)}
+                                                                    </div>
+                                                                    <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                                                                        Actual avg{" "}
+                                                                        {formatNumber(
+                                                                            stationProducts.reduce(
+                                                                                (sum, product) =>
+                                                                                    sum +
+                                                                                    Number(product.actual_daily_avg || 0),
+                                                                                0
+                                                                            ),
+                                                                            2
+                                                                        )}
+                                                                    </div>
                                                                 </div>
-                                                            </div>
                                                             <div>
                                                                 <div className="text-xs uppercase tracking-wide text-slate-400">
-                                                                    Margin/Bulan
+                                                                    {isTenantMode
+                                                                        ? "Margin Tenant/Bulan"
+                                                                        : "Markup Owner/Bulan"}
                                                                 </div>
                                                                 <div className="font-semibold text-emerald-600 dark:text-emerald-400">
-                                                                    {formatCurrency(station.estimated_owner_margin_monthly)}
+                                                                    {formatCurrency(
+                                                                        isTenantMode
+                                                                            ? station.estimated_tenant_margin_monthly
+                                                                            : station.estimated_owner_margin_monthly
+                                                                    )}
                                                                 </div>
                                                                 <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                                                                    Harian {formatCurrency(station.estimated_owner_margin_daily)}
+                                                                    Harian{" "}
+                                                                    {formatCurrency(
+                                                                        isTenantMode
+                                                                            ? station.estimated_tenant_margin_daily
+                                                                            : station.estimated_owner_margin_daily
+                                                                    )}
                                                                 </div>
                                                             </div>
                                                             <div>
@@ -682,11 +861,21 @@ export default function Target({ settings, products = [], targetMeta = {} }) {
                                                     <div className="space-y-2">
                                                         {stationProducts.map((product) => {
                                                             const monthlyTarget = Number(product.monthly_target || 0);
-                                                            const ownerMarginPerItem = Math.max(
+                                                            const tenantMarginPerItem = Math.max(
+                                                                0,
+                                                                Number(product.buy_price || 0) -
+                                                                    Number(product.tenant_hpp_price || product.buy_price || 0)
+                                                            );
+                                                            const ownerMarkupPerItem = Math.max(
                                                                 0,
                                                                 Number(product.sell_price || 0) -
                                                                     Number(product.buy_price || 0)
                                                             );
+                                                            const primaryUnitValue =
+                                                                product[primaryUnitLabel] ??
+                                                                (isTenantMode
+                                                                    ? tenantMarginPerItem
+                                                                    : ownerMarkupPerItem);
                                                             const dailyTarget = monthlyTarget / (daysInMonth || 1);
 
                                                             return (
@@ -699,7 +888,7 @@ export default function Target({ settings, products = [], targetMeta = {} }) {
                                                                             {product.title}
                                                                         </div>
                                                                         <div className="text-slate-500 dark:text-slate-400">
-                                                                            Harga beli {formatCurrency(product.buy_price)} • Harga jual {formatCurrency(product.sell_price)}
+                                                                            HPP {formatCurrency(product.tenant_hpp_price)} • Beli outlet {formatCurrency(product.buy_price)} • Jual {formatCurrency(product.sell_price)}
                                                                         </div>
                                                                     </div>
                                                                     <div className="text-slate-600 dark:text-slate-300">
@@ -707,18 +896,21 @@ export default function Target({ settings, products = [], targetMeta = {} }) {
                                                                         <div>Target/Hari {formatNumber(dailyTarget, 2)}</div>
                                                                     </div>
                                                                     <div className="text-slate-600 dark:text-slate-300">
-                                                                        <div>Margin/Item {formatCurrency(ownerMarginPerItem)}</div>
+                                                                        <div>
+                                                                            {isTenantMode ? "Margin Tenant/Item" : "Markup Owner/Item"}{" "}
+                                                                            {formatCurrency(primaryUnitValue)}
+                                                                        </div>
                                                                         <div>Stok {formatNumber(product.stock)}</div>
                                                                     </div>
                                                                     <div className="text-emerald-600 dark:text-emerald-400">
                                                                         <div className="font-semibold">
-                                                                            {formatCurrency(monthlyTarget * ownerMarginPerItem)}
+                                                                            {formatCurrency(monthlyTarget * primaryUnitValue)}
                                                                         </div>
                                                                         <div className="text-slate-500 dark:text-slate-400">
                                                                             Bulanan
                                                                         </div>
                                                                         <div className="text-slate-500 dark:text-slate-400">
-                                                                            Harian {formatCurrency(dailyTarget * ownerMarginPerItem)}
+                                                                            Harian {formatCurrency(dailyTarget * primaryUnitValue)}
                                                                         </div>
                                                                     </div>
                                                                 </div>
@@ -742,9 +934,20 @@ export default function Target({ settings, products = [], targetMeta = {} }) {
                                                 {formatNumber(stationSummaries.reduce((sum, station) => sum + Number(station.daily_target_items || 0), 0), 2)} item/hari
                                                 </div>
                                                 <div className="text-right font-semibold text-emerald-600 dark:text-emerald-400">
-                                                <div>{formatCurrency(totalEstimatedOwnerMargin)}</div>
+                                                <div>
+                                                    {formatCurrency(
+                                                        isTenantMode
+                                                            ? totalEstimatedTenantMargin
+                                                            : totalEstimatedOwnerMargin
+                                                    )}
+                                                </div>
                                                 <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                                                    Harian {formatCurrency(totalEstimatedOwnerMarginDaily)}
+                                                    Harian{" "}
+                                                    {formatCurrency(
+                                                        isTenantMode
+                                                            ? totalEstimatedTenantMarginDaily
+                                                            : totalEstimatedOwnerMarginDaily
+                                                    )}
                                                 </div>
                                                 </div>
                                             </div>
@@ -756,7 +959,8 @@ export default function Target({ settings, products = [], targetMeta = {} }) {
                                     </div>
                                 )}
                             </div>
-                        </div>
+                        )}
+                    </div>
                 </form>
             </div>
         </>

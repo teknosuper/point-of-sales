@@ -39,17 +39,64 @@ class StockMutationController extends Controller
             ->paginate(15)
             ->withQueryString();
 
+        $productQuery = Product::query()
+            ->when(
+                $outlet?->outlet_type === 'tenant',
+                fn ($query) => $query->where('tenant_outlet_id', $outlet->id)
+            )
+            ->orderBy('title');
+
+        $products = $productQuery
+            ->get(['id', 'title', 'barcode', 'sku', 'stock', 'tenant_outlet_id'])
+            ->map(function (Product $product) use ($outlet) {
+                if ($outlet) {
+                    $product->setAttribute('stock', $this->stockMutationService->stockForOutlet($product, $outlet->id));
+                }
+
+                return $product;
+            });
+
+        $productIds = $products->pluck('id')->map(fn ($id) => (int) $id)->all();
+        $summaryQuery = StockMutation::query()
+            ->when($outlet, fn ($query) => $query->where('outlet_id', $outlet->id))
+            ->when($productIds !== [], fn ($query) => $query->whereIn('product_id', $productIds))
+            ->when($filters['product_id'], fn ($query, $productId) => $query->where('product_id', $productId))
+            ->when($filters['mutation_type'], fn ($query, $mutationType) => $query->where('mutation_type', $mutationType))
+            ->when($filters['date_from'], fn ($query, $date) => $query->whereDate('created_at', '>=', $date))
+            ->when($filters['date_to'], fn ($query, $date) => $query->whereDate('created_at', '<=', $date));
+
+        $summaryRows = (clone $summaryQuery)
+            ->selectRaw('mutation_type, COALESCE(SUM(qty), 0) as total_qty, COUNT(*) as total_rows')
+            ->groupBy('mutation_type')
+            ->get()
+            ->keyBy('mutation_type');
+
+        $currentStockTotal = (int) $products->sum(fn ($product) => (int) ($product->stock ?? 0));
+
         return Inertia::render('Dashboard/StockMutations/Index', [
             'stockMutations' => $stockMutations,
-            'products' => Product::query()->orderBy('title')->get(['id', 'title', 'barcode', 'sku', 'stock'])
-                ->map(function (Product $product) use ($outlet) {
-                    if ($outlet) {
-                        $product->setAttribute('stock', $this->stockMutationService->stockForOutlet($product, $outlet->id));
-                    }
-
-                    return $product;
-                }),
+            'products' => $products,
             'filters' => $filters,
+            'summary' => [
+                'current_stock_total' => $currentStockTotal,
+                'products_count' => (int) $products->count(),
+                'inbound_qty' => (int) ($summaryRows->get('in')->total_qty ?? 0),
+                'inbound_rows' => (int) ($summaryRows->get('in')->total_rows ?? 0),
+                'outbound_qty' => (int) ($summaryRows->get('out')->total_qty ?? 0),
+                'outbound_rows' => (int) ($summaryRows->get('out')->total_rows ?? 0),
+                'adjustment_qty' => (int) ($summaryRows->get('adjustment')->total_qty ?? 0),
+                'adjustment_rows' => (int) ($summaryRows->get('adjustment')->total_rows ?? 0),
+            ],
+            'workspace' => [
+                'active_outlet' => $outlet
+                    ? [
+                        'id' => $outlet->id,
+                        'name' => $outlet->name,
+                        'code' => $outlet->code,
+                        'outlet_type' => $outlet->outlet_type,
+                    ]
+                    : null,
+            ],
         ]);
     }
 }

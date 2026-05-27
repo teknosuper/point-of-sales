@@ -6,6 +6,8 @@ import {
     IconAdjustmentsHorizontal,
     IconBarcode,
     IconCirclePlus,
+    IconChevronDown,
+    IconChevronUp,
     IconDatabaseOff,
     IconLayoutGrid,
     IconList,
@@ -323,6 +325,7 @@ export default function Index({
     const { activeOutlet, auth } = usePage().props;
     const [viewMode, setViewMode] = useState("grid");
     const [showFilters, setShowFilters] = useState(false);
+    const [showSetupGuide, setShowSetupGuide] = useState(false);
     const [showBarcodeModal, setShowBarcodeModal] = useState(false);
     const [singleProductBarcode, setSingleProductBarcode] = useState(null);
     const [selectedProducts, setSelectedProducts] = useState([]);
@@ -369,14 +372,43 @@ export default function Index({
     const canEditProducts = can("products-edit");
     const canDeleteProducts = can("products-delete");
     const canManagePricing = can("products-pricing-update");
-    const canManageCatalog = canCreateProducts;
     const isKitchenWorkspace =
         workspace?.is_kitchen === true || auth?.user?.preferred_workspace === "kitchen";
+    const isTenantWorkspace =
+        workspace?.is_tenant === true || activeOutlet?.outlet_type === "tenant";
+    const canManageCatalog = canCreateProducts && !isTenantWorkspace && !isKitchenWorkspace;
+    const canEditCatalog = canEditProducts && !isTenantWorkspace && !isKitchenWorkspace;
+    const canDeleteCatalog = canDeleteProducts && !isTenantWorkspace && !isKitchenWorkspace;
     const canUpdateDailyStock = canEditProducts && Boolean(activeOutlet?.id);
-    const showCostAsPrimary = isKitchenWorkspace || !canManagePricing;
+    const showCostAsPrimary = isKitchenWorkspace || isTenantWorkspace || !canManagePricing;
     const categories = meta?.categories ?? [];
     const tenantOutlets = meta?.tenantOutlets ?? [];
     const kitchenStations = meta?.kitchenStations ?? [];
+    const setupIssueCount =
+        Number(setupStatus?.needs_tenant_mapping ? 1 : 0) +
+        Number(setupStatus?.needs_station_mapping ? 1 : 0);
+    const setupSummaryCards = [
+        {
+            label: "Tenant Foodcourt",
+            value: setupStatus.tenant_outlets_count ?? 0,
+            done: true,
+        },
+        {
+            label: "Produk ke Tenant",
+            value: setupStatus.products_with_tenant_count ?? 0,
+            done: !setupStatus.needs_tenant_mapping,
+        },
+        {
+            label: "Produk tanpa Tenant",
+            value: setupStatus.products_without_tenant_count ?? 0,
+            done: !setupStatus.needs_tenant_mapping,
+        },
+        {
+            label: "Produk ke Station",
+            value: setupStatus.products_with_station_mapping_count ?? 0,
+            done: !setupStatus.needs_station_mapping,
+        },
+    ];
 
     const hasActiveFilters = useMemo(
         () =>
@@ -412,7 +444,7 @@ export default function Index({
             });
         }
 
-        if (filterData.tenant_outlet_id && !isKitchenWorkspace) {
+        if (filterData.tenant_outlet_id && !isKitchenWorkspace && !isTenantWorkspace) {
             const matchedOutlet = tenantOutlets.find(
                 (outlet) => String(outlet.id) === String(filterData.tenant_outlet_id)
             );
@@ -438,7 +470,7 @@ export default function Index({
             });
         }
 
-        if (filterData.mapping_status && !isKitchenWorkspace) {
+        if (filterData.mapping_status && !isKitchenWorkspace && !isTenantWorkspace) {
             const mappingLabel = {
                 tenant_missing: "Tenant belum",
                 kitchen_missing: "Dapur belum",
@@ -469,7 +501,7 @@ export default function Index({
         }
 
         return chips;
-    }, [categories, filterData, isKitchenWorkspace, tenantOutlets]);
+    }, [categories, filterData, isKitchenWorkspace, isTenantWorkspace, tenantOutlets]);
 
     const handlePrintSingleBarcode = (product) => {
         setSingleProductBarcode(product);
@@ -652,12 +684,14 @@ export default function Index({
                         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                             {isKitchenWorkspace
                                 ? `Menampilkan produk dapur Anda: ${from || 0}-${to || 0} dari ${total} produk.`
+                                : isTenantWorkspace
+                                  ? `Menampilkan produk tenant aktif: ${from || 0}-${to || 0} dari ${total} produk.`
                                 : `Menampilkan ${from || 0}-${to || 0} dari ${total} produk.`}
                         </p>
                     </div>
 
                     <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
-                        {!isKitchenWorkspace ? (
+                        {!isKitchenWorkspace && !isTenantWorkspace ? (
                             <button
                                 onClick={handlePrintAllBarcodes}
                                 className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 sm:w-auto"
@@ -689,7 +723,7 @@ export default function Index({
                             Filter
                         </button>
 
-                        {canCreateProducts && !isKitchenWorkspace ? (
+                        {canManageCatalog ? (
                             <Button
                                 type="link"
                                 icon={<IconCirclePlus size={18} strokeWidth={1.5} />}
@@ -812,158 +846,187 @@ export default function Index({
                             Halaman ini hanya menampilkan produk yang terhubung ke station dapur Anda. Gunakan aksi <span className="font-semibold">Update Stok Hari Ini</span> untuk menyesuaikan stok outlet aktif tanpa membuka form admin produk.
                         </p>
                     </div>
+                ) : isTenantWorkspace ? (
+                    <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-100">
+                        <p className="font-semibold">Mode tenant aktif</p>
+                        <p className="mt-1 text-blue-800 dark:text-blue-200">
+                            Tenant hanya melihat produk miliknya sendiri dan di halaman ini hanya dapat memperbarui <span className="font-semibold">Stok Hari Ini</span>. Perubahan katalog, mapping, dan harga tetap dikelola outlet owner.
+                        </p>
+                    </div>
                 ) : (
-                    <div className="grid gap-4 lg:grid-cols-2">
-                        <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-100">
-                            <p className="font-semibold">Halaman ini untuk katalog dan mapping produk</p>
-                            <p className="mt-1 text-blue-800 dark:text-blue-200">
-                                Setelah outlet, tenant, dan kitchen siap, halaman produk dipakai untuk memastikan setiap produk terhubung ke tenant yang benar dan siap diarahkan ke station dapur yang tepat.
-                            </p>
+                    <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+                        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                            <div>
+                                <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                                    Setup tenant, dapur, dan mapping produk
+                                </p>
+                                <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+                                    Ringkas dulu agar layar produk tetap fokus. Buka detail hanya saat perlu cek mapping tenant foodcourt atau routing station dapur.
+                                </p>
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-2">
+                                <span
+                                    className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                                        setupIssueCount === 0
+                                            ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300"
+                                            : "bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300"
+                                    }`}
+                                >
+                                    {setupIssueCount === 0
+                                        ? "Semua mapping siap"
+                                        : `${setupIssueCount} area perlu dicek`}
+                                </span>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowSetupGuide((value) => !value)}
+                                    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                                >
+                                    {showSetupGuide ? (
+                                        <IconChevronUp size={16} />
+                                    ) : (
+                                        <IconChevronDown size={16} />
+                                    )}
+                                    {showSetupGuide ? "Sembunyikan detail setup" : "Buka detail setup"}
+                                </button>
+                            </div>
                         </div>
-                        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100">
-                            <p className="font-semibold">Jika foodcourt aktif, mapping tenant wajib diperhatikan</p>
-                            <p className="mt-1 text-amber-800 dark:text-amber-200">
-                                Produk yang belum dipetakan ke tenant akan terlihat sebagai <span className="font-semibold">Global</span> dan belum cocok untuk settlement tenant foodcourt.
-                            </p>
+
+                        <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                            {setupSummaryCards.map((item) => (
+                                <div
+                                    key={item.label}
+                                    className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800/60"
+                                >
+                                    <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                                        {item.label}
+                                    </p>
+                                    <div className="mt-1 flex items-end justify-between gap-3">
+                                        <p className="text-lg font-bold text-slate-900 dark:text-white">
+                                            {item.value}
+                                        </p>
+                                        <span
+                                            className={`text-[11px] font-semibold ${
+                                                item.done
+                                                    ? "text-emerald-600 dark:text-emerald-300"
+                                                    : "text-amber-600 dark:text-amber-300"
+                                            }`}
+                                        >
+                                            {item.done ? "Siap" : "Cek"}
+                                        </span>
+                                    </div>
+                                </div>
+                            ))}
                         </div>
+
+                        {showSetupGuide ? (
+                            <div className="mt-4 space-y-4 border-t border-slate-200 pt-4 dark:border-slate-800">
+                                <div className="grid gap-4 lg:grid-cols-2">
+                                    <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-100">
+                                        <p className="font-semibold">Halaman ini untuk katalog dan mapping produk</p>
+                                        <p className="mt-1 text-blue-800 dark:text-blue-200">
+                                            Setelah outlet, tenant, dan kitchen siap, halaman produk dipakai untuk memastikan setiap produk terhubung ke tenant yang benar dan siap diarahkan ke station dapur yang tepat.
+                                        </p>
+                                    </div>
+                                    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100">
+                                        <p className="font-semibold">Jika foodcourt aktif, mapping tenant wajib diperhatikan</p>
+                                        <p className="mt-1 text-amber-800 dark:text-amber-200">
+                                            Produk yang belum dipetakan ke tenant akan terlihat sebagai <span className="font-semibold">Global</span> dan belum cocok untuk settlement tenant foodcourt.
+                                        </p>
+                                    </div>
+                                </div>
+
+                                <div className="flex flex-wrap gap-2">
+                                    <Link
+                                        href={route("guides.setup-wizard")}
+                                        className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                                    >
+                                        Wizard Setup
+                                    </Link>
+                                    <Link
+                                        href={route("guides.outlet-kitchen")}
+                                        className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                                    >
+                                        Panduan Lengkap
+                                    </Link>
+                                    {can("outlets-access") ? (
+                                        <Link
+                                            href={route("outlets.index")}
+                                            className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                                        >
+                                            Outlet & Tenant
+                                        </Link>
+                                    ) : null}
+                                    <Link
+                                        href={route("settings.kitchen-devices.index")}
+                                        className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                                    >
+                                        Operasional Dapur & Printer
+                                    </Link>
+                                </div>
+
+                                <div className="flex flex-wrap gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => applyQuickFilter("tenant_missing")}
+                                        className={`rounded-xl px-3 py-2 text-sm font-medium ${
+                                            filterData.mapping_status === "tenant_missing"
+                                                ? "bg-amber-500 text-white"
+                                                : "border border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300"
+                                        }`}
+                                    >
+                                        Tanpa Tenant ({setupStatus.products_without_tenant_count ?? 0})
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => applyQuickFilter("kitchen_missing")}
+                                        className={`rounded-xl px-3 py-2 text-sm font-medium ${
+                                            filterData.mapping_status === "kitchen_missing"
+                                                ? "bg-amber-500 text-white"
+                                                : "border border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300"
+                                        }`}
+                                    >
+                                        Tanpa Dapur ({setupStatus.products_without_station_mapping_count ?? 0})
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => applyQuickFilter("ready")}
+                                        className={`rounded-xl px-3 py-2 text-sm font-medium ${
+                                            filterData.mapping_status === "ready"
+                                                ? "bg-emerald-500 text-white"
+                                                : "border border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-300"
+                                        }`}
+                                    >
+                                        Siap Operasional
+                                    </button>
+                                    {filterData.mapping_status ? (
+                                        <button
+                                            type="button"
+                                            onClick={() => applyQuickFilter("")}
+                                            className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                                        >
+                                            Reset Quick Filter
+                                        </button>
+                                    ) : null}
+                                </div>
+
+                                {setupIssueCount > 0 ? (
+                                    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100">
+                                        <p className="font-semibold">Mapping produk masih belum lengkap</p>
+                                        <div className="mt-2 space-y-1 text-amber-800 dark:text-amber-200">
+                                            {setupStatus.needs_tenant_mapping ? (
+                                                <p>• Masih ada produk yang belum dipetakan ke tenant, padahal tenant foodcourt sudah tersedia.</p>
+                                            ) : null}
+                                            {setupStatus.needs_station_mapping ? (
+                                                <p>• Masih ada produk yang belum dipetakan ke station dapur, sehingga ticket kitchen belum akan terpecah otomatis.</p>
+                                            ) : null}
+                                        </div>
+                                    </div>
+                                ) : null}
+                            </div>
+                        ) : null}
                     </div>
                 )}
-
-                <div className="flex flex-wrap gap-2">
-                    {!isKitchenWorkspace ? (
-                        <>
-                            <Link
-                                href={route("guides.setup-wizard")}
-                                className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
-                            >
-                                Wizard Setup
-                            </Link>
-                            <Link
-                                href={route("guides.outlet-kitchen")}
-                                className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
-                            >
-                                Panduan Lengkap
-                            </Link>
-                            {can("outlets-access") ? (
-                                <Link
-                                    href={route("outlets.index")}
-                                    className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
-                                >
-                                    Outlet & Tenant
-                                </Link>
-                            ) : null}
-                        </>
-                    ) : null}
-                    <Link
-                        href={route("settings.kitchen-devices.index")}
-                        className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
-                    >
-                        Operasional Dapur & Printer
-                    </Link>
-                </div>
-
-                {!isKitchenWorkspace ? (
-                <div className="flex flex-wrap gap-2">
-                    <button
-                        type="button"
-                        onClick={() => applyQuickFilter("tenant_missing")}
-                        className={`rounded-xl px-3 py-2 text-sm font-medium ${
-                            filterData.mapping_status === "tenant_missing"
-                                ? "bg-amber-500 text-white"
-                                : "border border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300"
-                        }`}
-                    >
-                        Tanpa Tenant ({setupStatus.products_without_tenant_count ?? 0})
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => applyQuickFilter("kitchen_missing")}
-                        className={`rounded-xl px-3 py-2 text-sm font-medium ${
-                            filterData.mapping_status === "kitchen_missing"
-                                ? "bg-amber-500 text-white"
-                                : "border border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300"
-                        }`}
-                    >
-                        Tanpa Dapur ({setupStatus.products_without_station_mapping_count ?? 0})
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => applyQuickFilter("ready")}
-                        className={`rounded-xl px-3 py-2 text-sm font-medium ${
-                            filterData.mapping_status === "ready"
-                                ? "bg-emerald-500 text-white"
-                                : "border border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-300"
-                        }`}
-                    >
-                        Siap Operasional
-                    </button>
-                    {filterData.mapping_status ? (
-                        <button
-                            type="button"
-                            onClick={() => applyQuickFilter("")}
-                            className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
-                        >
-                            Reset Quick Filter
-                        </button>
-                    ) : null}
-                </div>
-                ) : null}
-
-                {!isKitchenWorkspace ? (
-                <div className="grid gap-4 lg:grid-cols-4">
-                    {[
-                        {
-                            label: "Tenant Foodcourt",
-                            value: setupStatus.tenant_outlets_count ?? 0,
-                            done: true,
-                        },
-                        {
-                            label: "Produk ke Tenant",
-                            value: setupStatus.products_with_tenant_count ?? 0,
-                            done: !setupStatus.needs_tenant_mapping,
-                        },
-                        {
-                            label: "Produk tanpa Tenant",
-                            value: setupStatus.products_without_tenant_count ?? 0,
-                            done: !setupStatus.needs_tenant_mapping,
-                        },
-                        {
-                            label: "Produk ke Station",
-                            value: setupStatus.products_with_station_mapping_count ?? 0,
-                            done: !setupStatus.needs_station_mapping,
-                        },
-                    ].map((item) => (
-                        <div
-                            key={item.label}
-                            className={`rounded-2xl border p-4 ${
-                                item.done
-                                    ? "border-emerald-200 bg-emerald-50 dark:border-emerald-900/40 dark:bg-emerald-950/20"
-                                    : "border-amber-200 bg-amber-50 dark:border-amber-900/40 dark:bg-amber-950/20"
-                            }`}
-                        >
-                            <p className="text-sm text-slate-500 dark:text-slate-400">{item.label}</p>
-                            <p className="mt-2 text-2xl font-bold text-slate-900 dark:text-white">{item.value}</p>
-                            <p className="mt-1 text-xs font-medium text-slate-600 dark:text-slate-300">
-                                {item.done ? "Siap" : "Perlu tindakan"}
-                            </p>
-                        </div>
-                    ))}
-                </div>
-                ) : null}
-
-                {!isKitchenWorkspace && (setupStatus.needs_tenant_mapping || setupStatus.needs_station_mapping) ? (
-                    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100">
-                        <p className="font-semibold">Mapping produk masih belum lengkap</p>
-                        <div className="mt-2 space-y-1 text-amber-800 dark:text-amber-200">
-                            {setupStatus.needs_tenant_mapping ? (
-                                <p>• Masih ada produk yang belum dipetakan ke tenant, padahal tenant foodcourt sudah tersedia.</p>
-                            ) : null}
-                            {setupStatus.needs_station_mapping ? (
-                                <p>• Masih ada produk yang belum dipetakan ke station dapur, sehingga ticket kitchen belum akan terpecah otomatis.</p>
-                            ) : null}
-                        </div>
-                    </div>
-                ) : null}
 
                 {showFilters ? (
                     <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
@@ -1009,8 +1072,8 @@ export default function Index({
                                     </select>
                                 </div>
 
-                                {!isKitchenWorkspace ? (
-                                <div>
+                                {!isKitchenWorkspace && !isTenantWorkspace ? (
+                                    <div>
                                     <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
                                         Tenant Outlet
                                     </label>
@@ -1050,8 +1113,8 @@ export default function Index({
                                     </select>
                                 </div>
 
-                                {!isKitchenWorkspace ? (
-                                <div>
+                                {!isKitchenWorkspace && !isTenantWorkspace ? (
+                                    <div>
                                     <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
                                         Status Mapping
                                     </label>
@@ -1291,8 +1354,8 @@ export default function Index({
                                     isSelected={isProductSelected(product.id)}
                                     onToggle={toggleProductSelection}
                                     canSelect={canManageCatalog}
-                                    canUpdate={canEditProducts}
-                                    canDelete={canDeleteProducts}
+                                    canUpdate={canEditCatalog}
+                                    canDelete={canDeleteCatalog}
                                     canUpdateDailyStock={canUpdateDailyStock}
                                     onDailyStockUpdate={openDailyStockModal}
                                     activeOutletName={activeOutletName}
@@ -1485,7 +1548,7 @@ export default function Index({
                                                     >
                                                         <IconPrinter size={16} />
                                                     </button>
-                                                    {canEditProducts ? (
+                                                    {canEditCatalog ? (
                                                         <Button
                                                             type="edit"
                                                             icon={<IconPencilCog size={16} strokeWidth={1.5} />}
@@ -1493,7 +1556,7 @@ export default function Index({
                                                             href={route("products.edit", product.id)}
                                                         />
                                                     ) : null}
-                                                    {canDeleteProducts ? (
+                                                    {canDeleteCatalog ? (
                                                         <Button
                                                             type="delete"
                                                             icon={<IconTrash size={16} strokeWidth={1.5} />}

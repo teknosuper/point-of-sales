@@ -4,7 +4,6 @@ import DashboardLayout from "@/Layouts/DashboardLayout";
 import Pagination from "@/Components/Dashboard/Pagination";
 import {
     IconArrowLeft,
-    IconBuildingStore,
     IconCash,
     IconChartBar,
     IconDownload,
@@ -114,20 +113,13 @@ export default function TenantStatement({
                             <IconArrowLeft size={16} />
                             Kembali ke laporan penjualan
                         </Link>
-                        <div className="flex items-center gap-3">
-                            <div className="rounded-2xl bg-primary-50 p-3 text-primary-600 dark:bg-primary-950/30 dark:text-primary-300">
-                                <IconBuildingStore size={22} />
-                            </div>
-                            <div>
-                                <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
-                                    {tenantOutlet?.name}
-                                </h1>
-                                <p className="text-sm text-slate-500 dark:text-slate-400">
-                                    {tenantOutlet?.code || "Tenant"}
-                                    {" • "}
-                                    Komisi pengelola {tenantOutlet?.commission_rate_percent ?? 0}%
-                                </p>
-                            </div>
+                        <div>
+                            <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
+                                Statement Tenant
+                            </h1>
+                            <p className="text-sm text-slate-500 dark:text-slate-400">
+                                {tenantOutlet?.name} • {tenantOutlet?.code || "Tenant"} • Komisi {tenantOutlet?.commission_rate_percent ?? 0}%
+                            </p>
                         </div>
                     </div>
 
@@ -156,14 +148,14 @@ export default function TenantStatement({
                             className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
                         >
                             <IconFilter size={18} />
-                            Filter
+                            {showFilters ? "Sembunyikan filter" : "Buka filter"}
                         </button>
                     </div>
                 </div>
 
                 <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
                     <SummaryCard
-                        title="Revenue"
+                        title="Omzet"
                         value={formatCurrency(summary?.revenue_total ?? 0)}
                         icon={<IconReceipt2 size={18} />}
                     />
@@ -174,7 +166,7 @@ export default function TenantStatement({
                         tone="violet"
                     />
                     <SummaryCard
-                        title="Management Fee"
+                        title="Fee Pengelola"
                         value={formatCurrency(
                             summary?.management_fee_total ?? 0
                         )}
@@ -199,16 +191,16 @@ export default function TenantStatement({
                     />
                 </div>
                 <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
-                    Nilai revenue tenant sudah mengikuti `pricing rules`. Jika ada promo tenant, nominal payout dan outstanding memakai harga setelah promo, bukan harga dasar sebelum promo.
+                    Nilai payout tenant sudah mengikuti promo yang aktif pada transaksi.
                 </div>
 
                 <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
                     <div className="mb-4">
                         <h2 className="text-base font-semibold text-slate-900 dark:text-white">
-                            Rekap Harian Tenant
+                            Rekap Harian
                         </h2>
                         <p className="text-sm text-slate-500 dark:text-slate-400">
-                            Ringkasan payout dan outstanding tenant per hari.
+                            Ringkasan payout dan outstanding per hari.
                         </p>
                     </div>
                     {dailyRecap.length > 0 ? (

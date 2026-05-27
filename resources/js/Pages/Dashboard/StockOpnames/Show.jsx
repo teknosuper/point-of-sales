@@ -7,6 +7,8 @@ import Table from "@/Components/Dashboard/Table";
 import {
     IconArrowLeft,
     IconCheck,
+    IconChevronDown,
+    IconChevronUp,
     IconDeviceFloppy,
     IconClipboardCheck,
     IconPackage,
@@ -60,6 +62,8 @@ export default function Show({
     const [productSearchInput, setProductSearchInput] = useState(
         productFilters.search || ""
     );
+    const [showSessionNotes, setShowSessionNotes] = useState(false);
+    const [showSessionInfo, setShowSessionInfo] = useState(false);
 
     const notesForm = useForm({
         notes: stockOpname.notes || "",
@@ -255,7 +259,7 @@ export default function Show({
                     <div>
                         <div className="mb-2 flex items-center gap-2">
                             <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
-                                {stockOpname.code}
+                                Detail Stock Opname
                             </h1>
                             <span
                                 className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
@@ -267,6 +271,9 @@ export default function Show({
                                 {isDraft ? "Draft" : "Finalized"}
                             </span>
                         </div>
+                        <p className="text-sm text-slate-500 dark:text-slate-400">
+                            Dokumen {stockOpname.code} untuk audit stok fisik.
+                        </p>
                         <p className="text-sm text-slate-500 dark:text-slate-400">
                             Dibuat oleh {stockOpname.creator?.name || "-"} •{" "}
                             {formatDateTime(stockOpname.created_at)}
@@ -466,48 +473,80 @@ export default function Show({
                         onSubmit={saveNotes}
                         className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900"
                     >
-                        <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">
-                            Catatan Sesi
-                        </h2>
-                        <textarea
-                            value={notesForm.data.notes}
-                            disabled={!canManageDraft}
-                            onChange={(event) =>
-                                notesForm.setData("notes", event.target.value)
-                            }
-                            rows={4}
-                            className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
-                            placeholder="Catatan sesi stock opname"
-                        />
-                        {canManageDraft && (
-                            <div className="mt-4 flex justify-end">
-                                <Button
-                                    type="submit"
-                                    icon={<IconDeviceFloppy size={18} />}
-                                    className="bg-primary-500 hover:bg-primary-600 text-white"
-                                    label="Simpan Catatan"
-                                />
+                        <div className="flex items-center justify-between gap-3">
+                            <div>
+                                <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+                                    Catatan Sesi
+                                </h2>
+                                <p className="text-xs text-slate-500">Buka jika ingin menulis catatan audit stok.</p>
                             </div>
+                            <button
+                                type="button"
+                                onClick={() => setShowSessionNotes((prev) => !prev)}
+                                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                            >
+                                {showSessionNotes ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                                {showSessionNotes ? "Sembunyikan" : "Buka"}
+                            </button>
+                        </div>
+                        {showSessionNotes && (
+                            <>
+                                <textarea
+                                    value={notesForm.data.notes}
+                                    disabled={!canManageDraft}
+                                    onChange={(event) =>
+                                        notesForm.setData("notes", event.target.value)
+                                    }
+                                    rows={4}
+                                    className="mt-4 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                                    placeholder="Catatan sesi stock opname"
+                                />
+                                {canManageDraft && (
+                                    <div className="mt-4 flex justify-end">
+                                        <Button
+                                            type="submit"
+                                            icon={<IconDeviceFloppy size={18} />}
+                                            className="bg-primary-500 hover:bg-primary-600 text-white"
+                                            label="Simpan Catatan"
+                                        />
+                                    </div>
+                                )}
+                            </>
                         )}
                     </form>
 
                     <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
-                        <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">
-                            Informasi Sesi
-                        </h2>
-                        <div className="space-y-3 text-sm text-slate-500 dark:text-slate-400">
-                            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800">
-                                <p className="font-medium text-slate-700 dark:text-slate-200">
-                                    Cara penggunaan
-                                </p>
-                                <ul className="mt-2 space-y-2">
-                                    <li>1. Tambahkan produk ke sesi stock opname.</li>
-                                    <li>2. Input stok fisik hasil hitung lapangan.</li>
-                                    <li>3. Isi alasan jika terdapat selisih stok.</li>
-                                    <li>4. Finalize setelah semua item valid.</li>
-                                </ul>
+                        <div className="flex items-center justify-between gap-3">
+                            <div>
+                                <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+                                    Informasi Sesi
+                                </h2>
+                                <p className="text-xs text-slate-500">Buka jika ingin melihat langkah singkat stock opname.</p>
                             </div>
+                            <button
+                                type="button"
+                                onClick={() => setShowSessionInfo((prev) => !prev)}
+                                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                            >
+                                {showSessionInfo ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                                {showSessionInfo ? "Sembunyikan" : "Buka"}
+                            </button>
                         </div>
+                        {showSessionInfo && (
+                            <div className="mt-4 space-y-3 text-sm text-slate-500 dark:text-slate-400">
+                                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800">
+                                    <p className="font-medium text-slate-700 dark:text-slate-200">
+                                        Cara penggunaan
+                                    </p>
+                                    <ul className="mt-2 space-y-2">
+                                        <li>1. Tambahkan produk ke sesi stock opname.</li>
+                                        <li>2. Isi stok fisik hasil hitung lapangan.</li>
+                                        <li>3. Isi alasan jika ada selisih stok.</li>
+                                        <li>4. Finalisasi setelah semua item valid.</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>

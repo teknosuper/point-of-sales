@@ -6,10 +6,12 @@ use App\Http\Controllers\Controller;
 use App\Models\Outlet;
 use App\Models\Product;
 use App\Models\Setting;
+use App\Models\TransactionDetail;
 use App\Services\AuditLogService;
 use App\Services\LoyaltyService;
 use App\Services\OutletResolver;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -30,6 +32,8 @@ class SettingController extends Controller
     {
         $outlet = $this->resolvedOutlet(request());
         $outletId = $outlet?->id;
+        $isTenantOutlet = $outlet?->outlet_type === 'tenant';
+        $hasTenantHppColumn = Schema::hasColumn('products', 'tenant_hpp_price');
         $daysInMonth = now()->daysInMonth;
         $productTargets = $this->normalizeProductTargets(
             Setting::get('monthly_product_item_targets', '[]', $outletId)
@@ -40,9 +44,19 @@ class SettingController extends Controller
             'monthly_profit_target' => Setting::get('monthly_profit_target', 0, $outletId),
             'daily_global_item_target' => Setting::get('daily_global_item_target', 0, $outletId),
         ];
+        $actualPerformance = $this->actualProductPerformance($outletId, $isTenantOutlet);
 
         $products = Product::query()
-            ->select('id', 'title', 'buy_price', 'sell_price', 'category_id', 'tenant_outlet_id', 'stock')
+            ->select([
+                'id',
+                'title',
+                'buy_price',
+                'sell_price',
+                'category_id',
+                'tenant_outlet_id',
+                'stock',
+            ])
+            ->when($hasTenantHppColumn, fn ($query) => $query->addSelect('tenant_hpp_price'))
             ->with([
                 'category:id,name',
                 'tenantOutlet:id,name,code',
@@ -52,24 +66,43 @@ class SettingController extends Controller
                     ->with(['kitchenStation:id,name,code,outlet_id']),
             ])
             ->orderBy('title')
+            ->when($isTenantOutlet && $outletId, fn ($query) => $query->where('tenant_outlet_id', $outletId))
             ->when($outlet && Schema::hasTable('product_outlet_stocks'), function ($query) use ($outlet) {
                 $query->with(['outletStocks' => fn ($stockQuery) => $stockQuery
                     ->select('id', 'product_id', 'outlet_id', 'stock')
                     ->where('outlet_id', $outlet->id)]);
             })
             ->get()
-            ->map(function (Product $product) use ($productTargets, $outlet, $daysInMonth) {
+            ->map(function (Product $product) use ($productTargets, $outlet, $daysInMonth, $hasTenantHppColumn, $actualPerformance) {
                 $monthlyTarget = (int) ($productTargets[$product->id] ?? 0);
                 $stock = $outlet && Schema::hasTable('product_outlet_stocks')
                     ? (int) ($product->outletStocks->first()?->stock ?? 0)
                     : (int) ($product->stock ?? 0);
                 $stationMapping = $product->kitchenStationMappings->first();
+                $tenantHppPrice = $hasTenantHppColumn
+                    ? (int) ($product->tenant_hpp_price ?? $product->buy_price ?? 0)
+                    : (int) ($product->buy_price ?? 0);
+                $actual = $actualPerformance->get((int) $product->id, [
+                    'actual_monthly_qty' => 0,
+                    'actual_monthly_revenue' => 0,
+                    'actual_monthly_margin' => 0,
+                ]);
+                $actualMonthlyQty = (int) ($actual['actual_monthly_qty'] ?? 0);
+                $actualMonthlyRevenue = (int) ($actual['actual_monthly_revenue'] ?? 0);
+                $actualMonthlyMargin = (int) ($actual['actual_monthly_margin'] ?? 0);
+                $gapQty = max(0, $monthlyTarget - $actualMonthlyQty);
+                $achievementPercentage = $monthlyTarget > 0
+                    ? round(($actualMonthlyQty / max(1, $monthlyTarget)) * 100, 1)
+                    : 0;
 
                 return [
                     'id' => $product->id,
                     'title' => $product->title,
+                    'tenant_hpp_price' => $tenantHppPrice,
                     'buy_price' => (int) ($product->buy_price ?? 0),
                     'sell_price' => (int) ($product->sell_price ?? 0),
+                    'tenant_margin_per_item' => max(0, (int) ($product->buy_price ?? 0) - $tenantHppPrice),
+                    'owner_markup_per_item' => max(0, (int) ($product->sell_price ?? 0) - (int) ($product->buy_price ?? 0)),
                     'category_id' => $product->category_id ? (int) $product->category_id : null,
                     'category_name' => $product->category?->name ?? 'Tanpa Kategori',
                     'tenant_outlet_id' => $product->tenant_outlet_id ? (int) $product->tenant_outlet_id : null,
@@ -86,6 +119,12 @@ class SettingController extends Controller
                     'stock' => $stock,
                     'monthly_target' => $monthlyTarget,
                     'daily_target' => $monthlyTarget > 0 ? round($monthlyTarget / $daysInMonth, 2) : 0,
+                    'actual_monthly_qty' => $actualMonthlyQty,
+                    'actual_daily_avg' => round($actualMonthlyQty / max(1, now()->day), 2),
+                    'actual_monthly_revenue' => $actualMonthlyRevenue,
+                    'actual_monthly_margin' => $actualMonthlyMargin,
+                    'target_gap_qty' => $gapQty,
+                    'achievement_percentage' => $achievementPercentage,
                 ];
             })
             ->values();
@@ -95,7 +134,10 @@ class SettingController extends Controller
             'products' => $products,
             'targetMeta' => [
                 'days_in_month' => $daysInMonth,
+                'days_elapsed' => now()->day,
                 'month_label' => now()->translatedFormat('F Y'),
+                'mode' => $isTenantOutlet ? 'tenant' : 'owner',
+                'outlet_type' => $outlet?->outlet_type ?? 'main',
             ],
         ]);
     }
@@ -114,7 +156,14 @@ class SettingController extends Controller
             'product_targets.*.monthly_target' => 'nullable|integer|min:0',
         ]);
 
-        $outletId = $this->resolvedOutlet($request)?->id;
+        $outlet = $this->resolvedOutlet($request);
+        $outletId = $outlet?->id;
+        $isTenantOutlet = $outlet?->outlet_type === 'tenant';
+        $allowedProductIds = Product::query()
+            ->when($isTenantOutlet && $outletId, fn ($query) => $query->where('tenant_outlet_id', $outletId))
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
         $beforeSalesTarget = Setting::get('monthly_sales_target', 0, $outletId);
         $beforeProfitTarget = Setting::get('monthly_profit_target', 0, $outletId);
         $beforeDailyGlobalItemTarget = Setting::get('daily_global_item_target', 0, $outletId);
@@ -126,6 +175,7 @@ class SettingController extends Controller
                 'product_id' => (int) $row['product_id'],
                 'monthly_target' => (int) ($row['monthly_target'] ?? 0),
             ])
+            ->filter(fn (array $row) => in_array($row['product_id'], $allowedProductIds, true))
             ->filter(fn (array $row) => $row['monthly_target'] > 0)
             ->unique('product_id')
             ->values()
@@ -194,6 +244,40 @@ class SettingController extends Controller
                 return [$productId => $monthlyTarget];
             })
             ->all();
+    }
+
+    private function actualProductPerformance(?int $outletId, bool $isTenantOutlet)
+    {
+        if (! $outletId) {
+            return collect();
+        }
+
+        $hasTenantNetTotal = Schema::hasColumn('transaction_details', 'tenant_net_total');
+        $hasOwnerNetTotal = Schema::hasColumn('transaction_details', 'owner_net_total');
+        $marginExpression = $isTenantOutlet
+            ? ($hasTenantNetTotal ? 'COALESCE(SUM(transaction_details.tenant_net_total), 0)' : 'COALESCE(SUM(transaction_details.price), 0)')
+            : ($hasOwnerNetTotal ? 'COALESCE(SUM(transaction_details.owner_net_total), 0)' : 'COALESCE(SUM(transaction_details.price), 0)');
+
+        return TransactionDetail::query()
+            ->join('transactions', 'transactions.id', '=', 'transaction_details.transaction_id')
+            ->whereBetween('transactions.created_at', [now()->startOfMonth(), now()->endOfMonth()])
+            ->when(
+                $isTenantOutlet,
+                fn ($query) => $query->where('transaction_details.tenant_outlet_id', $outletId),
+                fn ($query) => $query->where('transactions.outlet_id', $outletId)
+            )
+            ->select('transaction_details.product_id')
+            ->selectRaw('COALESCE(SUM(transaction_details.qty), 0) as actual_monthly_qty')
+            ->selectRaw('COALESCE(SUM(transaction_details.price), 0) as actual_monthly_revenue')
+            ->selectRaw("{$marginExpression} as actual_monthly_margin")
+            ->groupBy('transaction_details.product_id')
+            ->get()
+            ->keyBy(fn ($row) => (int) $row->product_id)
+            ->map(fn ($row) => [
+                'actual_monthly_qty' => (int) ($row->actual_monthly_qty ?? 0),
+                'actual_monthly_revenue' => (int) ($row->actual_monthly_revenue ?? 0),
+                'actual_monthly_margin' => (int) ($row->actual_monthly_margin ?? 0),
+            ]);
     }
 
     /**

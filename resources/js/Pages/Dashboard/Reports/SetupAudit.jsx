@@ -1,8 +1,11 @@
-import React from "react";
+import React, { useState } from "react";
 import { Head, Link } from "@inertiajs/react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
+import { IconChevronDown, IconChevronUp } from "@tabler/icons-react";
 
 function AuditSection({ title, description, count, children, actionHref, actionLabel }) {
+    const [isOpen, setIsOpen] = useState(false);
+
     return (
         <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -14,6 +17,14 @@ function AuditSection({ title, description, count, children, actionHref, actionL
                     <span className={`rounded-full px-3 py-1 text-xs font-semibold ${count > 0 ? "bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300" : "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300"}`}>
                         {count > 0 ? `${count} perlu tindakan` : "Tidak ada gap"}
                     </span>
+                    <button
+                        type="button"
+                        onClick={() => setIsOpen((value) => !value)}
+                        className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                    >
+                        {isOpen ? "Sembunyikan detail" : "Lihat detail"}
+                        {isOpen ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                    </button>
                     <Link
                         href={actionHref}
                         className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
@@ -22,7 +33,7 @@ function AuditSection({ title, description, count, children, actionHref, actionL
                     </Link>
                 </div>
             </div>
-            <div className="mt-4">{children}</div>
+            {isOpen ? <div className="mt-4">{children}</div> : null}
         </div>
     );
 }
@@ -56,7 +67,7 @@ export default function SetupAudit({
                 <div>
                     <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Audit Setup</h1>
                     <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                        Halaman ini mengumpulkan seluruh gap setup penting lintas outlet, kitchen, printer, dan produk dalam satu tempat.
+                        Cek bagian setup yang masih perlu dirapikan.
                     </p>
                 </div>
 

@@ -8,6 +8,8 @@ import {
     IconUsers,
     IconDeviceFloppy,
     IconArrowLeft,
+    IconChevronDown,
+    IconChevronUp,
 } from "@tabler/icons-react";
 import axios from "axios";
 
@@ -29,6 +31,7 @@ export default function Create() {
     const [regencies, setRegencies] = useState([]);
     const [districts, setDistricts] = useState([]);
     const [villages, setVillages] = useState([]);
+    const [showRegionFields, setShowRegionFields] = useState(false);
 
     const fetchRegencies = async (provinceId) => {
         if (!provinceId) {
@@ -106,9 +109,11 @@ export default function Create() {
                     Kembali ke Pelanggan
                 </Link>
                 <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                    <IconUsers size={28} className="text-primary-500" />
-                    Tambah Pelanggan Baru
+                    Tambah Pelanggan
                 </h1>
+                <p className="text-sm text-slate-500 dark:text-slate-400">
+                    Isi data inti pelanggan, lalu simpan.
+                </p>
             </div>
 
             <form onSubmit={submit}>
@@ -189,7 +194,29 @@ export default function Create() {
                             )}
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4 dark:border-slate-800 dark:bg-slate-950/40">
+                            <div className="flex items-center justify-between gap-3">
+                                <div>
+                                    <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                                        Wilayah
+                                    </p>
+                                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                                        Isi jika Anda perlu alamat yang lebih rinci.
+                                    </p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowRegionFields((value) => !value)}
+                                    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                                >
+                                    {showRegionFields ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                                    {showRegionFields ? "Sembunyikan" : "Lihat detail"}
+                                </button>
+                            </div>
+
+                            {showRegionFields ? (
+                        <>
+                        <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
                                 <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
                                     Provinsi
@@ -237,7 +264,7 @@ export default function Create() {
                             </div>
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
                             <div>
                                 <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
                                     Kecamatan
@@ -290,6 +317,9 @@ export default function Create() {
                                     </p>
                                 )}
                             </div>
+                        </div>
+                        </>
+                            ) : null}
                         </div>
 
                         <Textarea

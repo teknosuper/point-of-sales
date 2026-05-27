@@ -24,6 +24,7 @@ export default function AppLayout({ children }) {
     const [isMobile, setIsMobile] = useState(
         typeof window !== "undefined" ? window.innerWidth < 768 : false
     );
+    const [showDeviceTools, setShowDeviceTools] = useState(false);
 
     useEffect(() => {
         localStorage.setItem("sidebarOpen", sidebarOpen);
@@ -112,10 +113,35 @@ export default function AppLayout({ children }) {
                 />
                 <main className="dashboard-scrollbar flex-1 overflow-y-auto">
                     <div className="w-full py-6 px-4 md:px-6 lg:px-8 pb-20 md:pb-6">
-                        <div className="mb-4 flex flex-wrap items-center gap-3 print:hidden">
-                            <PWAConnectionStatus />
-                            <PWAInstallButton />
-                            <PWAUpdateControl />
+                        <div className="mb-4 print:hidden">
+                            <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-900">
+                                <div>
+                                    <p className="text-sm font-medium text-slate-900 dark:text-white">
+                                        Perangkat & aplikasi
+                                    </p>
+                                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                                        Buka hanya saat perlu cek koneksi, install, atau update.
+                                    </p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() =>
+                                        setShowDeviceTools((value) => !value)
+                                    }
+                                    className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                                >
+                                    {showDeviceTools
+                                        ? "Sembunyikan"
+                                        : "Buka alat perangkat"}
+                                </button>
+                            </div>
+                            {showDeviceTools ? (
+                                <div className="mt-3 flex flex-wrap items-center gap-3">
+                                    <PWAConnectionStatus />
+                                    <PWAInstallButton />
+                                    <PWAUpdateControl />
+                                </div>
+                            ) : null}
                         </div>
                         {showSecurityWarnings && (
                             <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">

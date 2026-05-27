@@ -7,6 +7,8 @@ import { useAuthorization } from "@/Utils/authorization";
 import {
     IconBooks,
     IconBox,
+    IconChevronDown,
+    IconChevronUp,
     IconChecklist,
     IconCategory,
     IconCircleCheck,
@@ -220,20 +222,17 @@ function QuickMenuCard({
     return (
         <Link
             href={href}
-            className={`group relative overflow-hidden rounded-2xl border p-5 transition-all hover:-translate-y-0.5 hover:shadow-lg ${
+            className={`group relative overflow-hidden rounded-2xl border p-4 transition-all hover:-translate-y-0.5 hover:shadow-lg ${
                 featured
                     ? `border-transparent bg-gradient-to-br shadow-xl ${toneClasses[tone]}`
                     : toneClasses[tone]
             }`}
         >
-            <div className="flex items-start justify-between gap-4">
-                <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] opacity-80">
-                        Quick Menu
-                    </p>
-                    <h3 className="mt-2 text-xl font-bold">{title}</h3>
+            <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                    <h3 className="text-base font-bold">{title}</h3>
                     <p
-                        className={`mt-2 text-sm ${
+                        className={`mt-1 text-sm ${
                             featured ? "text-white/80" : "text-slate-500 dark:text-slate-400"
                         }`}
                     >
@@ -241,7 +240,7 @@ function QuickMenuCard({
                     </p>
                 </div>
                 <div
-                    className={`rounded-2xl p-3 ${
+                    className={`rounded-xl p-2.5 ${
                         featured
                             ? "bg-white/15 text-white"
                             : "bg-white/80 dark:bg-slate-800"
@@ -286,6 +285,7 @@ export default function Dashboard({
     const chartRef = useRef(null);
     const chartInstance = useRef(null);
     const [pwaInstalled, setPwaInstalled] = useState(false);
+    const [showSetupChecklist, setShowSetupChecklist] = useState(false);
 
     const chartData = useMemo(() => revenueTrend ?? [], [revenueTrend]);
     const effectiveOnboardingChecklist = useMemo(
@@ -504,15 +504,15 @@ export default function Dashboard({
                     <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
                         <div className="mb-4 flex items-center justify-between gap-3">
                             <div>
-                                <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+                                <h2 className="text-base font-semibold text-slate-900 dark:text-white">
                                     Quick Menu
                                 </h2>
                                 <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                                    Shortcut cepat ke area operasional yang paling sering dipakai.
+                                    Shortcut inti ke area operasional utama.
                                 </p>
                             </div>
                         </div>
-                        <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+                        <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
                             {quickMenus.map((menu) => (
                                 <QuickMenuCard
                                     key={menu.title}
@@ -540,91 +540,106 @@ export default function Dashboard({
                                 </h2>
                             </div>
                             <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
-                                Ikuti urutan ini sampai operasional outlet, tenant foodcourt, kitchen, dan settlement siap dipakai.
+                                Progress setup operasional. Buka detail hanya saat perlu cek langkah yang belum siap.
                             </p>
                         </div>
                         <div className="flex flex-wrap gap-2">
-                            <Link
-                                href={route("guides.setup-wizard")}
-                                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
-                            >
-                                <IconChecklist size={16} />
-                                Buka Wizard Setup
-                            </Link>
-                            <Link
-                                href={route("guides.outlet-kitchen")}
-                                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
-                            >
-                                <IconBooks size={16} />
-                                Buka Panduan Lengkap
-                            </Link>
-                            <Link
-                                href={route("guides.pwa-setup")}
-                                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
-                            >
-                                <IconChecklist size={16} />
-                                Setup PWA & Perangkat
-                            </Link>
                             <div className="rounded-xl bg-slate-100 px-3 py-2 text-sm font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-200">
                                 {effectiveOnboardingSummary.completed ?? 0} / {effectiveOnboardingSummary.total ?? 0} selesai
                             </div>
+                            <button
+                                type="button"
+                                onClick={() => setShowSetupChecklist((value) => !value)}
+                                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                            >
+                                {showSetupChecklist ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                                {showSetupChecklist ? "Sembunyikan detail" : "Buka detail setup"}
+                            </button>
                         </div>
                     </div>
 
-                    <div className="mt-4 grid gap-3 lg:grid-cols-2">
-                        {effectiveOnboardingChecklist.map((item, index) => (
-                            <div
-                                key={item.key}
-                                className={`rounded-xl border p-4 ${
-                                    item.done
-                                        ? "border-emerald-200 bg-emerald-50 dark:border-emerald-900/40 dark:bg-emerald-950/20"
-                                        : "border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950/30"
-                                }`}
-                            >
-                                <div className="flex items-start justify-between gap-3">
-                                    <div className="flex items-start gap-3">
-                                        <div
-                                            className={`mt-0.5 inline-flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold ${
-                                                item.done
-                                                    ? "bg-emerald-500 text-white"
-                                                    : "bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200"
-                                            }`}
-                                        >
-                                            {item.done ? <IconCircleCheck size={16} /> : index + 1}
-                                        </div>
-                                        <div>
-                                            <p className="text-sm font-semibold text-slate-900 dark:text-white">
-                                                {item.title}
-                                            </p>
-                                            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                                                {item.description}
-                                            </p>
-                                            <p className="mt-2 text-xs font-medium text-slate-500 dark:text-slate-400">
-                                                Jumlah saat ini: {item.count ?? 0}
-                                            </p>
-                                        </div>
-                                    </div>
-                                    <span
-                                        className={`rounded-full px-2 py-1 text-xs font-semibold ${
+                    {showSetupChecklist ? (
+                        <div className="mt-4 space-y-4 border-t border-slate-200 pt-4 dark:border-slate-800">
+                            <div className="flex flex-wrap gap-2">
+                                <Link
+                                    href={route("guides.setup-wizard")}
+                                    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                                >
+                                    <IconChecklist size={16} />
+                                    Wizard Setup
+                                </Link>
+                                <Link
+                                    href={route("guides.outlet-kitchen")}
+                                    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                                >
+                                    <IconBooks size={16} />
+                                    Panduan Lengkap
+                                </Link>
+                                <Link
+                                    href={route("guides.pwa-setup")}
+                                    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                                >
+                                    <IconChecklist size={16} />
+                                    Setup PWA
+                                </Link>
+                            </div>
+
+                            <div className="grid gap-3 lg:grid-cols-2">
+                                {effectiveOnboardingChecklist.map((item, index) => (
+                                    <div
+                                        key={item.key}
+                                        className={`rounded-xl border p-4 ${
                                             item.done
-                                                ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300"
-                                                : "bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300"
+                                                ? "border-emerald-200 bg-emerald-50 dark:border-emerald-900/40 dark:bg-emerald-950/20"
+                                                : "border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950/30"
                                         }`}
                                     >
-                                        {item.done ? "Selesai" : "Belum"}
-                                    </span>
-                                </div>
-                                <div className="mt-3">
-                                    <Link
-                                        href={item.href}
-                                        className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
-                                    >
-                                        {item.action_label}
-                                    </Link>
-                                </div>
+                                        <div className="flex items-start justify-between gap-3">
+                                            <div className="flex items-start gap-3">
+                                                <div
+                                                    className={`mt-0.5 inline-flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold ${
+                                                        item.done
+                                                            ? "bg-emerald-500 text-white"
+                                                            : "bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200"
+                                                    }`}
+                                                >
+                                                    {item.done ? <IconCircleCheck size={16} /> : index + 1}
+                                                </div>
+                                                <div>
+                                                    <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                                                        {item.title}
+                                                    </p>
+                                                    <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                                        {item.description}
+                                                    </p>
+                                                    <p className="mt-2 text-xs font-medium text-slate-500 dark:text-slate-400">
+                                                        Jumlah saat ini: {item.count ?? 0}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            <span
+                                                className={`rounded-full px-2 py-1 text-xs font-semibold ${
+                                                    item.done
+                                                        ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300"
+                                                        : "bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300"
+                                                }`}
+                                            >
+                                                {item.done ? "Selesai" : "Belum"}
+                                            </span>
+                                        </div>
+                                        <div className="mt-3">
+                                            <Link
+                                                href={item.href}
+                                                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                                            >
+                                                {item.action_label}
+                                            </Link>
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
-                        ))}
-                    </div>
+                        </div>
+                    ) : null}
                 </div>
 
                 {/* Main Stat Cards - Reorganized */}

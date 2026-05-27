@@ -11,6 +11,7 @@ use App\Services\OutletResolver;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 
 class PayableController extends Controller
@@ -56,7 +57,7 @@ class PayableController extends Controller
             return $item;
         });
 
-        $suppliers = Supplier::orderBy('name')->get(['id', 'name']);
+        $suppliers = $this->supplierOptions($outlet);
 
         return Inertia::render('Dashboard/Payables/Index', [
             'payables' => $payables,
@@ -79,6 +80,7 @@ class PayableController extends Controller
         if (! $data['document_number']) {
             $data['document_number'] = 'INV-'.Str::upper(Str::random(8));
         }
+        $this->assertSupplierBelongsToOutlet($outlet?->id, $data['supplier_id'] ?? null);
         $data['outlet_id'] = $outlet?->id;
         $data['status'] = 'unpaid';
         $data['paid'] = 0;
@@ -122,7 +124,13 @@ class PayableController extends Controller
             'supplier_id' => ['required', 'exists:suppliers,id'],
         ]);
 
-        $supplier = Supplier::findOrFail($request->input('supplier_id'));
+        $supplier = Supplier::query()
+            ->when(
+                $outlet,
+                fn ($query) => $query->where('outlet_id', $outlet->id),
+                fn ($query) => $query->whereNull('outlet_id')
+            )
+            ->findOrFail($request->input('supplier_id'));
 
         $payables = Payable::where('supplier_id', $supplier->id)
             ->when($outlet, fn ($query) => $query->where('outlet_id', $outlet->id))
@@ -212,5 +220,39 @@ class PayableController extends Controller
         return redirect()
             ->route('payables.show', $payable)
             ->with('success', 'Pembayaran hutang berhasil dicatat.');
+    }
+
+    private function supplierOptions($outlet)
+    {
+        return Supplier::query()
+            ->when(
+                $outlet,
+                fn ($query) => $query->where('outlet_id', $outlet->id),
+                fn ($query) => $query->whereNull('outlet_id')
+            )
+            ->orderBy('name')
+            ->get(['id', 'name']);
+    }
+
+    private function assertSupplierBelongsToOutlet(?int $outletId, ?int $supplierId): void
+    {
+        if (! $supplierId) {
+            return;
+        }
+
+        $exists = Supplier::query()
+            ->whereKey($supplierId)
+            ->when(
+                $outletId,
+                fn ($query) => $query->where('outlet_id', $outletId),
+                fn ($query) => $query->whereNull('outlet_id')
+            )
+            ->exists();
+
+        if (! $exists) {
+            throw ValidationException::withMessages([
+                'supplier_id' => 'Supplier tidak tersedia untuk outlet aktif.',
+            ]);
+        }
     }
 }

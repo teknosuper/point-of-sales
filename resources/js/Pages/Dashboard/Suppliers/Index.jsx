@@ -3,7 +3,8 @@ import { Head, router, useForm, usePage } from "@inertiajs/react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import {
     IconAdjustmentsHorizontal,
-    IconBuildingStore,
+    IconChevronDown,
+    IconChevronUp,
     IconPencil,
     IconPlus,
     IconSearch,
@@ -33,6 +34,7 @@ export default function SuppliersIndex({
     const { can } = useAuthorization();
     const [editing, setEditing] = useState(null);
     const [showFilters, setShowFilters] = useState(false);
+    const [showSupplierForm, setShowSupplierForm] = useState(false);
     const [filterData, setFilterData] = useState({
         ...defaultFilters,
         search: castFilterValue(filters?.search),
@@ -161,15 +163,11 @@ export default function SuppliersIndex({
             <div className="space-y-6">
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                     <div>
-                        <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900 dark:text-white">
-                            <IconBuildingStore
-                                size={26}
-                                className="text-primary-500"
-                            />
+                        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
                             Supplier
                         </h1>
                         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                            Menampilkan {from || 0}-{to || 0} dari {total} supplier.
+                            Cek dan kelola supplier yang aktif dipakai.
                         </p>
                     </div>
 
@@ -184,17 +182,26 @@ export default function SuppliersIndex({
                             }`}
                         >
                             <IconAdjustmentsHorizontal size={18} />
-                            Filter
+                            {showFilters ? "Sembunyikan filter" : "Buka filter"}
                         </button>
 
                         {canManageSuppliers ? (
                             <button
-                                onClick={cancel}
+                                onClick={() => {
+                                    if (editing) {
+                                        cancel();
+                                    }
+                                    setShowSupplierForm((value) => !value);
+                                }}
                                 className="inline-flex items-center gap-2 rounded-xl bg-primary-500 px-3 py-2 text-sm font-semibold text-white"
                                 type="button"
                             >
-                                <IconPlus size={16} />
-                                {editing ? "Batal Edit" : "Tambah Supplier"}
+                                {showSupplierForm ? <IconChevronUp size={16} /> : <IconPlus size={16} />}
+                                {editing
+                                    ? "Batal edit"
+                                    : showSupplierForm
+                                      ? "Sembunyikan form"
+                                      : "Tambah supplier"}
                             </button>
                         ) : null}
                     </div>
@@ -294,14 +301,14 @@ export default function SuppliersIndex({
                                     type="submit"
                                     className="rounded-xl bg-primary-500 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-primary-600"
                                 >
-                                    Terapkan Filter
+                                    Terapkan
                                 </button>
                             </div>
                         </form>
                     </div>
                 ) : null}
 
-                {canManageSuppliers ? (
+                {canManageSuppliers && showSupplierForm ? (
                     <form
                         onSubmit={submit}
                         className="grid grid-cols-1 gap-3 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 md:grid-cols-4"

@@ -7,9 +7,10 @@ import Pagination from "@/Components/Dashboard/Pagination";
 import {
     IconCashBanknote,
     IconCheck,
+    IconChevronDown,
+    IconChevronUp,
     IconClockHour4,
     IconFileExport,
-    IconPrinter,
     IconReceipt2,
     IconSearch,
     IconShieldCheck,
@@ -70,21 +71,21 @@ const statusLabel = {
 
 function SummaryCard({ title, value, description, icon, tone = "slate" }) {
     const tones = {
-        slate: "from-slate-700 to-slate-900",
-        amber: "from-amber-500 to-amber-600",
-        emerald: "from-emerald-500 to-emerald-700",
-        rose: "from-rose-500 to-rose-700",
-        blue: "from-blue-500 to-blue-700",
+        slate: "border-slate-200 bg-white text-slate-900 dark:border-slate-800 dark:bg-slate-900 dark:text-white",
+        amber: "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100",
+        emerald: "border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-100",
+        rose: "border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-100",
+        blue: "border-blue-200 bg-blue-50 text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-100",
     };
 
     return (
-        <div className={`rounded-3xl bg-gradient-to-br ${tones[tone]} p-5 text-white shadow-lg`}>
+        <div className={`rounded-2xl border p-4 ${tones[tone]}`}>
             <div className="flex items-center gap-3">
-                <div className="rounded-2xl bg-white/15 p-3">{icon}</div>
+                <div className="rounded-xl bg-white/70 p-3 dark:bg-slate-900/30">{icon}</div>
                 <div>
-                    <p className="text-sm font-medium text-white/80">{title}</p>
-                    <p className="mt-1 text-2xl font-bold">{value}</p>
-                    <p className="mt-1 text-xs text-white/75">{description}</p>
+                    <p className="text-sm font-medium opacity-80">{title}</p>
+                    <p className="mt-1 text-xl font-bold">{value}</p>
+                    <p className="mt-1 text-xs opacity-70">{description}</p>
                 </div>
             </div>
         </div>
@@ -105,6 +106,10 @@ export default function Index({
 }) {
     const { auth, errors, flash } = usePage().props;
     const isKitchenWorkspace = auth?.user?.preferred_workspace === "kitchen";
+    const [showRequestPanel, setShowRequestPanel] = useState(
+        () => isKitchenWorkspace
+    );
+    const [showFilters, setShowFilters] = useState(false);
 
     useEffect(() => {
         if (flash?.success) toast.success(flash.success);
@@ -339,15 +344,32 @@ export default function Index({
             <div className="space-y-6">
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                     <div>
-                        <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900 dark:text-white">
-                            <IconUserDollar size={28} className="text-primary-500" />
+                        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
                             {isKitchenWorkspace ? "Penarikan Dana Tenant" : "Approval Penarikan Tenant"}
                         </h1>
                         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                             {isKitchenWorkspace
-                                ? "Tenant owner mengajukan pencairan dana, lalu owner outlet melakukan approval dan pembayaran."
-                                : "Owner outlet memeriksa, menyetujui, atau menolak pengajuan pencairan yang dibuat tenant."}
+                                ? "Ajukan pencairan dana tenant dari saldo yang tersedia."
+                                : "Tinjau pengajuan tenant lalu setujui atau tolak."}
                         </p>
+                    </div>
+                    <div className="flex gap-2">
+                        <button
+                            type="button"
+                            onClick={() => setShowRequestPanel((value) => !value)}
+                            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                        >
+                            {showRequestPanel ? <IconChevronUp size={18} /> : <IconChevronDown size={18} />}
+                            {showRequestPanel ? "Sembunyikan panel" : "Buka panel"}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setShowFilters((value) => !value)}
+                            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                        >
+                            {showFilters ? <IconChevronUp size={18} /> : <IconChevronDown size={18} />}
+                            {showFilters ? "Sembunyikan filter" : "Buka filter"}
+                        </button>
                     </div>
                 </div>
 
@@ -368,6 +390,7 @@ export default function Index({
                 ) : null}
 
                 <div className={`grid gap-6 ${canCreateRequest ? "xl:grid-cols-[0.95fr,1.05fr]" : "xl:grid-cols-[0.7fr,1.3fr]"}`}>
+                    {showRequestPanel ? (
                     <div className="rounded-3xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
                         <div className="mb-4">
                             <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
@@ -661,8 +684,10 @@ export default function Index({
                         </div>
                         )}
                     </div>
+                    ) : null}
 
                     <div className="rounded-3xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+                        {showFilters ? (
                         <form onSubmit={applyFilters} className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
                             <div className="xl:col-span-2">
                                 <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
@@ -768,6 +793,11 @@ export default function Index({
                                 />
                             </div>
                         </form>
+                        ) : (
+                            <div className="mb-4 rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600 dark:bg-slate-800/60 dark:text-slate-300">
+                                Gunakan filter hanya saat perlu mencari pengajuan tertentu.
+                            </div>
+                        )}
                     </div>
                 </div>
 

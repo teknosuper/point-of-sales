@@ -8,6 +8,8 @@ import {
     IconAlertCircle,
     IconChartBar,
     IconUsers,
+    IconChevronDown,
+    IconChevronUp,
 } from "@tabler/icons-react";
 import toast from "react-hot-toast";
 
@@ -48,6 +50,9 @@ export default function ReceivablesIndex({ receivables, filters = {} }) {
     const [search, setSearch] = useState(filters.invoice || "");
     const [status, setStatus] = useState(filters.status || "");
     const [activeTab, setActiveTab] = useState("list");
+    const [showFilters, setShowFilters] = useState(
+        Boolean(filters.invoice || filters.status)
+    );
     const [agingData, setAgingData] = useState(null);
     const [loadingAging, setLoadingAging] = useState(false);
 
@@ -84,16 +89,15 @@ export default function ReceivablesIndex({ receivables, filters = {} }) {
 
     return (
         <>
-            <Head title="Nota Barang" />
+            <Head title="Piutang Pelanggan" />
             <div className="space-y-6">
                 <div className="flex items-start justify-between gap-3 flex-wrap">
                     <div>
-                        <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                            <IconHistory size={26} className="text-primary-500" />
-                            Nota Barang (Piutang)
+                        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
+                            Piutang Pelanggan
                         </h1>
                         <p className="text-sm text-slate-500 dark:text-slate-400">
-                            Pantau piutang pelanggan dan pembayaran parsialnya.
+                            Lihat tagihan pelanggan dan progres pembayarannya.
                         </p>
                     </div>
                     <div className="flex items-center gap-2">
@@ -228,40 +232,62 @@ export default function ReceivablesIndex({ receivables, filters = {} }) {
                     </div>
                 ) : (
                     <>
-                        <form
-                            onSubmit={applyFilter}
-                            className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-end"
-                        >
-                            <div className="relative w-full">
-                                <IconSearch size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                                <input
-                                    value={search}
-                                    onChange={(e) => setSearch(e.target.value)}
-                                    placeholder="Cari invoice / nomor nota"
-                                    className="w-full h-11 pl-10 pr-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
-                                />
-                            </div>
-                            <div className="relative w-full">
-                                <IconCalendar size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                                <select
-                                    value={status}
-                                    onChange={(e) => setStatus(e.target.value)}
-                                    className="w-full h-11 pl-10 pr-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
+                        <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+                            <div className="flex items-center justify-between gap-3">
+                                <div>
+                                    <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                                        Filter Nota
+                                    </p>
+                                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                                        Buka jika ingin menyaring invoice atau status.
+                                    </p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowFilters((prev) => !prev)}
+                                    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
                                 >
-                                    <option value="">Semua Status</option>
-                                    <option value="unpaid">Belum Lunas</option>
-                                    <option value="partial">Parsial</option>
-                                    <option value="paid">Lunas</option>
-                                    <option value="overdue">Jatuh Tempo</option>
-                                </select>
+                                    {showFilters ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                                    {showFilters ? "Sembunyikan filter" : "Buka filter"}
+                                </button>
                             </div>
-                            <button
-                                type="submit"
-                                className="w-full sm:w-auto inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900 text-white text-sm font-semibold"
-                            >
-                                Terapkan
-                            </button>
-                        </form>
+                            {showFilters && (
+                                <form
+                                    onSubmit={applyFilter}
+                                    className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-end"
+                                >
+                                    <div className="relative w-full">
+                                        <IconSearch size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                                        <input
+                                            value={search}
+                                            onChange={(e) => setSearch(e.target.value)}
+                                            placeholder="Cari invoice / nomor nota"
+                                            className="w-full h-11 pl-10 pr-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
+                                        />
+                                    </div>
+                                    <div className="relative w-full">
+                                        <IconCalendar size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                                        <select
+                                            value={status}
+                                            onChange={(e) => setStatus(e.target.value)}
+                                            className="w-full h-11 pl-10 pr-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
+                                        >
+                                            <option value="">Semua Status</option>
+                                            <option value="unpaid">Belum Lunas</option>
+                                            <option value="partial">Parsial</option>
+                                            <option value="paid">Lunas</option>
+                                            <option value="overdue">Jatuh Tempo</option>
+                                        </select>
+                                    </div>
+                                    <button
+                                        type="submit"
+                                        className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900 text-white text-sm font-semibold"
+                                    >
+                                        Terapkan
+                                    </button>
+                                </form>
+                            )}
+                        </div>
 
                         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden">
                             <div className="w-full overflow-x-auto">

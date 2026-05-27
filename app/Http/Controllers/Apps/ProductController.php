@@ -37,8 +37,10 @@ class ProductController extends Controller
     public function index(Request $request)
     {
         $isKitchenWorkspace = $request->user()?->isKitchenWorkspace() ?? false;
-        $activeOutletId = $this->outletResolver->resolve($request)?->id;
-        $canViewOwnerSellPrice = ! $isKitchenWorkspace
+        $activeOutlet = $this->outletResolver->resolve($request);
+        $activeOutletId = $activeOutlet?->id;
+        $isTenantOutlet = $activeOutlet?->outlet_type === 'tenant';
+        $canViewOwnerSellPrice = ! $isTenantOutlet
             || ($request->user()?->can('products-pricing-update') ?? false);
 
         $filters = [
@@ -137,14 +139,14 @@ class ProductController extends Controller
             )
         );
 
-        $tenantOutlets = $isKitchenWorkspace
+        $tenantOutlets = ($isKitchenWorkspace || $isTenantOutlet)
             ? collect()
             : Outlet::active()->ordered()->get(['id', 'name', 'code', 'outlet_type']);
         $tenantOutletIds = $tenantOutlets
             ->where('outlet_type', 'tenant')
             ->pluck('id');
 
-        $setupStatus = $isKitchenWorkspace
+        $setupStatus = ($isKitchenWorkspace || $isTenantOutlet)
             ? [
                 'tenant_outlets_count' => 0,
                 'products_with_tenant_count' => 0,
@@ -167,7 +169,7 @@ class ProductController extends Controller
                     ->count(),
             ];
 
-        if (! $isKitchenWorkspace) {
+        if (! $isKitchenWorkspace && ! $isTenantOutlet) {
             $setupStatus['needs_tenant_mapping'] = $setupStatus['tenant_outlets_count'] > 0
                 && $setupStatus['products_without_tenant_count'] > 0;
             $setupStatus['needs_station_mapping'] = $setupStatus['products_without_station_mapping_count'] > 0;
@@ -179,13 +181,14 @@ class ProductController extends Controller
             'setupStatus' => $setupStatus,
             'workspace' => [
                 'is_kitchen' => $isKitchenWorkspace,
+                'is_tenant' => $isTenantOutlet,
                 'active_outlet_id' => $activeOutletId,
             ],
             'meta' => [
                 'per_page_options' => $allowedPerPage,
                 'categories' => Category::query()->orderBy('name')->get(['id', 'name']),
                 'tenantOutlets' => $tenantOutlets,
-                'kitchenStations' => $isKitchenWorkspace
+                'kitchenStations' => ($isKitchenWorkspace || $isTenantOutlet)
                     ? []
                     : KitchenStation::query()
                         ->with('outlet:id,name,code')
@@ -259,6 +262,10 @@ class ProductController extends Controller
 
     public function bulkMapping(Request $request)
     {
+        if ($this->isTenantOutletWorkspace($request)) {
+            return $this->rejectStockOnlyUpdate();
+        }
+
         $data = $request->validate([
             'product_ids' => ['required', 'array', 'min:1'],
             'product_ids.*' => ['integer', 'exists:products,id'],
@@ -316,6 +323,10 @@ class ProductController extends Controller
      */
     public function create()
     {
+        if ($this->isTenantOutletWorkspace(request())) {
+            return $this->rejectStockOnlyUpdate();
+        }
+
         // get categories
         $categories = Category::all();
 
@@ -333,6 +344,10 @@ class ProductController extends Controller
      */
     public function store(Request $request)
     {
+        if ($this->isTenantOutletWorkspace($request)) {
+            return $this->rejectStockOnlyUpdate();
+        }
+
         /**
          * validate
          */
@@ -347,8 +362,9 @@ class ProductController extends Controller
             'modifier_options' => 'nullable|array',
             'modifier_options.*.name' => 'nullable|string|max:120',
             'modifier_options.*.price' => 'nullable|integer|min:0',
-            'buy_price' => 'required',
-            'sell_price' => 'required',
+            'tenant_hpp_price' => 'nullable|integer|min:0',
+            'buy_price' => 'required|integer|min:0',
+            'sell_price' => 'required|integer|min:0',
             'stock' => 'required|integer|min:0',
         ]);
 
@@ -357,6 +373,18 @@ class ProductController extends Controller
             $validated['barcode'] ?? null,
             $validated['title'] ?? null,
         );
+
+        $tenantHppPrice = $request->filled('tenant_hpp_price')
+            ? (int) $validated['tenant_hpp_price']
+            : (int) $validated['buy_price'];
+
+        if ($tenantHppPrice > (int) $validated['buy_price']) {
+            return back()
+                ->withErrors([
+                    'tenant_hpp_price' => 'HPP tenant tidak boleh lebih besar dari harga beli owner dari tenant.',
+                ])
+                ->withInput();
+        }
 
         // upload image
         $image = $request->file('image');
@@ -371,6 +399,7 @@ class ProductController extends Controller
             'description' => $validated['description'],
             'category_id' => $validated['category_id'],
             'tenant_outlet_id' => $request->integer('tenant_outlet_id') ?: null,
+            'tenant_hpp_price' => $tenantHppPrice,
             'supports_modifiers' => $request->boolean('supports_modifiers'),
             'buy_price' => $validated['buy_price'],
             'sell_price' => $validated['sell_price'],
@@ -400,6 +429,9 @@ class ProductController extends Controller
     public function edit(Request $request, Product $product)
     {
         $product = $this->resolveWorkspaceProduct($product, $request);
+        if ($this->isTenantOutletWorkspace($request)) {
+            return $this->rejectStockOnlyUpdate();
+        }
         $activeOutletId = $this->outletResolver->resolve($request)?->id;
         $canManageTenantDiscount = $this->canManageTenantDiscount($request, $product, $activeOutletId);
 
@@ -455,6 +487,9 @@ class ProductController extends Controller
     public function updateOutletStocks(Request $request, Product $product)
     {
         $product = $this->resolveWorkspaceProduct($product, $request);
+        if ($this->isTenantOutletWorkspace($request)) {
+            return $this->rejectStockOnlyUpdate();
+        }
         $activeOutletId = $this->outletResolver->resolve($request)?->id;
 
         $data = $request->validate([
@@ -556,6 +591,9 @@ class ProductController extends Controller
     public function update(Request $request, Product $product)
     {
         $product = $this->resolveWorkspaceProduct($product, $request);
+        if ($this->isTenantOutletWorkspace($request)) {
+            return $this->rejectStockOnlyUpdate();
+        }
         $canManageCatalog = $request->user()?->can('products-create') ?? false;
         $canManagePricing = $request->user()?->can('products-pricing-update') ?? false;
         $activeOutletId = $this->outletResolver->resolve($request)?->id;
@@ -581,8 +619,9 @@ class ProductController extends Controller
             'modifier_options' => 'nullable|array',
             'modifier_options.*.name' => 'nullable|string|max:120',
             'modifier_options.*.price' => 'nullable|integer|min:0',
-            'buy_price' => 'nullable',
-            'sell_price' => 'nullable',
+            'tenant_hpp_price' => 'nullable|integer|min:0',
+            'buy_price' => 'nullable|integer|min:0',
+            'sell_price' => 'nullable|integer|min:0',
             'tenant_discount_price' => 'nullable|integer|min:0',
         ]);
 
@@ -624,6 +663,17 @@ class ProductController extends Controller
             ? (int) $validated['tenant_discount_price']
             : null;
         $tenantDiscountBasePrice = (int) ($validated['buy_price'] ?? $product->buy_price ?? 0);
+        $tenantHppPrice = $validated['tenant_hpp_price'] !== null && $validated['tenant_hpp_price'] !== ''
+            ? (int) $validated['tenant_hpp_price']
+            : (int) ($validated['buy_price'] ?? $product->buy_price ?? 0);
+
+        if ($tenantHppPrice > $tenantDiscountBasePrice) {
+            return back()
+                ->withErrors([
+                    'tenant_hpp_price' => 'HPP tenant tidak boleh lebih besar dari harga beli owner dari tenant.',
+                ])
+                ->withInput();
+        }
 
         if ($tenantDiscountPrice !== null && $tenantDiscountPrice > $tenantDiscountBasePrice) {
             return back()
@@ -640,6 +690,7 @@ class ProductController extends Controller
             'description' => $validated['description'],
             'category_id' => $validated['category_id'],
             'tenant_outlet_id' => $validated['tenant_outlet_id'] ? (int) $validated['tenant_outlet_id'] : null,
+            'tenant_hpp_price' => $tenantHppPrice,
             'supports_modifiers' => (bool) ($validated['supports_modifiers'] ?? false),
             'buy_price' => $validated['buy_price'],
             'sell_price' => $validated['sell_price'],
@@ -727,6 +778,9 @@ class ProductController extends Controller
         // find by ID
         $product = Product::findOrFail($id);
         $this->resolveWorkspaceProduct($product, request());
+        if ($this->isTenantOutletWorkspace(request())) {
+            return $this->rejectStockOnlyUpdate();
+        }
         $before = $this->productAuditPayload($product);
 
         // remove image
@@ -761,6 +815,8 @@ class ProductController extends Controller
         );
 
         if (
+            (int) ($before['tenant_hpp_price'] ?? 0) !== (int) ($after['tenant_hpp_price'] ?? 0)
+            ||
             (int) $before['buy_price'] !== (int) $after['buy_price']
             || (int) $before['sell_price'] !== (int) $after['sell_price']
             || (int) ($before['tenant_discount_price'] ?? 0) !== (int) ($after['tenant_discount_price'] ?? 0)
@@ -771,11 +827,13 @@ class ProductController extends Controller
                 auditable: $product,
                 description: 'Harga produk diperbarui.',
                 before: [
+                    'tenant_hpp_price' => $before['tenant_hpp_price'] ?? null,
                     'buy_price' => $before['buy_price'],
                     'sell_price' => $before['sell_price'],
                     'tenant_discount_price' => $before['tenant_discount_price'] ?? null,
                 ],
                 after: [
+                    'tenant_hpp_price' => $after['tenant_hpp_price'] ?? null,
                     'buy_price' => $after['buy_price'],
                     'sell_price' => $after['sell_price'],
                     'tenant_discount_price' => $after['tenant_discount_price'] ?? null,
@@ -790,6 +848,7 @@ class ProductController extends Controller
             'title',
             'barcode',
             'sku',
+            'tenant_hpp_price',
             'buy_price',
             'sell_price',
             'tenant_discount_price',
@@ -836,12 +895,17 @@ class ProductController extends Controller
     private function applyWorkspaceProductScope(Builder $query, Request $request): Builder
     {
         $user = $request->user();
+        $activeOutlet = $this->outletResolver->resolve($request, $user);
+        $activeOutletId = $activeOutlet?->id;
+
+        if ($activeOutlet?->outlet_type === 'tenant' && $activeOutletId) {
+            return $query->where('tenant_outlet_id', $activeOutletId);
+        }
 
         if (! $user?->isKitchenWorkspace()) {
             return $query;
         }
 
-        $activeOutletId = $this->outletResolver->resolve($request, $user)?->id;
         $preferredStationId = (int) ($user->preferred_kitchen_station_id ?? 0);
 
         if ($preferredStationId <= 0 && ! $activeOutletId) {
@@ -934,6 +998,9 @@ class ProductController extends Controller
                 ? sprintf('%s: %d', $activeOutletStock['outlet_code'] ?? 'Outlet aktif', $activeOutletStock['stock'])
                 : null,
             'tenant_has_discount' => $tenantHasDiscount,
+            'tenant_hpp_price' => (int) ($product->tenant_hpp_price ?? $product->buy_price ?? 0),
+            'tenant_margin_unit_price' => max(0, (int) ($product->buy_price ?? 0) - (int) ($product->tenant_hpp_price ?? $product->buy_price ?? 0)),
+            'owner_markup_unit_price' => max(0, (int) ($product->sell_price ?? 0) - (int) ($product->buy_price ?? 0)),
             'tenant_discount_price' => $tenantDiscountPrice,
             'tenant_effective_price' => $tenantHasDiscount
                 ? $tenantDiscountPrice
@@ -968,5 +1035,10 @@ class ProductController extends Controller
         }
 
         return (int) $product->tenant_outlet_id === (int) $activeOutletId;
+    }
+
+    private function isTenantOutletWorkspace(Request $request): bool
+    {
+        return $this->outletResolver->resolve($request, $request->user())?->outlet_type === 'tenant';
     }
 }

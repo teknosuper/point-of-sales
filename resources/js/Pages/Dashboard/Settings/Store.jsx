@@ -6,6 +6,8 @@ import toast from "react-hot-toast";
 import { useState, useEffect } from "react";
 import {
     IconBuildingStore,
+    IconChevronDown,
+    IconChevronUp,
     IconDeviceFloppy,
     IconPhone,
     IconMapPin,
@@ -16,6 +18,7 @@ import {
 } from "@tabler/icons-react";
 
 export default function Store({ settings, tenantOutlets = [] }) {
+    const [showTenantCommissions, setShowTenantCommissions] = useState(false);
     const initialTenantCommissions = tenantOutlets.reduce((acc, outlet) => {
         acc[outlet.id] = outlet.commission_rate_percent ?? 0;
 
@@ -63,10 +66,10 @@ export default function Store({ settings, tenantOutlets = [] }) {
             <div className="space-y-6">
                 <div>
                     <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
-                        Pengaturan Toko
+                        Profil Toko
                     </h1>
                     <p className="text-sm text-slate-500 dark:text-slate-400">
-                        Atur identitas toko yang muncul di struk dan laporan.
+                        Atur identitas toko yang tampil di struk dan laporan.
                     </p>
                 </div>
 
@@ -166,16 +169,27 @@ export default function Store({ settings, tenantOutlets = [] }) {
 
                     {tenantOutlets.length > 0 && (
                         <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-6 dark:border-slate-800 dark:bg-slate-950/40">
-                        <div className="mb-5">
-                            <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
-                                Komisi Tenant Foodcourt
-                            </h2>
-                            <p className="text-sm text-slate-500 dark:text-slate-400">
-                                Atur persentase komisi pengelola untuk tiap tenant outlet.
-                            </p>
+                        <div className="flex items-center justify-between gap-3">
+                            <div>
+                                <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+                                    Komisi Tenant
+                                </h2>
+                                <p className="text-sm text-slate-500 dark:text-slate-400">
+                                    Atur persentase komisi untuk tiap tenant.
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setShowTenantCommissions((value) => !value)}
+                                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                            >
+                                {showTenantCommissions ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                                {showTenantCommissions ? "Sembunyikan" : "Lihat detail"}
+                            </button>
                         </div>
 
-                        <div className="space-y-3">
+                        {showTenantCommissions ? (
+                        <div className="mt-5 space-y-3">
                             {tenantOutlets.map((outlet) => (
                                 <div
                                     key={outlet.id}
@@ -226,6 +240,7 @@ export default function Store({ settings, tenantOutlets = [] }) {
                                 </div>
                             ))}
                         </div>
+                        ) : null}
                         </div>
                     )}
 

@@ -1,13 +1,19 @@
-import React from 'react'
+import React from "react";
 
 export default function Header({ children, title, subtitle }) {
     return (
-        <div className='flex w-full items-center justify-between gap-4 mb-2'>
-            <div className=''>
-                <div className='text-lg font-bold capitalize text-gray-200'>{title}</div>
-                <div className='text-gray-500 text-sm'>{subtitle}</div>
+        <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+                <h1 className="text-xl font-semibold text-slate-900 dark:text-white">
+                    {title}
+                </h1>
+                {subtitle ? (
+                    <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                        {subtitle}
+                    </p>
+                ) : null}
             </div>
             {children}
         </div>
-    )
+    );
 }

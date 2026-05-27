@@ -48,6 +48,7 @@ export default function Index({ outlets, filters = {}, summary = {}, setupStatus
     const { can } = useAuthorization();
     const [showFilters, setShowFilters] = useState(false);
     const [showForm, setShowForm] = useState(false);
+    const [showSetupGuide, setShowSetupGuide] = useState(false);
     const [editing, setEditing] = useState(null);
     const formRef = useRef(null);
     const [filterData, setFilterData] = useState({
@@ -205,12 +206,11 @@ export default function Index({ outlets, filters = {}, summary = {}, setupStatus
             <div className="space-y-6">
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                     <div>
-                        <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900 dark:text-white">
-                            <IconBuildingStore size={26} className="text-primary-500" />
+                        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
                             Outlet & Tenant
                         </h1>
                         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                            Kelola struktur bisnis: outlet utama, tenant foodcourt, warehouse, user outlet, dan komisi tenant.
+                            Atur outlet utama, tenant, dan user yang terhubung.
                         </p>
                     </div>
                     <div className="flex flex-wrap gap-2">
@@ -220,7 +220,15 @@ export default function Index({ outlets, filters = {}, summary = {}, setupStatus
                             className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
                         >
                             <IconAdjustmentsHorizontal size={18} />
-                            Filter
+                            {showFilters ? "Sembunyikan filter" : "Buka filter"}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setShowSetupGuide((value) => !value)}
+                            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                        >
+                            {showSetupGuide ? <IconX size={18} /> : <IconBuildingStore size={18} />}
+                            {showSetupGuide ? "Sembunyikan ringkasan" : "Lihat ringkasan setup"}
                         </button>
                         {canCreateOutlets || canUpdateOutlets ? (
                             <button
@@ -230,10 +238,10 @@ export default function Index({ outlets, filters = {}, summary = {}, setupStatus
                             >
                                 {showForm && !editing ? <IconX size={18} /> : <IconPlus size={18} />}
                                 {editing
-                                    ? "Tambah Outlet Baru"
+                                    ? "Tambah outlet baru"
                                     : showForm
-                                      ? "Tutup Form Outlet"
-                                      : "Buka Form Outlet"}
+                                      ? "Tutup form"
+                                      : "Buka form outlet"}
                             </button>
                         ) : null}
                     </div>
@@ -256,7 +264,9 @@ export default function Index({ outlets, filters = {}, summary = {}, setupStatus
                     ))}
                 </div>
 
-                <div className="grid gap-4 lg:grid-cols-4">
+                {showSetupGuide ? (
+                    <>
+                        <div className="grid gap-4 lg:grid-cols-4">
                     {[
                         {
                             label: "Main Outlet",
@@ -294,15 +304,15 @@ export default function Index({ outlets, filters = {}, summary = {}, setupStatus
                             </p>
                         </div>
                     ))}
-                </div>
+                        </div>
 
                 {!setupStatus.has_main_outlet || !setupStatus.has_default_outlet || !setupStatus.has_tenant_products ? (
                     <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100">
-                        <p className="font-semibold">Status setup outlet masih belum lengkap</p>
+                        <p className="font-semibold">Masih ada setup yang perlu dilengkapi</p>
                         <div className="mt-2 space-y-1 text-amber-800 dark:text-amber-200">
-                            {!setupStatus.has_main_outlet ? <p>• Belum ada main outlet aktif untuk operasional kasir.</p> : null}
-                            {!setupStatus.has_default_outlet ? <p>• Belum ada outlet default yang dipilih sebagai konteks awal login.</p> : null}
-                            {!setupStatus.has_tenant_products ? <p>• Tenant sudah ada, tetapi produk belum dipetakan ke tenant outlet.</p> : null}
+                            {!setupStatus.has_main_outlet ? <p>• Belum ada main outlet aktif.</p> : null}
+                            {!setupStatus.has_default_outlet ? <p>• Belum ada outlet default.</p> : null}
+                            {!setupStatus.has_tenant_products ? <p>• Produk tenant belum lengkap.</p> : null}
                         </div>
                     </div>
                 ) : null}
@@ -311,13 +321,13 @@ export default function Index({ outlets, filters = {}, summary = {}, setupStatus
                     <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-100">
                         <p className="font-semibold">Halaman ini untuk struktur bisnis</p>
                         <p className="mt-1 text-blue-800 dark:text-blue-200">
-                            Gunakan halaman ini untuk membuat outlet, tenant foodcourt, warehouse, assign user, dan mengatur outlet default.
+                            Gunakan halaman ini untuk membuat outlet, tenant, dan assign user.
                         </p>
                     </div>
                     <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100">
                         <p className="font-semibold">Bukan untuk printer atau dapur</p>
                         <p className="mt-1 text-amber-800 dark:text-amber-200">
-                            Untuk stasiun dapur, layar dapur, printer thermal, dan routing perangkat, gunakan menu <span className="font-semibold">Operasional Dapur & Printer</span>.
+                            Untuk dapur dan printer, gunakan menu <span className="font-semibold">Operasional Dapur & Printer</span>.
                         </p>
                     </div>
                 </div>
@@ -327,9 +337,11 @@ export default function Index({ outlets, filters = {}, summary = {}, setupStatus
                         href={route("guides.outlet-kitchen")}
                         className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
                     >
-                        Buka Panduan Lengkap Outlet, Tenant & Dapur
+                        Buka panduan
                     </Link>
                 </div>
+                    </>
+                ) : null}
 
                 {showFilters ? (
                     <form
@@ -615,7 +627,7 @@ export default function Index({ outlets, filters = {}, summary = {}, setupStatus
                     </form>
                 ) : (
                     <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-5 text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
-                        Form outlet sedang disembunyikan. Klik <span className="font-semibold text-slate-700 dark:text-slate-200">Buka Form Outlet</span> untuk menambah outlet baru.
+                        Form outlet sedang disembunyikan. Klik <span className="font-semibold text-slate-700 dark:text-slate-200">Buka form outlet</span> saat ingin menambah data baru.
                     </div>
                 )}
 

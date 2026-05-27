@@ -7,8 +7,9 @@ import { useAuthorization } from "@/Utils/authorization";
 import {
     IconCashBanknote,
     IconClockHour4,
+    IconChevronDown,
+    IconChevronUp,
     IconEye,
-    IconHistory,
     IconUser,
 } from "@tabler/icons-react";
 
@@ -38,6 +39,7 @@ export default function Index({
     const { can } = useAuthorization();
     const [openingCash, setOpeningCash] = useState("");
     const [notes, setNotes] = useState("");
+    const [showOpenShiftForm, setShowOpenShiftForm] = useState(false);
     const canOpenShift = can("cashier-shifts-open");
 
     const currentFilters = useMemo(
@@ -80,14 +82,24 @@ export default function Index({
             <div className="space-y-6">
                 <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                     <div>
-                        <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900 dark:text-white">
-                            <IconHistory size={28} className="text-primary-500" />
+                        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
                             Shift Kasir
                         </h1>
                         <p className="text-sm text-slate-500 dark:text-slate-400">
-                            Buka shift, pantau shift aktif, dan review cash closing.
+                            Cek shift aktif dan buka shift baru saat mulai operasional.
                         </p>
                     </div>
+                    <div className="flex gap-2">
+                    {!activeShift && canOpenShift && (
+                        <button
+                            type="button"
+                            onClick={() => setShowOpenShiftForm((value) => !value)}
+                            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                        >
+                            {showOpenShiftForm ? <IconChevronUp size={18} /> : <IconChevronDown size={18} />}
+                            {showOpenShiftForm ? "Sembunyikan form" : "Buka shift baru"}
+                        </button>
+                    )}
                     {activeShift && (
                         <Link
                             href={route("cashier-shifts.show", activeShift.id)}
@@ -97,16 +109,17 @@ export default function Index({
                             <span>Lihat Shift Aktif</span>
                         </Link>
                     )}
+                    </div>
                 </div>
 
-                {!activeShift && canOpenShift && (
+                {!activeShift && canOpenShift && showOpenShiftForm && (
                     <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
                         <div className="mb-4">
                             <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
                                 Buka Shift Baru
                             </h2>
                             <p className="text-sm text-slate-500 dark:text-slate-400">
-                                Shift aktif diperlukan sebelum kasir dapat memproses transaksi.
+                                Isi modal awal, lalu mulai shift.
                             </p>
                         </div>
 
@@ -153,7 +166,7 @@ export default function Index({
                 )}
 
                 {activeShift && (
-                    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                         <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900/50 dark:bg-emerald-950/30">
                             <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
                                 Shift Aktif
@@ -189,20 +202,12 @@ export default function Index({
                                 {activeShift.transactions_count}
                             </p>
                         </div>
-                        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/50 dark:bg-amber-950/30">
-                            <p className="text-xs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">
-                                Walk-in
+                        <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                Komposisi
                             </p>
-                            <p className="mt-2 text-lg font-semibold text-amber-900 dark:text-amber-100">
-                                {activeShift.walk_in_transactions_count ?? 0}
-                            </p>
-                        </div>
-                        <div className="rounded-2xl border border-primary-200 bg-primary-50 p-4 dark:border-primary-900/50 dark:bg-primary-950/30">
-                            <p className="text-xs font-semibold uppercase tracking-wide text-primary-700 dark:text-primary-300">
-                                Customer
-                            </p>
-                            <p className="mt-2 text-lg font-semibold text-primary-900 dark:text-primary-100">
-                                {activeShift.registered_transactions_count ?? 0}
+                            <p className="mt-2 text-sm font-semibold text-slate-900 dark:text-white">
+                                Walk-in {activeShift.walk_in_transactions_count ?? 0} • Customer {activeShift.registered_transactions_count ?? 0}
                             </p>
                         </div>
                     </div>

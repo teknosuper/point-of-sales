@@ -5,6 +5,8 @@ import Button from "@/Components/Dashboard/Button";
 import Table from "@/Components/Dashboard/Table";
 import {
     IconArrowLeft,
+    IconChevronDown,
+    IconChevronUp,
     IconPackage,
     IconPlus,
     IconTrash,
@@ -20,6 +22,10 @@ const formatCurrency = (value = 0) =>
     }).format(value);
 
 export default function Create({ suppliers, products }) {
+    const { activeOutlet } = usePage().props;
+    const isTenantMode = activeOutlet?.outlet_type === "tenant";
+    const [showInfoForm, setShowInfoForm] = useState(true);
+    const [showProductPicker, setShowProductPicker] = useState(true);
     const { data, setData, post, processing, errors } = useForm({
         supplier_id: "",
         document_number: "",
@@ -89,15 +95,40 @@ export default function Create({ suppliers, products }) {
                     Kembali ke daftar PO
                 </Link>
                 <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900 dark:text-white">
-                    <IconShoppingCart size={28} className="text-primary-500" />
                     Buat Purchase Order
                 </h1>
+                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                    {isTenantMode
+                        ? "Buat PO untuk supplier dan produk tenant aktif."
+                        : "Buat PO untuk pengadaan barang outlet aktif."}
+                </p>
             </div>
 
             <form onSubmit={submit} className="max-w-5xl">
                 <div className="space-y-6">
                     <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
-                        <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">Informasi PO</h2>
+                        <div className="mb-4 flex items-center justify-between gap-3">
+                            <div>
+                                <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Informasi PO</h2>
+                                <p className="text-sm text-slate-500 dark:text-slate-400">
+                                    Isi supplier dan catatan dasar lebih dulu.
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setShowInfoForm((value) => !value)}
+                                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                            >
+                                {showInfoForm ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                                {showInfoForm ? "Sembunyikan" : "Buka"}
+                            </button>
+                        </div>
+                        {isTenantMode ? (
+                            <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100">
+                                Supplier dan produk di daftar ini sudah dibatasi ke tenant <strong>{activeOutlet?.name}</strong>.
+                            </div>
+                        ) : null}
+                        {showInfoForm ? (
                         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                             <div>
                                 <label className="mb-1 block text-sm font-semibold text-slate-700 dark:text-slate-200">Supplier</label>
@@ -134,10 +165,28 @@ export default function Create({ suppliers, products }) {
                                 {errors.notes && <p className="mt-1 text-xs text-danger-500">{errors.notes}</p>}
                             </div>
                         </div>
+                        ) : null}
                     </div>
 
                     <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
-                        <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">Item Pembelian</h2>
+                        <div className="mb-4 flex items-center justify-between gap-3">
+                            <div>
+                                <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Item Pembelian</h2>
+                                <p className="text-sm text-slate-500 dark:text-slate-400">
+                                    Cari produk lalu masukkan ke daftar PO.
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setShowProductPicker((value) => !value)}
+                                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                            >
+                                {showProductPicker ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                                {showProductPicker ? "Sembunyikan" : "Buka"}
+                            </button>
+                        </div>
+                        {showProductPicker ? (
+                        <>
                         <div className="mb-4 flex gap-3">
                             <input
                                 type="text"
@@ -167,6 +216,8 @@ export default function Create({ suppliers, products }) {
                                 ))}
                             </div>
                         )}
+                        </>
+                        ) : null}
                         {data.items.length > 0 ? (
                             <div className="overflow-x-auto">
                                 <table className="w-full text-sm">

@@ -21,6 +21,7 @@ class ProductObserver
         if ($product->wasChanged([
             'title',
             'image',
+            'tenant_hpp_price',
             'buy_price',
             'sell_price',
             'tenant_discount_price',

@@ -191,9 +191,8 @@ export default function Index({
             <div className="space-y-6">
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                     <div>
-                        <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900 dark:text-white">
-                            <IconTable size={26} className="text-primary-500" />
-                            Manajemen Meja
+                        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
+                            Meja Dine In
                         </h1>
                         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                             Kelola meja dine in untuk outlet aktif
@@ -207,7 +206,7 @@ export default function Index({
                             className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
                         >
                             <IconAdjustmentsHorizontal size={18} />
-                            Filter
+                            {showFilters ? "Sembunyikan filter" : "Buka filter"}
                         </button>
                         {canCreate ? (
                             <button
@@ -216,7 +215,7 @@ export default function Index({
                                 className="inline-flex items-center gap-2 rounded-xl bg-primary-500 px-4 py-2.5 text-sm font-medium text-white"
                             >
                                 {showForm && !editingId ? <IconX size={18} /> : <IconPlus size={18} />}
-                                {showForm && !editingId ? "Tutup Form" : "Tambah Meja"}
+                                {showForm && !editingId ? "Tutup form" : "Tambah meja"}
                             </button>
                         ) : null}
                     </div>

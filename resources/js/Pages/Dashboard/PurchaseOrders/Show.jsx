@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import { Head, Link, router } from "@inertiajs/react";
 import Button from "@/Components/Dashboard/Button";
@@ -7,9 +7,10 @@ import { useAuthorization } from "@/Utils/authorization";
 import {
     IconArrowLeft,
     IconCheck,
+    IconChevronDown,
+    IconChevronUp,
     IconCircleX,
     IconPackage,
-    IconShoppingCart,
     IconTruckDelivery,
 } from "@tabler/icons-react";
 import toast from "react-hot-toast";
@@ -52,6 +53,10 @@ export default function Show({ order }) {
     const { can } = useAuthorization();
     const canEdit = can("purchase-orders-update");
     const canCreateReceiving = can("goods-receivings-create");
+    const [showReceivings, setShowReceivings] = useState(true);
+    const [showNotes, setShowNotes] = useState(Boolean(order.notes));
+    const [showPayableInfo, setShowPayableInfo] = useState(Boolean(order.payable));
+    const [showOrderInfo, setShowOrderInfo] = useState(false);
 
     const placeOrder = () => {
         router.post(route("purchase-orders.place", order.id), {}, {
@@ -87,16 +92,16 @@ export default function Show({ order }) {
                     <div>
                         <div className="mb-2 flex items-center gap-2">
                             <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
-                                {order.document_number}
+                                Detail Purchase Order
                             </h1>
                             {statusBadge(order.status)}
                         </div>
                         <p className="text-sm text-slate-500 dark:text-slate-400">
+                            Dokumen {order.document_number} untuk pembelian ke supplier.
+                        </p>
+                        <p className="text-sm text-slate-500 dark:text-slate-400">
                             Supplier: {order.supplier?.name || "-"} &bull; Dibuat oleh {order.creator?.name || "-"} &bull; {formatDateTime(order.created_at)}
                         </p>
-                        {order.ordered_at && (
-                            <p className="text-sm text-slate-500">Dipesan: {formatDateTime(order.ordered_at)}</p>
-                        )}
                     </div>
                     <div className="flex gap-2">
                         {canPlace && (
@@ -186,36 +191,51 @@ export default function Show({ order }) {
 
                     {order.goods_receivings?.length > 0 && (
                         <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
-                            <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">
-                                Riwayat Penerimaan Barang
-                            </h2>
-                            <Table>
-                                <Table.Thead>
-                                    <tr>
-                                        <Table.Th>Dokumen</Table.Th>
-                                        <Table.Th>Tanggal Terima</Table.Th>
-                                        <Table.Th>Item</Table.Th>
-                                        <Table.Th>Aksi</Table.Th>
-                                    </tr>
-                                </Table.Thead>
-                                <Table.Tbody>
-                                    {order.goods_receivings.map((gr) => (
-                                        <tr key={gr.id} className="transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                                            <Table.Td className="font-medium">{gr.document_number}</Table.Td>
-                                            <Table.Td>{formatDateTime(gr.received_at)}</Table.Td>
-                                            <Table.Td>{gr.items?.length || 0}</Table.Td>
-                                            <Table.Td>
-                                                <Link
-                                                    href={route("goods-receivings.show", gr.id)}
-                                                    className="text-sm font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400"
-                                                >
-                                                    Detail
-                                                </Link>
-                                            </Table.Td>
+                            <div className="flex items-center justify-between gap-3">
+                                <div>
+                                    <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+                                        Riwayat Penerimaan
+                                    </h2>
+                                    <p className="text-xs text-slate-500">Buka jika ingin melihat penerimaan barang dari PO ini.</p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowReceivings((prev) => !prev)}
+                                    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                                >
+                                    {showReceivings ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                                    {showReceivings ? "Sembunyikan" : "Buka"}
+                                </button>
+                            </div>
+                            {showReceivings && (
+                                <Table className="mt-4">
+                                    <Table.Thead>
+                                        <tr>
+                                            <Table.Th>Dokumen</Table.Th>
+                                            <Table.Th>Tanggal Terima</Table.Th>
+                                            <Table.Th>Item</Table.Th>
+                                            <Table.Th>Aksi</Table.Th>
                                         </tr>
-                                    ))}
-                                </Table.Tbody>
-                            </Table>
+                                    </Table.Thead>
+                                    <Table.Tbody>
+                                        {order.goods_receivings.map((gr) => (
+                                            <tr key={gr.id} className="transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                                                <Table.Td className="font-medium">{gr.document_number}</Table.Td>
+                                                <Table.Td>{formatDateTime(gr.received_at)}</Table.Td>
+                                                <Table.Td>{gr.items?.length || 0}</Table.Td>
+                                                <Table.Td>
+                                                    <Link
+                                                        href={route("goods-receivings.show", gr.id)}
+                                                        className="text-sm font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400"
+                                                    >
+                                                        Detail
+                                                    </Link>
+                                                </Table.Td>
+                                            </tr>
+                                        ))}
+                                    </Table.Tbody>
+                                </Table>
+                            )}
                         </div>
                     )}
                 </div>
@@ -223,50 +243,95 @@ export default function Show({ order }) {
                 <div className="space-y-6">
                     {order.notes && (
                         <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
-                            <h2 className="mb-3 text-lg font-semibold text-slate-900 dark:text-white">Catatan</h2>
-                            <p className="text-sm text-slate-600 dark:text-slate-400">{order.notes}</p>
+                            <div className="flex items-center justify-between gap-3">
+                                <div>
+                                    <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Catatan</h2>
+                                    <p className="text-xs text-slate-500">Buka jika ada catatan khusus di PO ini.</p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowNotes((prev) => !prev)}
+                                    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                                >
+                                    {showNotes ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                                    {showNotes ? "Sembunyikan" : "Buka"}
+                                </button>
+                            </div>
+                            {showNotes && (
+                                <p className="mt-3 text-sm text-slate-600 dark:text-slate-400">{order.notes}</p>
+                            )}
                         </div>
                     )}
 
                     {order.payable && (
                         <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
-                            <h2 className="mb-3 text-lg font-semibold text-slate-900 dark:text-white">Hutang Supplier</h2>
-                            <div className="space-y-2 text-sm">
-                                <div className="flex justify-between">
-                                    <span className="text-slate-500">Dokumen</span>
-                                    <span className="font-medium text-slate-800 dark:text-slate-200">{order.payable.document_number}</span>
+                            <div className="flex items-center justify-between gap-3">
+                                <div>
+                                    <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Hutang Supplier</h2>
+                                    <p className="text-xs text-slate-500">Buka jika ingin melihat tagihan dari PO ini.</p>
                                 </div>
-                                <div className="flex justify-between">
-                                    <span className="text-slate-500">Total</span>
-                                    <span className="font-medium text-slate-800 dark:text-slate-200">{formatCurrency(order.payable.total)}</span>
-                                </div>
-                                <div className="flex justify-between">
-                                    <span className="text-slate-500">Dibayar</span>
-                                    <span className="font-medium text-slate-800 dark:text-slate-200">{formatCurrency(order.payable.paid)}</span>
-                                </div>
-                                <Link
-                                    href={route("payables.show", order.payable.id)}
-                                    className="mt-3 inline-flex text-sm font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400"
+                                <button
+                                    type="button"
+                                    onClick={() => setShowPayableInfo((prev) => !prev)}
+                                    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
                                 >
-                                    Lihat Detail Hutang &rarr;
-                                </Link>
+                                    {showPayableInfo ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                                    {showPayableInfo ? "Sembunyikan" : "Buka"}
+                                </button>
                             </div>
+                            {showPayableInfo && (
+                                <div className="mt-3 space-y-2 text-sm">
+                                    <div className="flex justify-between">
+                                        <span className="text-slate-500">Dokumen</span>
+                                        <span className="font-medium text-slate-800 dark:text-slate-200">{order.payable.document_number}</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span className="text-slate-500">Total</span>
+                                        <span className="font-medium text-slate-800 dark:text-slate-200">{formatCurrency(order.payable.total)}</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span className="text-slate-500">Dibayar</span>
+                                        <span className="font-medium text-slate-800 dark:text-slate-200">{formatCurrency(order.payable.paid)}</span>
+                                    </div>
+                                    <Link
+                                        href={route("payables.show", order.payable.id)}
+                                        className="mt-3 inline-flex text-sm font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400"
+                                    >
+                                        Lihat detail hutang
+                                    </Link>
+                                </div>
+                            )}
                         </div>
                     )}
 
                     <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
-                        <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">Informasi</h2>
-                        <div className="space-y-3 text-sm text-slate-500 dark:text-slate-400">
-                            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800">
-                                <p className="font-medium text-slate-700 dark:text-slate-200">Alur PO</p>
-                                <ul className="mt-2 space-y-2">
-                                    <li>1. Buat PO dengan status Draft.</li>
-                                    <li>2. Pesan ke supplier untuk mengubah status menjadi Ordered.</li>
-                                    <li>3. Terima barang melalui menu Terima Barang.</li>
-                                    <li>4. Hutang supplier akan otomatis tercatat.</li>
-                                </ul>
+                        <div className="flex items-center justify-between gap-3">
+                            <div>
+                                <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Informasi</h2>
+                                <p className="text-xs text-slate-500">Buka jika ingin melihat langkah singkat proses PO.</p>
                             </div>
+                            <button
+                                type="button"
+                                onClick={() => setShowOrderInfo((prev) => !prev)}
+                                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                            >
+                                {showOrderInfo ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                                {showOrderInfo ? "Sembunyikan" : "Buka"}
+                            </button>
                         </div>
+                        {showOrderInfo && (
+                            <div className="mt-4 space-y-3 text-sm text-slate-500 dark:text-slate-400">
+                                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800">
+                                    <p className="font-medium text-slate-700 dark:text-slate-200">Alur PO</p>
+                                    <ul className="mt-2 space-y-2">
+                                        <li>1. Buat PO sebagai draft.</li>
+                                        <li>2. Pesan ke supplier agar status berubah jadi dipesan.</li>
+                                        <li>3. Terima barang saat supplier mengirim.</li>
+                                        <li>4. Tagihan supplier akan tercatat otomatis.</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>

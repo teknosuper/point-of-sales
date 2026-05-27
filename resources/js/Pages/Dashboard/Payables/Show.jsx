@@ -3,6 +3,8 @@ import { Head, Link, useForm, usePage } from "@inertiajs/react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import {
     IconArrowLeft,
+    IconChevronDown,
+    IconChevronUp,
     IconCreditCard,
     IconCash,
     IconPrinter,
@@ -33,6 +35,7 @@ export default function PayableShow({ payable, bankAccounts = [] }) {
     const { can } = useAuthorization();
     const [showForm, setShowForm] = useState(false);
     const [showPreview, setShowPreview] = useState(false);
+    const [showPaymentHistory, setShowPaymentHistory] = useState(true);
     const printRef = useRef(null);
     const { data, setData, post, processing, reset, errors } = useForm({
         amount: "",
@@ -162,20 +165,31 @@ export default function PayableShow({ payable, bankAccounts = [] }) {
                                 </p>
                             </div>
                         </div>
-                        <div className="flex items-center justify-between">
+                        <div className="flex items-center justify-between gap-3">
                             <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
                                 Riwayat Pembayaran
                             </p>
-                            {payable.status !== "paid" && canPayPayable && (
+                            <div className="flex items-center gap-2">
                                 <button
-                                    onClick={() => setShowForm(!showForm)}
-                                    className="px-3 py-2 rounded-xl text-sm font-semibold bg-primary-500 hover:bg-primary-600 text-white transition-colors"
+                                    type="button"
+                                    onClick={() => setShowPaymentHistory((value) => !value)}
+                                    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 dark:border-slate-700 dark:text-slate-300"
                                 >
-                                    Tambah Pembayaran
+                                    {showPaymentHistory ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                                    {showPaymentHistory ? "Sembunyikan" : "Lihat detail"}
                                 </button>
-                            )}
+                                {payable.status !== "paid" && canPayPayable && (
+                                    <button
+                                        onClick={() => setShowForm(!showForm)}
+                                        className="px-3 py-2 rounded-xl text-sm font-semibold bg-primary-500 hover:bg-primary-600 text-white transition-colors"
+                                    >
+                                        {showForm ? "Tutup form" : "Tambah pembayaran"}
+                                    </button>
+                                )}
+                            </div>
                         </div>
 
+                        {showPaymentHistory ? (
                         <div className="space-y-2">
                                         {payable.payments?.length ? (
                                             payable.payments.map((pay) => (
@@ -208,6 +222,11 @@ export default function PayableShow({ payable, bankAccounts = [] }) {
                                 </div>
                             )}
                         </div>
+                        ) : (
+                            <div className="text-sm text-slate-500">
+                                Riwayat pembayaran disembunyikan.
+                            </div>
+                        )}
                     </div>
 
                     <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 print:hidden">

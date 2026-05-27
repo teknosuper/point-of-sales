@@ -6,6 +6,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Chart from "chart.js/auto";
 import {
     IconChartBar,
+    IconChevronDown,
+    IconChevronUp,
     IconClock,
     IconCoin,
     IconDatabaseOff,
@@ -113,23 +115,17 @@ const crmCampaignTypeLabel = {
     repeat_order_reminder: "Repeat Order",
 };
 
-function SummaryCard({ title, value, description, icon: Icon, gradient }) {
+function SummaryCard({ title, value, description, icon: Icon }) {
     return (
-        <div
-            className={`relative overflow-hidden rounded-2xl p-5 bg-gradient-to-br ${gradient} text-white shadow-lg`}
-        >
-            <div className="relative z-10">
-                <div className="mb-2 flex items-center gap-2">
-                    <div className="rounded-xl bg-white/20 p-2">
-                        <Icon size={18} />
-                    </div>
-                    <span className="text-sm font-medium opacity-90">
-                        {title}
-                    </span>
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+            <div className="mb-2 flex items-center gap-2 text-sm font-medium text-slate-500 dark:text-slate-400">
+                <div className="rounded-xl bg-slate-100 p-2 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                    <Icon size={18} />
                 </div>
-                <p className="text-2xl font-bold">{value}</p>
-                <p className="mt-1 text-sm opacity-80">{description}</p>
+                <span>{title}</span>
             </div>
+            <p className="text-2xl font-bold text-slate-900 dark:text-white">{value}</p>
+            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{description}</p>
         </div>
     );
 }
@@ -361,16 +357,11 @@ export default function Insights({
             <div className="space-y-6">
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                     <div>
-                        <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900 dark:text-white">
-                            <IconChartBar
-                                size={28}
-                                className="text-primary-500"
-                            />
-                            Insight Penjualan Lanjutan
+                        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
+                            Insight Penjualan
                         </h1>
                         <p className="text-sm text-slate-500 dark:text-slate-400">
-                            Insight operasional penjualan, margin, produk, dan
-                            performa kasir dalam satu dashboard.
+                            Cek pola penjualan, margin, produk, dan pelanggan dalam satu halaman.
                         </p>
                     </div>
                     <button
@@ -382,7 +373,8 @@ export default function Insights({
                         }`}
                     >
                         <IconFilter size={18} />
-                        Filter
+                        {showFilters ? "Sembunyikan filter" : "Buka filter"}
+                        {showFilters ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
                     </button>
                 </div>
 
@@ -392,28 +384,24 @@ export default function Insights({
                         value={formatCurrency(summary?.revenue_total ?? 0)}
                         description={`${summary?.orders_count ?? 0} transaksi`}
                         icon={IconReceipt2}
-                        gradient="from-primary-500 to-primary-700"
                     />
                     <SummaryCard
                         title="Profit"
                         value={formatCurrency(summary?.profit_total ?? 0)}
                         description={`Rata-rata ${formatCurrency(summary?.average_order ?? 0)}`}
                         icon={IconCoin}
-                        gradient="from-emerald-500 to-emerald-700"
                     />
                     <SummaryCard
                         title="Item Terjual"
                         value={(summary?.items_sold ?? 0).toLocaleString("id-ID")}
                         description={`Diskon manual ${formatCurrency(summary?.manual_discount_total ?? 0)}`}
                         icon={IconPackage}
-                        gradient="from-amber-500 to-amber-700"
                     />
                     <SummaryCard
-                        title="Kasir Aktif di Filter"
+                        title="Kasir di Data Ini"
                         value={cashierPerformance.length.toLocaleString("id-ID")}
                         description="Leaderboard performa kasir"
                         icon={IconUsers}
-                        gradient="from-fuchsia-500 to-fuchsia-700"
                     />
                 </div>
 
@@ -524,14 +512,12 @@ export default function Insights({
                         value={(repeatSummary.active_customers ?? 0).toLocaleString("id-ID")}
                         description={`${repeatSummary.new_customers ?? 0} pelanggan baru`}
                         icon={IconUsers}
-                        gradient="from-sky-500 to-sky-700"
                     />
                     <SummaryCard
                         title="Repeat Rate"
                         value={`${formatPercentage(repeatSummary.repeat_rate ?? 0)}%`}
                         description={`${repeatSummary.repeat_customers ?? 0} pelanggan repeat`}
                         icon={IconTrendingUp}
-                        gradient="from-violet-500 to-violet-700"
                     />
                     <SummaryCard
                         title="Member Revenue Share"
@@ -540,7 +526,6 @@ export default function Insights({
                             repeatSummary.member_revenue_total ?? 0
                         )}
                         icon={IconCoin}
-                        gradient="from-teal-500 to-teal-700"
                     />
                     <SummaryCard
                         title="Walk-in Revenue Share"
@@ -549,7 +534,6 @@ export default function Insights({
                             repeatSummary.walk_in_revenue_total ?? 0
                         )}
                         icon={IconUsers}
-                        gradient="from-slate-500 to-slate-700"
                     />
                     <SummaryCard
                         title="Stok Perlu Perhatian"
@@ -559,7 +543,6 @@ export default function Insights({
                         ).toLocaleString("id-ID")}
                         description={`${stockCoverageSummary.window_days ?? 0} hari jendela analisa`}
                         icon={IconClock}
-                        gradient="from-rose-500 to-rose-700"
                     />
                 </div>
 

@@ -7,6 +7,7 @@ use App\Models\KitchenStation;
 use App\Models\Outlet;
 use App\Models\Product;
 use App\Models\ProductKitchenStationMapping;
+use App\Models\ProductOutletStock;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
@@ -14,7 +15,7 @@ use Inertia\Testing\AssertableInertia as Assert;
 use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
 
-class ProductTenantPricingTest extends TestCase
+class ProductTenantScopeTest extends TestCase
 {
     use RefreshDatabase;
 
@@ -25,7 +26,8 @@ class ProductTenantPricingTest extends TestCase
         foreach ([
             'products-access',
             'products-edit',
-            'products-pricing-update',
+            'products-create',
+            'products-delete',
         ] as $permission) {
             Permission::firstOrCreate([
                 'name' => $permission,
@@ -34,68 +36,86 @@ class ProductTenantPricingTest extends TestCase
         }
     }
 
-    public function test_tenant_workspace_edit_payload_hides_owner_sell_price(): void
+    public function test_tenant_outlet_index_only_shows_its_own_products(): void
     {
-        [$user, $product] = $this->createTenantWorkspaceContext();
+        [$user, $tenantOutlet, $visibleProduct] = $this->createTenantWorkspaceContext();
+        $hiddenProduct = Product::factory()->create([
+            'tenant_outlet_id' => null,
+            'title' => 'Produk Owner Global',
+        ]);
+
+        $this->actingAs($user)
+            ->get(route('products.index'))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Dashboard/Products/Index')
+                ->where('workspace.is_tenant', true)
+                ->where('products.data', fn (array $rows) => count($rows) === 1
+                    && (int) $rows[0]['id'] === (int) $visibleProduct->id
+                    && $rows[0]['title'] !== $hiddenProduct->title));
+
+        $this->assertSame('tenant', $tenantOutlet->outlet_type);
+    }
+
+    public function test_tenant_outlet_cannot_open_product_edit_form(): void
+    {
+        [$user, , $product] = $this->createTenantWorkspaceContext();
 
         $this->actingAs($user)
             ->get(route('products.edit', $product))
-            ->assertOk()
-            ->assertInertia(fn (Assert $page) => $page
-                ->component('Dashboard/Products/Edit')
-                ->where('product.buy_price', 17000)
-                ->where('product.sell_price', null)
-                ->where('capabilities.can_manage_tenant_discount', true)
-                ->where('capabilities.can_manage_pricing', false));
+            ->assertRedirect()
+            ->assertSessionHas('error');
     }
 
-    public function test_tenant_workspace_can_update_discount_without_changing_owner_prices(): void
+    public function test_tenant_outlet_can_only_update_daily_stock(): void
     {
-        [$user, $product] = $this->createTenantWorkspaceContext();
+        [$user, $tenantOutlet, $product] = $this->createTenantWorkspaceContext();
+
+        $this->actingAs($user)
+            ->patch(route('products.daily-stock.update', $product), [
+                'stock' => 17,
+                'notes' => 'Adjustment tenant',
+            ])
+            ->assertRedirect()
+            ->assertSessionHas('success');
+
+        $this->assertDatabaseHas('product_outlet_stocks', [
+            'outlet_id' => $tenantOutlet->id,
+            'product_id' => $product->id,
+            'stock' => 17,
+        ]);
+    }
+
+    public function test_tenant_outlet_cannot_update_product_catalogue_fields(): void
+    {
+        [$user, , $product] = $this->createTenantWorkspaceContext();
 
         $this->actingAs($user)
             ->put(route('products.update', $product), [
                 'barcode' => $product->barcode,
                 'sku' => $product->sku,
-                'title' => 'Produk Tenant Final',
-                'description' => 'Tidak boleh mengubah katalog owner.',
+                'title' => 'Produk Tenant Diubah',
+                'description' => 'Tidak boleh tersimpan',
                 'category_id' => $product->category_id,
+                'tenant_hpp_price' => 12000,
                 'buy_price' => 99999,
                 'sell_price' => 123456,
                 'tenant_discount_price' => 15000,
             ])
-            ->assertRedirect(route('products.index'));
+            ->assertRedirect()
+            ->assertSessionHas('error');
 
         $product->refresh();
 
+        $this->assertSame('Produk Tenant', $product->title);
+        $this->assertSame(17000, (int) $product->tenant_hpp_price);
         $this->assertSame(17000, (int) $product->buy_price);
         $this->assertSame(28000, (int) $product->sell_price);
-        $this->assertSame(15000, (int) $product->tenant_discount_price);
-        $this->assertSame('Produk Tenant', $product->title);
-    }
-
-    public function test_tenant_discount_cannot_exceed_buy_price(): void
-    {
-        [$user, $product] = $this->createTenantWorkspaceContext();
-
-        $this->from(route('products.edit', $product))
-            ->actingAs($user)
-            ->put(route('products.update', $product), [
-                'barcode' => $product->barcode,
-                'sku' => $product->sku,
-                'title' => $product->title,
-                'description' => $product->description,
-                'category_id' => $product->category_id,
-                'tenant_discount_price' => 18000,
-            ])
-            ->assertRedirect(route('products.edit', $product))
-            ->assertSessionHasErrors(['tenant_discount_price']);
-
-        $this->assertNull($product->fresh()->tenant_discount_price);
+        $this->assertNull($product->tenant_discount_price);
     }
 
     /**
-     * @return array{0: User, 1: Product}
+     * @return array{0: User, 1: Outlet, 2: Product}
      */
     private function createTenantWorkspaceContext(): array
     {
@@ -137,6 +157,7 @@ class ProductTenantPricingTest extends TestCase
             'sku' => 'SKU-'.Str::upper(Str::random(8)),
             'title' => 'Produk Tenant',
             'description' => 'Produk tenant untuk pengujian',
+            'tenant_hpp_price' => 17000,
             'buy_price' => 17000,
             'sell_price' => 28000,
             'stock' => 8,
@@ -150,6 +171,13 @@ class ProductTenantPricingTest extends TestCase
             'is_active' => true,
         ]);
 
-        return [$user, $product];
+        ProductOutletStock::create([
+            'outlet_id' => $outlet->id,
+            'product_id' => $product->id,
+            'stock' => 8,
+            'reorder_level' => 0,
+        ]);
+
+        return [$user, $outlet, $product];
     }
 }

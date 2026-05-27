@@ -9,6 +9,8 @@ import {
     IconPackage,
     IconDeviceFloppy,
     IconArrowLeft,
+    IconChevronDown,
+    IconChevronUp,
     IconPhoto,
     IconBarcode,
     IconCurrencyDollar,
@@ -17,6 +19,13 @@ import {
     IconTrash,
 } from "@tabler/icons-react";
 import { getProductImageUrl } from "@/Utils/imageUrl";
+
+const formatCurrency = (value = 0) =>
+    new Intl.NumberFormat("id-ID", {
+        style: "currency",
+        currency: "IDR",
+        minimumFractionDigits: 0,
+    }).format(Number(value || 0));
 
 const previewAutoSku = (sku, barcode, title) => {
     const source = String(sku || barcode || title || "SKU")
@@ -58,6 +67,7 @@ export default function Edit({
             price: option.price ?? "",
         })),
         description: product.description ?? "",
+        tenant_hpp_price: product.tenant_hpp_price ?? "",
         buy_price: product.buy_price ?? "",
         sell_price: product.sell_price ?? "",
         tenant_discount_price: product.tenant_discount_price ?? "",
@@ -81,6 +91,8 @@ export default function Edit({
     const [imagePreview, setImagePreview] = useState(
         product.image ? getProductImageUrl(product.image) : null
     );
+    const [showModifierSection, setShowModifierSection] = useState(false);
+    const [showOutletStockSection, setShowOutletStockSection] = useState(false);
 
     useEffect(() => {
         if (product.category_id) {
@@ -177,7 +189,6 @@ export default function Edit({
                     Kembali ke Produk
                 </Link>
                 <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                    <IconPackage size={28} className="text-primary-500" />
                     Edit Produk
                 </h1>
                 <p className="text-sm text-slate-500 mt-1">{product.title}</p>
@@ -235,7 +246,7 @@ export default function Edit({
                             </div>
                         ) : canManageTenantDiscount && !canManageCatalog && !canManagePricing ? (
                             <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100">
-                                Mode tenant aktif. Harga jual owner outlet disembunyikan. Anda hanya bisa mengatur harga promo tenant dari harga beli produk ini.
+                                Mode tenant aktif. Harga jual owner outlet disembunyikan. Anda bisa mengatur HPP tenant dan promo tenant tanpa mengubah harga owner outlet.
                             </div>
                         ) : null}
 
@@ -409,12 +420,22 @@ export default function Edit({
                         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">
                             <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-4 flex items-center gap-2">
                                 <IconCurrencyDollar size={18} />
-                                Harga Produk
+                                Harga 3 Level Produk
                             </h3>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                 <Input
                                     type="number"
-                                    label="Harga Beli"
+                                    label="HPP Tenant"
+                                    value={data.tenant_hpp_price}
+                                    onChange={(e) =>
+                                        setData("tenant_hpp_price", e.target.value)
+                                    }
+                                    errors={errors.tenant_hpp_price}
+                                    placeholder="0"
+                                />
+                                <Input
+                                    type="number"
+                                    label="Harga Beli dari Tenant"
                                     value={data.buy_price}
                                     onChange={(e) =>
                                         setData("buy_price", e.target.value)
@@ -424,7 +445,7 @@ export default function Edit({
                                 />
                                 <Input
                                     type="number"
-                                    label="Harga Jual"
+                                    label="Harga Jual Outlet"
                                     value={data.sell_price}
                                     onChange={(e) =>
                                         setData("sell_price", e.target.value)
@@ -447,38 +468,38 @@ export default function Edit({
                             </div>
 
                             {/* Profit Estimation */}
-                            {data.buy_price > 0 && data.sell_price > 0 && (
-                                <div className="mt-4 p-4 rounded-xl bg-success-50 dark:bg-success-950/30 border border-success-200 dark:border-success-900">
-                                    <div className="flex items-center justify-between">
-                                        <div>
-                                            <p className="text-sm text-success-700 dark:text-success-400 font-medium">
-                                                Estimasi Profit per Item
-                                            </p>
-                                            <p className="text-2xl font-bold text-success-600 dark:text-success-500 mt-1">
-                                                + Rp{" "}
-                                                {(
-                                                    data.sell_price -
-                                                    data.buy_price
-                                                ).toLocaleString("id-ID")}
-                                            </p>
-                                        </div>
-                                        <div className="text-right">
-                                            <p className="text-sm text-success-700 dark:text-success-400 font-medium">
-                                                Margin
-                                            </p>
-                                            <p className="text-xl font-bold text-success-600 dark:text-success-500 mt-1">
-                                                {(
-                                                    ((data.sell_price -
-                                                        data.buy_price) /
-                                                        data.buy_price) *
-                                                    100
-                                                ).toFixed(1)}
-                                                %
-                                            </p>
-                                        </div>
-                                    </div>
+                            <div className="mt-4 grid gap-4 rounded-xl border border-success-200 bg-success-50 p-4 dark:border-success-900 dark:bg-success-950/30 md:grid-cols-2">
+                                <div>
+                                    <p className="text-sm font-medium text-success-700 dark:text-success-400">
+                                        Margin Tenant per Item
+                                    </p>
+                                    <p className="mt-1 text-2xl font-bold text-success-600 dark:text-success-500">
+                                        + Rp{" "}
+                                        {Math.max(
+                                            0,
+                                            Number(data.buy_price || 0) -
+                                                Number(
+                                                    data.tenant_hpp_price ||
+                                                        data.buy_price ||
+                                                        0
+                                                )
+                                        ).toLocaleString("id-ID")}
+                                    </p>
                                 </div>
-                            )}
+                                <div>
+                                    <p className="text-sm font-medium text-success-700 dark:text-success-400">
+                                        Markup Owner per Item
+                                    </p>
+                                    <p className="mt-1 text-2xl font-bold text-success-600 dark:text-success-500">
+                                        + Rp{" "}
+                                        {Math.max(
+                                            0,
+                                            Number(data.sell_price || 0) -
+                                                Number(data.buy_price || 0)
+                                        ).toLocaleString("id-ID")}
+                                    </p>
+                                </div>
+                            </div>
                         </div>
                         ) : canManageTenantDiscount ? (
                         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">
@@ -489,13 +510,34 @@ export default function Edit({
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800">
                                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                                        Harga Dasar Tenant
+                                        HPP Tenant
+                                    </p>
+                                    <p className="mt-1 text-lg font-bold text-slate-900 dark:text-slate-100">
+                                        Rp {Number(product.tenant_hpp_price || product.buy_price || 0).toLocaleString("id-ID")}
+                                    </p>
+                                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                        Harga produksi / HPP internal tenant.
+                                    </p>
+                                </div>
+                                <Input
+                                    type="number"
+                                    label="Update HPP Tenant"
+                                    value={data.tenant_hpp_price}
+                                    onChange={(e) =>
+                                        setData("tenant_hpp_price", e.target.value)
+                                    }
+                                    errors={errors.tenant_hpp_price}
+                                    placeholder="0"
+                                />
+                                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800">
+                                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                        Harga Beli Owner dari Tenant
                                     </p>
                                     <p className="mt-1 text-lg font-bold text-slate-900 dark:text-slate-100">
                                         Rp {Number(product.buy_price || 0).toLocaleString("id-ID")}
                                     </p>
                                     <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                        Basis harga tenant mengikuti harga beli owner outlet.
+                                        Dipakai sebagai basis jual tenant ke outlet owner.
                                     </p>
                                 </div>
                                 <Input
@@ -534,8 +576,53 @@ export default function Edit({
                                         </p>
                                     ) : null}
                                 </div>
+                                <div
+                                    className={`mt-4 grid gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900/40 dark:bg-emerald-950/20 ${
+                                        product.sell_price !== null &&
+                                        product.sell_price !== undefined
+                                            ? "md:grid-cols-2"
+                                            : "md:grid-cols-1"
+                                    }`}
+                                >
+                                    <div>
+                                        <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+                                            Margin Tenant / Item
+                                        </p>
+                                        <p className="mt-1 text-lg font-bold text-emerald-700 dark:text-emerald-200">
+                                            {formatCurrency(
+                                                Math.max(
+                                                    0,
+                                                    Number(product.buy_price || 0) -
+                                                        Number(
+                                                            data.tenant_hpp_price ||
+                                                                product.tenant_hpp_price ||
+                                                                product.buy_price ||
+                                                                0
+                                                        )
+                                                )
+                                            )}
+                                        </p>
+                                    </div>
+                                    {product.sell_price !== null &&
+                                    product.sell_price !== undefined ? (
+                                        <div>
+                                            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+                                                Markup Owner / Item
+                                            </p>
+                                            <p className="mt-1 text-lg font-bold text-emerald-700 dark:text-emerald-200">
+                                                {formatCurrency(
+                                                    Math.max(
+                                                        0,
+                                                        Number(product.sell_price || 0) -
+                                                            Number(product.buy_price || 0)
+                                                    )
+                                                )}
+                                            </p>
+                                        </div>
+                                    ) : null}
+                                </div>
                                 <p className="mt-2 text-xs text-amber-800 dark:text-amber-200">
-                                    Harga diskon tenant harus lebih kecil atau sama dengan harga beli. Untuk promo coret berbasis rule outlet, buat aturannya di menu Promo Harga tenant.
+                                    HPP tenant tidak boleh lebih besar dari harga beli owner. Harga diskon tenant juga harus lebih kecil atau sama dengan harga beli owner. Untuk promo coret berbasis rule outlet, buat aturannya di menu Promo Harga tenant.
                                 </p>
                                 <div className="mt-3 flex flex-wrap gap-2">
                                     <Link
@@ -568,6 +655,14 @@ export default function Edit({
                                         Rp {Number(product.buy_price || 0).toLocaleString("id-ID")}
                                     </p>
                                 </div>
+                                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800">
+                                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                        HPP Tenant
+                                    </p>
+                                    <p className="mt-1 text-lg font-bold text-slate-900 dark:text-slate-100">
+                                        Rp {Number(product.tenant_hpp_price || product.buy_price || 0).toLocaleString("id-ID")}
+                                    </p>
+                                </div>
                                 {!canManageTenantDiscount && product.sell_price !== null && product.sell_price !== undefined ? (
                                     <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800">
                                         <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
@@ -596,16 +691,27 @@ export default function Edit({
                                             Opsi ini akan muncul sebagai pilihan cepat di POS untuk produk ini.
                                         </p>
                                     </div>
-                                    <button
-                                        type="button"
-                                        onClick={addModifierOption}
-                                        className="inline-flex items-center gap-2 rounded-xl bg-primary-500 px-3 py-2 text-xs font-semibold text-white hover:bg-primary-600"
-                                    >
-                                        <IconPlus size={14} />
-                                        Tambah
-                                    </button>
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowModifierSection((value) => !value)}
+                                            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                                        >
+                                            {showModifierSection ? <IconChevronUp size={14} /> : <IconChevronDown size={14} />}
+                                            {showModifierSection ? "Sembunyikan" : "Lihat detail"}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={addModifierOption}
+                                            className="inline-flex items-center gap-2 rounded-xl bg-primary-500 px-3 py-2 text-xs font-semibold text-white hover:bg-primary-600"
+                                        >
+                                            <IconPlus size={14} />
+                                            Tambah
+                                        </button>
+                                    </div>
                                 </div>
 
+                                {showModifierSection ? (
                                 <div className="space-y-3">
                                     {data.modifier_options.length === 0 && (
                                         <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
@@ -657,6 +763,11 @@ export default function Edit({
                                         </div>
                                     ))}
                                 </div>
+                                ) : (
+                                    <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
+                                        Preset topping disembunyikan. Buka detail jika ingin menambah atau mengubah opsi.
+                                    </div>
+                                )}
                             </div>
                         )}
 
@@ -671,14 +782,25 @@ export default function Edit({
                                         Penyesuaian di sini akan dicatat sebagai adjustment stok outlet dan membantu admin menjaga akurasi stok multi outlet.
                                     </p>
                                 </div>
-                                <Link
-                                    href={route("stock-opnames.index")}
-                                    className="text-xs font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400"
-                                >
-                                    Buka Stock Opname
-                                </Link>
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowOutletStockSection((value) => !value)}
+                                        className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                                    >
+                                        {showOutletStockSection ? <IconChevronUp size={14} /> : <IconChevronDown size={14} />}
+                                        {showOutletStockSection ? "Sembunyikan" : "Lihat detail"}
+                                    </button>
+                                    <Link
+                                        href={route("stock-opnames.index")}
+                                        className="text-xs font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400"
+                                    >
+                                        Buka Stock Opname
+                                    </Link>
+                                </div>
                             </div>
 
+                            {showOutletStockSection ? (
                             <div className="mt-4 space-y-4">
                                 <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
                                     <table className="min-w-full divide-y divide-slate-200 text-sm dark:divide-slate-800">
@@ -758,6 +880,11 @@ export default function Edit({
                                     </button>
                                 </div>
                             </div>
+                            ) : (
+                                <div className="mt-4 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
+                                    Detail stok outlet disembunyikan. Buka detail jika ingin mengubah stok fisik per outlet.
+                                </div>
+                            )}
                         </div>
 
                         {canSubmitProductForm ? (

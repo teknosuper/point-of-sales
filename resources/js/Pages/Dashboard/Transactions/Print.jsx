@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Head, Link, router, usePage } from "@inertiajs/react";
 import {
     IconArrowLeft,
+    IconChevronDown,
+    IconChevronUp,
     IconPrinter,
     IconExternalLink,
     IconReceipt,
@@ -27,6 +29,7 @@ export default function Print({
     const { storeProfile } = usePage().props;
     const { can } = useAuthorization();
     const [printMode, setPrintMode] = useState(initialMode); // 'invoice' | 'thermal80' | 'thermal58'
+    const [showPrintActions, setShowPrintActions] = useState(false);
     const [showConfirmModal, setShowConfirmModal] = useState(false);
     const [isConfirming, setIsConfirming] = useState(false);
     const canConfirmPayment = can("transactions-confirm-payment");
@@ -195,14 +198,25 @@ export default function Print({
                     {/* Action Bar */}
                     {!embedded && (
                         <div className="flex flex-wrap items-start justify-between gap-3 print:hidden">
-                        <Link
-                            href={route("transactions.index")}
-                            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
-                        >
-                            <IconArrowLeft size={18} />
-                            Kembali ke kasir
-                        </Link>
+                        <div className="flex items-center gap-2">
+                            <Link
+                                href={route("transactions.index")}
+                                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                            >
+                                <IconArrowLeft size={18} />
+                                Kembali ke kasir
+                            </Link>
+                            <button
+                                type="button"
+                                onClick={() => setShowPrintActions((value) => !value)}
+                                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                            >
+                                {showPrintActions ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                                {showPrintActions ? "Sembunyikan alat cetak" : "Buka alat cetak"}
+                            </button>
+                        </div>
 
+                        {showPrintActions ? (
                         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
                             {/* Print Mode Selector */}
                             <div className="flex bg-slate-200 dark:bg-slate-800 rounded-xl p-1 w-full sm:w-auto">
@@ -341,6 +355,7 @@ export default function Print({
                                 </a>
                             )}
                         </div>
+                        ) : null}
                         </div>
                     )}
 

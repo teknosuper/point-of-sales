@@ -9,15 +9,16 @@ import {
     IconDatabaseOff,
     IconSearch,
     IconHistory,
-    IconCalendar,
     IconReceipt,
-    IconPrinter,
     IconFilter,
     IconX,
     IconCheck,
     IconBuildingBank,
     IconAlertCircle,
     IconBrandWhatsapp,
+    IconChevronDown,
+    IconChevronUp,
+    IconPrinter,
 } from "@tabler/icons-react";
 
 const defaultFilters = {
@@ -103,15 +104,11 @@ const History = ({ transactions, filters }) => {
                 {/* Header */}
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                     <div>
-                        <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                            <IconHistory
-                                size={28}
-                                className="text-primary-500"
-                            />
+                        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
                             Riwayat Transaksi
                         </h1>
                         <p className="text-sm text-slate-500 dark:text-slate-400">
-                            {transactions?.total || 0} transaksi tercatat
+                            Cek transaksi yang sudah masuk dan buka detail saat perlu.
                         </p>
                     </div>
                     <div className="flex gap-2">
@@ -124,7 +121,8 @@ const History = ({ transactions, filters }) => {
                             }`}
                         >
                             <IconFilter size={18} />
-                            <span>Filter</span>
+                            <span>{showFilters ? "Sembunyikan filter" : "Buka filter"}</span>
+                            {showFilters ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
                             {hasActiveFilters && (
                                 <span className="w-2 h-2 rounded-full bg-primary-500"></span>
                             )}
@@ -134,7 +132,7 @@ const History = ({ transactions, filters }) => {
                             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-primary-500 hover:bg-primary-600 text-white text-sm font-medium transition-colors shadow-lg shadow-primary-500/30"
                         >
                             <IconReceipt size={18} />
-                            <span>Transaksi Baru</span>
+                            <span>Buka Kasir</span>
                         </Link>
                     </div>
                 </div>

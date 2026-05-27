@@ -1,220 +1,198 @@
 import React from "react";
-import { Head, Link } from "@inertiajs/react";
+import { Head, Link, usePage } from "@inertiajs/react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
-import { IconBooks, IconBuildingStore, IconClipboardCheck, IconChartBar } from "@tabler/icons-react";
+import {
+    IconBooks,
+    IconBuildingStore,
+    IconChecklist,
+    IconToolsKitchen2,
+} from "@tabler/icons-react";
 
-const sections = [
-    {
-        title: "Kapan pakai Outlet & Tenant",
-        icon: <IconBuildingStore size={20} className="text-primary-500" />,
-        points: [
-            "Saat membuat outlet utama, tenant foodcourt, atau warehouse.",
-            "Saat assign user ke outlet, memilih outlet default, dan mengatur komisi tenant.",
-            "Saat ingin melihat ownership dan performa satu outlet atau tenant.",
-        ],
-    },
-    {
-        title: "Kapan pakai Operasional Dapur & Printer",
-        icon: <IconClipboardCheck size={20} className="text-primary-500" />,
-        points: [
-            "Saat membuat stasiun dapur seperti minuman, ayam, salad, atau grill.",
-            "Saat menghubungkan stasiun ke layar dapur, printer thermal, atau tablet.",
-            "Saat mengatur driver, endpoint, paper width, template print, dan health check device.",
-        ],
-    },
-    {
-        title: "Kapan pakai Statistik Outlet & Tenant",
-        icon: <IconChartBar size={20} className="text-primary-500" />,
-        points: [
-            "Saat ingin melihat angka transaksi, revenue, payout tenant, dan performa outlet.",
-            "Saat ingin fokus ke satu outlet atau tenant lewat filter outlet.",
-            "Saat ingin lompat ke detail outlet atau operasional dapur dari konteks angka bisnis.",
-        ],
-    },
-];
+function ActionCard({ href, title, description, icon: Icon }) {
+    return (
+        <Link
+            href={href}
+            className="rounded-2xl border border-slate-200 bg-white p-5 transition hover:border-primary-300 hover:shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:hover:border-primary-800"
+        >
+            <div className="flex items-start gap-3">
+                <div className="rounded-xl bg-primary-50 p-3 text-primary-600 dark:bg-primary-950/30 dark:text-primary-300">
+                    <Icon size={20} />
+                </div>
+                <div>
+                    <h2 className="text-base font-semibold text-slate-900 dark:text-white">
+                        {title}
+                    </h2>
+                    <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                        {description}
+                    </p>
+                </div>
+            </div>
+        </Link>
+    );
+}
 
-const setupSteps = [
-    "Buat outlet utama lebih dulu di menu Outlet & Tenant.",
-    "Jika model bisnis foodcourt, buat tenant-tenant sebagai outlet bertipe tenant.",
-    "Assign user yang boleh mengelola outlet tersebut.",
-    "Masuk ke Operasional Dapur & Printer lalu buat stasiun dapur untuk outlet yang dipilih.",
-    "Tambahkan perangkat layar atau printer untuk tiap stasiun.",
-    "Atur produk agar tenant outlet dan stasiun dapurnya sesuai.",
-    "Uji transaksi dari POS, lalu cek Antrean Dapur dan Settlement Tenant.",
-];
+export default function OutletKitchen() {
+    const { activeOutlet, auth } = usePage().props;
+    const isKitchenWorkspace = auth?.user?.preferred_workspace === "kitchen";
+    const isTenantOutlet = activeOutlet?.outlet_type === "tenant";
 
-const useCases = [
-    {
-        title: "Toko biasa dengan banyak dapur",
-        body: "Gunakan satu outlet utama, lalu buat banyak stasiun dapur di dalam outlet itu. Contoh: minuman, ayam, salad.",
-    },
-    {
-        title: "Foodcourt 1 kasir, banyak tenant",
-        body: "Buat satu outlet utama untuk kasir, lalu buat tenant-tenant foodcourt sebagai outlet tipe tenant. Pendapatan tenant dipisah lewat tenant allocation.",
-    },
-    {
-        title: "Gudang / lokasi support",
-        body: "Gunakan outlet tipe warehouse bila lokasi itu dipakai untuk stok atau support, bukan untuk penjualan tenant langsung.",
-    },
-];
+    const modeLabel = isKitchenWorkspace
+        ? "Dapur"
+        : isTenantOutlet
+          ? "Tenant"
+          : "Owner / Outlet";
 
-export default function OutletKitchen({ outletTypes = [], outlets = [] }) {
+    const introText = isKitchenWorkspace
+        ? "Halaman ini membantu tim dapur tahu harus buka menu yang mana untuk station, device, dan antrian pesanan."
+        : isTenantOutlet
+          ? "Halaman ini membantu tenant fokus ke produk miliknya, stok harian, target, dan bila perlu operasional dapur."
+          : "Halaman ini membantu owner tahu urutan kerja paling sederhana: buat outlet, atur produk, lalu siapkan dapur.";
+
+    const steps = isKitchenWorkspace
+        ? [
+              "Cek station dan device dapur.",
+              "Pastikan produk sudah masuk ke station yang benar.",
+              "Pantau ticket di kitchen queue.",
+          ]
+        : isTenantOutlet
+          ? [
+                "Cek produk tenant yang aktif.",
+                "Update stok harian bila perlu.",
+                "Pantau target dan settlement tenant.",
+            ]
+          : [
+                "Atur outlet dan tenant dulu.",
+                "Pastikan produk sudah dipetakan dengan benar.",
+                "Siapkan station dapur dan printer bila dipakai.",
+            ];
+
+    const actions = isKitchenWorkspace
+        ? [
+              {
+                  title: "Operasional Dapur",
+                  description: "Untuk station, printer, dan device dapur.",
+                  href: route("settings.kitchen-devices.index"),
+                  icon: IconToolsKitchen2,
+              },
+              {
+                  title: "Produk",
+                  description: "Untuk cek produk yang masuk ke station Anda.",
+                  href: route("products.index"),
+                  icon: IconBuildingStore,
+              },
+              {
+                  title: "Kitchen Queue",
+                  description: "Untuk melihat dan menyelesaikan ticket dapur.",
+                  href: route("kitchen.index"),
+                  icon: IconChecklist,
+              },
+          ]
+        : isTenantOutlet
+          ? [
+              {
+                  title: "Produk Tenant",
+                  description: "Untuk melihat produk tenant dan stok hariannya.",
+                  href: route("products.index"),
+                  icon: IconBuildingStore,
+              },
+              {
+                  title: "Target Tenant",
+                  description: "Untuk mengatur target penjualan tenant.",
+                  href: route("settings.target"),
+                  icon: IconChecklist,
+              },
+              {
+                  title: "Operasional Dapur",
+                  description: "Buka ini jika tenant punya station dapur sendiri.",
+                  href: route("settings.kitchen-devices.index"),
+                  icon: IconToolsKitchen2,
+              },
+          ]
+        : [
+              {
+                  title: "Outlet & Tenant",
+                  description: "Mulai dari sini untuk menata struktur bisnis.",
+                  href: route("outlets.index"),
+                  icon: IconBuildingStore,
+              },
+              {
+                  title: "Produk",
+                  description: "Untuk mapping produk ke tenant dan dapur.",
+                  href: route("products.index"),
+                  icon: IconChecklist,
+              },
+              {
+                  title: "Operasional Dapur",
+                  description: "Untuk station dapur, printer, dan device.",
+                  href: route("settings.kitchen-devices.index"),
+                  icon: IconToolsKitchen2,
+              },
+          ];
+
     return (
         <>
             <Head title="Panduan Outlet, Tenant & Dapur" />
 
             <div className="space-y-6">
-                <div className="flex items-start gap-3">
-                    <div className="rounded-2xl bg-primary-50 p-3 text-primary-600 dark:bg-primary-950/30 dark:text-primary-300">
-                        <IconBooks size={22} />
+                <div className="rounded-2xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
+                    <div className="flex items-start gap-3">
+                        <div className="rounded-2xl bg-primary-50 p-3 text-primary-600 dark:bg-primary-950/30 dark:text-primary-300">
+                            <IconBooks size={22} />
+                        </div>
+                        <div>
+                            <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
+                                Panduan Singkat
+                            </h1>
+                            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                {introText}
+                            </p>
+                        </div>
                     </div>
-                    <div>
-                        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
-                            Panduan Outlet, Tenant & Dapur
-                        </h1>
+
+                    <div className="mt-5 rounded-2xl bg-slate-50 p-4 dark:bg-slate-800/60">
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
+                            Mode Saat Ini
+                        </p>
+                        <p className="mt-2 text-lg font-semibold text-slate-900 dark:text-white">
+                            {modeLabel}
+                        </p>
                         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                            Panduan operasional untuk membedakan struktur bisnis, operasional dapur, dan statistik agar admin tidak bingung.
+                            {activeOutlet?.name || "Belum ada outlet aktif"}
                         </p>
                     </div>
                 </div>
 
-                <details className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
-                    <summary className="cursor-pointer list-none">
-                        <p className="font-semibold text-slate-900 dark:text-white">
-                            Panduan memilih menu yang tepat
-                        </p>
-                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                            Buka untuk melihat kapan memakai menu outlet, dapur, atau statistik.
-                        </p>
-                    </summary>
-                    <div className="mt-4 grid gap-4 lg:grid-cols-3">
-                        {sections.map((section) => (
-                            <div
-                                key={section.title}
-                                className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900"
-                            >
-                                <div className="mb-3 flex items-center gap-2">
-                                    {section.icon}
-                                    <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
-                                        {section.title}
-                                    </h2>
-                                </div>
-                                <div className="space-y-2 text-sm text-slate-600 dark:text-slate-300">
-                                    {section.points.map((point) => (
-                                        <p key={point}>• {point}</p>
-                                    ))}
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </details>
-
-                <details className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
-                    <summary className="cursor-pointer list-none">
-                        <p className="font-semibold text-slate-900 dark:text-white">
-                            Urutan setup yang disarankan
-                        </p>
-                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                            Buka untuk melihat langkah implementasi dari outlet sampai dapur.
-                        </p>
-                    </summary>
+                <div className="rounded-2xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
+                    <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+                        Lakukan Ini Dulu
+                    </h2>
                     <div className="mt-4 grid gap-3">
-                        {setupSteps.map((step, index) => (
+                        {steps.map((step, index) => (
                             <div
                                 key={step}
-                                className="rounded-xl border border-slate-100 bg-slate-50 p-4 text-sm text-slate-700 dark:border-slate-800 dark:bg-slate-950/30 dark:text-slate-200"
+                                className="flex items-start gap-3 rounded-2xl bg-slate-50 p-4 dark:bg-slate-800/60"
                             >
-                                <span className="mr-2 inline-flex h-6 w-6 items-center justify-center rounded-full bg-primary-500 text-xs font-semibold text-white">
+                                <div className="inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-primary-500 text-xs font-semibold text-white">
                                     {index + 1}
-                                </span>
-                                {step}
+                                </div>
+                                <p className="text-sm text-slate-700 dark:text-slate-200">
+                                    {step}
+                                </p>
                             </div>
                         ))}
                     </div>
-                </details>
-
-                <div className="grid gap-6 xl:grid-cols-2">
-                    <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
-                        <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
-                            Arti Tipe Outlet
-                        </h2>
-                        <div className="mt-4 space-y-3">
-                            {outletTypes.map((type) => (
-                                <div
-                                    key={type.value}
-                                    className="rounded-xl border border-slate-100 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/30"
-                                >
-                                    <p className="text-sm font-semibold text-slate-900 dark:text-white">
-                                        {type.label}
-                                    </p>
-                                    <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-                                        {type.description}
-                                    </p>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-
-                    <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
-                        <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
-                            Contoh Penggunaan
-                        </h2>
-                        <div className="mt-4 space-y-3">
-                            {useCases.map((item) => (
-                                <div
-                                    key={item.title}
-                                    className="rounded-xl border border-slate-100 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/30"
-                                >
-                                    <p className="text-sm font-semibold text-slate-900 dark:text-white">
-                                        {item.title}
-                                    </p>
-                                    <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-                                        {item.body}
-                                    </p>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
                 </div>
 
-                <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
-                    <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
-                        Tautan Cepat
-                    </h2>
-                    <div className="mt-4 flex flex-wrap gap-2">
-                        <Link
-                            href={route("guides.setup-wizard")}
-                            className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
-                        >
-                            Buka Wizard Setup
-                        </Link>
-                        <Link
-                            href={route("outlets.index")}
-                            className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
-                        >
-                            Buka Outlet & Tenant
-                        </Link>
-                        <Link
-                            href={route("settings.kitchen-devices.index")}
-                            className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
-                        >
-                            Buka Operasional Dapur & Printer
-                        </Link>
-                        <Link
-                            href={route("reports.outlet-analytics.index")}
-                            className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
-                        >
-                            Buka Statistik Outlet & Tenant
-                        </Link>
-                    </div>
-                    {outlets.length ? (
-                        <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50 p-4 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-950/30 dark:text-slate-300">
-                            Outlet yang sudah terdaftar:{" "}
-                            <span className="font-semibold">
-                                {outlets.map((outlet) => `${outlet.name} (${outlet.code})`).join(", ")}
-                            </span>
-                        </div>
-                    ) : null}
+                <div className="grid gap-4 lg:grid-cols-3">
+                    {actions.map((item) => (
+                        <ActionCard
+                            key={item.title}
+                            href={item.href}
+                            title={item.title}
+                            description={item.description}
+                            icon={item.icon}
+                        />
+                    ))}
                 </div>
             </div>
         </>

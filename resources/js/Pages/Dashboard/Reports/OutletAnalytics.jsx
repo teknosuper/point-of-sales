@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Head, Link, router } from "@inertiajs/react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
+import { IconChevronDown, IconChevronUp, IconFilter } from "@tabler/icons-react";
 
 const formatCurrency = (value = 0) =>
     new Intl.NumberFormat("id-ID", {
@@ -17,6 +18,7 @@ export default function OutletAnalytics({
     outlets = [],
     selectedOutlet = null,
 }) {
+    const [showFilters, setShowFilters] = useState(false);
     const [filterData, setFilterData] = useState({
         start_date: filters?.start_date || "",
         end_date: filters?.end_date || "",
@@ -37,6 +39,7 @@ export default function OutletAnalytics({
             preserveScroll: true,
             preserveState: true,
         });
+        setShowFilters(false);
     };
 
     return (
@@ -46,10 +49,10 @@ export default function OutletAnalytics({
             <div className="space-y-6">
                 <div>
                     <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
-                        Statistik Outlet / Tenant
+                        Statistik Outlet dan Tenant
                     </h1>
                     <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                        Ringkasan performa bisnis per outlet dan tenant. Halaman ini fokus ke angka, bukan ke pengaturan dapur atau printer.
+                        Cek performa outlet dan tenant tanpa membuka halaman setup.
                     </p>
                     {selectedOutlet ? (
                         <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-primary-50 px-3 py-1 text-xs font-semibold text-primary-700 dark:bg-primary-950/30 dark:text-primary-300">
@@ -58,71 +61,61 @@ export default function OutletAnalytics({
                     ) : null}
                 </div>
 
-                <form
-                    onSubmit={applyFilters}
-                    className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900"
-                >
-                    <div className="grid gap-4 md:grid-cols-4">
-                        <select
-                            value={filterData.outlet_id}
-                            onChange={(event) => setFilterData((prev) => ({ ...prev, outlet_id: event.target.value }))}
-                            className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
-                        >
-                            <option value="">Semua outlet / tenant</option>
-                            {outlets.map((outlet) => (
-                                <option key={outlet.id} value={String(outlet.id)}>
-                                    {outlet.name} ({outlet.code})
-                                </option>
-                            ))}
-                        </select>
-                        <input
-                            type="date"
-                            value={filterData.start_date}
-                            onChange={(event) => setFilterData((prev) => ({ ...prev, start_date: event.target.value }))}
-                            className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
-                        />
-                        <input
-                            type="date"
-                            value={filterData.end_date}
-                            onChange={(event) => setFilterData((prev) => ({ ...prev, end_date: event.target.value }))}
-                            className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
-                        />
-                        <button type="submit" className="rounded-xl bg-primary-500 px-4 py-2.5 text-sm font-medium text-white">
-                            Terapkan Filter
-                        </button>
-                    </div>
-                </form>
-
-                {selectedOutlet ? (
-                    <div className="flex flex-wrap gap-2">
-                        <Link
-                            href={route("guides.outlet-kitchen")}
-                            className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
-                        >
-                            Panduan Lengkap
-                        </Link>
+                <div className="flex flex-wrap items-center gap-2">
+                    <button
+                        type="button"
+                        onClick={() => setShowFilters((value) => !value)}
+                        className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                    >
+                        <IconFilter size={18} />
+                        {showFilters ? "Sembunyikan filter" : "Buka filter"}
+                        {showFilters ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                    </button>
+                    {selectedOutlet ? (
                         <Link
                             href={route("outlets.show", selectedOutlet.id)}
-                            className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                            className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
                         >
-                            Lihat Detail Outlet
+                            Lihat outlet
                         </Link>
-                        <Link
-                            href={route("settings.kitchen-devices.index", { outlet_id: selectedOutlet.id })}
-                            className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
-                        >
-                            Buka Operasional Dapur & Printer
-                        </Link>
-                    </div>
-                ) : (
-                    <div className="flex flex-wrap gap-2">
-                        <Link
-                            href={route("guides.outlet-kitchen")}
-                            className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
-                        >
-                            Panduan Lengkap
-                        </Link>
-                    </div>
+                    ) : null}
+                </div>
+
+                {showFilters && (
+                    <form
+                        onSubmit={applyFilters}
+                        className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900"
+                    >
+                        <div className="grid gap-4 md:grid-cols-4">
+                            <select
+                                value={filterData.outlet_id}
+                                onChange={(event) => setFilterData((prev) => ({ ...prev, outlet_id: event.target.value }))}
+                                className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
+                            >
+                                <option value="">Semua outlet / tenant</option>
+                                {outlets.map((outlet) => (
+                                    <option key={outlet.id} value={String(outlet.id)}>
+                                        {outlet.name} ({outlet.code})
+                                    </option>
+                                ))}
+                            </select>
+                            <input
+                                type="date"
+                                value={filterData.start_date}
+                                onChange={(event) => setFilterData((prev) => ({ ...prev, start_date: event.target.value }))}
+                                className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
+                            />
+                            <input
+                                type="date"
+                                value={filterData.end_date}
+                                onChange={(event) => setFilterData((prev) => ({ ...prev, end_date: event.target.value }))}
+                                className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
+                            />
+                            <button type="submit" className="rounded-xl bg-primary-500 px-4 py-2.5 text-sm font-medium text-white">
+                                Terapkan
+                            </button>
+                        </div>
+                    </form>
                 )}
 
                 <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-6">
@@ -146,7 +139,7 @@ export default function OutletAnalytics({
                 <div className="grid gap-6 xl:grid-cols-2">
                     <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
                         <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">
-                            Statistik Outlet
+                            Ringkasan Outlet
                         </h2>
                         <div className="space-y-3">
                             {outletStats.map((outlet) => (
@@ -177,7 +170,7 @@ export default function OutletAnalytics({
 
                     <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
                         <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">
-                            Statistik Tenant
+                            Ringkasan Tenant
                         </h2>
                         <div className="space-y-3">
                             {tenantStats.map((tenant) => (

@@ -5,6 +5,8 @@ import DashboardLayout from "@/Layouts/DashboardLayout";
 import Pagination from "@/Components/Dashboard/Pagination";
 import {
     IconChartBar,
+    IconChevronDown,
+    IconChevronUp,
     IconCoin,
     IconDatabaseOff,
     IconFilter,
@@ -89,33 +91,19 @@ const datePresets = () => {
 };
 
 const SummaryCard = ({ title, value, description, icon, tone = "slate" }) => {
-    const toneClasses = {
-        emerald: "from-emerald-500 to-emerald-700",
-        blue: "from-sky-500 to-blue-700",
-        amber: "from-amber-500 to-orange-600",
-        rose: "from-rose-500 to-rose-700",
-        violet: "from-violet-500 to-indigo-700",
-        slate: "from-slate-700 to-slate-900",
-    };
-
     return (
-        <div
-            className={`relative overflow-hidden rounded-3xl bg-gradient-to-br ${toneClasses[tone]} p-5 text-white shadow-lg`}
-        >
-            <div className="absolute -right-3 -top-3 opacity-10">
-                {React.cloneElement(icon, { size: 88, strokeWidth: 1 })}
-            </div>
-            <div className="relative">
-                <div className="mb-3 flex items-center gap-2">
-                    <div className="rounded-2xl bg-white/15 p-2">
-                        {React.cloneElement(icon, { size: 18 })}
-                    </div>
-                    <p className="text-sm font-semibold text-white/90">
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+            <div className="flex items-start gap-3">
+                <div className="rounded-xl bg-slate-100 p-2.5 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                    {React.cloneElement(icon, { size: 18 })}
+                </div>
+                <div>
+                    <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
                         {title}
                     </p>
+                    <p className="mt-1 text-xl font-bold text-slate-900 dark:text-white">{value}</p>
+                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{description}</p>
                 </div>
-                <p className="text-2xl font-bold">{value}</p>
-                <p className="mt-1 text-sm text-white/80">{description}</p>
             </div>
         </div>
     );
@@ -503,12 +491,11 @@ const ProfitReport = ({
             <div className="space-y-6">
                 <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
                     <div>
-                        <h1 className="flex items-center gap-3 text-2xl font-bold text-slate-900 dark:text-white">
-                            <IconCoin size={28} className="text-emerald-500" />
+                        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
                             Laporan Keuntungan
                         </h1>
                         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                            Ringkas untuk dibaca cepat, lengkap saat ingin melihat breakdown harian, tenant, dan markup owner outlet.
+                            Cek profit, omzet, dan pembagian tenant-owner.
                         </p>
                     </div>
                     <button
@@ -520,11 +507,12 @@ const ProfitReport = ({
                         }`}
                     >
                         <IconFilter size={18} />
-                        Filter Laporan
+                        {showFilters ? "Sembunyikan filter" : "Buka filter"}
+                        {showFilters ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
                     </button>
                 </div>
 
-                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                     {cards.map((card) => (
                         <SummaryCard key={card.title} {...card} />
                     ))}
