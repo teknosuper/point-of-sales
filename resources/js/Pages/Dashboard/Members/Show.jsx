@@ -10,7 +10,7 @@ import {
     IconPencil,
     IconReceipt,
     IconTags,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 
 const formatPrice = (value = 0) =>
     Number(value || 0).toLocaleString("id-ID", {

@@ -5,6 +5,8 @@ import Button from "@/Components/Dashboard/Button";
 import {
     IconAdjustmentsHorizontal,
     IconCategory,
+    IconChevronDown,
+    IconChevronUp,
     IconCirclePlus,
     IconDatabaseOff,
     IconLayoutGrid,
@@ -14,7 +16,7 @@ import {
     IconSearch,
     IconTrash,
     IconX,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 import Table from "@/Components/Dashboard/Table";
 import Pagination from "@/Components/Dashboard/Pagination";
 import { useAuthorization } from "@/Utils/authorization";
@@ -109,7 +111,9 @@ const castFilterValue = (value, fallback = "") =>
 export default function Index({ categories, filters = {}, meta = {} }) {
     const { can } = useAuthorization();
     const [viewMode, setViewMode] = useState("grid");
-    const [showFilters, setShowFilters] = useState(false);
+    const [showFilters, setShowFilters] = useState(
+        Boolean(filters?.search || filters?.has_image || filters?.sort || filters?.per_page)
+    );
     const [filterData, setFilterData] = useState({
         ...defaultFilters,
         search: castFilterValue(filters?.search),
@@ -200,7 +204,7 @@ export default function Index({ categories, filters = {}, meta = {} }) {
                             Kategori
                         </h1>
                         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                            Menampilkan {from || 0}-{to || 0} dari {total} kategori.
+                            Lihat dan kelola daftar kategori produk.
                         </p>
                     </div>
 
@@ -215,7 +219,8 @@ export default function Index({ categories, filters = {}, meta = {} }) {
                             }`}
                         >
                             <IconAdjustmentsHorizontal size={18} />
-                            Filter
+                            {showFilters ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                            {showFilters ? "Sembunyikan filter" : "Buka filter"}
                         </button>
 
                         {canCreateCategories && (

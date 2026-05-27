@@ -3,7 +3,7 @@ import Table from '@/Components/Dashboard/Table';
 import Widget from '@/Components/Dashboard/Widget';
 import DashboardLayout from '@/Layouts/DashboardLayout';
 import { Head } from '@inertiajs/react';
-import { IconBox, IconCategory, IconMoneybag, IconUsers } from '@tabler/icons-react';
+import { IconBox, IconCategory, IconMoneybag, IconUsers } from '@/Utils/icons';
 export default function Dashboard() {
 
 

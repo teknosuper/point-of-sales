@@ -1,7 +1,7 @@
-import React from "react";
+import React, { useState } from "react";
 import { Head, useForm } from "@inertiajs/react";
 import Button from "@/Components/Dashboard/Button";
-import { IconArrowLeft, IconDeviceFloppy, IconUsersGroup } from "@tabler/icons-react";
+import { IconArrowLeft, IconChevronDown, IconChevronUp, IconDeviceFloppy, IconUsersGroup } from "@/Utils/icons";
 
 function InputError({ message }) {
     if (!message) return null;
@@ -11,6 +11,7 @@ function InputError({ message }) {
 
 export default function Form({ mode = "create", segment = null }) {
     const isEdit = mode === "edit";
+    const [showAutoRules, setShowAutoRules] = useState(false);
     const { data, setData, post, put, processing, errors } = useForm({
         name: segment?.name ?? "",
         type: segment?.type ?? "manual",
@@ -59,7 +60,7 @@ export default function Form({ mode = "create", segment = null }) {
                         label="Kembali ke segment customer"
                     />
                     <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
-                        {isEdit ? "Edit Segment Customer" : "Buat Segment Customer"}
+                        {isEdit ? "Edit Segment Customer" : "Buat Segment"}
                     </h1>
                     <p className="text-sm text-slate-500 dark:text-slate-400">
                         Kelompokkan customer secara manual atau otomatis berdasarkan perilaku bisnis.
@@ -134,10 +135,26 @@ export default function Form({ mode = "create", segment = null }) {
 
                     {data.type === "auto" && (
                         <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
-                            <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">
-                                Rule Auto Segment
-                            </h2>
-                            <div className="grid gap-4 md:grid-cols-2">
+                            <div className="flex items-center justify-between gap-3">
+                                <div>
+                                    <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+                                        Rule Auto Segment
+                                    </h2>
+                                    <p className="text-sm text-slate-500 dark:text-slate-400">
+                                        Buka jika ingin mengatur syarat segment otomatis.
+                                    </p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowAutoRules((prev) => !prev)}
+                                    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                                >
+                                    {showAutoRules ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                                    {showAutoRules ? "Sembunyikan" : "Buka"}
+                                </button>
+                            </div>
+                            {showAutoRules && (
+                            <div className="mt-4 grid gap-4 md:grid-cols-2">
                                 <div>
                                     <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
                                         Rule Type
@@ -233,6 +250,7 @@ export default function Form({ mode = "create", segment = null }) {
                                     </div>
                                 )}
                             </div>
+                            )}
                         </div>
                     )}
 

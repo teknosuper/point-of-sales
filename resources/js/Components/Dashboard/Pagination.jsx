@@ -1,6 +1,6 @@
 import React from 'react'
 import { Link } from '@inertiajs/react';
-import { IconChevronRight, IconChevronLeft } from '@tabler/icons-react';
+import { IconChevronRight, IconChevronLeft } from '@/Utils/icons';
 export default function Pagination({ links }) {
 
     const style = 'p-1 text-sm border rounded-md bg-white text-gray-500 hover:bg-gray-100 dark:bg-gray-950 dark:text-gray-400 dark:hover:bg-gray-900 dark:border-gray-900'

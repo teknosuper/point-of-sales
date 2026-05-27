@@ -1,6 +1,6 @@
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import { Head, Link } from "@inertiajs/react";
-import { IconArrowLeft, IconDeviceTablet, IconPrinter } from "@tabler/icons-react";
+import { IconArrowLeft, IconDeviceTablet, IconPrinter } from "@/Utils/icons";
 
 const copyText = async (value) => {
     try {

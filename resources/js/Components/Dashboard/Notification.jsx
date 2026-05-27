@@ -9,7 +9,7 @@ import {
     IconCurrencyDollar,
     IconDeviceMobile,
     IconArrowRight,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 import { usePage, router, Link } from "@inertiajs/react";
 
 export default function Notification() {

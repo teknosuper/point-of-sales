@@ -1,28 +1,31 @@
-import React from "react";
+import React, { useState } from "react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import { Head, Link, router } from "@inertiajs/react";
 import Button from "@/Components/Dashboard/Button";
 import Pagination from "@/Components/Dashboard/Pagination";
 import Table from "@/Components/Dashboard/Table";
-import { IconCirclePlus, IconPencil, IconSearch, IconTrash, IconUsersGroup } from "@tabler/icons-react";
+import { IconChevronDown, IconChevronUp, IconCirclePlus, IconPencil, IconSearch, IconTrash, IconUsersGroup } from "@/Utils/icons";
 import { useAuthorization } from "@/Utils/authorization";
 
 export default function Index({ segments, filters }) {
     const { can } = useAuthorization();
+    const [showFilters, setShowFilters] = useState(
+        Boolean(filters?.search || filters?.type)
+    );
     const handleFilterChange = (key, value) => {
         router.get(route("customer-segments.index"), { ...filters, [key]: value }, { preserveState: true, replace: true });
     };
 
     return (
         <>
-            <Head title="Customer Segments" />
+            <Head title="Segment Customer" />
 
             <div className="w-full">
                 <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                     <div>
-                        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Customer Segments</h1>
+                        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Segment Customer</h1>
                         <p className="text-sm text-slate-500 dark:text-slate-400">
-                            Kelola tag manual dan auto segment untuk CRM dan automation.
+                            Kelola segment manual dan otomatis untuk CRM.
                         </p>
                     </div>
                     {can("customer-segments-create") && (
@@ -37,29 +40,49 @@ export default function Index({ segments, filters }) {
                 </div>
 
                 <div className="mb-4 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
-                    <div className="grid gap-3 md:grid-cols-3">
-                        <div className="relative md:col-span-2">
-                            <input
-                                type="text"
-                                value={filters.search || ""}
-                                onChange={(event) => handleFilterChange("search", event.target.value)}
-                                placeholder="Cari nama segment..."
-                                className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 pr-11 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
-                            />
-                            <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-4 text-slate-400">
-                                <IconSearch size={18} />
-                            </div>
+                    <div className="flex items-center justify-between gap-3">
+                        <div>
+                            <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                                Filter Segment
+                            </p>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                                Buka jika ingin menyaring nama atau tipe segment.
+                            </p>
                         </div>
-                        <select
-                            value={filters.type || ""}
-                            onChange={(event) => handleFilterChange("type", event.target.value)}
-                            className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                        <button
+                            type="button"
+                            onClick={() => setShowFilters((prev) => !prev)}
+                            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
                         >
-                            <option value="">Semua Tipe</option>
-                            <option value="manual">Manual</option>
-                            <option value="auto">Auto</option>
-                        </select>
+                            {showFilters ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                            {showFilters ? "Sembunyikan" : "Buka"}
+                        </button>
                     </div>
+                    {showFilters && (
+                        <div className="mt-4 grid gap-3 md:grid-cols-3">
+                            <div className="relative md:col-span-2">
+                                <input
+                                    type="text"
+                                    value={filters.search || ""}
+                                    onChange={(event) => handleFilterChange("search", event.target.value)}
+                                    placeholder="Cari nama segment..."
+                                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 pr-11 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                                />
+                                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-4 text-slate-400">
+                                    <IconSearch size={18} />
+                                </div>
+                            </div>
+                            <select
+                                value={filters.type || ""}
+                                onChange={(event) => handleFilterChange("type", event.target.value)}
+                                className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                            >
+                                <option value="">Semua Tipe</option>
+                                <option value="manual">Manual</option>
+                                <option value="auto">Auto</option>
+                            </select>
+                        </div>
+                    )}
                 </div>
 
                 <Table.Card title="Daftar Segment">

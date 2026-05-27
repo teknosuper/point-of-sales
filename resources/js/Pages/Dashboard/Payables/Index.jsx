@@ -9,7 +9,7 @@ import {
     IconChevronUp,
     IconSearch,
     IconPlus,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 import toast from "react-hot-toast";
 
 const formatCurrency = (value = 0) =>

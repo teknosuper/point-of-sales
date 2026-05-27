@@ -1,5 +1,5 @@
 import DashboardLayout from "@/Layouts/DashboardLayout";
-import React from "react";
+import React, { useState } from "react";
 import { Head, router, useForm, usePage, Link } from "@inertiajs/react";
 import Button from "@/Components/Dashboard/Button";
 import {
@@ -13,7 +13,9 @@ import {
     IconMail,
     IconSearch,
     IconBuildingStore,
-} from "@tabler/icons-react";
+    IconChevronDown,
+    IconChevronUp,
+} from "@/Utils/icons";
 import Checkbox from "@/Components/Dashboard/Checkbox";
 import Pagination from "@/Components/Dashboard/Pagination";
 import { useAuthorization } from "@/Utils/authorization";
@@ -163,6 +165,15 @@ export default function Index() {
     } = useForm({
         selectedUser: [],
     });
+    const [showFilters, setShowFilters] = useState(
+        Boolean(
+            filters.search ||
+                filters.role ||
+                filters.workspace ||
+                filters.outlet_type ||
+                filters.outlet_id
+        )
+    );
 
     const setSelectedUser = (e) => {
         let items = data.selectedUser;
@@ -260,8 +271,7 @@ export default function Index() {
                             Pengguna
                         </h1>
                         <p className="text-sm text-slate-500 dark:text-slate-400">
-                            {users.total || users.data?.length || 0} pengguna
-                            terdaftar
+                            Kelola akun, role, dan akses outlet pengguna.
                         </p>
                     </div>
                     <div className="flex gap-2">
@@ -313,13 +323,30 @@ export default function Index() {
             </div>
 
             <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
-                <div className="mb-4 flex items-center gap-2">
-                    <IconAdjustmentsHorizontal size={18} className="text-primary-500" />
-                    <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-200">
-                        Filter Pengguna
-                    </h2>
+                <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                        <IconAdjustmentsHorizontal size={18} className="text-primary-500" />
+                        <div>
+                            <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+                                Filter Pengguna
+                            </h2>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                                Buka jika ingin menyaring role, workspace, atau outlet.
+                            </p>
+                        </div>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => setShowFilters((prev) => !prev)}
+                        className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                    >
+                        {showFilters ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                        {showFilters ? "Sembunyikan" : "Buka"}
+                    </button>
                 </div>
-                <div className="grid gap-3 md:grid-cols-4">
+                {showFilters && (
+                <>
+                <div className="mt-4 grid gap-3 md:grid-cols-4">
                     <div className="relative md:col-span-2">
                         <input
                             type="text"
@@ -433,6 +460,8 @@ export default function Index() {
                         Group outlet aktif: {userGroups.length}
                     </span>
                 </div>
+                </>
+                )}
             </div>
 
             {users.data.length > 0 ? (

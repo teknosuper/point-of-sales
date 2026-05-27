@@ -9,7 +9,7 @@ import {
     IconDeviceFloppy,
     IconArrowLeft,
     IconPhoto,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 
 const IMAGE_MAX_SIZE = 2 * 1024 * 1024;
 const ALLOWED_IMAGE_TYPES = [
@@ -113,8 +113,11 @@ export default function Create() {
                 </Link>
                 <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
                     <IconCategory size={28} className="text-primary-500" />
-                    Tambah Kategori Baru
+                    Tambah Kategori
                 </h1>
+                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                    Isi nama, deskripsi, dan gambar kategori.
+                </p>
             </div>
 
             <form onSubmit={submit}>

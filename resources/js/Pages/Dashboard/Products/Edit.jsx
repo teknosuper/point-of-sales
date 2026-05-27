@@ -17,7 +17,7 @@ import {
     IconBuildingStore,
     IconPlus,
     IconTrash,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 import { getProductImageUrl } from "@/Utils/imageUrl";
 
 const formatCurrency = (value = 0) =>

@@ -9,7 +9,7 @@ import {
     IconDeviceFloppy,
     IconPlus,
     IconTrash,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 
 const targetOptions = [
     { value: "all", label: "Semua Produk" },

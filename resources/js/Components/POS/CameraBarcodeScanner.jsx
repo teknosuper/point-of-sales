@@ -4,7 +4,7 @@ import {
     IconCamera,
     IconLoader2,
     IconX,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 
 const HTML5_QRCODE_SCRIPT_ID = "html5-qrcode-script";
 const HTML5_QRCODE_SCRIPT_SRC =

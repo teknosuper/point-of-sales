@@ -5,7 +5,7 @@ import {
     IconPrinter,
     IconBarcode,
     IconTruck,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 
 /**
  * BarcodePrintModal - Modal for printing barcode labels

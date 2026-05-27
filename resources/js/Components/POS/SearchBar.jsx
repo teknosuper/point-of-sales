@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { IconSearch, IconX, IconBarcode } from "@tabler/icons-react";
+import { IconSearch, IconX, IconBarcode } from "@/Utils/icons";
 import { getProductImageUrl } from "@/Utils/imageUrl";
 
 const formatPrice = (value = 0) =>

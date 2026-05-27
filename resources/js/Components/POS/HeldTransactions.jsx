@@ -7,7 +7,7 @@ import {
     IconChevronDown,
     IconChevronUp,
     IconX,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 import toast from "react-hot-toast";
 
 const formatPrice = (value = 0) =>

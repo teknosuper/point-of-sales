@@ -9,7 +9,7 @@ import {
     IconDeviceFloppy,
     IconBrandStripe,
     IconCash,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 import toast from "react-hot-toast";
 
 export default function Payment({

@@ -11,7 +11,7 @@ import {
     IconSearch,
     IconShoppingCart,
     IconX,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 
 const formatCurrency = (value = 0) =>
     new Intl.NumberFormat("id-ID", {

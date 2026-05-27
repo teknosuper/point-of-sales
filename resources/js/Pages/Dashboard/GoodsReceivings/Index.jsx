@@ -10,7 +10,7 @@ import {
     IconEye,
     IconSearch,
     IconTruckDelivery,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 
 const formatDateTime = (value) =>
     value

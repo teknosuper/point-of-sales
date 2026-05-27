@@ -1,6 +1,7 @@
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import { Head, router } from "@inertiajs/react";
-import { IconBike, IconCheck, IconClipboardList, IconInfoCircle, IconUser } from "@tabler/icons-react";
+import { IconBike, IconCheck, IconChevronDown, IconChevronUp, IconClipboardList, IconInfoCircle, IconUser } from "@/Utils/icons";
+import { useState } from "react";
 
 const waiterStatusMeta = {
     ready: {
@@ -36,6 +37,8 @@ const formatDateTime = (value) =>
         : "-";
 
 export default function WaiterIndex({ allocations = [], waiters = [], deliveredAllocations = [] }) {
+    const [showGuide, setShowGuide] = useState(false);
+
     const assignWaiter = (allocationId, waiterId) => {
         router.post(
             route("waiter-board.assign", allocationId),
@@ -61,12 +64,17 @@ export default function WaiterIndex({ allocations = [], waiters = [], deliveredA
                         Papan Petugas Antar
                     </h1>
                     <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                        Pantau pesanan siap antar dari dapur ke pelanggan.
+                        Pantau pesanan yang siap diantar sampai benar-benar diterima pelanggan.
                     </p>
                 </div>
 
-                <details className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
-                    <summary className="flex cursor-pointer list-none items-center gap-3">
+                <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+                    <button
+                        type="button"
+                        onClick={() => setShowGuide((value) => !value)}
+                        className="flex w-full items-center justify-between gap-3 text-left"
+                    >
+                        <div className="flex items-center gap-3">
                         <div className="rounded-xl bg-slate-100 p-2 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
                             <IconInfoCircle size={18} />
                         </div>
@@ -78,7 +86,10 @@ export default function WaiterIndex({ allocations = [], waiters = [], deliveredA
                                 Buka untuk melihat arti status dan tahapan dari dapur ke pelanggan.
                             </p>
                         </div>
-                    </summary>
+                        </div>
+                        {showGuide ? <IconChevronUp size={18} /> : <IconChevronDown size={18} />}
+                    </button>
+                    {showGuide ? (
                     <div className="mt-4 space-y-3 text-sm text-slate-600 dark:text-slate-300">
                         <div>
                             <p className="font-semibold text-slate-900 dark:text-white">
@@ -104,7 +115,8 @@ export default function WaiterIndex({ allocations = [], waiters = [], deliveredA
                             ))}
                         </div>
                     </div>
-                </details>
+                    ) : null}
+                </div>
 
                 <div className="grid gap-4 md:grid-cols-3">
                     {[

@@ -12,7 +12,7 @@ import {
     IconCircleX,
     IconPackage,
     IconTruckDelivery,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 import toast from "react-hot-toast";
 
 const formatCurrency = (value = 0) =>

@@ -4,7 +4,7 @@ import {
     IconChevronDown,
     IconChevronUp,
     IconCornerDownRight,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 import { isSuperAdmin } from "@/Utils/authorization";
 
 export default function LinkItemDropdown({ icon, title, data, access, sidebarOpen, ...props }) {

@@ -7,7 +7,7 @@ import {
     IconEye,
     IconEyeOff,
     IconLoader2,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 
 export default function ConfirmPassword({ challenge = null }) {
     const { data, setData, post, processing, errors, reset } = useForm({

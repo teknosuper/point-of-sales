@@ -6,7 +6,7 @@ import {
     IconX,
     IconLoader2,
     IconCheck,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 import toast from "react-hot-toast";
 
 /**

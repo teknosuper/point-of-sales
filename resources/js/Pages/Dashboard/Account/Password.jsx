@@ -6,7 +6,7 @@ import {
     IconCheck,
     IconLock,
     IconShieldLock,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 
 export default function PasswordPage() {
     const { auth } = usePage().props;

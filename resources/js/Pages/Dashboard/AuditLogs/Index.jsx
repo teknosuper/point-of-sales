@@ -3,7 +3,7 @@ import { Head, Link, router } from "@inertiajs/react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import Table from "@/Components/Dashboard/Table";
 import Pagination from "@/Components/Dashboard/Pagination";
-import { IconEye, IconFileSearch } from "@tabler/icons-react";
+import { IconEye, IconFileSearch } from "@/Utils/icons";
 
 const formatDateTime = (value) =>
     value

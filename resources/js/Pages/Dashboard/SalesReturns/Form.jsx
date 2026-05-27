@@ -3,7 +3,7 @@ import { Head, Link, router, useForm } from "@inertiajs/react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import Button from "@/Components/Dashboard/Button";
 import Table from "@/Components/Dashboard/Table";
-import { IconArrowLeft, IconCheck, IconDeviceFloppy } from "@tabler/icons-react";
+import { IconArrowLeft, IconCheck, IconDeviceFloppy } from "@/Utils/icons";
 import toast from "react-hot-toast";
 
 const formatCurrency = (value = 0) =>

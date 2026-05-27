@@ -4,10 +4,12 @@ import Input from "@/Components/Dashboard/Input";
 import Textarea from "@/Components/Dashboard/TextArea";
 import {
     IconArrowLeft,
+    IconChevronDown,
+    IconChevronUp,
     IconCrown,
     IconDeviceFloppy,
     IconInfoCircle,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 import axios from "axios";
 import toast from "react-hot-toast";
 
@@ -38,6 +40,8 @@ export default function Form({ mode = "create", member = null }) {
     const [regencyList, setRegencyList] = useState(regencies);
     const [districtList, setDistrictList] = useState(districts);
     const [villageList, setVillageList] = useState(villages);
+    const [showMemberGuide, setShowMemberGuide] = useState(false);
+    const [showAddressSection, setShowAddressSection] = useState(false);
     const prevProvince = useRef(member?.province_id ?? null);
     const prevRegency = useRef(member?.regency_id ?? null);
     const prevDistrict = useRef(member?.district_id ?? null);
@@ -168,7 +172,7 @@ export default function Form({ mode = "create", member = null }) {
                         Kembali ke Member
                     </Link>
                     <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
-                        {isEdit ? "Edit Member" : "Daftarkan Member Baru"}
+                        {isEdit ? "Edit Member" : "Daftarkan Member"}
                     </h1>
                     <p className="text-sm text-slate-500 dark:text-slate-400">
                         {isEdit
@@ -179,19 +183,34 @@ export default function Form({ mode = "create", member = null }) {
 
                 <form onSubmit={submit} className="space-y-6">
                     <div className="rounded-2xl border border-primary-100 bg-primary-50/70 p-4 dark:border-primary-900/40 dark:bg-primary-950/20">
-                        <div className="flex items-start gap-3">
-                            <div className="mt-0.5 rounded-xl bg-white/80 p-2 text-primary-600 dark:bg-slate-900/70 dark:text-primary-300">
-                                <IconInfoCircle size={18} />
+                        <div className="flex items-center justify-between gap-3">
+                            <div className="flex items-start gap-3">
+                                <div className="mt-0.5 rounded-xl bg-white/80 p-2 text-primary-600 dark:bg-slate-900/70 dark:text-primary-300">
+                                    <IconInfoCircle size={18} />
+                                </div>
+                                <div>
+                                    <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                                        Cara kerja member
+                                    </p>
+                                    <p className="mt-1 text-xs leading-6 text-slate-600 dark:text-slate-300">
+                                        Buka jika ingin melihat ringkasan benefit member.
+                                    </p>
+                                </div>
                             </div>
-                            <div>
-                                <p className="text-sm font-semibold text-slate-900 dark:text-white">
-                                    Cara kerja member
-                                </p>
-                                <p className="mt-1 text-xs leading-6 text-slate-600 dark:text-slate-300">
-                                    Member otomatis memakai pricing khusus member, earn/redeem poin dari loyalty settings, dan bisa menerima voucher personal di CRM.
-                                </p>
-                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setShowMemberGuide((prev) => !prev)}
+                                className="inline-flex items-center gap-2 rounded-xl border border-primary-200 bg-white/80 px-3 py-2 text-sm font-semibold text-primary-700 hover:bg-white dark:border-primary-900/40 dark:bg-slate-900/70 dark:text-primary-300"
+                            >
+                                {showMemberGuide ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                                {showMemberGuide ? "Sembunyikan" : "Buka"}
+                            </button>
                         </div>
+                        {showMemberGuide && (
+                            <p className="mt-3 text-xs leading-6 text-slate-600 dark:text-slate-300">
+                                Member otomatis memakai pricing khusus member, earn/redeem poin dari loyalty settings, dan bisa menerima voucher personal di CRM.
+                            </p>
+                        )}
                     </div>
 
                     <div className="rounded-2xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
@@ -288,11 +307,28 @@ export default function Form({ mode = "create", member = null }) {
                     </div>
 
                     <div className="rounded-2xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
-                        <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">
-                            Wilayah & Alamat
-                        </h2>
+                        <div className="flex items-center justify-between gap-3">
+                            <div>
+                                <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+                                    Wilayah & Alamat
+                                </h2>
+                                <p className="text-sm text-slate-500 dark:text-slate-400">
+                                    Buka jika alamat member ingin disimpan lebih lengkap.
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setShowAddressSection((prev) => !prev)}
+                                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                            >
+                                {showAddressSection ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                                {showAddressSection ? "Sembunyikan" : "Buka"}
+                            </button>
+                        </div>
 
-                        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                        {showAddressSection && (
+                        <>
+                        <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
                             <div>
                                 <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
                                     Provinsi
@@ -414,6 +450,8 @@ export default function Form({ mode = "create", member = null }) {
                                 rows={3}
                             />
                         </div>
+                        </>
+                        )}
                     </div>
 
                     <div className="flex justify-end gap-3 border-t border-slate-100 pt-6 dark:border-slate-800">

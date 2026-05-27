@@ -11,7 +11,7 @@ import {
     IconActivity,
     IconDevices,
     IconInfoCircle,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 
 function CopyButton({ text, label = "Copy" }) {
     const [copied, setCopied] = useState(false);

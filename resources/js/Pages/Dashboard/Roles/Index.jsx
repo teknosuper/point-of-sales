@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo, useState } from "react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import { Head, router, useForm, usePage } from "@inertiajs/react";
 import Button from "@/Components/Dashboard/Button";
@@ -14,6 +14,8 @@ import {
 import { roleDescription, roleLabel } from "@/Utils/rolePresentation";
 import {
     IconAdjustmentsHorizontal,
+    IconChevronDown,
+    IconChevronUp,
     IconDatabaseOff,
     IconCirclePlus,
     IconTrash,
@@ -23,7 +25,7 @@ import {
     IconSearch,
     IconShield,
     IconFilterOff,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 
 function summarizeRole(role) {
     const permissions = (role.permissions || []).map(decoratePermission);
@@ -143,6 +145,10 @@ export default function Index() {
     const canCreateRoles = can("roles-create");
     const canUpdateRoles = can("roles-update");
     const canDeleteRoles = can("roles-delete");
+    const [showGuide, setShowGuide] = useState(false);
+    const [showFilters, setShowFilters] = useState(
+        Boolean(filters.search || filters.kind)
+    );
 
     const {
         data,
@@ -248,6 +254,10 @@ export default function Index() {
             value: roleRows.filter((role) => role.summary.hasOwnerPricing).length,
         },
     ];
+    const activeFilterCount = useMemo(
+        () => [filters.search, filters.kind].filter(Boolean).length,
+        [filters.kind, filters.search]
+    );
 
     const applyFilters = (nextFilters) => {
         router.get(route("roles.index"), nextFilters, {
@@ -313,8 +323,7 @@ export default function Index() {
                             Akses Group
                         </h1>
                         <p className="text-sm text-slate-500 dark:text-slate-400">
-                            {roles.total || roles.data?.length || 0} group
-                            terdaftar
+                            Susun paket akses yang akan dipakai user owner, tenant, dan dapur.
                         </p>
                     </div>
                     {canCreateRoles && (
@@ -352,45 +361,62 @@ export default function Index() {
                 ))}
             </div>
 
-            <div className="mb-6 rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-100">
-                <p className="font-semibold">Panduan singkat penyusunan akses</p>
-                <p className="mt-1">
-                    Untuk user dapur tenant, kombinasikan minimal `Lihat Produk`, `Ubah Produk Operasional`, dan `Tutup atau Buka Toko`. Tambahkan `Ubah Harga Produk` hanya jika memang boleh mengubah harga beli atau harga jual.
-                </p>
-                <p className="mt-2">
-                    Jika tenant juga boleh membuat promo sendiri, tambahkan paket `Lihat Aturan Harga`, `Tambah Aturan Harga`, dan `Ubah Aturan Harga`. Halaman user hanya memilih role, jadi paket promo tenant harus selesai dirakit di sini.
-                </p>
-            </div>
-
-            <div className="mb-6 grid gap-3 lg:grid-cols-3">
-                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-100">
-                    <p className="font-semibold">Role Tenant Operasional</p>
-                    <p className="mt-1">
-                        Cocok untuk dapur atau PIC tenant harian: `products-access`, `products-edit`, `outlets-access`, dan `outlets-toggle`.
-                    </p>
-                </div>
-                <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-100">
-                    <p className="font-semibold">Role Tenant Promo</p>
-                    <p className="mt-1">
-                        Tambahkan `pricing-rules-access`, `pricing-rules-create`, `pricing-rules-update`. Tambah `pricing-rules-delete` hanya bila tenant boleh menghapus promo.
-                    </p>
-                </div>
-                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100">
-                    <p className="font-semibold">Role Owner Pricing</p>
-                    <p className="mt-1">
-                        `products-pricing-update` adalah izin terpisah. Pakai hanya untuk owner outlet atau admin yang memang boleh mengubah harga beli dan harga jual utama.
-                    </p>
-                </div>
+            <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+                <button
+                    type="button"
+                    onClick={() => setShowGuide((value) => !value)}
+                    className="flex w-full items-center justify-between gap-3 text-left"
+                >
+                    <div>
+                        <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                            Panduan singkat
+                        </p>
+                        <p className="text-sm text-slate-500 dark:text-slate-400">
+                            Buka jika Anda perlu contoh paket role tenant dan owner.
+                        </p>
+                    </div>
+                    {showGuide ? <IconChevronUp size={18} /> : <IconChevronDown size={18} />}
+                </button>
+                {showGuide ? (
+                    <div className="mt-4 grid gap-3 lg:grid-cols-3">
+                        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-100">
+                            Role tenant operasional: produk, outlet, dan kontrol buka tutup operasional.
+                        </div>
+                        <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-100">
+                            Role tenant promo: akses buat dan ubah promo tenant.
+                        </div>
+                        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100">
+                            Role owner pricing: hanya untuk admin yang boleh ubah harga utama.
+                        </div>
+                    </div>
+                ) : null}
             </div>
 
             <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
-                <div className="mb-4 flex items-center gap-2">
-                    <IconAdjustmentsHorizontal size={18} className="text-primary-500" />
-                    <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-200">
-                        Filter Role
-                    </h2>
+                <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                        <IconAdjustmentsHorizontal size={18} className="text-primary-500" />
+                        <div>
+                            <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+                                Filter
+                            </h2>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                                {activeFilterCount > 0 ? `${activeFilterCount} filter aktif` : "Semua role ditampilkan"}
+                            </p>
+                        </div>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => setShowFilters((value) => !value)}
+                        className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                    >
+                        {showFilters ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                        {showFilters ? "Sembunyikan filter" : "Buka filter"}
+                    </button>
                 </div>
-                <div className="grid gap-3 md:grid-cols-4">
+                {showFilters ? (
+                <>
+                <div className="mt-4 grid gap-3 md:grid-cols-4">
                     <div className="relative md:col-span-2">
                         <input
                             type="text"
@@ -461,23 +487,8 @@ export default function Index() {
                         </span>
                     ))}
                 </div>
-            </div>
-
-            <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
-                <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
-                    Cara baca role di halaman ini
-                </p>
-                <div className="mt-3 grid gap-3 lg:grid-cols-3">
-                    <div className="rounded-xl border border-slate-200 p-3 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300">
-                        Badge jenis role menjelaskan role itu fokus ke tenant operasional, tenant promo, owner pricing, atau admin umum.
-                    </div>
-                    <div className="rounded-xl border border-slate-200 p-3 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300">
-                        Chip group permission menunjukkan area modul yang disentuh role tersebut tanpa harus membuka form edit dulu.
-                    </div>
-                    <div className="rounded-xl border border-slate-200 p-3 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300">
-                        Jika role tenant perlu promo, pastikan ada permission `pricing-rules-*`. Jika boleh ubah harga owner, baru tambahkan `products-pricing-update`.
-                    </div>
-                </div>
+                </>
+                ) : null}
             </div>
 
             {/* Modal */}

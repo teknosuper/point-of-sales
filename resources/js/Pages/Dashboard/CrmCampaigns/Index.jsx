@@ -1,10 +1,10 @@
-import React from "react";
+import React, { useState } from "react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import { Head, Link, router } from "@inertiajs/react";
 import Button from "@/Components/Dashboard/Button";
 import Pagination from "@/Components/Dashboard/Pagination";
 import Table from "@/Components/Dashboard/Table";
-import { IconBroadcast, IconCirclePlus, IconPencil, IconTrash } from "@tabler/icons-react";
+import { IconBroadcast, IconChevronDown, IconChevronUp, IconCirclePlus, IconPencil, IconTrash } from "@/Utils/icons";
 import { useAuthorization } from "@/Utils/authorization";
 
 const statusBadge = (status) => {
@@ -20,19 +20,22 @@ const statusBadge = (status) => {
 
 export default function Index({ campaigns, filters }) {
     const { can } = useAuthorization();
+    const [showFilters, setShowFilters] = useState(
+        Boolean(filters?.type || filters?.status)
+    );
     const handleFilterChange = (key, value) => {
         router.get(route("crm-campaigns.index"), { ...filters, [key]: value }, { preserveState: true, replace: true });
     };
 
     return (
         <>
-            <Head title="CRM Campaigns" />
+            <Head title="Campaign CRM" />
             <div className="w-full">
                 <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                     <div>
-                        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">CRM Campaigns</h1>
+                        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Campaign CRM</h1>
                         <p className="text-sm text-slate-500 dark:text-slate-400">
-                            Kelola promo broadcast, reminder, dan share invoice berbasis audience CRM.
+                            Kelola campaign broadcast dan reminder berbasis CRM.
                         </p>
                     </div>
                     {can("crm-campaigns-create") && (
@@ -47,30 +50,50 @@ export default function Index({ campaigns, filters }) {
                 </div>
 
                 <div className="mb-4 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
-                    <div className="grid gap-3 md:grid-cols-2">
-                        <select
-                            value={filters.type || ""}
-                            onChange={(event) => handleFilterChange("type", event.target.value)}
-                            className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                    <div className="flex items-center justify-between gap-3">
+                        <div>
+                            <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                                Filter Campaign
+                            </p>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                                Buka jika ingin menyaring tipe atau status campaign.
+                            </p>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setShowFilters((prev) => !prev)}
+                            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
                         >
-                            <option value="">Semua Tipe</option>
-                            <option value="promo_broadcast">Promo Broadcast</option>
-                            <option value="invoice_share">Invoice Share</option>
-                            <option value="due_date_reminder">Due Date Reminder</option>
-                            <option value="repeat_order_reminder">Repeat Order Reminder</option>
-                        </select>
-                        <select
-                            value={filters.status || ""}
-                            onChange={(event) => handleFilterChange("status", event.target.value)}
-                            className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
-                        >
-                            <option value="">Semua Status</option>
-                            <option value="draft">Draft</option>
-                            <option value="ready">Ready</option>
-                            <option value="processed">Processed</option>
-                            <option value="cancelled">Cancelled</option>
-                        </select>
+                            {showFilters ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                            {showFilters ? "Sembunyikan" : "Buka"}
+                        </button>
                     </div>
+                    {showFilters && (
+                        <div className="mt-4 grid gap-3 md:grid-cols-2">
+                            <select
+                                value={filters.type || ""}
+                                onChange={(event) => handleFilterChange("type", event.target.value)}
+                                className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                            >
+                                <option value="">Semua Tipe</option>
+                                <option value="promo_broadcast">Promo Broadcast</option>
+                                <option value="invoice_share">Invoice Share</option>
+                                <option value="due_date_reminder">Due Date Reminder</option>
+                                <option value="repeat_order_reminder">Repeat Order Reminder</option>
+                            </select>
+                            <select
+                                value={filters.status || ""}
+                                onChange={(event) => handleFilterChange("status", event.target.value)}
+                                className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                            >
+                                <option value="">Semua Status</option>
+                                <option value="draft">Draft</option>
+                                <option value="ready">Ready</option>
+                                <option value="processed">Processed</option>
+                                <option value="cancelled">Cancelled</option>
+                            </select>
+                        </div>
+                    )}
                 </div>
 
                 <Table.Card title="Daftar CRM Campaign">

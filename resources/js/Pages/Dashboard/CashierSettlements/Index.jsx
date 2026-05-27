@@ -11,12 +11,13 @@ import {
     IconChevronUp,
     IconClockHour4,
     IconFileExport,
+    IconPrinter,
     IconReceipt2,
     IconSearch,
     IconShieldCheck,
     IconUserDollar,
     IconX,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 
 const formatCurrency = (value = 0) =>
     new Intl.NumberFormat("id-ID", {

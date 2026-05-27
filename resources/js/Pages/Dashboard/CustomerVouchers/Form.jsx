@@ -1,11 +1,13 @@
-import React from "react";
+import React, { useState } from "react";
 import { Head, useForm } from "@inertiajs/react";
 import Button from "@/Components/Dashboard/Button";
 import {
     IconArrowLeft,
+    IconChevronDown,
+    IconChevronUp,
     IconCreditCard,
     IconDeviceFloppy,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 
 function InputError({ message }) {
     if (!message) return null;
@@ -15,6 +17,7 @@ function InputError({ message }) {
 
 export default function Form({ mode = "create", voucher = null, customers = [] }) {
     const isEdit = mode === "edit";
+    const [showVoucherBenefit, setShowVoucherBenefit] = useState(false);
     const { data, setData, post, put, processing, errors } = useForm({
         customer_id: voucher?.customer_id ? String(voucher.customer_id) : "",
         code: voucher?.code ?? "",
@@ -156,11 +159,27 @@ export default function Form({ mode = "create", voucher = null, customers = [] }
                     </div>
 
                     <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
-                        <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">
-                            Benefit & Periode
-                        </h2>
+                        <div className="flex items-center justify-between gap-3">
+                            <div>
+                                <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+                                    Benefit & Periode
+                                </h2>
+                                <p className="text-sm text-slate-500 dark:text-slate-400">
+                                    Buka jika ingin mengatur nilai voucher dan masa berlakunya.
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setShowVoucherBenefit((prev) => !prev)}
+                                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                            >
+                                {showVoucherBenefit ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                                {showVoucherBenefit ? "Sembunyikan" : "Buka"}
+                            </button>
+                        </div>
 
-                        <div className="grid gap-4 md:grid-cols-2">
+                        {showVoucherBenefit && (
+                        <div className="mt-4 grid gap-4 md:grid-cols-2">
                             <div>
                                 <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
                                     Tipe Diskon
@@ -272,6 +291,7 @@ export default function Form({ mode = "create", voucher = null, customers = [] }
                                 <InputError message={errors.notes} />
                             </div>
                         </div>
+                        )}
                     </div>
 
                     <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">

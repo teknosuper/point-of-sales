@@ -10,13 +10,15 @@ import {
     IconChartLine,
     IconDatabaseOff,
     IconFilter,
+    IconChevronDown,
+    IconChevronUp,
     IconReceipt2,
     IconSearch,
     IconShoppingBag,
     IconSparkles,
     IconWallet,
     IconX,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 
 const formatCurrency = (value = 0) =>
     new Intl.NumberFormat("id-ID", {
@@ -44,21 +46,21 @@ const compactFilters = (filters = {}) =>
 
 const SummaryCard = ({ icon, title, value, description, tone = "slate" }) => {
     const tones = {
-        emerald: "from-emerald-500 to-emerald-700",
-        blue: "from-blue-500 to-blue-700",
-        violet: "from-violet-500 to-violet-700",
-        amber: "from-amber-500 to-amber-600",
-        slate: "from-slate-700 to-slate-900",
+        emerald: "border-emerald-200 bg-white text-slate-900 dark:border-emerald-900/40 dark:bg-slate-900 dark:text-white",
+        blue: "border-blue-200 bg-white text-slate-900 dark:border-blue-900/40 dark:bg-slate-900 dark:text-white",
+        violet: "border-violet-200 bg-white text-slate-900 dark:border-violet-900/40 dark:bg-slate-900 dark:text-white",
+        amber: "border-amber-200 bg-white text-slate-900 dark:border-amber-900/40 dark:bg-slate-900 dark:text-white",
+        slate: "border-slate-200 bg-white text-slate-900 dark:border-slate-800 dark:bg-slate-900 dark:text-white",
     };
 
     return (
-        <div className={`rounded-3xl bg-gradient-to-br ${tones[tone]} p-5 text-white shadow-lg`}>
+        <div className={`rounded-3xl border p-5 ${tones[tone]}`}>
             <div className="flex items-center gap-3">
-                <div className="rounded-2xl bg-white/15 p-3">{icon}</div>
+                <div className="rounded-2xl bg-slate-100 p-3 text-primary-600 dark:bg-slate-800 dark:text-primary-300">{icon}</div>
                 <div>
-                    <p className="text-sm font-medium text-white/80">{title}</p>
+                    <p className="text-sm font-medium text-slate-500 dark:text-slate-400">{title}</p>
                     <p className="mt-1 text-2xl font-bold">{value}</p>
-                    <p className="mt-1 text-xs text-white/75">{description}</p>
+                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{description}</p>
                 </div>
             </div>
         </div>
@@ -357,7 +359,7 @@ export default function WorkspaceSalesIndex({
                             Statistik Penjualan
                         </h1>
                         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                            Ringkasan {primaryContextLabel} untuk {outletLabel}.
+                            Lihat ringkasan {primaryContextLabel} untuk {outletLabel}.
                         </p>
                     </div>
                     <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
@@ -699,7 +701,8 @@ export default function WorkspaceSalesIndex({
                                     className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
                                 >
                                     <IconFilter size={18} />
-                                    Filter Lanjutan
+                                    {showFilters ? "Sembunyikan filter" : "Buka filter"}
+                                    {showFilters ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
                                 </button>
                             </div>
                         </form>

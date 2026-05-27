@@ -15,7 +15,7 @@ import {
     IconTrash,
     IconUser,
     IconX,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 import Table from "@/Components/Dashboard/Table";
 import Pagination from "@/Components/Dashboard/Pagination";
 import { useAuthorization } from "@/Utils/authorization";

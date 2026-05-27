@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { usePage } from "@inertiajs/react";
 import toast from "react-hot-toast";
-import { IconRefresh, IconSparkles } from "@tabler/icons-react";
+import { IconRefresh, IconSparkles } from "@/Utils/icons";
 
 export default function PWAUpdateControl({ compact = false }) {
     const { appMeta } = usePage().props;

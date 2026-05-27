@@ -4,7 +4,7 @@ import {
     IconDeviceMobile,
     IconDownload,
     IconX,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 import usePwaInstall from "@/Hooks/usePwaInstall";
 
 export default function PWAInstallPrompt() {

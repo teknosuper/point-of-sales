@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { IconBackspace, IconX, IconCheck } from "@tabler/icons-react";
+import { IconBackspace, IconX, IconCheck } from "@/Utils/icons";
 
 /**
  * Numpad Modal for POS - Touch-friendly number input

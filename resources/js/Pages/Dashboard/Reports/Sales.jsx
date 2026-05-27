@@ -25,7 +25,7 @@ import {
     IconClock,
     IconFileDownload,
     IconPrinter,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 
 // Summary Card Component
 const SummaryCard = ({ icon, title, value, description }) => (

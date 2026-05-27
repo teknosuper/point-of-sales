@@ -2,7 +2,7 @@ import Pagination from "@/Components/Dashboard/Pagination";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import { useAuthorization } from "@/Utils/authorization";
 import { Head, router, usePage } from "@inertiajs/react";
-import { IconCheck, IconDeviceMobile, IconSearch } from "@tabler/icons-react";
+import { IconCheck, IconDeviceMobile, IconSearch } from "@/Utils/icons";
 import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 

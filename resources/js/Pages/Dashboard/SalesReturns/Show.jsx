@@ -7,7 +7,7 @@ export default function Show({ salesReturn, transaction }) {
 
     return (
         <SalesReturnForm
-            title={salesReturn.code}
+            title={`Detail Retur ${salesReturn.code}`}
             transaction={transaction}
             salesReturn={salesReturn}
             submitRoute={route("sales-returns.update", salesReturn.id)}

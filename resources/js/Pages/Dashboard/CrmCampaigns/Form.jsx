@@ -1,10 +1,12 @@
-import React from "react";
+import React, { useState } from "react";
 import { Head, useForm } from "@inertiajs/react";
 import Button from "@/Components/Dashboard/Button";
-import { IconArrowLeft, IconBroadcast, IconDeviceFloppy } from "@tabler/icons-react";
+import { IconArrowLeft, IconBroadcast, IconChevronDown, IconChevronUp, IconDeviceFloppy } from "@/Utils/icons";
 
 export default function Form({ mode = "create", campaign = null, audienceOptions }) {
     const isEdit = mode === "edit";
+    const [showAudienceBuilder, setShowAudienceBuilder] = useState(false);
+    const [showMessageTemplate, setShowMessageTemplate] = useState(false);
     const { data, setData, post, put, processing } = useForm({
         name: campaign?.name ?? "",
         type: campaign?.type ?? "promo_broadcast",
@@ -47,7 +49,7 @@ export default function Form({ mode = "create", campaign = null, audienceOptions
                         label="Kembali ke CRM campaigns"
                     />
                     <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
-                        {isEdit ? "Edit CRM Campaign" : "Buat CRM Campaign"}
+                        {isEdit ? "Edit Campaign CRM" : "Buat Campaign CRM"}
                     </h1>
                     <p className="text-sm text-slate-500 dark:text-slate-400">
                         Bangun audience dari segment dan siapkan campaign WhatsApp/manual follow-up.
@@ -110,8 +112,22 @@ export default function Form({ mode = "create", campaign = null, audienceOptions
                     </div>
 
                     <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
-                        <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">Audience Builder</h2>
-                        <div className="grid gap-4 md:grid-cols-2">
+                        <div className="flex items-center justify-between gap-3">
+                            <div>
+                                <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Audience Builder</h2>
+                                <p className="text-sm text-slate-500 dark:text-slate-400">Buka jika ingin mengatur target customer campaign.</p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setShowAudienceBuilder((prev) => !prev)}
+                                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                            >
+                                {showAudienceBuilder ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                                {showAudienceBuilder ? "Sembunyikan" : "Buka"}
+                            </button>
+                        </div>
+                        {showAudienceBuilder && (
+                        <div className="mt-4 grid gap-4 md:grid-cols-2">
                             <div className="md:col-span-2">
                                 <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">Segment Customer</label>
                                 <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
@@ -173,16 +189,32 @@ export default function Form({ mode = "create", campaign = null, audienceOptions
                                 </select>
                             </div>
                         </div>
+                        )}
                     </div>
 
                     <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
-                        <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">Template Pesan</h2>
-                        <textarea
-                            rows="5"
-                            value={data.message_template}
-                            onChange={(event) => setData("message_template", event.target.value)}
-                            className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
-                        />
+                        <div className="flex items-center justify-between gap-3">
+                            <div>
+                                <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Template Pesan</h2>
+                                <p className="text-sm text-slate-500 dark:text-slate-400">Buka jika ingin menulis isi pesan campaign.</p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setShowMessageTemplate((prev) => !prev)}
+                                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                            >
+                                {showMessageTemplate ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                                {showMessageTemplate ? "Sembunyikan" : "Buka"}
+                            </button>
+                        </div>
+                        {showMessageTemplate && (
+                            <textarea
+                                rows="5"
+                                value={data.message_template}
+                                onChange={(event) => setData("message_template", event.target.value)}
+                                className="mt-4 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                            />
+                        )}
                     </div>
 
                     <div className="flex flex-col gap-3 border-t border-slate-200 pt-4 sm:flex-row sm:items-center sm:justify-between dark:border-slate-800">

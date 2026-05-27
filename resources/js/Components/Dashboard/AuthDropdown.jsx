@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Menu, Transition } from "@headlessui/react";
 import { Link, usePage } from "@inertiajs/react";
-import { IconLogout, IconUserCog } from "@tabler/icons-react";
+import { IconLogout, IconUserCog } from "@/Utils/icons";
 import { useForm } from "@inertiajs/react";
 import MenuLink from "@/Utils/Menu";
 import LinkItem from "./LinkItem";

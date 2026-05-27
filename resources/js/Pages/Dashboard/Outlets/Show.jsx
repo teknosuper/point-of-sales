@@ -4,12 +4,13 @@ import DashboardLayout from "@/Layouts/DashboardLayout";
 import {
     IconArrowLeft,
     IconBuildingStore,
+    IconChevronDown,
+    IconChevronUp,
     IconClipboardCheck,
     IconCurrencyDollar,
     IconDeviceDesktop,
-    IconReceipt2,
     IconUsers,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 import toast from "react-hot-toast";
 
 const formatCurrency = (value = 0) =>
@@ -34,6 +35,12 @@ export default function Show({
         start_date: filters?.start_date || "",
         end_date: filters?.end_date || "",
     });
+    const [showFilters, setShowFilters] = useState(
+        Boolean(filters?.start_date || filters?.end_date)
+    );
+    const [showQuickLinks, setShowQuickLinks] = useState(false);
+    const [showUsers, setShowUsers] = useState(false);
+    const [showStations, setShowStations] = useState(false);
 
     useEffect(() => {
         if (flash?.success) toast.success(flash.success);
@@ -80,64 +87,111 @@ export default function Show({
                                 <p className="text-sm text-slate-500 dark:text-slate-400">
                                     {outlet?.code} • {outlet?.outlet_type || "main"} • {outlet?.city || "Tanpa kota"}
                                 </p>
+                                <p className="text-sm text-slate-500 dark:text-slate-400">
+                                    Lihat ringkasan performa, user, dan operasional outlet ini.
+                                </p>
                             </div>
                         </div>
                     </div>
 
-                    <form onSubmit={applyFilters} className="grid gap-3 md:grid-cols-3">
-                        <input
-                            type="date"
-                            value={filterData.start_date}
-                            onChange={(event) =>
-                                setFilterData((prev) => ({ ...prev, start_date: event.target.value }))
-                            }
-                            className="h-11 rounded-xl border border-slate-200 bg-white px-4 text-sm dark:border-slate-700 dark:bg-slate-900"
-                        />
-                        <input
-                            type="date"
-                            value={filterData.end_date}
-                            onChange={(event) =>
-                                setFilterData((prev) => ({ ...prev, end_date: event.target.value }))
-                            }
-                            className="h-11 rounded-xl border border-slate-200 bg-white px-4 text-sm dark:border-slate-700 dark:bg-slate-900"
-                        />
-                        <button
-                            type="submit"
-                            className="rounded-xl bg-primary-500 px-4 py-2.5 text-sm font-medium text-white"
-                        >
-                            Terapkan Filter
-                        </button>
-                    </form>
+                    <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+                        <div className="flex items-center justify-between gap-3">
+                            <div>
+                                <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                                    Filter Periode
+                                </p>
+                                <p className="text-xs text-slate-500 dark:text-slate-400">
+                                    Buka jika ingin melihat data pada rentang tanggal tertentu.
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setShowFilters((prev) => !prev)}
+                                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                            >
+                                {showFilters ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                                {showFilters ? "Sembunyikan" : "Buka"}
+                            </button>
+                        </div>
+                        {showFilters && (
+                            <form onSubmit={applyFilters} className="mt-4 grid gap-3 md:grid-cols-3">
+                                <input
+                                    type="date"
+                                    value={filterData.start_date}
+                                    onChange={(event) =>
+                                        setFilterData((prev) => ({ ...prev, start_date: event.target.value }))
+                                    }
+                                    className="h-11 rounded-xl border border-slate-200 bg-white px-4 text-sm dark:border-slate-700 dark:bg-slate-900"
+                                />
+                                <input
+                                    type="date"
+                                    value={filterData.end_date}
+                                    onChange={(event) =>
+                                        setFilterData((prev) => ({ ...prev, end_date: event.target.value }))
+                                    }
+                                    className="h-11 rounded-xl border border-slate-200 bg-white px-4 text-sm dark:border-slate-700 dark:bg-slate-900"
+                                />
+                                <button
+                                    type="submit"
+                                    className="rounded-xl bg-primary-500 px-4 py-2.5 text-sm font-medium text-white"
+                                >
+                                    Terapkan
+                                </button>
+                            </form>
+                        )}
+                    </div>
                 </div>
 
                 <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
-                    Halaman ini menunjukkan performa dan kepemilikan outlet atau tenant. Untuk mengatur printer, stasiun dapur, dan perangkat dapur milik outlet ini, lanjutkan ke menu <span className="font-semibold">Operasional Dapur & Printer</span>.
+                    Halaman ini menunjukkan performa dan operasional outlet. Untuk printer, dapur, dan perangkat, lanjut ke <span className="font-semibold">Operasional Dapur & Printer</span>.
                 </div>
 
-                <div className="flex flex-wrap gap-2">
-                    <Link
-                        href={route("guides.outlet-kitchen")}
-                        className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
-                    >
-                        Panduan Lengkap
-                    </Link>
-                    <Link
-                        href={route("settings.kitchen-devices.index", { outlet_id: outlet.id })}
-                        className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
-                    >
-                        Operasional Dapur & Printer Outlet Ini
-                    </Link>
-                    <Link
-                        href={route("reports.outlet-analytics.index", { outlet_id: outlet.id })}
-                        className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
-                    >
-                        Statistik Outlet Ini
-                    </Link>
+                <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+                    <div className="flex items-center justify-between gap-3">
+                        <div>
+                            <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                                Tautan Cepat
+                            </p>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                                Buka jika ingin pindah ke menu terkait outlet ini.
+                            </p>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setShowQuickLinks((prev) => !prev)}
+                            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                        >
+                            {showQuickLinks ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                            {showQuickLinks ? "Sembunyikan" : "Buka"}
+                        </button>
+                    </div>
+                    {showQuickLinks && (
+                        <div className="mt-4 flex flex-wrap gap-2">
+                            <Link
+                                href={route("guides.outlet-kitchen")}
+                                className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                            >
+                                Panduan
+                            </Link>
+                            <Link
+                                href={route("settings.kitchen-devices.index", { outlet_id: outlet.id })}
+                                className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                            >
+                                Operasional Dapur
+                            </Link>
+                            <Link
+                                href={route("reports.outlet-analytics.index", { outlet_id: outlet.id })}
+                                className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                            >
+                                Statistik Outlet
+                            </Link>
+                        </div>
+                    )}
                 </div>
 
                 <div className="grid gap-4 md:grid-cols-4 xl:grid-cols-8">
                     {[
-                        ["Transaksi", summary.transactions_total ?? 0, false, <IconReceipt2 size={18} />],
+                        ["Transaksi", summary.transactions_total ?? 0, false, <IconClipboardCheck size={18} />],
                         ["Revenue", summary.revenue_total ?? 0, true, <IconCurrencyDollar size={18} />],
                         ["Item Terjual", summary.items_sold ?? 0, false, <IconClipboardCheck size={18} />],
                         ["User", summary.users_total ?? 0, false, <IconUsers size={18} />],
@@ -160,51 +214,81 @@ export default function Show({
 
                 <div className="grid gap-6 xl:grid-cols-[1.1fr,0.9fr]">
                     <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
-                        <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">
-                            User Outlet
-                        </h2>
-                        <div className="space-y-3">
-                            {outlet?.users?.length ? (
-                                outlet.users.map((user) => (
-                                    <div key={user.id} className="rounded-xl border border-slate-100 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/30">
-                                        <p className="text-sm font-semibold text-slate-800 dark:text-white">
-                                            {user.name}
-                                        </p>
-                                        <p className="text-xs text-slate-500 dark:text-slate-400">
-                                            {user.email}
-                                        </p>
-                                    </div>
-                                ))
-                            ) : (
-                                <p className="text-sm text-slate-500 dark:text-slate-400">
-                                    Belum ada user yang diassign ke outlet ini.
-                                </p>
-                            )}
+                        <div className="flex items-center justify-between gap-3">
+                            <div>
+                                <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+                                    User Outlet
+                                </h2>
+                                <p className="text-xs text-slate-500">Buka jika ingin melihat user yang terhubung ke outlet ini.</p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setShowUsers((prev) => !prev)}
+                                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                            >
+                                {showUsers ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                                {showUsers ? "Sembunyikan" : "Buka"}
+                            </button>
                         </div>
+                        {showUsers && (
+                            <div className="mt-4 space-y-3">
+                                {outlet?.users?.length ? (
+                                    outlet.users.map((user) => (
+                                        <div key={user.id} className="rounded-xl border border-slate-100 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/30">
+                                            <p className="text-sm font-semibold text-slate-800 dark:text-white">
+                                                {user.name}
+                                            </p>
+                                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                                                {user.email}
+                                            </p>
+                                        </div>
+                                    ))
+                                ) : (
+                                    <p className="text-sm text-slate-500 dark:text-slate-400">
+                                        Belum ada user yang diassign ke outlet ini.
+                                    </p>
+                                )}
+                            </div>
+                        )}
                     </div>
 
                     <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
-                        <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">
-                            Station & Device
-                        </h2>
-                        <div className="space-y-3">
-                            {stations.length ? (
-                                stations.map((station) => (
-                                    <div key={station.id} className="rounded-xl border border-slate-100 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/30">
-                                        <p className="text-sm font-semibold text-slate-800 dark:text-white">
-                                            {station.name}
-                                        </p>
-                                        <p className="text-xs text-slate-500 dark:text-slate-400">
-                                            {station.code || "-"} • {station.display_mode} • {station.devices?.length || 0} device
-                                        </p>
-                                    </div>
-                                ))
-                            ) : (
-                                <p className="text-sm text-slate-500 dark:text-slate-400">
-                                    Belum ada station dapur untuk outlet ini.
-                                </p>
-                            )}
+                        <div className="flex items-center justify-between gap-3">
+                            <div>
+                                <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+                                    Station & Device
+                                </h2>
+                                <p className="text-xs text-slate-500">Buka jika ingin melihat dapur dan perangkat outlet ini.</p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setShowStations((prev) => !prev)}
+                                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                            >
+                                {showStations ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                                {showStations ? "Sembunyikan" : "Buka"}
+                            </button>
                         </div>
+                        {showStations && (
+                            <div className="mt-4 space-y-3">
+                                {stations.length ? (
+                                    stations.map((station) => (
+                                        <div key={station.id} className="rounded-xl border border-slate-100 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/30">
+                                            <p className="text-sm font-semibold text-slate-800 dark:text-white">
+                                                {station.name}
+                                            </p>
+                                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                                                {station.code || "-"} • {station.display_mode} • {station.devices?.length || 0} device
+                                            </p>
+                                        </div>
+                                    ))
+                                ) : (
+                                    <p className="text-sm text-slate-500 dark:text-slate-400">
+                                        Belum ada station dapur untuk outlet ini.
+                                    </p>
+                                )}
+                            </div>
+                        )}
                     </div>
                 </div>
 

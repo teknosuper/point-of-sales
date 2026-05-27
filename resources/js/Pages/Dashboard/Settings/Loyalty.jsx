@@ -1,6 +1,6 @@
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import { Head, useForm, usePage } from "@inertiajs/react";
-import { IconDeviceFloppy, IconGift, IconMedal } from "@tabler/icons-react";
+import { IconDeviceFloppy, IconGift, IconMedal } from "@/Utils/icons";
 import toast from "react-hot-toast";
 
 const formatNumber = (value) => String(value ?? 0);

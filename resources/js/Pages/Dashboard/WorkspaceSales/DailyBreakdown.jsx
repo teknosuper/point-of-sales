@@ -1,7 +1,7 @@
 import React from "react";
 import { Head, Link } from "@inertiajs/react";
 import KitchenLayout from "@/Layouts/KitchenLayout";
-import { IconArrowLeft, IconCalendarStats, IconDownload, IconReceipt2 } from "@tabler/icons-react";
+import { IconArrowLeft, IconCalendarStats, IconDownload, IconReceipt2 } from "@/Utils/icons";
 
 const formatCurrency = (value = 0) =>
     new Intl.NumberFormat("id-ID", {

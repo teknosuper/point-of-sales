@@ -10,7 +10,7 @@ import {
     IconEyeOff,
     IconLoader2,
     IconCheck,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 
 export default function Register({ botGuard }) {
     const honeypotField = botGuard?.honeypot_field || "company_website";

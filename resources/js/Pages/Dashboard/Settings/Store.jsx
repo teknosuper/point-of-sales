@@ -15,7 +15,7 @@ import {
     IconMail,
     IconPhoto,
     IconPercentage,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 
 export default function Store({ settings, tenantOutlets = [] }) {
     const [showTenantCommissions, setShowTenantCommissions] = useState(false);

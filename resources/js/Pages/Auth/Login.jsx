@@ -10,7 +10,7 @@ import {
     IconEye,
     IconEyeOff,
     IconLoader2,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 import { useState } from "react";
 
 export default function Login({

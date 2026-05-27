@@ -1,23 +1,33 @@
-import React from "react";
+import React, { useMemo, useState } from "react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import { Head, router, usePage } from "@inertiajs/react";
 import {
     IconAdjustmentsHorizontal,
+    IconChevronDown,
+    IconChevronUp,
     IconDatabaseOff,
     IconFilterOff,
     IconKey,
     IconSearch,
     IconShield,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 import Pagination from "@/Components/Dashboard/Pagination";
 import { decoratePermission } from "@/Utils/permissionPresentation";
 
 export default function Index() {
     const { permissions, filters = {}, groupCounts = [], groupOptions = [], perPageOptions = [] } = usePage().props;
     const rows = permissions.data.map(decoratePermission);
+    const [showGuide, setShowGuide] = useState(false);
+    const [showFilters, setShowFilters] = useState(
+        Boolean(filters.search || filters.group)
+    );
     const activeGroupLabel = filters.group
         ? groupOptions.find((group) => group.key === filters.group)?.label || "Semua Group"
         : "Semua Group";
+    const activeFilterCount = useMemo(
+        () => [filters.search, filters.group].filter(Boolean).length,
+        [filters.group, filters.search]
+    );
 
     const applyFilters = (nextFilters) => {
         router.get(route("permissions.index"), nextFilters, {
@@ -47,8 +57,7 @@ export default function Index() {
                             Hak Akses
                         </h1>
                         <p className="text-sm text-slate-500 dark:text-slate-400">
-                            {permissions.total || permissions.data?.length || 0}{" "}
-                            hak akses terdaftar
+                            Lihat daftar izin sistem dan cari yang perlu dipakai di role.
                         </p>
                     </div>
                 </div>
@@ -81,48 +90,65 @@ export default function Index() {
                 </div>
             </div>
 
-            <div className="mb-6 rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-100">
-                <p className="font-semibold">Cara membaca izin</p>
-                <p className="mt-1">
-                    Nama besar menunjukkan aksi yang dipahami admin, sedangkan nama teknis tetap ditampilkan kecil di bawahnya untuk kebutuhan audit dan debugging.
-                </p>
-                <p className="mt-2">
-                    Alur RBAC di sistem ini adalah `Permission -> Role -> User`. Jadi permission seperti `pricing-rules-create` tidak dicentang langsung di halaman edit user, tetapi dimasukkan dulu ke role lalu role itu diberikan ke user.
-                </p>
-            </div>
-
-            <div className="mb-6 grid gap-3 lg:grid-cols-3">
-                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-100">
-                    <p className="font-semibold">Paket Tenant Promo</p>
-                    <p className="mt-1">
-                        Minimal beri `pricing-rules-access`, `pricing-rules-create`, dan `pricing-rules-update` jika tenant boleh membuat dan mengubah promo sendiri.
-                    </p>
-                </div>
-                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100">
-                    <p className="font-semibold">Harga Owner vs Tenant</p>
-                    <p className="mt-1">
-                        `products-pricing-update` mengubah harga beli dan harga jual owner. Itu berbeda dari `pricing-rules-*` yang dipakai tenant untuk membuat promo berbasis harga tenant.
-                    </p>
-                </div>
-                <div className="rounded-2xl border border-violet-200 bg-violet-50 p-4 text-sm text-violet-900 dark:border-violet-900/40 dark:bg-violet-950/20 dark:text-violet-100">
-                    <p className="font-semibold">Tempat Pengaturan</p>
-                    <p className="mt-1">
-                        Cek daftar permission di sini, rakit paketnya di halaman role, lalu pasang role itu ke user tenant pada halaman edit user.
-                    </p>
-                </div>
+            <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+                <button
+                    type="button"
+                    onClick={() => setShowGuide((value) => !value)}
+                    className="flex w-full items-center justify-between gap-3 text-left"
+                >
+                    <div>
+                        <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                            Panduan singkat
+                        </p>
+                        <p className="text-sm text-slate-500 dark:text-slate-400">
+                            Buka jika Anda perlu contoh izin tenant dan owner.
+                        </p>
+                    </div>
+                    {showGuide ? <IconChevronUp size={18} /> : <IconChevronDown size={18} />}
+                </button>
+                {showGuide ? (
+                    <div className="mt-4 grid gap-3 lg:grid-cols-3">
+                        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-100">
+                            Minimal `pricing-rules-access`, `pricing-rules-create`, dan `pricing-rules-update` untuk tenant promo.
+                        </div>
+                        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100">
+                            `products-pricing-update` khusus owner yang boleh ubah harga utama.
+                        </div>
+                        <div className="rounded-2xl border border-violet-200 bg-violet-50 p-4 text-sm text-violet-900 dark:border-violet-900/40 dark:bg-violet-950/20 dark:text-violet-100">
+                            Susun izin di role dulu, lalu pasang role ke user.
+                        </div>
+                    </div>
+                ) : null}
             </div>
 
             <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
-                <div className="mb-4 flex items-center gap-2">
-                    <IconAdjustmentsHorizontal
-                        size={18}
-                        className="text-primary-500"
-                    />
-                    <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-200">
-                        Advanced Filter
-                    </h2>
+                <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                        <IconAdjustmentsHorizontal
+                            size={18}
+                            className="text-primary-500"
+                        />
+                        <div>
+                            <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+                                Filter
+                            </h2>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                                {activeFilterCount > 0 ? `${activeFilterCount} filter aktif` : "Semua permission ditampilkan"}
+                            </p>
+                        </div>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => setShowFilters((value) => !value)}
+                        className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                    >
+                        {showFilters ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                        {showFilters ? "Sembunyikan filter" : "Buka filter"}
+                    </button>
                 </div>
-                <div className="grid gap-3 md:grid-cols-4">
+                {showFilters ? (
+                <>
+                <div className="mt-4 grid gap-3 md:grid-cols-4">
                     <div className="relative md:col-span-2">
                         <input
                             type="text"
@@ -205,6 +231,8 @@ export default function Index() {
                         </button>
                     ))}
                 </div>
+                </>
+                ) : null}
             </div>
 
             {rows.length > 0 ? (

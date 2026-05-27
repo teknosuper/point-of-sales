@@ -1,7 +1,7 @@
 import React from "react";
 import { Head, Link } from "@inertiajs/react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
-import { IconChecklist, IconCircleCheck, IconPlayerPlay, IconBooks } from "@tabler/icons-react";
+import { IconChecklist, IconCircleCheck, IconPlayerPlay, IconBooks } from "@/Utils/icons";
 
 export default function SetupWizard({
     steps = [],

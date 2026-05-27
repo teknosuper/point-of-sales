@@ -10,7 +10,7 @@ import {
     IconPencil,
     IconSearch,
     IconTrash,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 import { useAuthorization } from "@/Utils/authorization";
 
 const formatCurrency = (value = 0) =>

@@ -1,16 +1,18 @@
-import React from "react";
+import React, { useState } from "react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import Pagination from "@/Components/Dashboard/Pagination";
 import Table from "@/Components/Dashboard/Table";
 import { Head, Link, router } from "@inertiajs/react";
 import {
+    IconChevronDown,
+    IconChevronUp,
     IconCirclePlus,
     IconCrown,
     IconFileSearch,
     IconPencil,
     IconSearch,
     IconUsers,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 
 const formatCurrency = (value = 0) =>
     Number(value || 0).toLocaleString("id-ID", {
@@ -27,6 +29,11 @@ const formatDate = (value) =>
         : "-";
 
 export default function Index({ members, filters, tierOptions, summary }) {
+    const [showFilters, setShowFilters] = useState(
+        Boolean(filters?.search || filters?.tier || (filters?.status && filters.status !== "active"))
+    );
+    const [showQuickHelp, setShowQuickHelp] = useState(false);
+
     const handleFilterChange = (key, value) => {
         router.get(
             route("members.index"),
@@ -72,7 +79,7 @@ export default function Index({ members, filters, tierOptions, summary }) {
                             Member
                         </h1>
                         <p className="text-sm text-slate-500 dark:text-slate-400">
-                            Kelola pendaftaran, status, dan performa member tanpa memisahkan data dari customer inti.
+                            Kelola pendaftaran, status, dan performa member.
                         </p>
                     </div>
                     <Link
@@ -104,49 +111,69 @@ export default function Index({ members, filters, tierOptions, summary }) {
                 </div>
 
                 <div className="mb-4 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
-                    <div className="grid gap-3 md:grid-cols-4">
-                        <div className="relative md:col-span-2">
-                            <input
-                                type="text"
-                                value={filters.search || ""}
-                                onChange={(event) =>
-                                    handleFilterChange("search", event.target.value)
-                                }
-                                placeholder="Cari nama member atau nomor anggota..."
-                                className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 pr-11 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
-                            />
-                            <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-4 text-slate-400">
-                                <IconSearch size={18} />
-                            </div>
+                    <div className="flex items-center justify-between gap-3">
+                        <div>
+                            <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                                Filter Member
+                            </p>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                                Buka jika ingin menyaring nama, tier, atau status member.
+                            </p>
                         </div>
-
-                        <select
-                            value={filters.tier || ""}
-                            onChange={(event) =>
-                                handleFilterChange("tier", event.target.value)
-                            }
-                            className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                        <button
+                            type="button"
+                            onClick={() => setShowFilters((prev) => !prev)}
+                            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
                         >
-                            <option value="">Semua Tier</option>
-                            {tierOptions.map((tier) => (
-                                <option key={tier.value} value={tier.value}>
-                                    {tier.label}
-                                </option>
-                            ))}
-                        </select>
-
-                        <select
-                            value={filters.status || "active"}
-                            onChange={(event) =>
-                                handleFilterChange("status", event.target.value)
-                            }
-                            className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
-                        >
-                            <option value="active">Member Aktif</option>
-                            <option value="inactive">Member Nonaktif</option>
-                            <option value="all">Semua Status</option>
-                        </select>
+                            {showFilters ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                            {showFilters ? "Sembunyikan" : "Buka"}
+                        </button>
                     </div>
+                    {showFilters && (
+                        <div className="mt-4 grid gap-3 md:grid-cols-4">
+                            <div className="relative md:col-span-2">
+                                <input
+                                    type="text"
+                                    value={filters.search || ""}
+                                    onChange={(event) =>
+                                        handleFilterChange("search", event.target.value)
+                                    }
+                                    placeholder="Cari nama member atau nomor anggota..."
+                                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 pr-11 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                                />
+                                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-4 text-slate-400">
+                                    <IconSearch size={18} />
+                                </div>
+                            </div>
+
+                            <select
+                                value={filters.tier || ""}
+                                onChange={(event) =>
+                                    handleFilterChange("tier", event.target.value)
+                                }
+                                className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                            >
+                                <option value="">Semua Tier</option>
+                                {tierOptions.map((tier) => (
+                                    <option key={tier.value} value={tier.value}>
+                                        {tier.label}
+                                    </option>
+                                ))}
+                            </select>
+
+                            <select
+                                value={filters.status || "active"}
+                                onChange={(event) =>
+                                    handleFilterChange("status", event.target.value)
+                                }
+                                className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                            >
+                                <option value="active">Member Aktif</option>
+                                <option value="inactive">Member Nonaktif</option>
+                                <option value="all">Semua Status</option>
+                            </select>
+                        </div>
+                    )}
                 </div>
 
                 <Table.Card title="Daftar Member">
@@ -249,19 +276,34 @@ export default function Index({ members, filters, tierOptions, summary }) {
                 {members.last_page > 1 ? <Pagination links={members.links} /> : null}
 
                 <div className="mt-6 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-900/60">
-                    <div className="flex items-start gap-3">
-                        <div className="rounded-xl bg-white p-2 text-slate-500 dark:bg-slate-800 dark:text-slate-300">
-                            <IconFileSearch size={18} />
+                    <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-start gap-3">
+                            <div className="rounded-xl bg-white p-2 text-slate-500 dark:bg-slate-800 dark:text-slate-300">
+                                <IconFileSearch size={18} />
+                            </div>
+                            <div>
+                                <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                                    Bantuan cepat
+                                </p>
+                                <p className="mt-1 text-xs leading-6 text-slate-500 dark:text-slate-400">
+                                    Buka jika ingin melihat alur singkat pendaftaran member.
+                                </p>
+                            </div>
                         </div>
-                        <div>
-                            <p className="text-sm font-semibold text-slate-900 dark:text-white">
-                                Bantuan cepat
-                            </p>
-                            <p className="mt-1 text-xs leading-6 text-slate-500 dark:text-slate-400">
-                                Daftarkan member baru dari halaman ini atau langsung dari POS. Untuk upgrade pelanggan biasa menjadi member, gunakan tombol upgrade di detail pelanggan atau picker pelanggan di POS.
-                            </p>
-                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setShowQuickHelp((prev) => !prev)}
+                            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                        >
+                            {showQuickHelp ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                            {showQuickHelp ? "Sembunyikan" : "Buka"}
+                        </button>
                     </div>
+                    {showQuickHelp && (
+                        <p className="mt-3 text-xs leading-6 text-slate-500 dark:text-slate-400">
+                            Daftarkan member baru dari halaman ini atau langsung dari POS. Untuk upgrade pelanggan biasa menjadi member, gunakan tombol upgrade di detail pelanggan atau picker pelanggan di POS.
+                        </p>
+                    )}
                 </div>
             </div>
         </>

@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { Listbox } from '@headlessui/react'
-import { IconChevronDown, IconCircle, IconCircleFilled } from '@tabler/icons-react'
+import { IconChevronDown, IconCircle, IconCircleFilled } from '@/Utils/icons'
 
 export default function InputSelect({ selected, data, setSelected, label, errors, placeholder, multiple = false, searchable = false, displayKey = 'name' }) {
     const [search, setSearch] = useState('')

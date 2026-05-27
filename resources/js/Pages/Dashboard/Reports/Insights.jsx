@@ -19,7 +19,7 @@ import {
     IconTrendingUp,
     IconUsers,
     IconX,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 
 const defaultFilters = {
     start_date: "",

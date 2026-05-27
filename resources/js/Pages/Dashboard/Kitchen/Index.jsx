@@ -5,6 +5,8 @@ import { useEffect, useRef, useState } from "react";
 import {
     IconCheck,
     IconChefHat,
+    IconChevronDown,
+    IconChevronUp,
     IconClockHour4,
     IconDeviceDesktop,
     IconDeviceIpad,
@@ -17,7 +19,7 @@ import {
     IconRefresh,
     IconSearch,
     IconX,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 import toast from "react-hot-toast";
 
 const statusMeta = {
@@ -586,7 +588,7 @@ export default function KitchenIndex({
                             {kioskMode ? "Antrean Dapur" : "Layar Dapur"}
                         </h1>
                         <p className="text-xs text-slate-500 dark:text-slate-400">
-                            Tampilan antrean dapur yang lebih ringkas untuk proses cepat.
+                            Pantau tiket dapur dan selesaikan pesanan yang sedang berjalan.
                         </p>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
@@ -742,7 +744,8 @@ export default function KitchenIndex({
                                     className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
                                 >
                                     <IconFilter size={14} />
-                                    {showAdvancedFilter ? "Tutup filter" : "Filter lanjutan"}
+                                    {showAdvancedFilter ? "Sembunyikan filter" : "Buka filter"}
+                                    {showAdvancedFilter ? <IconChevronUp size={14} /> : <IconChevronDown size={14} />}
                                 </button>
                                 <div className="ml-auto flex flex-wrap gap-2">
                                     {[

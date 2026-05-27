@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { IconShoppingCart } from "@tabler/icons-react";
+import { IconShoppingCart } from "@/Utils/icons";
 
 const MIN_SPLASH_MS = 900;
 

@@ -1,12 +1,13 @@
-import React from "react";
+import React, { useState } from "react";
 import { Head, Link } from "@inertiajs/react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import {
     IconArrowLeft,
+    IconChevronDown,
+    IconChevronUp,
     IconDeviceDesktopAnalytics,
-    IconHistory,
     IconUser,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 
 const formatDateTime = (value) =>
     value
@@ -60,6 +61,10 @@ function KeyValueTable({ data }) {
 }
 
 export default function Show({ auditLog }) {
+    const [showBefore, setShowBefore] = useState(false);
+    const [showAfter, setShowAfter] = useState(false);
+    const [showMeta, setShowMeta] = useState(false);
+
     return (
         <>
             <Head title={`Audit Log ${auditLog.id}`} />
@@ -67,12 +72,11 @@ export default function Show({ auditLog }) {
             <div className="space-y-6">
                 <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                     <div>
-                        <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900 dark:text-white">
-                            <IconHistory size={28} className="text-primary-500" />
-                            Detail Audit Log
+                        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
+                            Detail Audit
                         </h1>
                         <p className="text-sm text-slate-500 dark:text-slate-400">
-                            Event {auditLog.event} pada modul {auditLog.module}.
+                            Perubahan `{auditLog.event}` pada modul {auditLog.module}.
                         </p>
                     </div>
                     <Link
@@ -140,25 +144,55 @@ export default function Show({ auditLog }) {
                 </div>
 
                 <div className="grid gap-6 xl:grid-cols-2">
-                    <div className="space-y-3">
-                        <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
-                            Before
-                        </h2>
-                        <KeyValueTable data={auditLog.before || {}} />
+                    <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+                        <div className="flex items-center justify-between gap-3">
+                            <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+                                Sebelum
+                            </h2>
+                            <button
+                                type="button"
+                                onClick={() => setShowBefore((prev) => !prev)}
+                                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                            >
+                                {showBefore ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                                {showBefore ? "Sembunyikan" : "Buka"}
+                            </button>
+                        </div>
+                        {showBefore && <div className="mt-4"><KeyValueTable data={auditLog.before || {}} /></div>}
                     </div>
-                    <div className="space-y-3">
-                        <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
-                            After
-                        </h2>
-                        <KeyValueTable data={auditLog.after || {}} />
+                    <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+                        <div className="flex items-center justify-between gap-3">
+                            <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+                                Sesudah
+                            </h2>
+                            <button
+                                type="button"
+                                onClick={() => setShowAfter((prev) => !prev)}
+                                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                            >
+                                {showAfter ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                                {showAfter ? "Sembunyikan" : "Buka"}
+                            </button>
+                        </div>
+                        {showAfter && <div className="mt-4"><KeyValueTable data={auditLog.after || {}} /></div>}
                     </div>
                 </div>
 
-                <div className="space-y-3">
-                    <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
-                        Meta
-                    </h2>
-                    <KeyValueTable data={auditLog.meta || {}} />
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+                    <div className="flex items-center justify-between gap-3">
+                        <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+                            Meta
+                        </h2>
+                        <button
+                            type="button"
+                            onClick={() => setShowMeta((prev) => !prev)}
+                            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                        >
+                            {showMeta ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                            {showMeta ? "Sembunyikan" : "Buka"}
+                        </button>
+                    </div>
+                    {showMeta && <div className="mt-4"><KeyValueTable data={auditLog.meta || {}} /></div>}
                 </div>
             </div>
         </>

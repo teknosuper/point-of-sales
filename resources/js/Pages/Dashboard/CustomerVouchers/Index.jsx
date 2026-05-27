@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import { Head, Link, router } from "@inertiajs/react";
 import Button from "@/Components/Dashboard/Button";
@@ -6,12 +6,14 @@ import Search from "@/Components/Dashboard/Search";
 import Table from "@/Components/Dashboard/Table";
 import Pagination from "@/Components/Dashboard/Pagination";
 import {
+    IconChevronDown,
+    IconChevronUp,
     IconCirclePlus,
     IconCreditCard,
     IconDatabaseOff,
     IconPencilCog,
     IconTrash,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 import { useAuthorization } from "@/Utils/authorization";
 
 const formatPrice = (value = 0) =>
@@ -68,6 +70,9 @@ const statusBadge = (voucher) => {
 export default function Index({ vouchers, filters = {} }) {
     const { can } = useAuthorization();
     const hasData = vouchers.data.length > 0;
+    const [showFilters, setShowFilters] = useState(
+        Boolean(filters?.search || filters?.status)
+    );
 
     const handleFilterChange = (key, value) => {
         router.get(
@@ -88,7 +93,7 @@ export default function Index({ vouchers, filters = {} }) {
                             Voucher Customer
                         </h1>
                         <p className="text-sm text-slate-500 dark:text-slate-400">
-                            Voucher personal untuk promosi retensi dan reward pelanggan.
+                            Kelola voucher personal untuk pelanggan.
                         </p>
                     </div>
                     {can("customer-vouchers-create") && (
@@ -103,27 +108,47 @@ export default function Index({ vouchers, filters = {} }) {
                 </div>
 
                 <div className="mb-4 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
-                    <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px]">
-                        <Search
-                            url={route("customer-vouchers.index")}
-                            placeholder="Cari kode, voucher, pelanggan..."
-                            query={filters.search || ""}
-                        />
-                        <select
-                            value={filters.status || ""}
-                            onChange={(event) =>
-                                handleFilterChange("status", event.target.value)
-                            }
-                            className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-800 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                    <div className="flex items-center justify-between gap-3">
+                        <div>
+                            <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                                Filter Voucher
+                            </p>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                                Buka jika ingin mencari voucher atau menyaring status.
+                            </p>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setShowFilters((prev) => !prev)}
+                            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
                         >
-                            <option value="">Semua Status</option>
-                            <option value="active">Aktif</option>
-                            <option value="scheduled">Terjadwal</option>
-                            <option value="expired">Expired</option>
-                            <option value="used">Sudah Dipakai</option>
-                            <option value="inactive">Nonaktif</option>
-                        </select>
+                            {showFilters ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                            {showFilters ? "Sembunyikan" : "Buka"}
+                        </button>
                     </div>
+                    {showFilters && (
+                        <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_220px]">
+                            <Search
+                                url={route("customer-vouchers.index")}
+                                placeholder="Cari kode, voucher, pelanggan..."
+                                query={filters.search || ""}
+                            />
+                            <select
+                                value={filters.status || ""}
+                                onChange={(event) =>
+                                    handleFilterChange("status", event.target.value)
+                                }
+                                className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-800 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                            >
+                                <option value="">Semua Status</option>
+                                <option value="active">Aktif</option>
+                                <option value="scheduled">Terjadwal</option>
+                                <option value="expired">Expired</option>
+                                <option value="used">Sudah Dipakai</option>
+                                <option value="inactive">Nonaktif</option>
+                            </select>
+                        </div>
+                    )}
                 </div>
 
                 <Table.Card title="Daftar Voucher">

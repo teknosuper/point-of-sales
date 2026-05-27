@@ -8,7 +8,7 @@ import {
     IconCurrencyDollar,
     IconReceipt,
     IconTruck,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 
 const formatCurrency = (value = 0) =>
     new Intl.NumberFormat("id-ID", {
@@ -71,7 +71,7 @@ export default function AgingIndex() {
                         Aging & Pengingat
                     </h1>
                     <p className="text-sm text-slate-500 dark:text-slate-400">
-                        Ringkasan piutang dan hutang berdasarkan aging bucket, plus pengingat jatuh tempo.
+                        Lihat hutang dan piutang yang perlu segera ditindaklanjuti.
                     </p>
                 </div>
 
@@ -108,7 +108,7 @@ export default function AgingIndex() {
                             <div className="p-2 rounded-lg bg-amber-50 dark:bg-amber-950/30">
                                 <IconAlertTriangle size={20} className="text-amber-500" />
                             </div>
-                            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Hutang Overdue</p>
+                            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Hutang Tertunda</p>
                         </div>
                         <p className="text-2xl font-bold text-amber-600">
                             {formatCurrency(
@@ -124,7 +124,7 @@ export default function AgingIndex() {
                             <div className="p-2 rounded-lg bg-rose-50 dark:bg-rose-950/30">
                                 <IconReceipt size={20} className="text-rose-500" />
                             </div>
-                            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Piutang Overdue</p>
+                            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Piutang Tertunda</p>
                         </div>
                         <p className="text-2xl font-bold text-rose-600">
                             {formatCurrency(

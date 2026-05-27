@@ -12,7 +12,7 @@ import {
     IconBuildingBank,
     IconCheck,
     IconAlertCircle,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 import ThermalReceipt, {
     ThermalReceipt58mm,
 } from "@/Components/Receipt/ThermalReceipt";

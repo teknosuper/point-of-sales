@@ -17,7 +17,7 @@ import {
     IconCurrencyDollar,
     IconPlus,
     IconTrash,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 
 const previewAutoSku = (sku, barcode, title) => {
     const source = String(sku || barcode || title || "SKU")

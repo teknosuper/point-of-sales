@@ -3,7 +3,7 @@ import DashboardLayout from "@/Layouts/DashboardLayout";
 import { Head, Link, router } from "@inertiajs/react";
 import Button from "@/Components/Dashboard/Button";
 import Table from "@/Components/Dashboard/Table";
-import { IconArrowLeft, IconBrandWhatsapp, IconChecks, IconPlayerPlay, IconPlayerStop } from "@tabler/icons-react";
+import { IconArrowLeft, IconBrandWhatsapp, IconChecks, IconPlayerPlay, IconPlayerStop } from "@/Utils/icons";
 import toast from "react-hot-toast";
 
 const formatDateTime = (value) =>

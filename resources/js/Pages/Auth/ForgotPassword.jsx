@@ -4,7 +4,7 @@ import {
     IconMail,
     IconLoader2,
     IconArrowLeft,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 import AuthBotGuardFields from "@/Components/AuthBotGuardFields";
 
 export default function ForgotPassword({ status, botGuard }) {

@@ -6,7 +6,7 @@ import {
     IconBuildingStore,
     IconChecklist,
     IconToolsKitchen2,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 
 function ActionCard({ href, title, description, icon: Icon }) {
     return (

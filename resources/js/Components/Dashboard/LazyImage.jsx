@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { IconPhoto } from "@tabler/icons-react";
+import { IconPhoto } from "@/Utils/icons";
 import { resolveProductImageSrc } from "@/Utils/imagePlaceholder";
 
 /**

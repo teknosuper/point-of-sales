@@ -11,7 +11,7 @@ import {
     IconChevronUp,
     IconHistory,
     IconPackages,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 
 const formatDateTime = (value) =>
     value

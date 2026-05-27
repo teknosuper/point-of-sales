@@ -4,7 +4,7 @@ import {
     IconMinus,
     IconPlus,
     IconShoppingCart,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 import { getProductImageUrl } from "@/Utils/imageUrl";
 
 const formatPrice = (value = 0) =>

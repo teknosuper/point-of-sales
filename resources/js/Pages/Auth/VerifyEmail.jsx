@@ -6,7 +6,7 @@ import {
     IconLoader2,
     IconLogout,
     IconRefresh,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 
 export default function VerifyEmail({ status, botGuard }) {
     const honeypotField = botGuard?.honeypot_field || "company_website";

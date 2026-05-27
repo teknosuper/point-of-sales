@@ -7,7 +7,7 @@ import {
     IconLogout,
     IconMenu2,
     IconX,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 import Sidebar from "@/Components/Dashboard/Sidebar";
 import PWAConnectionStatus from "@/Components/PWAConnectionStatus";
 import PWAInstallButton from "@/Components/PWAInstallButton";

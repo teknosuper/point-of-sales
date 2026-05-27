@@ -7,7 +7,7 @@ import {
     IconLock,
     IconRefresh,
     IconServerOff,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 import { useTheme } from "@/Context/ThemeSwitcherContext";
 
 const errorContent = {

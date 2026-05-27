@@ -8,7 +8,7 @@ import {
     IconCurrencyDollar,
     IconBuildingWarehouse,
     IconChartArrowsVertical,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 import hasAnyPermission from "@/Utils/Permission";
 
 const cards = [

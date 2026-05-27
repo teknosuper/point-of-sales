@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Head, Link, router } from "@inertiajs/react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
-import { IconChevronDown, IconChevronUp, IconFilter } from "@tabler/icons-react";
+import { IconChevronDown, IconChevronUp, IconFilter } from "@/Utils/icons";
 
 const formatCurrency = (value = 0) =>
     new Intl.NumberFormat("id-ID", {

@@ -17,7 +17,7 @@ import {
     IconUsersGroup,
     IconMenu2,
     IconX,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 
 const highlights = [
     {

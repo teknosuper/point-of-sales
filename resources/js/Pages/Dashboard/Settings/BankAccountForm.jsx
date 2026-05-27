@@ -5,7 +5,7 @@ import {
     IconArrowLeft,
     IconCheck,
     IconBuildingBank,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 import toast from "react-hot-toast";
 import Input from "@/Components/Dashboard/Input";
 import { useAuthorization } from "@/Utils/authorization";

@@ -12,7 +12,7 @@ import {
     IconX,
     IconUser,
     IconWallet,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 import Notification from "@/Components/Dashboard/Notification";
 import OutletSwitcher from "@/Components/Dashboard/OutletSwitcher";
 import PWAConnectionStatus from "@/Components/PWAConnectionStatus";

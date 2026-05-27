@@ -7,7 +7,7 @@ import {
     IconArrowLeft,
     IconShield,
     IconBuildingStore,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 import Input from "@/Components/Dashboard/Input";
 import Checkbox from "@/Components/Dashboard/Checkbox";
 import toast from "react-hot-toast";

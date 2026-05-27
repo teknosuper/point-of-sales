@@ -3,7 +3,7 @@ import DashboardLayout from "@/Layouts/DashboardLayout";
 import { Head, Link, useForm } from "@inertiajs/react";
 import Button from "@/Components/Dashboard/Button";
 import Table from "@/Components/Dashboard/Table";
-import { IconArrowLeft, IconDatabaseOff, IconTrash, IconUsersGroup } from "@tabler/icons-react";
+import { IconArrowLeft, IconDatabaseOff, IconTrash, IconUsersGroup } from "@/Utils/icons";
 
 const formatDateTime = (value) =>
     value

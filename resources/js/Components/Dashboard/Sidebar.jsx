@@ -1,6 +1,6 @@
 import React from "react";
 import { usePage } from "@inertiajs/react";
-import { IconLayoutGrid } from "@tabler/icons-react";
+import { IconLayoutGrid } from "@/Utils/icons";
 import LinkItem from "@/Components/Dashboard/LinkItem";
 import LinkItemDropdown from "@/Components/Dashboard/LinkItemDropdown";
 import OutletSwitcher from "@/Components/Dashboard/OutletSwitcher";

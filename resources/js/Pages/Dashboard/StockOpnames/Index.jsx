@@ -12,7 +12,7 @@ import {
     IconClipboardCheck,
     IconEye,
     IconSearch,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 
 function formatDateTime(value) {
     if (!value) return "-";

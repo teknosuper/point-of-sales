@@ -6,7 +6,7 @@ import {
     IconPackage,
     IconCalendar,
     IconInvoice,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 
 export default function ShippingLabel({ transaction, store = {} }) {
     const formatPrice = (price = 0) =>

@@ -8,7 +8,7 @@ import {
     IconSearch,
     IconSelector,
     IconX,
-} from '@tabler/icons-react'
+} from '@/Utils/icons'
 import { decoratePermission } from "@/Utils/permissionPresentation";
 export default function ListBox({ selected, data, setSelected, label, errors, presets = [] }) {
     const [search, setSearch] = useState('');

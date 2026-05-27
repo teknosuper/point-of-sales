@@ -3,7 +3,7 @@ import DashboardLayout from "@/Layouts/DashboardLayout";
 import { Head, Link, router } from "@inertiajs/react";
 import Pagination from "@/Components/Dashboard/Pagination";
 import Table from "@/Components/Dashboard/Table";
-import { IconBellRinging, IconBrandWhatsapp } from "@tabler/icons-react";
+import { IconBellRinging, IconBrandWhatsapp } from "@/Utils/icons";
 
 export default function Index({ campaigns, filters }) {
     const handleFilterChange = (key, value) => {

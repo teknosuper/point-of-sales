@@ -7,7 +7,7 @@ import {
     IconCheck,
     IconAlertCircle,
     IconBuildingBank,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 import {
     bankPlaceholderDataUri,
     setFallbackImage,

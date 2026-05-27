@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Head, Link } from "@inertiajs/react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
-import { IconChevronDown, IconChevronUp } from "@tabler/icons-react";
+import { IconChevronDown, IconChevronUp } from "@/Utils/icons";
 
 function AuditSection({ title, description, count, children, actionHref, actionLabel }) {
     const [isOpen, setIsOpen] = useState(false);

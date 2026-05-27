@@ -10,7 +10,7 @@ import {
     IconPlus,
     IconSearch,
     IconX,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 import toast from "react-hot-toast";
 import { useAuthorization } from "@/Utils/authorization";
 

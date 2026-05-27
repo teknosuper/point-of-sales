@@ -7,7 +7,7 @@ import {
     IconReceipt,
     IconRotateClockwise2,
     IconWallet,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 import { useAuthorization } from "@/Utils/authorization";
 
 const formatCurrency = (value = 0) =>

@@ -9,7 +9,7 @@ import {
     IconAdjustmentsHorizontal,
     IconLayoutGrid,
     IconList,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 import { getProductImageUrl } from "@/Utils/imageUrl";
 import CameraBarcodeScanner from "./CameraBarcodeScanner";
 

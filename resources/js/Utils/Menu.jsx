@@ -37,7 +37,7 @@ import {
     IconSpeakerphone,
     IconLock,
     IconPrinter,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 import hasAnyPermission from "./Permission";
 import React from "react";
 

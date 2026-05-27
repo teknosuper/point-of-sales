@@ -10,7 +10,7 @@ import {
     IconArrowLeft,
     IconChevronDown,
     IconChevronUp,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 import axios from "axios";
 
 export default function Create() {

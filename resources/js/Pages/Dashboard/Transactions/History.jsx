@@ -19,7 +19,7 @@ import {
     IconChevronDown,
     IconChevronUp,
     IconPrinter,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 
 const defaultFilters = {
     invoice: "",

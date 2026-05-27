@@ -3,7 +3,7 @@ import DashboardLayout from "@/Layouts/DashboardLayout";
 import { Head, Link, useForm, usePage } from "@inertiajs/react";
 import Textarea from "@/Components/Dashboard/TextArea";
 import Button from "@/Components/Dashboard/Button";
-import { IconArrowLeft, IconClipboardCheck } from "@tabler/icons-react";
+import { IconArrowLeft, IconClipboardCheck } from "@/Utils/icons";
 import toast from "react-hot-toast";
 
 export default function Create() {

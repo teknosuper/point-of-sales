@@ -4,7 +4,7 @@ import { Head, useForm, usePage, Link } from "@inertiajs/react";
 import Input from "@/Components/Dashboard/Input";
 import Textarea from "@/Components/Dashboard/TextArea";
 import toast from "react-hot-toast";
-import { IconUsers, IconDeviceFloppy, IconArrowLeft } from "@tabler/icons-react";
+import { IconUsers, IconDeviceFloppy, IconArrowLeft } from "@/Utils/icons";
 import axios from "axios";
 
 export default function Edit({ customer }) {

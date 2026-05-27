@@ -10,7 +10,7 @@ import {
     IconSearch,
     IconTrash,
     IconX,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 import Pagination from "@/Components/Dashboard/Pagination";
 import toast from "react-hot-toast";
 import { useAuthorization } from "@/Utils/authorization";

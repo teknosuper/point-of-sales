@@ -8,7 +8,7 @@ import {
     IconCheck,
     IconUserPlus,
     IconX,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 import { CustomerHistoryButton } from "./CustomerHistoryPanel";
 import AddCustomerModal from "./AddCustomerModal";
 

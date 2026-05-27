@@ -9,7 +9,7 @@ import {
     IconDeviceFloppy,
     IconArrowLeft,
     IconPhoto,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 import {
     categoryPlaceholderDataUri,
     resolveCategoryImageSrc,

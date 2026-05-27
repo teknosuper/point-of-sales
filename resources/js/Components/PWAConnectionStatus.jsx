@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { IconCloudCheck, IconCloudOff } from "@tabler/icons-react";
+import { IconCloudCheck, IconCloudOff } from "@/Utils/icons";
 import toast from "react-hot-toast";
 
 export default function PWAConnectionStatus({ compact = false }) {

@@ -17,7 +17,7 @@ import {
     IconTrash,
     IconUsers,
     IconX,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 import { useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
 

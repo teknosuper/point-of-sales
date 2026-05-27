@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import { IconDownload } from "@tabler/icons-react";
+import { IconDownload } from "@/Utils/icons";
 import toast from "react-hot-toast";
 import usePwaInstall from "@/Hooks/usePwaInstall";
 

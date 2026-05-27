@@ -16,7 +16,7 @@ import {
     IconShieldCheck,
     IconTrash,
     IconWifi,
-} from "@tabler/icons-react";
+} from "@/Utils/icons";
 import { useEffect, useRef, useState } from "react";
 import usePwaInstall from "@/Hooks/usePwaInstall";
 
