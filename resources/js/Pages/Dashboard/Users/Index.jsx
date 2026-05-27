@@ -271,7 +271,7 @@ export default function Index() {
                             Pengguna
                         </h1>
                         <p className="text-sm text-slate-500 dark:text-slate-400">
-                            Kelola akun, role, dan akses outlet pengguna.
+                            Kelola akun, role akses, dan outlet yang bisa dipakai pengguna.
                         </p>
                     </div>
                     <div className="flex gap-2">

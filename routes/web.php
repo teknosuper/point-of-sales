@@ -84,6 +84,7 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
     })->middleware('permission:dashboard-access')->name('account.password.edit');
     Route::post('/outlet-context', [OutletContextController::class, 'update'])->name('outlets.switch');
     Route::get('/permissions', [PermissionController::class, 'index'])->middleware('permission:permissions-access')->name('permissions.index');
+    Route::get('/permissions/wizard', [PermissionController::class, 'wizard'])->middleware('permission:permissions-access')->name('permissions.wizard');
     Route::get('/guides/outlet-kitchen', [OperationsGuideController::class, 'outletKitchen'])->middleware('permission:dashboard-access')->name('guides.outlet-kitchen');
     Route::get('/guides/setup-wizard', [OperationsGuideController::class, 'setupWizard'])->middleware('permission:dashboard-access')->name('guides.setup-wizard');
     Route::get('/guides/pwa-setup', [OperationsGuideController::class, 'pwaSetup'])->middleware('permission:dashboard-access')->name('guides.pwa-setup');

@@ -5,6 +5,11 @@ import {
     IconUserEdit,
     IconDeviceFloppy,
     IconArrowLeft,
+    IconChevronLeft,
+    IconChevronRight,
+    IconChevronDown,
+    IconChevronUp,
+    IconSearch,
     IconShield,
     IconBuildingStore,
 } from "@/Utils/icons";
@@ -23,6 +28,61 @@ function groupOutlets(outlets = []) {
         owner: outlets.filter((outlet) => (outlet.outlet_type || "main") !== "tenant"),
         tenant: outlets.filter((outlet) => outlet.outlet_type === "tenant"),
     };
+}
+
+function roleGroupMeta(roleName) {
+    if (["cashier", "waiter", "kitchen-operator", "transactions-access"].includes(roleName)) {
+        return { key: "operational", label: "Operasional" };
+    }
+
+    if (
+        roleName.includes("pricing") ||
+        roleName.includes("product") ||
+        roleName.includes("category") ||
+        roleName.includes("outlet")
+    ) {
+        return { key: "catalog", label: "Produk, Harga, dan Outlet" };
+    }
+
+    if (
+        roleName.includes("customer") ||
+        roleName.includes("crm") ||
+        roleName.includes("voucher") ||
+        roleName.includes("segment") ||
+        roleName.includes("dining")
+    ) {
+        return { key: "customer", label: "Pelanggan dan CRM" };
+    }
+
+    if (
+        roleName.includes("stock") ||
+        roleName.includes("supplier") ||
+        roleName.includes("purchase") ||
+        roleName.includes("receivable") ||
+        roleName.includes("payable") ||
+        roleName.includes("goods")
+    ) {
+        return { key: "inventory", label: "Stok dan Pengadaan" };
+    }
+
+    if (
+        roleName.includes("report") ||
+        roleName.includes("profit") ||
+        roleName.includes("audit")
+    ) {
+        return { key: "report", label: "Laporan dan Audit" };
+    }
+
+    if (
+        roleName.includes("role") ||
+        roleName.includes("permission") ||
+        roleName.includes("user") ||
+        roleName === "super-admin"
+    ) {
+        return { key: "admin", label: "Admin Sistem" };
+    }
+
+    return { key: "other", label: "Lainnya" };
 }
 
 export default function Edit() {
@@ -56,6 +116,14 @@ export default function Edit() {
     });
 
     const [avatarPreview, setAvatarPreview] = useState(user.avatar || null);
+    const [showAccessGuide, setShowAccessGuide] = useState(false);
+    const [showRoleLibrary, setShowRoleLibrary] = useState(false);
+    const [roleSearch, setRoleSearch] = useState("");
+    const [showPermissionSummary, setShowPermissionSummary] = useState(false);
+    const [showOutletDetail, setShowOutletDetail] = useState(false);
+    const [showWorkMode, setShowWorkMode] = useState(false);
+    const [showWaiterScope, setShowWaiterScope] = useState(false);
+    const [currentStep, setCurrentStep] = useState(0);
 
     const setSelectedRoles = (e) => {
         let items = [...data.selectedRoles];
@@ -115,6 +183,37 @@ export default function Edit() {
     const selectedRoleObjects = roles.filter((role) =>
         data.selectedRoles.includes(role.name)
     );
+    const unselectedRoleObjects = roles.filter(
+        (role) => !data.selectedRoles.includes(role.name)
+    );
+    const filteredUnselectedRoleObjects = unselectedRoleObjects.filter((role) => {
+        const haystack = [
+            role.name,
+            roleLabel(role.name),
+            roleDescription(role.name) || "",
+        ]
+            .join(" ")
+            .toLowerCase();
+
+        return haystack.includes(roleSearch.toLowerCase());
+    });
+    const groupedFilteredUnselectedRoles = Object.values(
+        filteredUnselectedRoleObjects.reduce((accumulator, role) => {
+            const group = roleGroupMeta(role.name);
+
+            if (!accumulator[group.key]) {
+                accumulator[group.key] = {
+                    key: group.key,
+                    label: group.label,
+                    items: [],
+                };
+            }
+
+            accumulator[group.key].items.push(role);
+
+            return accumulator;
+        }, {})
+    );
     const effectivePermissions = Array.from(
         new Map(
             selectedRoleObjects
@@ -151,6 +250,14 @@ export default function Edit() {
         (outlet) => outlet.outlet_type === "tenant"
     ).length;
     const selectedOwnerCount = selectedOutletObjects.length - selectedTenantCount;
+    const wizardSteps = [
+        { key: "account", title: "Akun", description: "Nama, avatar, dan sandi." },
+        { key: "roles", title: "Role", description: "Pilih role akses aktif." },
+        { key: "outlets", title: "Outlet", description: "Atur akses outlet." },
+        { key: "advanced", title: "Lanjutan", description: "Mode kerja dan detail tambahan." },
+    ];
+    const isFirstStep = currentStep === 0;
+    const isLastStep = currentStep === wizardSteps.length - 1;
 
     return (
         <>
@@ -166,17 +273,54 @@ export default function Edit() {
                 </Link>
                 <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
                     <IconUserEdit size={28} className="text-primary-500" />
-                    Edit Pengguna
+                    Wizard Edit Pengguna
                 </h1>
                 <p className="text-sm text-slate-500 mt-1">
-                    {user.name} • {user.email}
+                    Ubah data pengguna langkah demi langkah agar lebih mudah dipahami.
                 </p>
             </div>
 
             <form onSubmit={submit}>
                 <div className="max-w-2xl space-y-6">
+                    <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+                        <div className="mb-4 rounded-2xl border border-primary-200 bg-primary-50/70 px-4 py-3 dark:border-primary-900/40 dark:bg-primary-950/20">
+                            <p className="text-xs uppercase tracking-wide text-primary-700 dark:text-primary-300">
+                                Sedang mengedit
+                            </p>
+                            <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-white">
+                                {user.name} • {user.email}
+                            </p>
+                            <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+                                Langkah {currentStep + 1} dari {wizardSteps.length}: {wizardSteps[currentStep].title}
+                            </p>
+                        </div>
+                        <div className="grid gap-3 md:grid-cols-4">
+                            {wizardSteps.map((step, index) => (
+                                <button
+                                    key={step.key}
+                                    type="button"
+                                    onClick={() => setCurrentStep(index)}
+                                    className={`rounded-xl border px-4 py-3 text-left transition ${
+                                        currentStep === index
+                                            ? "border-primary-500 bg-primary-50 dark:bg-primary-950/20"
+                                            : "border-slate-200 dark:border-slate-700"
+                                    }`}
+                                >
+                                    <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                        Langkah {index + 1}
+                                    </p>
+                                    <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-white">
+                                        {step.title}
+                                    </p>
+                                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                        {step.description}
+                                    </p>
+                                </button>
+                            ))}
+                        </div>
+                    </div>
                     {/* Account Info */}
-                    <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6">
+                    <div className={currentStep === 0 ? "bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6" : "hidden"}>
                         <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-4">
                             Informasi Akun
                         </h3>
@@ -267,41 +411,237 @@ export default function Edit() {
                     </div>
 
                     {/* Roles */}
-                    <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6">
-                        <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-4 flex items-center gap-2">
-                            <IconShield size={16} />
-                            Akses Group
-                        </h3>
-                        <div className="flex flex-wrap gap-4">
-                            {roles.map((role, i) => (
-                                <label
-                                    key={i}
-                                    className={`flex items-start gap-3 px-4 py-3 rounded-xl border cursor-pointer transition-all ${
-                                        data.selectedRoles.includes(role.name)
-                                            ? "border-primary-500 bg-primary-50 dark:bg-primary-950/50"
-                                            : "border-slate-200 dark:border-slate-700 hover:border-primary-300"
-                                    }`}
-                                >
-                                    <Checkbox
-                                        value={role.name}
-                                        onChange={setSelectedRoles}
-                                        checked={data.selectedRoles.includes(
-                                            role.name
-                                        )}
-                                    />
-                                    <span className="flex flex-col">
-                                        <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                                            {roleLabel(role.name)}
-                                        </span>
-                                        {roleDescription(role.name) ? (
-                                            <span className="text-xs text-slate-500 dark:text-slate-400">
-                                                {roleDescription(role.name)}
-                                            </span>
-                                        ) : null}
-                                    </span>
-                                </label>
-                            ))}
+                    <div className={currentStep === 1 ? "bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6" : "hidden"}>
+                        <div className="flex items-start justify-between gap-3">
+                            <div>
+                                <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1 flex items-center gap-2">
+                                    <IconShield size={16} />
+                                    Role Akses
+                                </h3>
+                                <p className="text-sm text-slate-500 dark:text-slate-400">
+                                    Fokus ke role yang aktif. Buka daftar lengkap hanya saat perlu mengubah.
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setShowRoleLibrary((value) => !value)}
+                                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                            >
+                                {showRoleLibrary ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                                {showRoleLibrary ? "Tutup daftar role" : "Ubah role"}
+                            </button>
                         </div>
+
+                        <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/40">
+                            <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                                Role yang Aktif
+                            </p>
+                            {selectedRoleObjects.length > 0 ? (
+                                <div className="mt-3 overflow-hidden rounded-xl border border-primary-200 dark:border-primary-900/40">
+                                    <div className="hidden grid-cols-[minmax(0,1.2fr)_minmax(0,1.8fr)_88px] gap-3 border-b border-primary-200 bg-primary-100/60 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-primary-700 dark:border-primary-900/40 dark:bg-primary-950/30 dark:text-primary-300 md:grid">
+                                        <div>Role</div>
+                                        <div>Keterangan</div>
+                                        <div className="text-right">Aksi</div>
+                                    </div>
+                                    {selectedRoleObjects.map((role, index) => (
+                                        <div
+                                            key={role.id}
+                                            className={`grid gap-2 bg-primary-50 px-4 py-3 dark:bg-primary-950/20 md:grid-cols-[minmax(0,1.2fr)_minmax(0,1.8fr)_88px] md:items-start md:gap-3 ${
+                                                index !== selectedRoleObjects.length - 1
+                                                    ? "border-b border-primary-200 dark:border-primary-900/30"
+                                                    : ""
+                                            }`}
+                                        >
+                                            <div>
+                                                <p className="text-sm font-medium text-slate-800 dark:text-slate-100">
+                                                    {roleLabel(role.name)}
+                                                </p>
+                                            </div>
+                                            <div>
+                                                {roleDescription(role.name) ? (
+                                                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                                                        {roleDescription(role.name)}
+                                                    </p>
+                                                ) : (
+                                                    <p className="text-xs text-slate-400 dark:text-slate-500">
+                                                        {role.name}
+                                                    </p>
+                                                )}
+                                            </div>
+                                            <div className="md:text-right">
+                                                <button
+                                                    type="button"
+                                                    onClick={() =>
+                                                        setData(
+                                                            "selectedRoles",
+                                                            data.selectedRoles.filter(
+                                                                (name) => name !== role.name
+                                                            )
+                                                        )
+                                                    }
+                                                    className="rounded-lg border border-primary-200 px-2.5 py-1 text-xs font-medium text-primary-700 hover:bg-white dark:border-primary-900/40 dark:text-primary-300"
+                                                >
+                                                    Lepas
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <p className="mt-3 text-sm text-amber-700 dark:text-amber-300">
+                                    Belum ada role aktif. Pilih minimal satu role.
+                                </p>
+                            )}
+                        </div>
+
+                        {showRoleLibrary ? (
+                            <div className="mt-4 space-y-4">
+                                <div>
+                                    <p className="mb-3 text-sm font-semibold text-slate-700 dark:text-slate-200">
+                                        Role Aktif
+                                    </p>
+                                    <div className="overflow-hidden rounded-xl border border-primary-200 dark:border-primary-900/40">
+                                        <div className="hidden grid-cols-[44px_minmax(0,1.2fr)_minmax(0,1.8fr)] gap-3 border-b border-primary-200 bg-primary-100/60 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-primary-700 dark:border-primary-900/40 dark:bg-primary-950/30 dark:text-primary-300 md:grid">
+                                            <div>Pilih</div>
+                                            <div>Role</div>
+                                            <div>Keterangan</div>
+                                        </div>
+                                        {selectedRoleObjects.map((role, index) => (
+                                            <label
+                                                key={role.id}
+                                                className={`grid cursor-pointer gap-2 bg-primary-50 px-4 py-3 dark:bg-primary-950/20 md:grid-cols-[44px_minmax(0,1.2fr)_minmax(0,1.8fr)] md:items-start md:gap-3 ${
+                                                    index !== selectedRoleObjects.length - 1
+                                                        ? "border-b border-primary-200 dark:border-primary-900/30"
+                                                        : ""
+                                                }`}
+                                            >
+                                                <div className="pt-0.5">
+                                                    <Checkbox
+                                                        value={role.name}
+                                                        onChange={setSelectedRoles}
+                                                        checked={true}
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                                                        {roleLabel(role.name)}
+                                                    </p>
+                                                </div>
+                                                <div>
+                                                    {roleDescription(role.name) ? (
+                                                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                                                            {roleDescription(role.name)}
+                                                        </p>
+                                                    ) : (
+                                                        <p className="text-xs text-slate-400 dark:text-slate-500">
+                                                            {role.name}
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            </label>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {unselectedRoleObjects.length > 0 ? (
+                                    <div>
+                                        <div className="mb-3 flex items-center justify-between gap-3">
+                                            <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                                                Tambah Role
+                                            </p>
+                                            <div className="relative w-full max-w-xs">
+                                                <input
+                                                    type="text"
+                                                    value={roleSearch}
+                                                    onChange={(event) => setRoleSearch(event.target.value)}
+                                                    placeholder="Cari role..."
+                                                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 pl-9 text-sm text-slate-700 focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                                />
+                                                <IconSearch
+                                                    size={16}
+                                                    className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                                                />
+                                            </div>
+                                        </div>
+                                        <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">
+                                            Cari lalu tambahkan hanya role yang benar-benar dibutuhkan user ini.
+                                        </p>
+                                        <div className="space-y-4">
+                                            {groupedFilteredUnselectedRoles.map((group) => (
+                                                <div
+                                                    key={group.key}
+                                                    className="rounded-2xl border border-slate-200 p-4 dark:border-slate-800"
+                                                >
+                                                    <div className="mb-3 flex items-center justify-between gap-3">
+                                                        <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                                                            {group.label}
+                                                        </p>
+                                                        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                                                            {group.items.length} role
+                                                        </span>
+                                                    </div>
+                                                    <div className="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700">
+                                                        <div className="hidden grid-cols-[44px_minmax(0,1.2fr)_minmax(0,1.8fr)_88px] gap-3 border-b border-slate-200 bg-slate-50 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-400 md:grid">
+                                                            <div>Pilih</div>
+                                                            <div>Role</div>
+                                                            <div>Keterangan</div>
+                                                            <div className="text-right">Aksi</div>
+                                                        </div>
+                                                        {group.items.map((role, index) => (
+                                                            <label
+                                                                key={role.id}
+                                                                className={`grid cursor-pointer gap-2 px-4 py-3 transition hover:bg-slate-50 dark:hover:bg-slate-800/40 md:grid-cols-[44px_minmax(0,1.2fr)_minmax(0,1.8fr)_88px] md:items-start md:gap-3 ${
+                                                                    index !== group.items.length - 1
+                                                                        ? "border-b border-slate-200 dark:border-slate-700"
+                                                                        : ""
+                                                                }`}
+                                                            >
+                                                                <div className="pt-0.5">
+                                                                    <Checkbox
+                                                                        value={role.name}
+                                                                        onChange={setSelectedRoles}
+                                                                        checked={false}
+                                                                    />
+                                                                </div>
+                                                                <div>
+                                                                    <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                                                                        {roleLabel(role.name)}
+                                                                    </p>
+                                                                    <p className="mt-1 text-xs text-slate-400 dark:text-slate-500 md:hidden">
+                                                                        {role.name}
+                                                                    </p>
+                                                                </div>
+                                                                <div>
+                                                                    {roleDescription(role.name) ? (
+                                                                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                                                                            {roleDescription(role.name)}
+                                                                        </p>
+                                                                    ) : (
+                                                                        <p className="text-xs text-slate-400 dark:text-slate-500">
+                                                                            {role.name}
+                                                                        </p>
+                                                                    )}
+                                                                </div>
+                                                                <div className="md:text-right">
+                                                                    <span className="inline-flex rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 dark:border-slate-700 dark:text-slate-300">
+                                                                        Tambah
+                                                                    </span>
+                                                                </div>
+                                                            </label>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                            {filteredUnselectedRoleObjects.length === 0 ? (
+                                                <div className="rounded-xl border border-dashed border-slate-300 px-4 py-4 text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                                                    Tidak ada role yang cocok dengan pencarian ini.
+                                                </div>
+                                            ) : null}
+                                        </div>
+                                    </div>
+                                ) : null}
+                            </div>
+                        ) : null}
                         {errors.selectedRoles && (
                             <p className="text-xs text-danger-500 mt-3">
                                 {errors.selectedRoles}
@@ -313,75 +653,106 @@ export default function Edit() {
                             </div>
                         ) : null}
                         <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/40">
-                            <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-                                Cara kerja akses di halaman ini
-                            </p>
-                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                User tidak menerima permission satu per satu. Admin memilih role, lalu semua permission di dalam role itu otomatis ikut ke user.
-                            </p>
-                            <div className="mt-3 grid gap-3 md:grid-cols-2">
-                                <div className={`rounded-xl border px-4 py-3 text-sm ${hasTenantPricingAccess ? "border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-100" : "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100"}`}>
-                                    <p className="font-semibold">Promo Tenant</p>
-                                    <p className="mt-1">
-                                        {hasTenantPricingAccess
-                                            ? "User ini sudah membawa permission pricing rules dari role terpilih."
-                                            : "User ini belum membawa permission pricing rules. Tambahkan role yang berisi pricing-rules-access/create/update jika tenant harus mengelola promo sendiri."}
+                            <button
+                                type="button"
+                                onClick={() => setShowAccessGuide((value) => !value)}
+                                className="flex w-full items-center justify-between gap-3 text-left"
+                            >
+                                <div>
+                                    <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                                        Ringkasan akses
+                                    </p>
+                                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                        Buka bila perlu melihat penjelasan promo tenant dan harga owner.
                                     </p>
                                 </div>
-                                <div className={`rounded-xl border px-4 py-3 text-sm ${hasOwnerPricingAccess ? "border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-100" : "border-slate-200 bg-white text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300"}`}>
-                                    <p className="font-semibold">Harga Owner Outlet</p>
-                                    <p className="mt-1">
-                                        {hasOwnerPricingAccess
-                                            ? "User ini juga bisa mengubah harga beli dan harga jual owner outlet karena membawa products-pricing-update."
-                                            : "User ini tidak bisa mengubah harga beli atau harga jual owner outlet. Itu tetap aman di sisi admin pricing owner."}
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6">
-                        <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-4">
-                            Ringkasan Permission Efektif
-                        </h3>
-                        <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">
-                            Ini adalah permission gabungan dari semua role yang sedang dipilih untuk user ini.
-                        </p>
-                        <div className="space-y-4">
-                            {permissionGroups.map((group) => (
-                                <div key={group.key} className="rounded-2xl border border-slate-200 p-4 dark:border-slate-800">
-                                    <div className="flex items-center justify-between gap-3">
-                                        <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-                                            {group.label}
+                                {showAccessGuide ? <IconChevronUp size={18} /> : <IconChevronDown size={18} />}
+                            </button>
+                            {showAccessGuide ? (
+                                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                                    <div className={`rounded-xl border px-4 py-3 text-sm ${hasTenantPricingAccess ? "border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-100" : "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100"}`}>
+                                        <p className="font-semibold">Promo Tenant</p>
+                                        <p className="mt-1">
+                                            {hasTenantPricingAccess
+                                                ? "Pengguna ini sudah membawa izin pricing rules dari role terpilih."
+                                                : "Pengguna ini belum membawa izin pricing rules."}
                                         </p>
-                                        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                                            {group.items.length} izin
-                                        </span>
                                     </div>
-                                    <div className="mt-3 flex flex-wrap gap-2">
-                                        {group.items.map((permission) => (
-                                            <span
-                                                key={permission.name}
-                                                className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
-                                                title={permission.description || permission.name}
-                                            >
-                                                {permission.label}
-                                            </span>
-                                        ))}
+                                    <div className={`rounded-xl border px-4 py-3 text-sm ${hasOwnerPricingAccess ? "border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-100" : "border-slate-200 bg-white text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300"}`}>
+                                        <p className="font-semibold">Harga Owner Outlet</p>
+                                        <p className="mt-1">
+                                            {hasOwnerPricingAccess
+                                                ? "User ini juga bisa mengubah harga beli dan harga jual owner outlet."
+                                                : "User ini tidak bisa mengubah harga beli atau harga jual owner outlet."}
+                                        </p>
                                     </div>
                                 </div>
-                            ))}
+                            ) : null}
                         </div>
                     </div>
 
-                    <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6">
-                        <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-4 flex items-center gap-2">
-                            <IconBuildingStore size={16} />
-                            Akses Outlet
-                        </h3>
-                        <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">
-                            Ubah outlet yang dapat diakses user dan pilih outlet utama untuk resolver default.
-                        </p>
+                    <div className={currentStep === 3 ? "bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6" : "hidden"}>
+                        <button
+                            type="button"
+                            onClick={() => setShowPermissionSummary((value) => !value)}
+                            className="flex w-full items-center justify-between gap-3 text-left"
+                        >
+                            <div>
+                                <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+                                    Ringkasan Izin Efektif
+                                </h3>
+                                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                    {effectivePermissions.length} izin gabungan dari role akses yang dipilih.
+                                </p>
+                            </div>
+                            {showPermissionSummary ? <IconChevronUp size={18} /> : <IconChevronDown size={18} />}
+                        </button>
+                        {showPermissionSummary ? (
+                            <div className="mt-4 space-y-4">
+                                {permissionGroups.map((group) => (
+                                    <div key={group.key} className="rounded-2xl border border-slate-200 p-4 dark:border-slate-800">
+                                        <div className="flex items-center justify-between gap-3">
+                                            <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                                                {group.label}
+                                            </p>
+                                            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                                                {group.items.length} izin
+                                            </span>
+                                        </div>
+                                        <div className="mt-3 flex flex-wrap gap-2">
+                                            {group.items.map((permission) => (
+                                                <span
+                                                    key={permission.name}
+                                                    className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                                                    title={permission.description || permission.name}
+                                                >
+                                                    {permission.label}
+                                                </span>
+                                            ))}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : null}
+                    </div>
+
+                    <div className={currentStep === 2 ? "bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6" : "hidden"}>
+                        <button
+                            type="button"
+                            onClick={() => setShowOutletDetail((value) => !value)}
+                            className="flex w-full items-center justify-between gap-3 text-left"
+                        >
+                            <div>
+                                <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-2">
+                                    <IconBuildingStore size={16} />
+                                    Akses Outlet
+                                </h3>
+                                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                    {selectedOutletObjects.length} outlet dipilih. Buka untuk mengubah detail akses outlet.
+                                </p>
+                            </div>
+                            {showOutletDetail ? <IconChevronUp size={18} /> : <IconChevronDown size={18} />}
+                        </button>
                         <div className="mb-4 grid gap-3 md:grid-cols-3">
                             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/40">
                                 <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
@@ -408,6 +779,7 @@ export default function Edit() {
                                 </p>
                             </div>
                         </div>
+                        {showOutletDetail ? (
                         <div className="space-y-4">
                             {[
                                 {
@@ -465,6 +837,7 @@ export default function Edit() {
                                 </div>
                             ))}
                         </div>
+                        ) : null}
                         {errors.selectedOutlets && (
                             <p className="text-xs text-danger-500 mt-3">
                                 {errors.selectedOutlets}
@@ -497,11 +870,24 @@ export default function Edit() {
                         </div>
                     </div>
 
-                    <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6">
-                        <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-4">
-                            Mode Kerja
-                        </h3>
-                        <div className="space-y-4">
+                    <div className={currentStep === 3 ? "bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6" : "hidden"}>
+                        <button
+                            type="button"
+                            onClick={() => setShowWorkMode((value) => !value)}
+                            className="flex w-full items-center justify-between gap-3 text-left"
+                        >
+                            <div>
+                                <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+                                    Mode Kerja
+                                </h3>
+                                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                    {data.preferred_workspace === "kitchen" ? "Masuk ke layar dapur" : "Masuk ke dashboard umum"}.
+                                </p>
+                            </div>
+                            {showWorkMode ? <IconChevronUp size={18} /> : <IconChevronDown size={18} />}
+                        </button>
+                        {showWorkMode ? (
+                        <div className="mt-4 space-y-4">
                             <div>
                                 <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
                                     Mode Kerja Default
@@ -557,14 +943,28 @@ export default function Edit() {
                                 </div>
                             )}
                         </div>
+                        ) : null}
                     </div>
 
-                    {isWaiterSelected && (
+                    {isWaiterSelected && currentStep === 3 && (
                         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6">
-                            <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-4">
-                                Cakupan Petugas Antar
-                            </h3>
-                            <div className="space-y-4">
+                            <button
+                                type="button"
+                                onClick={() => setShowWaiterScope((value) => !value)}
+                                className="flex w-full items-center justify-between gap-3 text-left"
+                            >
+                                <div>
+                                    <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+                                        Cakupan Petugas Antar
+                                    </h3>
+                                    <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                        {data.waiter_service_scope === "tenant_only" ? "Hanya dapur tertentu" : "Semua dapur di outlet"}.
+                                    </p>
+                                </div>
+                                {showWaiterScope ? <IconChevronUp size={18} /> : <IconChevronDown size={18} />}
+                            </button>
+                            {showWaiterScope ? (
+                            <div className="mt-4 space-y-4">
                                 <div className="grid gap-3 md:grid-cols-2">
                                     {[
                                         {
@@ -657,29 +1057,52 @@ export default function Edit() {
                                                     errors.waiter_tenant_outlet_ids
                                                 }
                                             </p>
-                                        )}
-                                    </div>
-                                )}
+                                            )}
+                                        </div>
+                                    )}
                             </div>
+                            ) : null}
                         </div>
                     )}
 
                     {/* Submit */}
-                    <div className="flex justify-end gap-3">
-                        <Link
-                            href={route("users.index")}
-                            className="px-5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 font-medium transition-colors"
-                        >
-                            Batal
-                        </Link>
-                        <button
-                            type="submit"
-                            disabled={processing}
-                            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary-500 hover:bg-primary-600 text-white font-medium transition-colors disabled:opacity-50"
-                        >
-                            <IconDeviceFloppy size={18} />
-                            {processing ? "Menyimpan..." : "Simpan Perubahan"}
-                        </button>
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex items-center gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setCurrentStep((value) => Math.max(0, value - 1))}
+                                disabled={isFirstStep}
+                                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                            >
+                                <IconChevronLeft size={16} />
+                                Sebelumnya
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setCurrentStep((value) => Math.min(wizardSteps.length - 1, value + 1))}
+                                disabled={isLastStep}
+                                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                            >
+                                Berikutnya
+                                <IconChevronRight size={16} />
+                            </button>
+                        </div>
+                        <div className="flex justify-end gap-3">
+                            <Link
+                                href={route("users.index")}
+                                className="px-5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 font-medium transition-colors"
+                            >
+                                Batal
+                            </Link>
+                            <button
+                                type="submit"
+                                disabled={processing}
+                                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary-500 hover:bg-primary-600 text-white font-medium transition-colors disabled:opacity-50"
+                            >
+                                <IconDeviceFloppy size={18} />
+                                {processing ? "Menyimpan..." : "Simpan Perubahan"}
+                            </button>
+                        </div>
                     </div>
                 </div>
             </form>

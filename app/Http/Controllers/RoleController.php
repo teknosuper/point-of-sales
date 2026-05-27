@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\RoleRequest;
 use App\Services\AuditLogService;
+use App\Support\RbacPresetCatalog;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Spatie\Permission\Models\Permission;
@@ -25,6 +26,7 @@ class RoleController extends Controller
             'kind' => (string) $request->input('kind', ''),
             'per_page' => (int) $request->input('per_page', 12),
         ];
+        $wizardTemplateKey = (string) $request->input('template', '');
 
         $allowedPerPage = [8, 12, 20, 30, 50];
         if (! in_array($filters['per_page'], $allowedPerPage, true)) {
@@ -61,12 +63,17 @@ class RoleController extends Controller
             ->orderBy('name')
             ->get();
 
+        $wizardTemplates = collect(RbacPresetCatalog::all());
+        $wizardTemplate = $wizardTemplates->firstWhere('key', $wizardTemplateKey);
+
         // render view
         return Inertia::render('Dashboard/Roles/Index', [
             'roles' => $roles,
             'permissions' => $permissions,
             'filters' => $filters,
             'perPageOptions' => $allowedPerPage,
+            'wizardTemplate' => $wizardTemplate,
+            'wizardTemplates' => $wizardTemplates->values()->all(),
         ]);
     }
 

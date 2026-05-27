@@ -95,6 +95,8 @@ class UserController extends Controller
      */
     public function create()
     {
+        $prefillRole = request()->string('role')->toString();
+
         // get all role data
         $roles = Role::query()
             ->with(['permissions:id,name'])
@@ -123,6 +125,7 @@ class UserController extends Controller
             'outlets' => $outlets,
             'tenantOutlets' => $tenantOutlets,
             'kitchenStations' => $kitchenStations,
+            'prefillRole' => $roles->contains('name', $prefillRole) ? $prefillRole : null,
         ]);
     }
 

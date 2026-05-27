@@ -2,9 +2,13 @@
 
 namespace App\Http\Controllers;
 
+use App\Support\RbacPresetCatalog;
+use App\Models\KitchenStation;
+use App\Models\Outlet;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Spatie\Permission\Models\Permission;
+use Spatie\Permission\Models\Role;
 
 class PermissionController extends Controller
 {
@@ -47,6 +51,8 @@ class PermissionController extends Controller
             ->sortBy('label', SORT_NATURAL | SORT_FLAG_CASE)
             ->values();
 
+        $wizardTemplates = RbacPresetCatalog::all();
+
         // render view
         return Inertia::render('Dashboard/Permissions/Index', [
             'permissions' => $permissions,
@@ -54,6 +60,59 @@ class PermissionController extends Controller
             'groupCounts' => $groupCounts,
             'groupOptions' => $groupCounts->values()->all(),
             'perPageOptions' => $allowedPerPage,
+            'wizardTemplates' => $wizardTemplates,
+        ]);
+    }
+
+    public function wizard(Request $request)
+    {
+        $templateKey = (string) $request->input('template', '');
+        $initialStep = (string) $request->input('step', 'template');
+        $templates = \App\Support\RbacPresetCatalog::all();
+        $selectedTemplate = \App\Support\RbacPresetCatalog::find($templateKey) ?? $templates[0] ?? null;
+
+        $roles = Role::query()
+            ->with('permissions:id,name')
+            ->select('id', 'name')
+            ->orderBy('name')
+            ->get()
+            ->map(function (Role $role) {
+                return [
+                    'id' => $role->id,
+                    'name' => $role->name,
+                    'permission_names' => $role->permissions->pluck('name')->values()->all(),
+                ];
+            })
+            ->values();
+        $permissions = Permission::query()
+            ->select('id', 'name')
+            ->orderBy('name')
+            ->get()
+            ->values();
+        $outlets = Outlet::query()
+            ->active()
+            ->ordered()
+            ->get(['id', 'name', 'code', 'outlet_type']);
+        $tenantOutlets = $outlets
+            ->where('outlet_type', 'tenant')
+            ->values();
+        $kitchenStations = KitchenStation::query()
+            ->where('is_active', true)
+            ->with('outlet:id,name,code')
+            ->orderBy('outlet_id')
+            ->orderBy('sort_order')
+            ->orderBy('name')
+            ->get(['id', 'outlet_id', 'name', 'code']);
+
+        return Inertia::render('Dashboard/Permissions/Wizard', [
+            'templates' => $templates,
+            'selectedTemplate' => $selectedTemplate,
+            'initialStep' => in_array($initialStep, ['template', 'role', 'user'], true) ? $initialStep : 'template',
+            'roles' => $roles,
+            'permissions' => $permissions,
+            'outlets' => $outlets,
+            'tenantOutlets' => $tenantOutlets,
+            'kitchenStations' => $kitchenStations,
         ]);
     }
 

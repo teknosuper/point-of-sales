@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
-import { Head, router, useForm, usePage } from "@inertiajs/react";
+import { Head, Link, router, useForm, usePage } from "@inertiajs/react";
 import Button from "@/Components/Dashboard/Button";
 import Input from "@/Components/Dashboard/Input";
 import ListBox from "@/Components/Dashboard/ListBox";
@@ -25,6 +25,7 @@ import {
     IconSearch,
     IconShield,
     IconFilterOff,
+    IconUserPlus,
 } from "@/Utils/icons";
 
 function summarizeRole(role) {
@@ -56,7 +57,7 @@ function summarizeRole(role) {
     };
 }
 
-function RoleRow({ role, onEdit, onDelete, canUpdate, canDelete }) {
+function RoleRow({ role, onEdit, onDelete, canUpdate, canDelete, canCreateUsers }) {
     const summary = summarizeRole(role);
     const previewPermissions = summary.permissions.slice(0, 6);
 
@@ -115,6 +116,14 @@ function RoleRow({ role, onEdit, onDelete, canUpdate, canDelete }) {
                 </div>
             </div>
             <div className="flex shrink-0 items-center gap-2">
+                {canCreateUsers ? (
+                    <Link
+                        href={route("users.create", { role: role.name })}
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-primary-200 bg-primary-50 text-primary-600 hover:bg-primary-100 dark:border-primary-900/40 dark:bg-primary-950/30 dark:text-primary-300"
+                    >
+                        <IconUserPlus size={16} />
+                    </Link>
+                ) : null}
                 <span className="rounded-full border border-slate-200 px-2.5 py-1 text-[11px] font-medium text-slate-500 dark:border-slate-700 dark:text-slate-400">
                     {role.permissions.length} izin
                 </span>
@@ -140,15 +149,19 @@ function RoleRow({ role, onEdit, onDelete, canUpdate, canDelete }) {
 }
 
 export default function Index() {
-    const { roles, permissions, errors, filters = {}, perPageOptions = [] } = usePage().props;
+    const { roles, permissions, errors, filters = {}, perPageOptions = [], wizardTemplate = null, wizardTemplates = [] } = usePage().props;
     const { can } = useAuthorization();
     const canCreateRoles = can("roles-create");
     const canUpdateRoles = can("roles-update");
     const canDeleteRoles = can("roles-delete");
+    const canCreateUsers = can("users-create");
     const [showGuide, setShowGuide] = useState(false);
     const [showFilters, setShowFilters] = useState(
         Boolean(filters.search || filters.kind)
     );
+    const wizardPermissionObjects = (wizardTemplate?.permissions || [])
+        .map((name) => permissions.find((permission) => permission.name === name))
+        .filter(Boolean);
 
     const {
         data,
@@ -158,10 +171,10 @@ export default function Index() {
         delete: destroy,
     } = useForm({
         id: "",
-        name: "",
-        selectedPermission: [],
+        name: wizardTemplate?.suggested_role_name || "",
+        selectedPermission: wizardPermissionObjects,
         isUpdate: false,
-        isOpen: false,
+        isOpen: Boolean(wizardTemplate && canCreateRoles),
     });
 
     const setSelectedPermission = (value) =>
@@ -273,43 +286,15 @@ export default function Index() {
             per_page: filters.per_page || 12,
         });
     };
-    const permissionPresets = [
-        {
-            key: "tenant-operational",
-            label: "Preset Tenant Operasional",
-            permissions: [
-                "products-access",
-                "products-edit",
-                "outlets-access",
-                "outlets-toggle",
-            ],
-        },
-        {
-            key: "tenant-promo",
-            label: "Preset Tenant Promo",
-            permissions: [
-                "pricing-rules-access",
-                "pricing-rules-create",
-                "pricing-rules-update",
-            ],
-        },
-        {
-            key: "owner-pricing",
-            label: "Preset Owner Pricing",
-            permissions: [
-                "products-access",
-                "products-pricing-update",
-                "pricing-rules-access",
-                "pricing-rules-create",
-                "pricing-rules-update",
-                "pricing-rules-delete",
-            ],
-        },
-    ];
+    const permissionPresets = wizardTemplates.map((template) => ({
+        key: template.key,
+        label: template.label,
+        permissions: template.permissions,
+    }));
 
     return (
         <>
-            <Head title="Akses Group" />
+            <Head title="Role Akses" />
 
             {/* Header */}
             <div className="mb-6">
@@ -320,10 +305,10 @@ export default function Index() {
                                 size={28}
                                 className="text-primary-500"
                             />
-                            Akses Group
+                            Role Akses
                         </h1>
                         <p className="text-sm text-slate-500 dark:text-slate-400">
-                            Susun paket akses yang akan dipakai user owner, tenant, dan dapur.
+                            Susun paket izin yang akan dipakai owner, tenant, dan dapur.
                         </p>
                     </div>
                     {canCreateRoles && (
@@ -338,7 +323,7 @@ export default function Index() {
                             className={
                                 "bg-primary-500 hover:bg-primary-600 text-white shadow-lg shadow-primary-500/30"
                             }
-                            label={"Tambah Group"}
+                            label={"Tambah Role"}
                             onClick={() => setData("isOpen", true)}
                         />
                     )}
@@ -360,6 +345,101 @@ export default function Index() {
                     </div>
                 ))}
             </div>
+
+            {wizardTemplate ? (
+                <div className="mb-6 rounded-2xl border border-primary-200 bg-primary-50/60 p-4 text-sm dark:border-primary-900/40 dark:bg-primary-950/20">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                        <div>
+                            <p className="font-semibold text-slate-900 dark:text-white">
+                                Wizard RBAC aktif: {wizardTemplate.label}
+                            </p>
+                            <p className="mt-1 text-slate-600 dark:text-slate-300">
+                                Template ini sudah menyiapkan permission yang paling umum. Simpan role, lalu lanjut buat user dari role tersebut.
+                            </p>
+                        </div>
+                        {canCreateRoles ? (
+                            <Button
+                                type={"button"}
+                                icon={<IconCirclePlus size={18} strokeWidth={1.5} />}
+                                className={"bg-primary-500 hover:bg-primary-600 text-white"}
+                                label={"Buka Template Role"}
+                                onClick={() =>
+                                    setData({
+                                        id: "",
+                                        name: wizardTemplate?.suggested_role_name || "",
+                                        selectedPermission: wizardPermissionObjects,
+                                        isUpdate: false,
+                                        isOpen: true,
+                                    })
+                                }
+                            />
+                        ) : null}
+                    </div>
+                </div>
+            ) : null}
+
+            {!wizardTemplate ? (
+                <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+                    <div className="mb-4">
+                        <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                            Template Role Akses
+                        </p>
+                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                            Pilih template jika ingin mulai dari paket izin yang sudah siap pakai.
+                        </p>
+                    </div>
+                    <div className="grid gap-3 lg:grid-cols-2">
+                        {wizardTemplates.map((template) => (
+                            <div
+                                key={template.key}
+                                className="rounded-2xl border border-slate-200 p-4 dark:border-slate-800"
+                            >
+                                <div className="flex items-start justify-between gap-3">
+                                    <div>
+                                        <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                                            {template.label}
+                                        </p>
+                                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                            {template.description}
+                                        </p>
+                                    </div>
+                                    <Button
+                                        type={"button"}
+                                        className={"bg-primary-500 hover:bg-primary-600 text-white"}
+                                        label={"Pakai"}
+                                        onClick={() =>
+                                            setData({
+                                                id: "",
+                                                name: template.suggested_role_name || "",
+                                                selectedPermission: permissions.filter((permission) =>
+                                                    template.permissions.includes(permission.name)
+                                                ),
+                                                isUpdate: false,
+                                                isOpen: true,
+                                            })
+                                        }
+                                    />
+                                </div>
+                                <div className="mt-3 flex flex-wrap gap-2">
+                                    {template.permissions.slice(0, 4).map((permission) => (
+                                        <span
+                                            key={permission}
+                                            className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+                                        >
+                                            {permission}
+                                        </span>
+                                    ))}
+                                    {template.permissions.length > 4 ? (
+                                        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                                            +{template.permissions.length - 4} izin
+                                        </span>
+                                    ) : null}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            ) : null}
 
             <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
                 <button
@@ -504,16 +584,16 @@ export default function Index() {
                     })
                 }
                 title={
-                    data.isUpdate ? "Ubah Akses Group" : "Tambah Akses Group"
+                    data.isUpdate ? "Ubah Role Akses" : "Tambah Role Akses"
                 }
                 icon={<IconUserShield size={20} strokeWidth={1.5} />}
             >
                 <form onSubmit={data.isUpdate ? updateRole : saveRole}>
                     <div className="mb-4">
                         <Input
-                            label={"Nama group"}
+                            label={"Nama role"}
                             type={"text"}
-                            placeholder={"Masukan nama group"}
+                            placeholder={"Masukkan nama role"}
                             value={data.name}
                             onChange={(e) => setData("name", e.target.value)}
                             errors={errors.name}
@@ -526,7 +606,7 @@ export default function Index() {
                     </div>
                     <div className="mb-4">
                         <ListBox
-                            label={"Pilih hak akses"}
+                            label={"Pilih izin"}
                             data={permissions}
                             selected={data.selectedPermission}
                             setSelected={setSelectedPermission}
@@ -549,7 +629,7 @@ export default function Index() {
             {roles.data.length > 0 ? (
                 <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
                     <div className="border-b border-slate-200 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:text-slate-400">
-                        Daftar Role
+                        Daftar Role Akses
                     </div>
                     <div className="divide-y divide-slate-200 dark:divide-slate-800">
                         {roles.data.map((role) => (
@@ -560,6 +640,7 @@ export default function Index() {
                             onDelete={() => handleDelete(role.id)}
                             canUpdate={canUpdateRoles}
                             canDelete={canDeleteRoles}
+                            canCreateUsers={canCreateUsers}
                         />
                         ))}
                     </div>
@@ -574,10 +655,10 @@ export default function Index() {
                         />
                     </div>
                     <h3 className="text-lg font-medium text-slate-800 dark:text-slate-200 mb-1">
-                        Belum Ada Group
+                        Belum Ada Role
                     </h3>
                     <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
-                        Tambahkan group akses pertama.
+                        Tambahkan role akses pertama.
                     </p>
                     <Button
                         type={"button"}
@@ -585,7 +666,7 @@ export default function Index() {
                         className={
                             "bg-primary-500 hover:bg-primary-600 text-white"
                         }
-                        label={"Tambah Group"}
+                        label={"Tambah Role"}
                         onClick={() => setData("isOpen", true)}
                     />
                 </div>
