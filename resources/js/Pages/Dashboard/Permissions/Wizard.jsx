@@ -3,11 +3,14 @@ import { Head, Link, router, useForm, usePage } from "@inertiajs/react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import {
     IconArrowLeft,
+    IconBolt,
     IconBuildingStore,
     IconChecklist,
     IconCircleCheck,
     IconCirclePlus,
     IconDeviceFloppy,
+    IconInfoCircle,
+    IconLayoutGrid,
     IconShield,
     IconUserPlus,
 } from "@/Utils/icons";
@@ -25,6 +28,26 @@ function hasAllPermissions(role, requiredPermissions = []) {
 
 function workspaceLabel(value) {
     return value === "kitchen" ? "Layar Dapur" : "Dashboard Umum";
+}
+
+function templateMeta(template) {
+    if (template.key === "super-admin") {
+        return { group: "Admin Sistem", order: 1, badge: "Akses penuh" };
+    }
+
+    if (["system-admin", "owner-operations-admin"].includes(template.key)) {
+        return { group: "Admin Sistem", order: 1, badge: "Disarankan" };
+    }
+
+    if (["cashier-basic", "waiter-basic", "kitchen-operator-basic"].includes(template.key)) {
+        return { group: "Tim Operasional", order: 2, badge: "Operasional" };
+    }
+
+    if (["tenant-operational", "tenant-promo"].includes(template.key)) {
+        return { group: "Tenant", order: 3, badge: "Tenant" };
+    }
+
+    return { group: "Admin Modul", order: 4, badge: "Modul" };
 }
 
 export default function PermissionWizard() {
@@ -54,12 +77,19 @@ export default function PermissionWizard() {
             null,
         [selectedKey, selectedTemplate, templates]
     );
+    const requiredPermissionNames = useMemo(() => {
+        if (!activeTemplate) return [];
+
+        return activeTemplate.use_all_permissions
+            ? permissions.map((permission) => permission.name)
+            : activeTemplate.permissions || [];
+    }, [activeTemplate, permissions]);
     const matchingRoles = useMemo(() => {
         if (!activeTemplate) return [];
         return roles.filter((role) =>
-            hasAllPermissions(role, activeTemplate.permissions)
+            hasAllPermissions(role, requiredPermissionNames)
         );
-    }, [activeTemplate, roles]);
+    }, [activeTemplate, requiredPermissionNames, roles]);
 
     const roleForm = useForm({
         name: activeTemplate?.suggested_role_name || "",
@@ -94,6 +124,52 @@ export default function PermissionWizard() {
     const ownerOutlets = outlets.filter(
         (outlet) => (outlet.outlet_type || "main") !== "tenant"
     );
+    const templateGroups = useMemo(() => {
+        const grouped = templates.reduce((accumulator, template) => {
+            const meta = templateMeta(template);
+            const existing = accumulator[meta.group] || {
+                label: meta.group,
+                order: meta.order,
+                items: [],
+            };
+
+            existing.items.push({ ...template, meta });
+            accumulator[meta.group] = existing;
+
+            return accumulator;
+        }, {});
+
+        return Object.values(grouped)
+            .sort((left, right) => left.order - right.order)
+            .map((group) => ({
+                ...group,
+                items: group.items.sort((left, right) =>
+                    left.label.localeCompare(right.label, "id-ID")
+                ),
+            }));
+    }, [templates]);
+    const wizardSteps = [
+        {
+            key: "template",
+            label: "Paket Akses",
+            done: Boolean(activeTemplate),
+        },
+        {
+            key: "role",
+            label: "Role Akses",
+            done: Boolean(selectedRoleName),
+        },
+        {
+            key: "user",
+            label: "Buat Pengguna",
+            done: Boolean(
+                userForm.data.name &&
+                    userForm.data.email &&
+                    selectedRoleName &&
+                    userForm.data.selectedOutlets.length
+            ),
+        },
+    ];
 
     useEffect(() => {
         const fallbackRole = matchingRoles[0]?.name || "";
@@ -108,7 +184,7 @@ export default function PermissionWizard() {
             "selectedPermission",
             permissions
                 .filter((permission) =>
-                    activeTemplate?.permissions?.includes(permission.name)
+                    requiredPermissionNames.includes(permission.name)
                 )
                 .map((permission) => permission.id)
         );
@@ -126,7 +202,7 @@ export default function PermissionWizard() {
             waiter_tenant_outlet_ids: [],
         }));
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [activeTemplate?.key, permissions.length, matchingRoles.length]);
+    }, [activeTemplate?.key, permissions.length, matchingRoles.length, requiredPermissionNames]);
 
     useEffect(() => {
         const target =
@@ -263,19 +339,53 @@ export default function PermissionWizard() {
                     <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
                         Wizard RBAC
                     </h1>
-                    <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                        Pilih kebutuhan akses, simpan role bila perlu, lalu buat
-                        pengguna dari halaman ini.
+                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                        Pilih paket akses, tentukan role, lalu buat user.
                     </p>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+                    <div className="grid gap-3 md:grid-cols-3">
+                        {wizardSteps.map((step, index) => (
+                            <div
+                                key={step.key}
+                                className={`rounded-2xl border px-4 py-4 ${
+                                    step.done
+                                        ? "border-emerald-200 bg-emerald-50 dark:border-emerald-900/40 dark:bg-emerald-950/20"
+                                        : "border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950"
+                                }`}
+                            >
+                                <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                    Langkah {index + 1}
+                                </p>
+                                <div className="mt-2 flex items-center gap-2">
+                                    {step.done ? (
+                                        <IconCircleCheck
+                                            size={16}
+                                            className="text-emerald-600 dark:text-emerald-300"
+                                        />
+                                    ) : (
+                                        <IconBolt
+                                            size={16}
+                                            className="text-primary-500"
+                                        />
+                                    )}
+                                    <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                                        {step.label}
+                                    </p>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
                 </div>
 
                 <div className="grid gap-3 md:grid-cols-3">
                     <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
-                        <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                            Template
+                            <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                            Paket Akses
                         </p>
                         <p className="mt-2 text-sm font-semibold text-slate-900 dark:text-white">
-                            {activeTemplate?.label || "Pilih template"}
+                            {activeTemplate?.label || "Pilih paket"}
                         </p>
                     </div>
                     <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
@@ -302,28 +412,67 @@ export default function PermissionWizard() {
                     ref={templateSectionRef}
                     className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900"
                 >
-                    <p className="text-sm font-semibold text-slate-900 dark:text-white">
-                        1. Pilih Template Akses
+                    <div className="flex items-center gap-2">
+                        <IconLayoutGrid size={18} className="text-primary-500" />
+                        <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                                1. Pilih Paket Akses
+                        </p>
+                    </div>
+                    <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                        Pilih paket yang paling dekat dengan tugas user. Setelah itu baru sesuaikan bila perlu.
                     </p>
-                    <div className="mt-4 grid gap-3 lg:grid-cols-2">
-                        {templates.map((template) => (
-                            <button
-                                key={template.key}
-                                type="button"
-                                onClick={() => openTemplate(template.key)}
-                                className={`rounded-2xl border p-4 text-left transition ${
-                                    activeTemplate?.key === template.key
-                                        ? "border-primary-500 bg-primary-50 dark:bg-primary-950/20"
-                                        : "border-slate-200 bg-white hover:border-primary-300 dark:border-slate-800 dark:bg-slate-900"
-                                }`}
+                    <div className="mt-4 space-y-4">
+                        {templateGroups.map((group) => (
+                            <div
+                                key={group.label}
+                                className="overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800"
                             >
-                                <p className="text-sm font-semibold text-slate-900 dark:text-white">
-                                    {template.label}
-                                </p>
-                                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                                    {template.description}
-                                </p>
-                            </button>
+                                <div className="border-b border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950">
+                                    <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                                        {group.label}
+                                    </p>
+                                </div>
+                                <div className="divide-y divide-slate-200 dark:divide-slate-800">
+                                    {group.items.map((template) => (
+                                        <button
+                                            key={template.key}
+                                            type="button"
+                                            onClick={() => openTemplate(template.key)}
+                                            className={`grid w-full gap-3 px-4 py-4 text-left transition lg:grid-cols-[minmax(0,1fr)_auto] ${
+                                                activeTemplate?.key === template.key
+                                                    ? "bg-primary-50 dark:bg-primary-950/20"
+                                                    : "bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800/40"
+                                            }`}
+                                        >
+                                            <div>
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                                                        {template.label}
+                                                    </p>
+                                                    <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                                                        {template.meta.badge}
+                                                    </span>
+                                                </div>
+                                                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                                    {template.description}
+                                                </p>
+                                            </div>
+                                            <div className="flex items-start lg:items-center">
+                                                {activeTemplate?.key === template.key ? (
+                                                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-300">
+                                                        <IconCircleCheck size={14} />
+                                                        Dipilih
+                                                    </span>
+                                                ) : (
+                                                    <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-3 py-1 text-xs font-medium text-slate-600 dark:border-slate-700 dark:text-slate-300">
+                                                        Pilih
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
                         ))}
                     </div>
                 </div>
@@ -344,24 +493,34 @@ export default function PermissionWizard() {
                                 </p>
                             </div>
                             <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                                Wizard akan memakai izin berikut untuk template{" "}
-                                {activeTemplate.label}.
+                                Gunakan role yang sudah ada jika cocok. Jika belum ada, buat role baru dari paket ini.
                             </p>
-                            <div className="mt-4 flex flex-wrap gap-2">
-                                {activeTemplate.permissions.map((permission) => (
-                                    <span
-                                        key={permission}
-                                        className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
-                                    >
-                                        {permissionLabel(permission)}
-                                    </span>
-                                ))}
-                            </div>
+                            {activeTemplate.use_all_permissions ? (
+                                <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-100">
+                                    Template ini akan memakai semua izin sistem. Cocok hanya untuk super admin atau admin inti.
+                                </div>
+                            ) : (
+                                <div className="mt-4">
+                                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                        Izin inti yang akan dibawa
+                                    </p>
+                                    <div className="flex flex-wrap gap-2">
+                                        {requiredPermissionNames.map((permission) => (
+                                        <span
+                                            key={permission}
+                                            className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                                        >
+                                            {permissionLabel(permission)}
+                                        </span>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
 
                             {matchingRoles.length > 0 ? (
                                 <div className="mt-6 space-y-3">
                                     <p className="text-sm font-semibold text-slate-900 dark:text-white">
-                                        Gunakan Role yang Sudah Ada
+                                        Role yang Sudah Cocok
                                     </p>
                                     {matchingRoles.map((role) => (
                                         <label
@@ -466,7 +625,7 @@ export default function PermissionWizard() {
                             <div className="mt-4 space-y-4 text-sm">
                                 <div className="rounded-2xl border border-slate-200 p-4 dark:border-slate-800">
                                     <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                                        Template
+                                        Paket Akses
                                     </p>
                                     <p className="mt-1 font-semibold text-slate-900 dark:text-white">
                                         {activeTemplate.label}
@@ -480,6 +639,16 @@ export default function PermissionWizard() {
                                         {selectedRole
                                             ? roleLabel(selectedRole.name)
                                             : "Belum ada role"}
+                                    </p>
+                                </div>
+                                <div className="rounded-2xl border border-slate-200 p-4 dark:border-slate-800">
+                                    <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                        Langkah berikutnya
+                                    </p>
+                                    <p className="mt-1 font-semibold text-slate-900 dark:text-white">
+                                        {selectedRoleName
+                                            ? "Lanjut isi akun dan outlet user"
+                                            : "Pilih atau buat role dulu"}
                                     </p>
                                 </div>
                                 <div className="rounded-2xl border border-slate-200 p-4 dark:border-slate-800">
@@ -513,8 +682,7 @@ export default function PermissionWizard() {
                             </p>
                         </div>
                         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                            Isi akun, pilih outlet, lalu simpan. Role akses
-                            mengikuti pilihan di atas.
+                            Isi akun dasar, pilih outlet, lalu simpan. Role akses mengikuti pilihan di atas.
                         </p>
 
                         <div className="mt-4 grid gap-4 md:grid-cols-2">
@@ -581,6 +749,12 @@ export default function PermissionWizard() {
                                     ? roleLabel(selectedRoleName)
                                     : "Pilih atau buat role akses lebih dulu."}
                             </p>
+                            <div className="mt-3 flex items-start gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">
+                                <IconInfoCircle size={14} className="mt-0.5 shrink-0 text-primary-500" />
+                                <p>
+                                    User tidak perlu memilih izin satu per satu. Cukup pilih role yang tepat.
+                                </p>
+                            </div>
                         </div>
 
                         <div className="mt-6 rounded-2xl border border-slate-200 p-4 dark:border-slate-800">
@@ -590,6 +764,9 @@ export default function PermissionWizard() {
                                     Outlet yang Bisa Dipakai
                                 </p>
                             </div>
+                            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                                Pilih outlet hanya jika user memang bekerja di outlet itu. Untuk user owner yang memantau semua outlet, Anda boleh memilih semuanya. Untuk user tenant, cukup pilih tenant yang relevan.
+                            </p>
                             <div className="mt-4 flex flex-wrap gap-2">
                                 <button
                                     type="button"
@@ -655,6 +832,9 @@ export default function PermissionWizard() {
                                 <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
                                     Outlet Utama
                                 </label>
+                                <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">
+                                    Outlet utama adalah konteks default saat user login. Jika user hanya punya satu outlet, pilih outlet itu juga di sini.
+                                </p>
                                 <select
                                     value={userForm.data.primary_outlet_id}
                                     onChange={(event) =>
@@ -699,6 +879,9 @@ export default function PermissionWizard() {
                                     <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
                                         Mode Kerja Default
                                     </label>
+                                    <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">
+                                        Pilih `Dashboard Umum` untuk admin/kasir. Pilih `Layar Dapur` hanya jika user harus langsung masuk ke antrean dapur setelah login.
+                                    </p>
                                     <select
                                         value={userForm.data.preferred_workspace}
                                         onChange={(event) =>
@@ -768,6 +951,9 @@ export default function PermissionWizard() {
                                         <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
                                             Cakupan Petugas Antar
                                         </label>
+                                        <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">
+                                            Gunakan `Semua Dapur di Outlet` jika satu petugas boleh melayani semua tenant. Pilih `Dapur Tertentu` jika petugas hanya menangani tenant tertentu.
+                                        </p>
                                         <select
                                             value={
                                                 userForm.data

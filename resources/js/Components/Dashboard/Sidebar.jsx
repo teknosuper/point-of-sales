@@ -150,6 +150,7 @@ export default function Sidebar({ sidebarOpen, hideWhenCollapsed = false }) {
                                             icon={detail.icon}
                                             href={detail.href}
                                             access={detail.permissions}
+                                            active={detail.active}
                                             sidebarOpen={sidebarOpen}
                                         />
                                     );

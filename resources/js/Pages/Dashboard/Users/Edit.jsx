@@ -3,6 +3,7 @@ import { Head, usePage, useForm, Link } from "@inertiajs/react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import {
     IconUserEdit,
+    IconBolt,
     IconDeviceFloppy,
     IconArrowLeft,
     IconChevronLeft,
@@ -12,6 +13,7 @@ import {
     IconSearch,
     IconShield,
     IconBuildingStore,
+    IconLayoutGrid,
 } from "@/Utils/icons";
 import Input from "@/Components/Dashboard/Input";
 import Checkbox from "@/Components/Dashboard/Checkbox";
@@ -85,6 +87,36 @@ function roleGroupMeta(roleName) {
     return { key: "other", label: "Lainnya" };
 }
 
+function templateMeta(template) {
+    if (template.key === "super-admin") {
+        return { group: "Admin Sistem", order: 1, badge: "Akses penuh" };
+    }
+
+    if (["system-admin", "owner-operations-admin"].includes(template.key)) {
+        return { group: "Admin Sistem", order: 1, badge: "Disarankan" };
+    }
+
+    if (["cashier-basic", "waiter-basic", "kitchen-operator-basic"].includes(template.key)) {
+        return { group: "Tim Operasional", order: 2, badge: "Operasional" };
+    }
+
+    if (["tenant-operational", "tenant-promo"].includes(template.key)) {
+        return { group: "Tenant", order: 3, badge: "Tenant" };
+    }
+
+    return { group: "Admin Modul", order: 4, badge: "Modul" };
+}
+
+function templateMatchesRole(template, role, allPermissions = []) {
+    if (template.use_all_permissions) {
+        return role.name === "super-admin" || (role.permissions || []).length === allPermissions.length;
+    }
+
+    const names = new Set((role.permissions || []).map((permission) => permission.name));
+
+    return (template.permissions || []).every((permission) => names.has(permission));
+}
+
 export default function Edit() {
     const {
         roles,
@@ -92,6 +124,7 @@ export default function Edit() {
         outlets = [],
         tenantOutlets = [],
         kitchenStations = [],
+        wizardTemplates = [],
     } = usePage().props;
 
     const selectedOutletIds = user.outlets?.map((outlet) => outlet.id) ?? [];
@@ -164,6 +197,27 @@ export default function Edit() {
         setData("waiter_tenant_outlet_ids", items);
     };
 
+    const applyOutletPreset = (mode) => {
+        const nextOutlets =
+            mode === "owner"
+                ? outletGroups.owner.map((outlet) => outlet.id)
+                : mode === "tenant"
+                  ? outletGroups.tenant.map((outlet) => outlet.id)
+                  : outlets.map((outlet) => outlet.id);
+
+        setData((current) => ({
+            ...current,
+            selectedOutlets: nextOutlets,
+            primary_outlet_id: nextOutlets.includes(Number(current.primary_outlet_id))
+                ? current.primary_outlet_id
+                : nextOutlets[0]
+                  ? String(nextOutlets[0])
+                  : "",
+            preferred_kitchen_station_id: "",
+            waiter_tenant_outlet_ids: current.waiter_tenant_outlet_ids.filter((id) => nextOutlets.includes(id)),
+        }));
+    };
+
     const submit = (e) => {
         e.preventDefault();
         post(route("users.update", user.id), {
@@ -214,6 +268,37 @@ export default function Edit() {
             return accumulator;
         }, {})
     );
+    const templateGroups = React.useMemo(() => {
+        const grouped = wizardTemplates
+            .map((template) => ({
+                ...template,
+                meta: templateMeta(template),
+                matchedRole: roles.find((role) =>
+                    templateMatchesRole(template, role, roles.flatMap((item) => item.permissions || []))
+                ),
+            }))
+            .reduce((accumulator, template) => {
+                const existing = accumulator[template.meta.group] || {
+                    label: template.meta.group,
+                    order: template.meta.order,
+                    items: [],
+                };
+
+                existing.items.push(template);
+                accumulator[template.meta.group] = existing;
+
+                return accumulator;
+            }, {});
+
+        return Object.values(grouped)
+            .sort((left, right) => left.order - right.order)
+            .map((group) => ({
+                ...group,
+                items: group.items.sort((left, right) =>
+                    left.label.localeCompare(right.label, "id-ID")
+                ),
+            }));
+    }, [roles, wizardTemplates]);
     const effectivePermissions = Array.from(
         new Map(
             selectedRoleObjects
@@ -433,8 +518,75 @@ export default function Edit() {
                         </div>
 
                         <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/40">
+                            <div className="mb-4">
+                                <div className="flex items-center gap-2">
+                                    <IconLayoutGrid size={16} className="text-primary-500" />
+                                    <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                                        Paket Cepat
+                                    </p>
+                                </div>
+                                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                    Jika ingin cepat mengganti peran user, pilih paket yang paling dekat dengan tugasnya.
+                                </p>
+                                <div className="mt-3 space-y-3">
+                                    {templateGroups.map((group) => (
+                                        <div key={group.label} className="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800">
+                                            <div className="border-b border-slate-200 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
+                                                {group.label}
+                                            </div>
+                                            <div className="divide-y divide-slate-200 dark:divide-slate-800">
+                                                {group.items.map((template) => (
+                                                    <div key={template.key} className="grid gap-3 px-3 py-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">
+                                                        <div>
+                                                            <div className="flex flex-wrap items-center gap-2">
+                                                                <p className="text-sm font-medium text-slate-800 dark:text-slate-100">
+                                                                    {template.label}
+                                                                </p>
+                                                                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                                                                    {template.meta.badge}
+                                                                </span>
+                                                            </div>
+                                                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                                {template.description}
+                                                            </p>
+                                                            <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
+                                                                {template.matchedRole
+                                                                    ? `Role tersedia: ${roleLabel(template.matchedRole.name)}`
+                                                                    : "Belum ada role yang cocok penuh"}
+                                                            </p>
+                                                        </div>
+                                                        <div className="flex items-start justify-start md:justify-end">
+                                                            {template.matchedRole ? (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => setData("selectedRoles", [template.matchedRole.name])}
+                                                                    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                                                                >
+                                                                    <IconBolt size={16} />
+                                                                    Pakai
+                                                                </button>
+                                                            ) : (
+                                                                <Link
+                                                                    href={route("permissions.wizard", { template: template.key, step: "role" })}
+                                                                    className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-700 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-200"
+                                                                >
+                                                                    <IconBolt size={16} />
+                                                                    Buat Role
+                                                                </Link>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
                             <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
                                 Role yang Aktif
+                            </p>
+                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                Pertahankan role sesederhana mungkin. Tambahkan role lain hanya jika user benar-benar butuh akses tambahan.
                             </p>
                             {selectedRoleObjects.length > 0 ? (
                                 <div className="mt-3 overflow-hidden rounded-xl border border-primary-200 dark:border-primary-900/40">
@@ -753,6 +905,9 @@ export default function Edit() {
                             </div>
                             {showOutletDetail ? <IconChevronUp size={18} /> : <IconChevronDown size={18} />}
                         </button>
+                        <div className="mt-4 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-100">
+                            Jika user hanya bekerja di satu outlet atau satu tenant, centang satu saja. Jika user owner memang mengawasi banyak outlet, baru pilih lebih dari satu.
+                        </div>
                         <div className="mb-4 grid gap-3 md:grid-cols-3">
                             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/40">
                                 <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
@@ -778,6 +933,29 @@ export default function Edit() {
                                     {selectedTenantCount}
                                 </p>
                             </div>
+                        </div>
+                        <div className="mb-4 flex flex-wrap gap-2">
+                            <button
+                                type="button"
+                                onClick={() => applyOutletPreset("all")}
+                                className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                            >
+                                Pilih Semua
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => applyOutletPreset("owner")}
+                                className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                            >
+                                Hanya Owner
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => applyOutletPreset("tenant")}
+                                className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                            >
+                                Hanya Tenant
+                            </button>
                         </div>
                         {showOutletDetail ? (
                         <div className="space-y-4">
@@ -848,6 +1026,9 @@ export default function Edit() {
                             <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
                                 Outlet Utama
                             </label>
+                            <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">
+                                Outlet utama adalah konteks default saat user login. Jika user hanya punya satu outlet, pilih outlet itu juga di sini.
+                            </p>
                             <select
                                 value={data.primary_outlet_id}
                                 onChange={(e) => setData("primary_outlet_id", e.target.value)}
@@ -871,6 +1052,36 @@ export default function Edit() {
                     </div>
 
                     <div className={currentStep === 3 ? "bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6" : "hidden"}>
+                        <div className="mb-4 grid gap-3 md:grid-cols-3">
+                            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/40">
+                                <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                    Workspace
+                                </p>
+                                <p className="mt-2 text-sm font-semibold text-slate-900 dark:text-white">
+                                    {data.preferred_workspace === "kitchen" ? "Layar Dapur" : "Dashboard Umum"}
+                                </p>
+                            </div>
+                            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/40">
+                                <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                    Scope Waiter
+                                </p>
+                                <p className="mt-2 text-sm font-semibold text-slate-900 dark:text-white">
+                                    {isWaiterSelected
+                                        ? data.waiter_service_scope === "tenant_only"
+                                            ? "Dapur Tertentu"
+                                            : "Semua Dapur"
+                                        : "Tidak dipakai"}
+                                </p>
+                            </div>
+                            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/40">
+                                <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                    Izin Efektif
+                                </p>
+                                <p className="mt-2 text-sm font-semibold text-slate-900 dark:text-white">
+                                    {effectivePermissions.length} izin
+                                </p>
+                            </div>
+                        </div>
                         <button
                             type="button"
                             onClick={() => setShowWorkMode((value) => !value)}
@@ -892,6 +1103,9 @@ export default function Edit() {
                                 <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
                                     Mode Kerja Default
                                 </label>
+                                <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">
+                                    Pilih `Dashboard Umum` untuk admin, kasir, dan operator biasa. Pilih `Layar Dapur` hanya jika user memang bertugas di kitchen screen.
+                                </p>
                                 <select
                                     value={data.preferred_workspace}
                                     onChange={(e) =>
@@ -963,6 +1177,9 @@ export default function Edit() {
                                 </div>
                                 {showWaiterScope ? <IconChevronUp size={18} /> : <IconChevronDown size={18} />}
                             </button>
+                            <p className="mt-4 text-sm text-slate-500 dark:text-slate-400">
+                                Atur apakah petugas antar boleh melayani semua dapur di outlet atau hanya tenant tertentu saja.
+                            </p>
                             {showWaiterScope ? (
                             <div className="mt-4 space-y-4">
                                 <div className="grid gap-3 md:grid-cols-2">

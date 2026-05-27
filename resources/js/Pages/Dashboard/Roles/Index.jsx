@@ -14,10 +14,14 @@ import {
 import { roleDescription, roleLabel } from "@/Utils/rolePresentation";
 import {
     IconAdjustmentsHorizontal,
+    IconBolt,
     IconChevronDown,
     IconChevronUp,
     IconDatabaseOff,
     IconCirclePlus,
+    IconChecks,
+    IconInfoCircle,
+    IconLayoutGrid,
     IconTrash,
     IconUserShield,
     IconPencilCog,
@@ -73,7 +77,7 @@ function RoleRow({ role, onEdit, onDelete, canUpdate, canDelete, canCreateUsers 
                             {roleLabel(role.name)}
                         </h3>
                         <p className="text-sm text-slate-500 dark:text-slate-400">
-                            {roleDescription(role.name) || `${role.permissions.length} hak akses`}
+                            {roleDescription(role.name) || `${role.permissions.length} izin aktif`}
                         </p>
                     </div>
                     <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-300">
@@ -146,6 +150,81 @@ function RoleRow({ role, onEdit, onDelete, canUpdate, canDelete, canCreateUsers 
             </div>
         </div>
     );
+}
+
+function presetMeta(template) {
+    if (template.key === "super-admin") {
+        return {
+            group: "Admin Sistem",
+            groupOrder: 1,
+            badge: "Akses penuh",
+            hint: "Hanya untuk pemilik sistem atau admin inti.",
+            tone: "rose",
+        };
+    }
+
+    if (["system-admin", "owner-operations-admin"].includes(template.key)) {
+        return {
+            group: "Admin Sistem",
+            groupOrder: 1,
+            badge: "Disarankan",
+            hint: "Cocok untuk admin owner atau admin internal.",
+            tone: "primary",
+        };
+    }
+
+    if (["cashier-basic", "waiter-basic", "kitchen-operator-basic"].includes(template.key)) {
+        return {
+            group: "Tim Operasional",
+            groupOrder: 2,
+            badge: "Operasional",
+            hint: "Dipakai untuk user lapangan yang fokus ke tugas harian.",
+            tone: "emerald",
+        };
+    }
+
+    if (["tenant-operational", "tenant-promo"].includes(template.key)) {
+        return {
+            group: "Tenant",
+            groupOrder: 3,
+            badge: "Tenant",
+            hint: "Khusus untuk tenant foodcourt dan tim tenant.",
+            tone: "amber",
+        };
+    }
+
+    if (["inventory-admin", "report-viewer", "owner-pricing"].includes(template.key)) {
+        return {
+            group: "Admin Modul",
+            groupOrder: 4,
+            badge: "Modul khusus",
+            hint: "Dipakai untuk staf dengan tugas khusus per modul.",
+            tone: "blue",
+        };
+    }
+
+    return {
+        group: "Lainnya",
+        groupOrder: 99,
+        badge: "Template",
+        hint: "Mulai dari template ini lalu sesuaikan jika perlu.",
+        tone: "slate",
+    };
+}
+
+function presetToneClasses(tone) {
+    const tones = {
+        rose: "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-200",
+        primary:
+            "border-primary-200 bg-primary-50 text-primary-700 dark:border-primary-900/40 dark:bg-primary-950/20 dark:text-primary-200",
+        emerald:
+            "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-200",
+        amber: "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200",
+        blue: "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-200",
+        slate: "border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200",
+    };
+
+    return tones[tone] || tones.slate;
 }
 
 export default function Index() {
@@ -291,6 +370,33 @@ export default function Index() {
         label: template.label,
         permissions: template.permissions,
     }));
+    const groupedTemplates = wizardTemplates
+        .map((template) => ({
+            ...template,
+            meta: presetMeta(template),
+        }))
+        .reduce((accumulator, template) => {
+            const groupKey = template.meta.group;
+            const existing = accumulator[groupKey] || {
+                label: template.meta.group,
+                order: template.meta.groupOrder,
+                items: [],
+            };
+
+            existing.items.push(template);
+            accumulator[groupKey] = existing;
+
+            return accumulator;
+        }, {});
+
+    const templateGroups = Object.values(groupedTemplates)
+        .sort((left, right) => left.order - right.order)
+        .map((group) => ({
+            ...group,
+            items: group.items.sort((left, right) =>
+                left.label.localeCompare(right.label, "id-ID")
+            ),
+        }));
 
     return (
         <>
@@ -308,7 +414,7 @@ export default function Index() {
                             Role Akses
                         </h1>
                         <p className="text-sm text-slate-500 dark:text-slate-400">
-                            Susun paket izin yang akan dipakai owner, tenant, dan dapur.
+                            Pilih paket akses siap pakai, lalu sesuaikan jika perlu.
                         </p>
                     </div>
                     {canCreateRoles && (
@@ -354,7 +460,7 @@ export default function Index() {
                                 Wizard RBAC aktif: {wizardTemplate.label}
                             </p>
                             <p className="mt-1 text-slate-600 dark:text-slate-300">
-                                Template ini sudah menyiapkan permission yang paling umum. Simpan role, lalu lanjut buat user dari role tersebut.
+                                Paket ini sudah menyiapkan izin yang paling umum. Simpan role, lalu lanjut buat user dari role tersebut.
                             </p>
                         </div>
                         {canCreateRoles ? (
@@ -362,7 +468,7 @@ export default function Index() {
                                 type={"button"}
                                 icon={<IconCirclePlus size={18} strokeWidth={1.5} />}
                                 className={"bg-primary-500 hover:bg-primary-600 text-white"}
-                                label={"Buka Template Role"}
+                                label={"Buka Paket Role"}
                                 onClick={() =>
                                     setData({
                                         id: "",
@@ -380,60 +486,102 @@ export default function Index() {
 
             {!wizardTemplate ? (
                 <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
-                    <div className="mb-4">
-                        <p className="text-sm font-semibold text-slate-900 dark:text-white">
-                            Template Role Akses
-                        </p>
-                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                            Pilih template jika ingin mulai dari paket izin yang sudah siap pakai.
-                        </p>
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                        <div>
+                            <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                                Template Role Akses
+                            </p>
+                            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                Mulai dari paket yang paling dekat dengan tugas user. Ini lebih cepat daripada memilih izin satu per satu.
+                            </p>
+                        </div>
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">
+                            <p className="font-medium text-slate-800 dark:text-slate-100">
+                                Urutan paling mudah
+                            </p>
+                            <p className="mt-1">
+                                1. Pilih template 2. Simpan role 3. Buat pengguna dari role itu
+                            </p>
+                        </div>
                     </div>
-                    <div className="grid gap-3 lg:grid-cols-2">
-                        {wizardTemplates.map((template) => (
-                            <div
-                                key={template.key}
-                                className="rounded-2xl border border-slate-200 p-4 dark:border-slate-800"
-                            >
-                                <div className="flex items-start justify-between gap-3">
-                                    <div>
-                                        <p className="text-sm font-semibold text-slate-900 dark:text-white">
-                                            {template.label}
-                                        </p>
-                                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                                            {template.description}
-                                        </p>
-                                    </div>
-                                    <Button
-                                        type={"button"}
-                                        className={"bg-primary-500 hover:bg-primary-600 text-white"}
-                                        label={"Pakai"}
-                                        onClick={() =>
-                                            setData({
-                                                id: "",
-                                                name: template.suggested_role_name || "",
-                                                selectedPermission: permissions.filter((permission) =>
-                                                    template.permissions.includes(permission.name)
-                                                ),
-                                                isUpdate: false,
-                                                isOpen: true,
-                                            })
-                                        }
-                                    />
+                    <div className="mt-5 space-y-4">
+                        {templateGroups.map((group) => (
+                            <div key={group.label} className="overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800">
+                                <div className="flex items-center gap-2 border-b border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950">
+                                    <IconLayoutGrid size={16} className="text-primary-500" />
+                                    <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                                        {group.label}
+                                    </p>
                                 </div>
-                                <div className="mt-3 flex flex-wrap gap-2">
-                                    {template.permissions.slice(0, 4).map((permission) => (
-                                        <span
-                                            key={permission}
-                                            className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+                                <div className="divide-y divide-slate-200 dark:divide-slate-800">
+                                    {group.items.map((template) => (
+                                        <div
+                                            key={template.key}
+                                            className="grid gap-3 px-4 py-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)_auto]"
                                         >
-                                            {permission}
-                                        </span>
+                                            <div className="min-w-0">
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                                                        {template.label}
+                                                    </p>
+                                                    <span
+                                                        className={`rounded-full border px-2.5 py-1 text-[11px] font-medium ${presetToneClasses(
+                                                            template.meta.tone
+                                                        )}`}
+                                                    >
+                                                        {template.meta.badge}
+                                                    </span>
+                                                </div>
+                                                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                                    {template.description}
+                                                </p>
+                                                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                                                    {template.meta.hint}
+                                                </p>
+                                            </div>
+                                            <div>
+                                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                                    Ringkasan akses
+                                                </p>
+                                                <div className="mt-2 flex flex-wrap gap-2">
+                                                    {template.use_all_permissions ? (
+                                                        <span className="rounded-full bg-rose-100 px-2.5 py-1 text-[11px] font-medium text-rose-700 dark:bg-rose-950/40 dark:text-rose-200">
+                                                            Semua izin sistem
+                                                        </span>
+                                                    ) : (
+                                                        <>
+                                                            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                                                                {template.permissions.length} izin inti
+                                                            </span>
+                                                            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                                                                Role: {roleLabel(template.suggested_role_name || template.label)}
+                                                            </span>
+                                                        </>
+                                                    )}
+                                                </div>
+                                            </div>
+                                            <div className="flex items-start justify-start lg:justify-end">
+                                                <Button
+                                                    type={"button"}
+                                                    className={"bg-primary-500 hover:bg-primary-600 text-white"}
+                                                    label={"Pakai Template"}
+                                                    onClick={() =>
+                                                        setData({
+                                                            id: "",
+                                                            name: template.suggested_role_name || "",
+                                                            selectedPermission: template.use_all_permissions
+                                                                ? permissions
+                                                                : permissions.filter((permission) =>
+                                                                      template.permissions.includes(permission.name)
+                                                                  ),
+                                                            isUpdate: false,
+                                                            isOpen: true,
+                                                        })
+                                                    }
+                                                />
+                                            </div>
+                                        </div>
                                     ))}
-                                    {template.permissions.length > 4 ? (
-                                        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-                                            +{template.permissions.length - 4} izin
-                                        </span>
-                                    ) : null}
                                 </div>
                             </div>
                         ))}
@@ -588,21 +736,30 @@ export default function Index() {
                 }
                 icon={<IconUserShield size={20} strokeWidth={1.5} />}
             >
+                <div className="mb-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">
+                    <p className="font-medium text-slate-800 dark:text-slate-100">
+                        Urutan paling mudah
+                    </p>
+                    <p className="mt-1">1. Isi nama role 2. Pakai template jika ada 3. Buka detail izin hanya jika perlu</p>
+                </div>
                 <form onSubmit={data.isUpdate ? updateRole : saveRole}>
                     <div className="mb-4">
                         <Input
                             label={"Nama role"}
                             type={"text"}
-                            placeholder={"Masukkan nama role"}
+                            placeholder={"Contoh: kasir-utama atau admin-stok"}
                             value={data.name}
                             onChange={(e) => setData("name", e.target.value)}
                             errors={errors.name}
                         />
-                        {data.name ? (
-                            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                                Label tampilan: {roleLabel(data.name)}
-                            </p>
-                        ) : null}
+                        <div className="mt-2 space-y-1 text-xs text-slate-500 dark:text-slate-400">
+                            <p>Gunakan nama role yang singkat dan mudah dikenali tim admin.</p>
+                            {data.name ? (
+                                <p>
+                                    Label tampilan: <span className="font-medium text-slate-700 dark:text-slate-200">{roleLabel(data.name)}</span>
+                                </p>
+                            ) : null}
+                        </div>
                     </div>
                     <div className="mb-4">
                         <ListBox
@@ -613,6 +770,12 @@ export default function Index() {
                             errors={errors.selectedPermission}
                             presets={permissionPresets}
                         />
+                        <div className="mt-2 flex items-start gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">
+                            <IconInfoCircle size={14} className="mt-0.5 shrink-0 text-primary-500" />
+                            <p>
+                                Pilih template jika ingin cepat. Setelah itu, hapus atau tambah izin hanya bila memang perlu.
+                            </p>
+                        </div>
                     </div>
                     <Button
                         type={"submit"}

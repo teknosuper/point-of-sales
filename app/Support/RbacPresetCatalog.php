@@ -10,7 +10,7 @@ class RbacPresetCatalog
             [
                 'key' => 'cashier-basic',
                 'label' => 'Kasir',
-                'description' => 'Untuk kasir yang fokus ke transaksi, meja, shift, dan pelanggan.',
+                'description' => 'Cocok untuk kasir yang melayani transaksi, meja, shift, dan pelanggan di outlet.',
                 'suggested_role_name' => 'kasir-operasional',
                 'permissions' => [
                     'dashboard-access',
@@ -29,7 +29,7 @@ class RbacPresetCatalog
             [
                 'key' => 'waiter-basic',
                 'label' => 'Petugas Antar',
-                'description' => 'Untuk tim antar yang menangani papan antar dan pesanan siap serah.',
+                'description' => 'Cocok untuk tim antar yang mengambil pesanan siap saji dan mengantarkannya ke pelanggan.',
                 'suggested_role_name' => 'petugas-antar',
                 'permissions' => [
                     'dashboard-access',
@@ -41,7 +41,7 @@ class RbacPresetCatalog
             [
                 'key' => 'kitchen-operator-basic',
                 'label' => 'Operator Dapur',
-                'description' => 'Untuk tim dapur yang melihat produk, stok, dan buka tutup tenant.',
+                'description' => 'Cocok untuk tim dapur yang fokus ke antrean dapur, stok harian, dan buka tutup tenant.',
                 'suggested_role_name' => 'operator-dapur',
                 'permissions' => [
                     'dashboard-access',
@@ -54,7 +54,7 @@ class RbacPresetCatalog
             [
                 'key' => 'tenant-operational',
                 'label' => 'Tenant Operasional',
-                'description' => 'Untuk PIC tenant harian yang mengelola produk, stok, dan operasional outlet tenant.',
+                'description' => 'Cocok untuk PIC tenant yang mengelola produk, stok, dan operasional tenant sehari-hari.',
                 'suggested_role_name' => 'tenant-operasional',
                 'permissions' => [
                     'products-access',
@@ -66,7 +66,7 @@ class RbacPresetCatalog
             [
                 'key' => 'tenant-promo',
                 'label' => 'Tenant Promo',
-                'description' => 'Untuk tenant yang boleh membuat dan mengubah promo sendiri.',
+                'description' => 'Cocok untuk tenant yang boleh membuat, mengubah, dan menjalankan promo sendiri.',
                 'suggested_role_name' => 'tenant-promo',
                 'permissions' => [
                     'pricing-rules-access',
@@ -76,8 +76,8 @@ class RbacPresetCatalog
             ],
             [
                 'key' => 'owner-pricing',
-                'label' => 'Owner Pricing',
-                'description' => 'Untuk admin owner yang boleh mengubah harga utama dan mengelola promo owner.',
+                'label' => 'Admin Harga Owner',
+                'description' => 'Cocok untuk admin owner yang boleh mengubah harga utama dan mengelola promo owner outlet.',
                 'suggested_role_name' => 'owner-pricing',
                 'permissions' => [
                     'products-access',
@@ -91,7 +91,7 @@ class RbacPresetCatalog
             [
                 'key' => 'inventory-admin',
                 'label' => 'Admin Stok',
-                'description' => 'Untuk staf yang fokus ke stok, pembelian, penerimaan barang, dan supplier.',
+                'description' => 'Cocok untuk staf yang fokus ke stok, pembelian, penerimaan barang, dan supplier.',
                 'suggested_role_name' => 'admin-stok',
                 'permissions' => [
                     'products-access',
@@ -113,7 +113,7 @@ class RbacPresetCatalog
             [
                 'key' => 'report-viewer',
                 'label' => 'Admin Laporan',
-                'description' => 'Untuk staf yang hanya memantau laporan penjualan, laba, dan analitik.',
+                'description' => 'Cocok untuk staf yang hanya memantau laporan penjualan, laba, dan analitik.',
                 'suggested_role_name' => 'admin-laporan',
                 'permissions' => [
                     'dashboard-access',
@@ -121,6 +121,52 @@ class RbacPresetCatalog
                     'profits-access',
                     'cashier-shifts-access',
                 ],
+            ],
+            [
+                'key' => 'owner-operations-admin',
+                'label' => 'Admin Owner Outlet',
+                'description' => 'Cocok untuk admin harian owner yang mengelola kasir, produk, outlet, pelanggan, dan laporan dasar.',
+                'suggested_role_name' => 'admin-owner-outlet',
+                'permissions' => [
+                    'dashboard-access',
+                    'transactions-access',
+                    'customers-access',
+                    'customers-create',
+                    'products-access',
+                    'products-edit',
+                    'outlets-access',
+                    'outlets-toggle',
+                    'reports-access',
+                    'cashier-shifts-access',
+                ],
+            ],
+            [
+                'key' => 'system-admin',
+                'label' => 'Admin Sistem',
+                'description' => 'Cocok untuk admin internal yang mengelola pengguna, role akses, izin, audit, dan pengaturan penting.',
+                'suggested_role_name' => 'admin-sistem',
+                'permissions' => [
+                    'dashboard-access',
+                    'users-access',
+                    'users-create',
+                    'users-update',
+                    'roles-access',
+                    'roles-create',
+                    'roles-update',
+                    'permissions-access',
+                    'audit-logs-access',
+                    'payment-settings-access',
+                    'payment-settings-update',
+                    'reports-access',
+                ],
+            ],
+            [
+                'key' => 'super-admin',
+                'label' => 'Super Admin',
+                'description' => 'Akses penuh ke seluruh sistem. Gunakan hanya untuk pemilik sistem atau admin inti yang benar-benar dipercaya.',
+                'suggested_role_name' => 'super-admin',
+                'use_all_permissions' => true,
+                'permissions' => [],
             ],
         ];
     }

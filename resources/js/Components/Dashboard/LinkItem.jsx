@@ -6,14 +6,13 @@ export default function LinkItem({
     href,
     icon,
     access,
+    active = false,
     title,
     sidebarOpen,
     ...props
 }) {
-    const { url } = usePage();
     const { auth } = usePage().props;
-
-    const isActive = url.startsWith(href);
+    const isActive = active === true;
     const canAccess = isSuperAdmin(auth) || access === true;
 
     if (!canAccess) return null;

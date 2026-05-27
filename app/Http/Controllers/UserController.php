@@ -7,6 +7,7 @@ use App\Models\KitchenStation;
 use App\Models\Outlet;
 use App\Models\User;
 use App\Services\AuditLogService;
+use App\Support\RbacPresetCatalog;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
@@ -87,6 +88,7 @@ class UserController extends Controller
             'perPageOptions' => $allowedPerPage,
             'roleOptions' => $roleOptions,
             'outletOptions' => $outletOptions,
+            'wizardTemplates' => collect(RbacPresetCatalog::all())->values()->all(),
         ]);
     }
 
@@ -126,6 +128,7 @@ class UserController extends Controller
             'tenantOutlets' => $tenantOutlets,
             'kitchenStations' => $kitchenStations,
             'prefillRole' => $roles->contains('name', $prefillRole) ? $prefillRole : null,
+            'wizardTemplates' => collect(RbacPresetCatalog::all())->values()->all(),
         ]);
     }
 
@@ -228,6 +231,7 @@ class UserController extends Controller
             'outlets' => $outlets,
             'tenantOutlets' => $tenantOutlets,
             'kitchenStations' => $kitchenStations,
+            'wizardTemplates' => collect(RbacPresetCatalog::all())->values()->all(),
         ]);
     }
 

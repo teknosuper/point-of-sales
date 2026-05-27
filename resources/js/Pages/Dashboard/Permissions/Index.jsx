@@ -3,12 +3,15 @@ import DashboardLayout from "@/Layouts/DashboardLayout";
 import { Head, Link, router, usePage } from "@inertiajs/react";
 import {
     IconAdjustmentsHorizontal,
+    IconBolt,
     IconChevronDown,
     IconChevronUp,
     IconDatabaseOff,
     IconFilterOff,
+    IconInfoCircle,
     IconKey,
     IconChecklist,
+    IconLayoutGrid,
     IconSearch,
     IconShield,
     IconUserPlus,
@@ -16,6 +19,26 @@ import {
 import Pagination from "@/Components/Dashboard/Pagination";
 import { decoratePermission } from "@/Utils/permissionPresentation";
 import { useAuthorization } from "@/Utils/authorization";
+
+function presetMeta(template) {
+    if (template.key === "super-admin") {
+        return { group: "Admin Sistem", order: 1, badge: "Akses penuh" };
+    }
+
+    if (["system-admin", "owner-operations-admin"].includes(template.key)) {
+        return { group: "Admin Sistem", order: 1, badge: "Disarankan" };
+    }
+
+    if (["cashier-basic", "waiter-basic", "kitchen-operator-basic"].includes(template.key)) {
+        return { group: "Tim Operasional", order: 2, badge: "Operasional" };
+    }
+
+    if (["tenant-operational", "tenant-promo"].includes(template.key)) {
+        return { group: "Tenant", order: 3, badge: "Tenant" };
+    }
+
+    return { group: "Admin Modul", order: 4, badge: "Modul" };
+}
 
 export default function Index() {
     const { permissions, filters = {}, groupCounts = [], groupOptions = [], perPageOptions = [], wizardTemplates = [] } = usePage().props;
@@ -47,6 +70,31 @@ export default function Index() {
             per_page: filters.per_page || 20,
         });
     };
+    const groupedTemplates = wizardTemplates
+        .map((template) => ({
+            ...template,
+            meta: presetMeta(template),
+        }))
+        .reduce((accumulator, template) => {
+            const existing = accumulator[template.meta.group] || {
+                label: template.meta.group,
+                order: template.meta.order,
+                items: [],
+            };
+
+            existing.items.push(template);
+            accumulator[template.meta.group] = existing;
+
+            return accumulator;
+        }, {});
+    const templateGroups = Object.values(groupedTemplates)
+        .sort((left, right) => left.order - right.order)
+        .map((group) => ({
+            ...group,
+            items: group.items.sort((left, right) =>
+                left.label.localeCompare(right.label, "id-ID")
+            ),
+        }));
 
     return (
         <>
@@ -70,7 +118,7 @@ export default function Index() {
             <div className="mb-6 grid gap-3 md:grid-cols-3">
                 <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
                     <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                        Total Permission
+                        Total Izin
                     </p>
                     <p className="mt-2 text-2xl font-bold text-slate-900 dark:text-white">
                         {permissions.total || 0}
@@ -101,65 +149,97 @@ export default function Index() {
                             Wizard RBAC
                         </p>
                         <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-                            Halaman ini adalah kamus izin. Untuk pemakaian harian, pakai urutan ini: pilih template akses, buat role, lalu buat user.
+                            Halaman ini adalah kamus izin. Untuk setup harian, pilih paket akses, lanjut ke role, lalu buat user.
                         </p>
                     </div>
-                    <Link
-                        href={route("users.index")}
-                        className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
-                    >
-                        <IconUserPlus size={16} />
-                        Lihat Pengguna
-                    </Link>
+                    <div className="rounded-2xl border border-white/80 bg-white px-4 py-3 text-sm text-slate-600 shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+                        <p className="font-medium text-slate-800 dark:text-slate-100">
+                            Urutan paling cepat
+                        </p>
+                        <p className="mt-1">1. Pilih paket 2. Simpan role 3. Buat pengguna</p>
+                    </div>
                 </div>
-                <div className="mt-4 grid gap-3 lg:grid-cols-3">
-                    {wizardTemplates.map((template) => (
+                <div className="mt-5 space-y-4">
+                    {templateGroups.map((group) => (
                         <div
-                            key={template.key}
-                            className="rounded-2xl border border-white/80 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900"
+                            key={group.label}
+                            className="overflow-hidden rounded-2xl border border-white/80 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900"
                         >
-                            <p className="text-sm font-semibold text-slate-900 dark:text-white">
-                                {template.label}
-                            </p>
-                            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                                {template.description}
-                            </p>
-                            <div className="mt-3 flex flex-wrap gap-2">
-                                {template.permissions.slice(0, 3).map((permission) => (
-                                    <span
-                                        key={permission}
-                                        className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300"
-                                    >
-                                        {permission}
-                                    </span>
-                                ))}
+                            <div className="flex items-center gap-2 border-b border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950">
+                                <IconLayoutGrid size={16} className="text-primary-500" />
+                                <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                                    {group.label}
+                                </p>
                             </div>
-                            <div className="mt-4 flex flex-wrap gap-2">
-                                <Link
-                                    href={route("permissions.wizard", { template: template.key, step: "template" })}
-                                    className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-700 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-200"
-                                >
-                                    <IconChecklist size={16} />
-                                    Buka Wizard
-                                </Link>
-                                {can("roles-create") || can("roles-access") ? (
-                                    <Link
-                                        href={route("permissions.wizard", { template: template.key, step: "role" })}
-                                        className="inline-flex items-center gap-2 rounded-xl bg-primary-500 px-3 py-2 text-sm font-medium text-white hover:bg-primary-600"
+                            <div className="divide-y divide-slate-200 dark:divide-slate-800">
+                                {group.items.map((template) => (
+                                    <div
+                                        key={template.key}
+                                        className="grid gap-3 px-4 py-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)_auto]"
                                     >
-                                        <IconChecklist size={16} />
-                                        Atur Role
-                                    </Link>
-                                ) : null}
-                                {can("users-create") ? (
-                                    <Link
-                                        href={route("permissions.wizard", { template: template.key, step: "user" })}
-                                        className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-                                    >
-                                        <IconUserPlus size={16} />
-                                        Atur User
-                                    </Link>
-                                ) : null}
+                                        <div className="min-w-0">
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                                                    {template.label}
+                                                </p>
+                                                <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                                                    {template.meta.badge}
+                                                </span>
+                                            </div>
+                                            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                                {template.description}
+                                            </p>
+                                        </div>
+                                        <div>
+                                            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                                Ringkasan
+                                            </p>
+                                            <div className="mt-2 flex flex-wrap gap-2">
+                                                {template.use_all_permissions ? (
+                                                    <span className="rounded-full bg-rose-100 px-2.5 py-1 text-[11px] font-medium text-rose-700 dark:bg-rose-950/40 dark:text-rose-200">
+                                                        Semua izin sistem
+                                                    </span>
+                                                ) : (
+                                                    <>
+                                                        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                                                            {template.permissions.length} izin inti
+                                                        </span>
+                                                        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                                                            Role cepat pakai
+                                                        </span>
+                                                    </>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <div className="flex flex-wrap items-start justify-start gap-2 lg:justify-end">
+                                            <Link
+                                                href={route("permissions.wizard", { template: template.key, step: "template" })}
+                                                className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-700 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-200"
+                                            >
+                                                <IconBolt size={16} />
+                                                Mulai
+                                            </Link>
+                                            {can("roles-create") || can("roles-access") ? (
+                                                <Link
+                                                    href={route("permissions.wizard", { template: template.key, step: "role" })}
+                                                    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                                                >
+                                                    <IconChecklist size={16} />
+                                                    Role
+                                                </Link>
+                                            ) : null}
+                                            {can("users-create") ? (
+                                                <Link
+                                                    href={route("permissions.wizard", { template: template.key, step: "user" })}
+                                                    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                                                >
+                                                    <IconUserPlus size={16} />
+                                                    User
+                                                </Link>
+                                            ) : null}
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
                         </div>
                     ))}
@@ -185,13 +265,13 @@ export default function Index() {
                 {showGuide ? (
                     <div className="mt-4 grid gap-3 lg:grid-cols-3">
                         <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-100">
-                            Minimal `pricing-rules-access`, `pricing-rules-create`, dan `pricing-rules-update` untuk tenant promo.
+                            Tenant promo butuh akses buat lihat, tambah, dan ubah aturan harga.
                         </div>
                         <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100">
-                            `products-pricing-update` khusus owner yang boleh ubah harga utama.
+                            Ubah harga owner outlet harus dibatasi hanya ke admin pricing owner.
                         </div>
                         <div className="rounded-2xl border border-violet-200 bg-violet-50 p-4 text-sm text-violet-900 dark:border-violet-900/40 dark:bg-violet-950/20 dark:text-violet-100">
-                            Susun izin di role dulu, lalu pasang role ke user.
+                            Atur izin di role dulu, lalu pasang role itu ke user.
                         </div>
                     </div>
                 ) : null}
@@ -209,7 +289,7 @@ export default function Index() {
                                 Filter
                             </h2>
                             <p className="text-xs text-slate-500 dark:text-slate-400">
-                                {activeFilterCount > 0 ? `${activeFilterCount} filter aktif` : "Semua permission ditampilkan"}
+                                {activeFilterCount > 0 ? `${activeFilterCount} filter aktif` : "Semua izin ditampilkan"}
                             </p>
                         </div>
                     </div>
@@ -224,6 +304,12 @@ export default function Index() {
                 </div>
                 {showFilters ? (
                 <>
+                <div className="mb-4 flex items-start gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">
+                    <IconInfoCircle size={14} className="mt-0.5 shrink-0 text-primary-500" />
+                    <p>
+                        Gunakan halaman ini untuk mencari izin tertentu. Untuk setup user harian, lebih cepat lewat wizard di atas.
+                    </p>
+                </div>
                 <div className="mt-4 grid gap-3 md:grid-cols-4">
                     <div className="relative md:col-span-2">
                         <input
@@ -237,7 +323,7 @@ export default function Index() {
                                     });
                                 }
                             }}
-                            placeholder="Cari nama teknis atau fungsi permission..."
+                            placeholder="Cari nama teknis atau fungsi izin..."
                             className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 pr-11 text-sm text-slate-800 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
                         />
                         <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-4 text-slate-400">

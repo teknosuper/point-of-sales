@@ -13,12 +13,13 @@ import { decoratePermission } from "@/Utils/permissionPresentation";
 export default function ListBox({ selected, data, setSelected, label, errors, presets = [] }) {
     const [search, setSearch] = useState('');
     const [activeGroup, setActiveGroup] = useState('');
+    const [showPermissionLibrary, setShowPermissionLibrary] = useState(false);
 
     const preview = selected.length ?
-        selected.length >= 4 ? `jumlah hak akses terpilih ${selected.length}` :
+        selected.length >= 4 ? `Jumlah izin terpilih ${selected.length}` :
             selected.map((item) => decoratePermission(item).label).join(', ')
         :
-        'Pilih Hak Akses'
+        'Pilih Izin'
 
     const decoratedItems = data.map((item) => decoratePermission(item));
     const groupCounts = decoratedItems.reduce((accumulator, item) => {
@@ -95,6 +96,27 @@ export default function ListBox({ selected, data, setSelected, label, errors, pr
     return (
         <div className='flex flex-col gap-2'>
             <label className='text-gray-600 text-sm'>{label}</label>
+            {presets.length > 0 && (
+                <div className='rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-100'>
+                    <p className='font-semibold'>Mulai dari paket akses</p>
+                    <p className='mt-1'>Pilih paket akses dulu agar izin inti terisi otomatis. Buka detail izin hanya jika perlu menambah atau mengurangi izin tertentu.</p>
+                    <div className='mt-3 flex flex-wrap gap-2'>
+                        {presets.map((preset) => (
+                            <button
+                                key={preset.key}
+                                type='button'
+                                onClick={() => {
+                                    applyPreset(preset.permissions);
+                                    setShowPermissionLibrary(false);
+                                }}
+                                className='rounded-full border border-blue-200 bg-white px-3 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100 dark:border-blue-900/40 dark:bg-blue-950/30 dark:text-blue-300'
+                            >
+                                {preset.label}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            )}
             <Listbox value={selected} onChange={setSelected} multiple by="id">
                 <Listbox.Button className={'w-full px-3 py-1.5 border text-sm rounded-md focus:outline-none focus:ring-0 flex justify-between items-center gap-8 bg-white text-gray-700 focus:border-gray-200 border-gray-200 dark:bg-gray-900 dark:text-gray-300 dark:focus:border-gray-700 dark:border-gray-800'}>
                     {preview}
@@ -102,6 +124,21 @@ export default function ListBox({ selected, data, setSelected, label, errors, pr
                 </Listbox.Button>
                 <Listbox.Options className={'max-h-[55vh] overflow-y-auto overscroll-contain rounded-lg border bg-gray-100 dark:border-gray-900 dark:bg-gray-950'}>
                     <div className='sticky top-0 z-10 space-y-3 border-b border-gray-200 bg-gray-100 p-4 dark:border-gray-900 dark:bg-gray-950'>
+                        <div className='flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300'>
+                            <div>
+                                <p className='font-semibold text-gray-700 dark:text-gray-200'>Izin detail</p>
+                                <p className='mt-0.5'>Gunakan hanya jika template belum cukup.</p>
+                            </div>
+                            <button
+                                type='button'
+                                onClick={() => setShowPermissionLibrary((value) => !value)}
+                                className='rounded-full border border-gray-200 px-3 py-1 font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800'
+                            >
+                                {showPermissionLibrary ? 'Sembunyikan' : 'Buka'}
+                            </button>
+                        </div>
+                        {showPermissionLibrary ? (
+                        <>
                         <div className='grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_auto_auto]'>
                             <div className='relative'>
                                 <input
@@ -175,21 +212,10 @@ export default function ListBox({ selected, data, setSelected, label, errors, pr
                         <div className='text-xs text-gray-500 dark:text-gray-400'>
                             Menampilkan {filteredItems.length} dari {decoratedItems.length} izin • terpilih {selected.length}
                         </div>
-                        {presets.length > 0 && (
-                            <div className='flex flex-wrap gap-2'>
-                                {presets.map((preset) => (
-                                    <button
-                                        key={preset.key}
-                                        type='button'
-                                        onClick={() => applyPreset(preset.permissions)}
-                                        className='rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100 dark:border-blue-900/40 dark:bg-blue-950/30 dark:text-blue-300'
-                                    >
-                                        {preset.label}
-                                    </button>
-                                ))}
-                            </div>
-                        )}
+                        </>
+                        ) : null}
                     </div>
+                    {showPermissionLibrary ? (
                     <div className='space-y-4 p-4'>
                         {groupedSections.map((section) => (
                             <div key={section.key} className='space-y-2'>
@@ -223,9 +249,14 @@ export default function ListBox({ selected, data, setSelected, label, errors, pr
                             </div>
                         ))}
                     </div>
-                    {filteredItems.length === 0 && (
+                    ) : (
                         <div className='m-4 rounded-lg border border-dashed border-gray-300 px-4 py-6 text-center text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400'>
-                            Tidak ada hak akses yang cocok dengan filter saat ini.
+                            Paket akses dan ringkasan izin tetap aktif. Buka detail izin jika Anda ingin memilih izin satu per satu.
+                        </div>
+                    )}
+                    {showPermissionLibrary && filteredItems.length === 0 && (
+                        <div className='m-4 rounded-lg border border-dashed border-gray-300 px-4 py-6 text-center text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400'>
+                            Tidak ada izin yang cocok dengan filter saat ini.
                         </div>
                     )}
                 </Listbox.Options>
