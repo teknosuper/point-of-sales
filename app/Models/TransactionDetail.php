@@ -40,6 +40,9 @@ class TransactionDetail extends Model
         'pricing_rule_price_basis',
         'pricing_group_key',
         'pricing_group_label',
+        'is_promo_reward',
+        'promo_reward_rule_name',
+        'promo_reward_label',
     ];
 
     protected $casts = [
@@ -61,6 +64,7 @@ class TransactionDetail extends Model
         'pricing_rule_id' => 'integer',
         'pricing_rule_kind' => 'string',
         'pricing_rule_price_basis' => 'string',
+        'is_promo_reward' => 'boolean',
     ];
 
     /**

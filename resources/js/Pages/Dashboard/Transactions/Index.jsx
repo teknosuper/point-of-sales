@@ -20,6 +20,15 @@ import HeldTransactions, {
 } from "@/Components/POS/HeldTransactions";
 import useBarcodeScanner from "@/Hooks/useBarcodeScanner";
 import { getProductImageUrl } from "@/Utils/imageUrl";
+import {
+    formatRuleItems,
+    hasPromoApplied,
+    promoBadgeSummary,
+    promoBenefitPreview,
+    promoDetailText,
+    promoTitleText,
+    resolveBuyGetBreakdown,
+} from "@/Utils/pricingRules";
 import { useAuthorization } from "@/Utils/authorization";
 import {
     buildOfflineInvoice,
@@ -177,6 +186,9 @@ export default function Index({
     const [modifierModalProduct, setModifierModalProduct] = useState(null);
     const [modifierModalCartTargetId, setModifierModalCartTargetId] =
         useState(null);
+    const [modifierModalQuantity, setModifierModalQuantity] = useState(1);
+    const [isModifierPromoDetailOpen, setIsModifierPromoDetailOpen] =
+        useState(false);
     const [selectedModifierOptionIds, setSelectedModifierOptionIds] = useState(
         []
     );
@@ -204,6 +216,8 @@ export default function Index({
     const [checkoutModalStep, setCheckoutModalStep] = useState(null);
     const [completedTransaction, setCompletedTransaction] = useState(null);
     const [checkoutWarning, setCheckoutWarning] = useState("");
+    const [isAddingMissingRewards, setIsAddingMissingRewards] = useState(false);
+    const [recentRewardProductIds, setRecentRewardProductIds] = useState([]);
     const [isReceiptFrameReady, setIsReceiptFrameReady] = useState(false);
     const [isBrowserOnline, setIsBrowserOnline] = useState(
         typeof navigator === "undefined" ? true : navigator.onLine
@@ -321,6 +335,16 @@ export default function Index({
         paymentGatewayOptions.length > 0
             ? paymentGatewayOptions
             : offlineBootstrap?.paymentGateways || [];
+    const productsById = useMemo(
+        () =>
+            Object.fromEntries(
+                (productOptions.length > 0
+                    ? productOptions
+                    : offlineBootstrap?.products || []
+                ).map((product) => [Number(product.id), product])
+            ),
+        [offlineBootstrap?.products, productOptions]
+    );
     const loyaltyTierOptions =
         loyaltyTierOptionValues.length > 0
             ? loyaltyTierOptionValues
@@ -349,9 +373,57 @@ export default function Index({
             return accumulator;
         }, {});
     }, [pricingPreview]);
+    const modifierModalSelectedModifierTotal = useMemo(
+        () =>
+            (modifierModalProduct?.modifier_options || [])
+                .filter((option) => selectedModifierOptionIds.includes(option.id))
+                .reduce((sum, option) => sum + Number(option.price || 0), 0),
+        [modifierModalProduct, selectedModifierOptionIds]
+    );
+    const modifierModalPromo = useMemo(() => {
+        const badge = modifierModalProduct?.pricing_badge;
+        const rule = badge?.pricing_rule || null;
+        const quantity = Math.max(1, Number(modifierModalQuantity || 1));
+        const baseUnitPrice = Number(badge?.base_price || modifierModalProduct?.sell_price || 0);
+        const promoUnitPrice = Number(badge?.promo_price || 0);
+        const minimumQuantity = Math.max(
+            1,
+            Number(rule?.minimum_quantity || rule?.preview_quantity || 1)
+        );
+        const promoEligible =
+            Boolean(rule) &&
+            (rule.kind !== "qty_break" || quantity >= minimumQuantity);
+        const effectiveUnitPrice =
+            promoEligible && promoUnitPrice > 0 ? promoUnitPrice : baseUnitPrice;
+        const summary = promoBadgeSummary(rule, badge?.label || badge?.rule_name || null);
+
+        return {
+            ...summary,
+            quantity,
+            minimumQuantity,
+            promoEligible,
+            baseUnitPrice,
+            effectiveUnitPrice,
+            baseLineTotal: baseUnitPrice * quantity,
+            effectiveLineTotal: effectiveUnitPrice * quantity,
+        };
+    }, [modifierModalProduct, modifierModalQuantity]);
+    const modifierModalPromoBenefit = useMemo(
+        () =>
+            promoBenefitPreview({
+                rule: modifierModalProduct?.pricing_badge?.pricing_rule || null,
+                quantity: modifierModalQuantity,
+                baseUnitPrice: modifierModalPromo.baseUnitPrice,
+                effectiveUnitPrice: modifierModalPromo.effectiveUnitPrice,
+                productId: modifierModalProduct?.id,
+                formatPrice,
+            }),
+        [modifierModalProduct, modifierModalPromo, modifierModalQuantity]
+    );
 
     // Ref for search input to enable keyboard focus
     const searchInputRef = useRef(null);
+    const cartSectionRef = useRef(null);
     const receiptFrameRef = useRef(null);
     const pricingRequestAbortRef = useRef(null);
     const pricingRequestTimerRef = useRef(null);
@@ -763,6 +835,85 @@ export default function Index({
                 : null,
         [lastOfflineDeviceCheckAt]
     );
+    const unmetRewardWarnings = useMemo(() => {
+        const cartProductQuantities = localCarts.reduce((accumulator, item) => {
+            const productId = Number(item.product_id || 0);
+            accumulator[productId] =
+                (accumulator[productId] || 0) + Number(item.qty || 0);
+            return accumulator;
+        }, {});
+
+        return localCarts
+            .map((item) => {
+                const fallbackProduct =
+                    productsById[Number(item.product_id || 0)] || item.product;
+                const rule = fallbackProduct?.pricing_badge?.pricing_rule;
+
+                if (
+                    !rule ||
+                    rule.kind !== "buy_x_get_y" ||
+                    !Array.isArray(rule.get_items) ||
+                    !Array.isArray(rule.buy_items)
+                ) {
+                    return null;
+                }
+
+                const currentProductId = Number(item.product_id || 0);
+                const hasCrossReward = rule.get_items.some(
+                    (rewardItem) =>
+                        Number(rewardItem.product_id || 0) !== currentProductId
+                );
+
+                if (!hasCrossReward) {
+                    return null;
+                }
+
+                const currentBuyItem = rule.buy_items.find(
+                    (buyItem) =>
+                        Number(buyItem.product_id || 0) === currentProductId
+                );
+                const triggerQty = Math.max(
+                    1,
+                    Number(currentBuyItem?.quantity || rule.buy_qty || 1)
+                );
+                const currentQty = Number(item.qty || 0);
+
+                if (currentQty < triggerQty) {
+                    return null;
+                }
+
+                const missingRewards = rule.get_items.filter((rewardItem) => {
+                    const rewardProductId = Number(rewardItem.product_id || 0);
+                    const rewardQty = Math.max(
+                        1,
+                        Number(rewardItem.quantity || 1)
+                    );
+                    return (
+                        rewardProductId !== currentProductId &&
+                        Number(cartProductQuantities[rewardProductId] || 0) <
+                            rewardQty
+                    );
+                });
+
+                if (missingRewards.length === 0) {
+                    return null;
+                }
+
+                return {
+                    ruleId: rule.id,
+                    ruleName: rule.name || "Promo Buy Get",
+                    sourceProduct: item.product?.title || fallbackProduct?.title,
+                    missingRewards: formatRuleItems(missingRewards),
+                    rule,
+                };
+            })
+            .filter(Boolean)
+            .filter(
+                (warning, index, array) =>
+                    array.findIndex((item) => item.ruleId === warning.ruleId) ===
+                    index
+            );
+    }, [localCarts, productsById]);
     const offlineSnapshotFreshness = useMemo(
         () => resolveFreshnessMeta(offlineBootstrap?.saved_at),
         [offlineBootstrap?.saved_at]
@@ -793,6 +944,29 @@ export default function Index({
             ) ?? historyTransactions[0]
         );
     }, [historyTransactions, selectedHistoryTransactionId]);
+
+    useEffect(() => {
+        if (unmetRewardWarnings.length === 0 && checkoutWarning) {
+            setCheckoutWarning("");
+        }
+    }, [checkoutWarning, unmetRewardWarnings.length]);
+
+    useEffect(() => {
+        if (recentRewardProductIds.length === 0) {
+            return;
+        }
+
+        cartSectionRef.current?.scrollIntoView({
+            behavior: "smooth",
+            block: "start",
+        });
+
+        const timerId = window.setTimeout(() => {
+            setRecentRewardProductIds([]);
+        }, 2500);
+
+        return () => window.clearTimeout(timerId);
+    }, [recentRewardProductIds]);
 
     useEffect(() => {
         if (localCarts.length === 0) {
@@ -1375,7 +1549,9 @@ export default function Index({
         const modifiers = Array.isArray(options.modifiers)
             ? options.modifiers.filter((item) => item?.name)
             : [];
-        const shouldForceNew = modifiers.length > 0;
+        const quantity = Math.max(1, Number(options.qty || 1));
+        const rewardPromoMeta = options.rewardPromoMeta || null;
+        const shouldForceNew = modifiers.length > 0 || Boolean(rewardPromoMeta);
 
         if (isOfflineMode) {
             const tempId = `offline-${product.id}-${Date.now()}`;
@@ -1385,6 +1561,7 @@ export default function Index({
                     const existingCart = currentCarts.find(
                         (item) =>
                             item.product_id === product.id &&
+                            !item.promo_reward_meta &&
                             !(item.notes || "").trim() &&
                             (!item.modifiers || item.modifiers.length === 0)
                     );
@@ -1394,7 +1571,11 @@ export default function Index({
                             item.id === existingCart.id
                                 ? {
                                       ...item,
-                                      qty: Number(item.qty || 0) + 1,
+                                      qty: Number(item.qty || 0) + quantity,
+                                      promo_reward_meta:
+                                          rewardPromoMeta ||
+                                          item.promo_reward_meta ||
+                                          null,
                                   }
                                 : item
                         );
@@ -1405,11 +1586,12 @@ export default function Index({
                     {
                         id: tempId,
                         product_id: product.id,
-                        qty: 1,
-                        price: resolvedProductDisplayPrice(product),
+                        qty: quantity,
+                        price: resolvedProductDisplayPrice(product) * quantity,
                         notes: "",
                         product: { ...product },
                         tenant_outlet_id: product.tenant_outlet_id || null,
+                        promo_reward_meta: rewardPromoMeta,
                         modifiers: modifiers.map((modifier, index) => ({
                             id: `${tempId}-modifier-${index}`,
                             name: modifier.name,
@@ -1444,19 +1626,24 @@ export default function Index({
                 const existingCart = currentCarts.find(
                     (item) =>
                         item.product_id === product.id &&
+                        !item.promo_reward_meta &&
                         !(item.notes || "").trim() &&
                         (!item.modifiers || item.modifiers.length === 0)
                 );
 
                 if (existingCart) {
                     return currentCarts.map((item) =>
-                        item.product_id === product.id
+                            item.product_id === product.id
                             ? {
                                   ...item,
-                                  qty: Number(item.qty || 0) + 1,
+                                  qty: Number(item.qty || 0) + quantity,
                                   price: resolvedProductDisplayPrice(
                                       item.product || product
-                                  ) * (Number(item.qty || 0) + 1),
+                                  ) * (Number(item.qty || 0) + quantity),
+                                  promo_reward_meta:
+                                      rewardPromoMeta ||
+                                      item.promo_reward_meta ||
+                                      null,
                               }
                             : item
                     );
@@ -1466,12 +1653,13 @@ export default function Index({
                     {
                         id: tempId,
                         product_id: product.id,
-                        qty: 1,
-                        price: resolvedProductDisplayPrice(product),
+                        qty: quantity,
+                        price: resolvedProductDisplayPrice(product) * quantity,
                         product: {
                             ...product,
                         },
                         tenant_outlet_id: product.tenant_outlet_id || null,
+                        promo_reward_meta: rewardPromoMeta,
                         is_optimistic: true,
                     },
                     ...currentCarts,
@@ -1483,8 +1671,11 @@ export default function Index({
             .post(route("transactions.addToCart"), {
                 product_id: product.id,
                 sell_price: product.sell_price,
-                qty: 1,
+                qty: quantity,
                 force_new: shouldForceNew,
+                is_promo_reward: Boolean(rewardPromoMeta),
+                promo_reward_rule_name: rewardPromoMeta?.rule_name || null,
+                promo_reward_label: rewardPromoMeta?.reward_label || null,
             })
             .then(async (response) => {
                 let serverCart = response.data?.data?.cart;
@@ -1513,18 +1704,24 @@ export default function Index({
                         const withoutTemp = currentCarts.filter(
                             (item) => item.id !== tempId
                         );
+                        const normalizedServerCart = rewardPromoMeta
+                            ? {
+                                  ...serverCart,
+                                  promo_reward_meta: rewardPromoMeta,
+                              }
+                            : serverCart;
                         const existingIndex = withoutTemp.findIndex(
-                            (item) => item.id === serverCart.id
+                            (item) => item.id === normalizedServerCart.id
                         );
 
                         if (existingIndex >= 0) {
                             const nextCarts = [...withoutTemp];
-                            nextCarts[existingIndex] = serverCart;
+                            nextCarts[existingIndex] = normalizedServerCart;
 
                             return nextCarts;
                         }
 
-                        return [serverCart, ...withoutTemp];
+                        return [normalizedServerCart, ...withoutTemp];
                     });
                 }
 
@@ -1542,14 +1739,15 @@ export default function Index({
                             {
                                 id: tempId,
                                 product_id: product.id,
-                                qty: 1,
-                                price: resolvedProductDisplayPrice(product),
+                                qty: quantity,
+                                price: resolvedProductDisplayPrice(product) * quantity,
                                 notes: "",
                                 product: {
                                     ...product,
                                 },
                                 tenant_outlet_id:
                                     product.tenant_outlet_id || null,
+                                promo_reward_meta: rewardPromoMeta,
                                 modifiers: modifiers.map(
                                     (modifier, index) => ({
                                         id: `${tempId}-modifier-${index}`,
@@ -1597,7 +1795,9 @@ export default function Index({
 
             if (hasPresetModifiers(product)) {
                 setModifierModalProduct(product);
+                setIsModifierPromoDetailOpen(false);
                 setSelectedModifierOptionIds([]);
+                setModifierModalQuantity(1);
                 return;
             }
 
@@ -1605,6 +1805,83 @@ export default function Index({
         },
         [addProductToCart, hasPresetModifiers]
     );
+
+    const handleAddRewardProducts = useCallback(
+        async (rule) => {
+            const rewardItems = Array.isArray(rule?.get_items)
+                ? rule.get_items
+                : [];
+
+            if (rewardItems.length === 0) {
+                toast.error("Item bonus untuk promo ini tidak ditemukan.");
+                return;
+            }
+
+            let addedCount = 0;
+            const missingRewards = [];
+            const addedRewardProductIds = [];
+
+            for (const rewardItem of rewardItems) {
+                const rewardProduct =
+                    productsById[Number(rewardItem.product_id || 0)] || null;
+
+                if (!rewardProduct) {
+                    missingRewards.push(
+                        rewardItem.product_title || `Produk #${rewardItem.product_id}`
+                    );
+                    continue;
+                }
+
+                const success = await addProductToCart(rewardProduct, {
+                    qty: Math.max(1, Number(rewardItem.quantity || 1)),
+                    rewardPromoMeta: {
+                        rule_name: rule?.name || rule?.label || "Promo Buy Get",
+                        reward_label:
+                            rewardItem.product_title || rewardProduct.title,
+                    },
+                });
+
+                if (success) {
+                    addedCount += Math.max(1, Number(rewardItem.quantity || 1));
+                    addedRewardProductIds.push(Number(rewardProduct.id));
+                }
+            }
+
+            if (addedCount > 0) {
+                setRecentRewardProductIds((current) => [
+                    ...new Set([...addedRewardProductIds, ...current]),
+                ]);
+                toast.success(`Item bonus berhasil ditambahkan ke keranjang.`);
+            }
+
+            if (missingRewards.length > 0) {
+                toast.error(
+                    `Bonus belum bisa ditambahkan: ${missingRewards.join(", ")}`
+                );
+            }
+        },
+        [addProductToCart, productsById]
+    );
+
+    const handleAddAllMissingRewards = useCallback(async () => {
+        if (unmetRewardWarnings.length === 0) {
+            return;
+        }
+
+        setIsAddingMissingRewards(true);
+
+        try {
+            for (const warning of unmetRewardWarnings) {
+                await handleAddRewardProducts(warning.rule);
+            }
+
+            setCheckoutWarning(
+                "Item bonus sedang ditambahkan ke keranjang. Periksa ulang preview setelah proses selesai."
+            );
+        } finally {
+            setIsAddingMissingRewards(false);
+        }
+    }, [handleAddRewardProducts, unmetRewardWarnings]);
 
     const handleToggleModifierOption = useCallback((optionId) => {
         setSelectedModifierOptionIds((current) =>
@@ -1621,6 +1898,8 @@ export default function Index({
 
         setModifierModalProduct(null);
         setModifierModalCartTargetId(null);
+        setModifierModalQuantity(1);
+        setIsModifierPromoDetailOpen(false);
         setSelectedModifierOptionIds([]);
     }, [isModifierModalSubmitting]);
 
@@ -1647,6 +1926,8 @@ export default function Index({
 
         setModifierModalProduct(item.product);
         setModifierModalCartTargetId(item.id);
+        setModifierModalQuantity(Math.max(1, Number(item.qty || 1)));
+        setIsModifierPromoDetailOpen(false);
         setSelectedModifierOptionIds(activeOptionIds);
     }, []);
 
@@ -1757,6 +2038,7 @@ export default function Index({
                     success = true;
                 } else {
                     success = await addProductToCart(modifierModalProduct, {
+                        qty: modifierModalQuantity,
                         modifiers: selectedModifiers,
                     });
                 }
@@ -1764,6 +2046,8 @@ export default function Index({
                 if (success) {
                     setModifierModalProduct(null);
                     setModifierModalCartTargetId(null);
+                    setModifierModalQuantity(1);
+                    setIsModifierPromoDetailOpen(false);
                     setSelectedModifierOptionIds([]);
                 }
             } catch (error) {
@@ -1780,6 +2064,7 @@ export default function Index({
             localCarts,
             modifierModalCartTargetId,
             modifierModalProduct,
+            modifierModalQuantity,
             selectedModifierOptionIds,
             isOfflineMode,
         ]
@@ -2192,11 +2477,22 @@ export default function Index({
             return;
         }
 
-        setCheckoutWarning("");
+        if (unmetRewardWarnings.length > 0) {
+            setCheckoutWarning(
+                unmetRewardWarnings
+                    .map(
+                        (warning) =>
+                            `${warning.ruleName}: bonus ${warning.missingRewards} belum ada di keranjang.`
+                    )
+                    .join(" ")
+            );
+        } else {
+            setCheckoutWarning("");
+        }
         setCompletedTransaction(null);
         setIsReceiptFrameReady(false);
         setCheckoutModalStep("preview");
-    }, [validateTransactionSubmission]);
+    }, [unmetRewardWarnings, validateTransactionSubmission]);
 
     const closeCheckoutModal = useCallback(() => {
         if (isSubmitting) {
@@ -2491,6 +2787,11 @@ export default function Index({
         const offlineReference = buildOfflineInvoice();
         const normalizedItems = localCarts.map((item) => {
             const pricingItem = pricingItemsByCartId[item.id];
+            const baseUnitPrice = Number(
+                pricingItem?.base_unit_price ??
+                    item.product?.sell_price ??
+                    0
+            );
             const unitPrice = Number(
                 pricingItem?.effective_unit_price ??
                     item.product?.pricing_badge?.promo_price ??
@@ -2518,11 +2819,11 @@ export default function Index({
                 product_title: item.product?.title || "Produk",
                 tenant_outlet_id: item.tenant_outlet_id || null,
                 qty: Number(item.qty || 1),
-                base_unit_price: unitPrice,
+                base_unit_price: baseUnitPrice,
                 unit_price: unitPrice,
                 price: lineTotal,
                 notes: item.notes || null,
-                discount_total: 0,
+                discount_total: Number(pricingItem?.line_discount_total || 0),
                 pricing_rule_name:
                     pricingItem?.pricing_rule?.name ||
                     pricingItem?.pricing_rule?.label ||
@@ -2533,6 +2834,11 @@ export default function Index({
                     pricingItem?.pricing_group_label ||
                     pricingItem?.pricing_rule?.label ||
                     null,
+                is_promo_reward: Boolean(item.promo_reward_meta),
+                promo_reward_rule_name:
+                    item.promo_reward_meta?.rule_name || null,
+                promo_reward_label:
+                    item.promo_reward_meta?.reward_label || null,
                 modifiers,
             };
         });
@@ -3526,7 +3832,10 @@ export default function Index({
                     <div className="flex-1 overflow-y-auto min-h-0">
                         {/* Hold Button - at top of cart section */}
                         {localCarts.length > 0 && (
-                        <div className="border-b border-slate-200 p-2.5 dark:border-slate-800 lg:p-3">
+                        <div
+                            ref={cartSectionRef}
+                            className="border-b border-slate-200 p-2.5 dark:border-slate-800 lg:p-3"
+                        >
                             <HoldButton
                                 hasItems={localCarts.length > 0}
                                 onHold={handleHoldCart}
@@ -3576,6 +3885,68 @@ export default function Index({
                                             );
                                             const pricingRule =
                                                 pricingItem?.pricing_rule;
+                                            const fallbackProduct =
+                                                productsById[
+                                                    Number(item.product_id || 0)
+                                                ] || item.product;
+                                            const fallbackRule =
+                                                fallbackProduct?.pricing_badge
+                                                    ?.pricing_rule || null;
+                                            const previewRule =
+                                                pricingRule || fallbackRule;
+                                            const promoSummary =
+                                                promoBadgeSummary(
+                                                    previewRule,
+                                                    pricingItem?.pricing_group_label
+                                                );
+                                            const isCrossProductBuyGet =
+                                                previewRule?.kind ===
+                                                    "buy_x_get_y" &&
+                                                Array.isArray(
+                                                    previewRule?.get_items
+                                                ) &&
+                                                previewRule.get_items.some(
+                                                    (rewardItem) =>
+                                                        Number(
+                                                            rewardItem.product_id ||
+                                                                0
+                                                        ) !==
+                                                        Number(
+                                                            item.product_id || 0
+                                                        )
+                                                );
+                                            const latentPromoPreview =
+                                                !pricingRule && previewRule
+                                                    ? promoBenefitPreview({
+                                                          rule: previewRule,
+                                                          quantity: Number(
+                                                              item.qty || 1
+                                                          ),
+                                                          baseUnitPrice,
+                                                          effectiveUnitPrice:
+                                                              baseUnitPrice,
+                                                          productId:
+                                                              item.product_id,
+                                                          formatPrice,
+                                                      })
+                                                    : null;
+                                            const buyGetBreakdown =
+                                                resolveBuyGetBreakdown({
+                                                    rule: previewRule,
+                                                    ruleKind:
+                                                        pricingItem?.pricing_rule
+                                                            ?.kind || null,
+                                                    quantity: Number(
+                                                        item.qty || 1
+                                                    ),
+                                                    baseUnitPrice,
+                                                    discountTotal: Number(
+                                                        pricingItem?.line_discount_total ||
+                                                            0
+                                                    ),
+                                                    productId:
+                                                        item.product_id,
+                                                });
                                             const modifierTotal = (
                                                 item.modifiers || []
                                             ).reduce(
@@ -3590,7 +3961,13 @@ export default function Index({
                                             return (
                                         <div
                                             key={item.id}
-                                            className="flex items-start gap-2.5 rounded-xl bg-slate-50 p-2.5 dark:bg-slate-800/50 group"
+                                            className={`flex items-start gap-2.5 rounded-xl p-2.5 group transition-all ${
+                                                recentRewardProductIds.includes(
+                                                    Number(item.product_id || 0)
+                                                )
+                                                    ? "bg-emerald-50 ring-2 ring-emerald-200 dark:bg-emerald-950/20 dark:ring-emerald-900/40"
+                                                    : "bg-slate-50 dark:bg-slate-800/50"
+                                            }`}
                                         >
                                             <div className="mt-0.5 h-11 w-11 rounded-lg bg-slate-200 dark:bg-slate-700 overflow-hidden flex-shrink-0 self-start">
                                                 {item.product?.image ? (
@@ -3627,6 +4004,18 @@ export default function Index({
                                                     {item.product?.title ||
                                                         "Produk"}
                                                 </p>
+                                                {item.promo_reward_meta ? (
+                                                    <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                                        <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">
+                                                            Item Bonus Promo
+                                                        </span>
+                                                        <span className="text-[11px] text-emerald-700 dark:text-emerald-300">
+                                                            {item.promo_reward_meta
+                                                                ?.rule_name ||
+                                                                "Buy Get"}
+                                                        </span>
+                                                    </div>
+                                                ) : null}
                                                 <div className="text-xs text-slate-500">
                                                     {pricingRule &&
                                                         effectiveUnitPrice <
@@ -3638,17 +4027,80 @@ export default function Index({
                                                                 × {item.qty}
                                                             </p>
                                                         )}
-                                                    <p>
-                                                        {formatPrice(
-                                                            effectiveUnitPrice
-                                                        )}{" "}
-                                                        × {item.qty}
-                                                    </p>
-                                                    {pricingRule && (
-                                                        <p className="mt-0.5 text-[11px] font-medium text-rose-500">
-                                                            {pricingRule.name}
+                                                    {buyGetBreakdown ? (
+                                                        <div className="space-y-0.5">
+                                                            {buyGetBreakdown.payableQty >
+                                                            0 ? (
+                                                                <p>
+                                                                    {formatPrice(
+                                                                        buyGetBreakdown.paidUnitPrice
+                                                                    )}{" "}
+                                                                    ×{" "}
+                                                                    {
+                                                                        buyGetBreakdown.payableQty
+                                                                    }
+                                                                </p>
+                                                            ) : null}
+                                                            <p className="font-medium text-emerald-600 dark:text-emerald-300">
+                                                                Bonus Rp 0 ×{" "}
+                                                                {
+                                                                    buyGetBreakdown.bonusQty
+                                                                }
+                                                            </p>
+                                                        </div>
+                                                    ) : (
+                                                        <p>
+                                                            {formatPrice(
+                                                                effectiveUnitPrice
+                                                            )}{" "}
+                                                            × {item.qty}
                                                         </p>
                                                     )}
+                                                    {promoSummary.title && (
+                                                        <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                                            <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold text-rose-700 dark:bg-rose-950/30 dark:text-rose-300">
+                                                                {promoSummary.badge ||
+                                                                    "Promo"}
+                                                            </span>
+                                                            <span className="text-[11px] font-medium text-rose-600 dark:text-rose-300">
+                                                                {
+                                                                    promoSummary.title
+                                                                }
+                                                            </span>
+                                                        </div>
+                                                    )}
+                                                    {promoSummary.detail && (
+                                                        <p className="mt-1 text-[11px] text-rose-600 dark:text-rose-300">
+                                                            {isCrossProductBuyGet
+                                                                ? `Bonus: ${formatRuleItems(
+                                                                      previewRule?.get_items ||
+                                                                          []
+                                                                  )}. Tambahkan item bonus ke keranjang agar benefit final dihitung.`
+                                                                : promoSummary.detail}
+                                                        </p>
+                                                    )}
+                                                    {!pricingRule &&
+                                                    latentPromoPreview ? (
+                                                        <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-300">
+                                                            {
+                                                                latentPromoPreview.headline
+                                                            }
+                                                        </p>
+                                                    ) : null}
+                                                    {isCrossProductBuyGet &&
+                                                    previewRule ? (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() =>
+                                                                handleAddRewardProducts(
+                                                                    previewRule
+                                                                )
+                                                            }
+                                                            className="mt-2 inline-flex items-center rounded-xl border border-primary-200 bg-primary-50 px-3 py-1.5 text-[11px] font-semibold text-primary-700 hover:bg-primary-100 dark:border-primary-900/40 dark:bg-primary-950/30 dark:text-primary-300 dark:hover:bg-primary-950/50"
+                                                        >
+                                                            Tambah item bonus
+                                                        </button>
+                                                    ) : null}
                                                 </div>
                                                 {item.product
                                                     ?.supports_modifiers && (
@@ -4526,6 +4978,36 @@ export default function Index({
                                                             ?.label ||
                                                         pricingItem?.pricing_group_label ||
                                                         pricingItem?.pricing_rule_name;
+                                                    const promoDetail =
+                                                        pricingItem?.pricing_rule
+                                                            ?.detail || null;
+                                                    const baseUnitPrice = Number(
+                                                        pricingItem?.base_unit_price ??
+                                                            item.product
+                                                                ?.sell_price ??
+                                                            0
+                                                    );
+                                                    const buyGetBreakdown =
+                                                        resolveBuyGetBreakdown(
+                                                            {
+                                                                rule: pricingItem?.pricing_rule,
+                                                                ruleKind:
+                                                                    pricingItem?.pricing_rule
+                                                                        ?.kind ||
+                                                                    null,
+                                                                quantity: Number(
+                                                                    item.qty || 1
+                                                                ),
+                                                                baseUnitPrice,
+                                                                discountTotal:
+                                                                    Number(
+                                                                        pricingItem?.line_discount_total ||
+                                                                            0
+                                                                    ),
+                                                                productId:
+                                                                    item.product_id,
+                                                            }
+                                                        );
                                                     const lineTotal = Number(
                                                         pricingItem?.line_total ??
                                                             item.price ??
@@ -4535,7 +5017,16 @@ export default function Index({
                                                     return (
                                                         <div
                                                             key={item.id}
-                                                            className="rounded-2xl bg-slate-50 px-4 py-3 dark:bg-slate-950/40"
+                                                            className={`rounded-2xl px-4 py-3 transition-all ${
+                                                                recentRewardProductIds.includes(
+                                                                    Number(
+                                                                        item.product_id ||
+                                                                            0
+                                                                    )
+                                                                )
+                                                                    ? "bg-emerald-50 ring-2 ring-emerald-200 dark:bg-emerald-950/20 dark:ring-emerald-900/40"
+                                                                    : "bg-slate-50 dark:bg-slate-950/40"
+                                                            }`}
                                                         >
                                                             <div className="flex items-start justify-between gap-3">
                                                                 <div className="min-w-0 flex-1">
@@ -4554,20 +5045,58 @@ export default function Index({
                                                                         }
                                                                             </p>
                                                                             <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                                                                                @{" "}
-                                                                                {formatPrice(
-                                                                                    Number(
-                                                                                        pricingItem?.effective_unit_price ??
-                                                                                            item
-                                                                                                .product
-                                                                                                ?.sell_price ??
+                                                                                {buyGetBreakdown ? (
+                                                                                    <>
+                                                                                        {buyGetBreakdown.payableQty >
+                                                                                        0
+                                                                                            ? `${buyGetBreakdown.payableQty}x @ ${formatPrice(
+                                                                                                  buyGetBreakdown.paidUnitPrice
+                                                                                              )}`
+                                                                                            : "0 item bayar"}
+                                                                                        {` • Bonus ${buyGetBreakdown.bonusQty}x @ ${formatPrice(
                                                                                             0
-                                                                                    )
+                                                                                        )}`}
+                                                                                        {promoLabel
+                                                                                            ? ` • ${promoLabel}`
+                                                                                            : ""}
+                                                                                    </>
+                                                                                ) : (
+                                                                                    <>
+                                                                                        @{" "}
+                                                                                        {formatPrice(
+                                                                                            Number(
+                                                                                                pricingItem?.effective_unit_price ??
+                                                                                                    item
+                                                                                                        .product
+                                                                                                        ?.sell_price ??
+                                                                                                    0
+                                                                                            )
+                                                                                        )}
+                                                                                        {promoLabel
+                                                                                            ? ` • ${promoLabel}`
+                                                                                            : ""}
+                                                                                    </>
                                                                                 )}
-                                                                                {promoLabel
-                                                                                    ? ` • ${promoLabel}`
-                                                                                    : ""}
                                                                             </p>
+                                                                            {promoDetail ? (
+                                                                                <p className="mt-1 text-[11px] text-rose-600 dark:text-rose-300">
+                                                                                    {
+                                                                                        promoDetail
+                                                                                    }
+                                                                                </p>
+                                                                            ) : null}
+                                                                            {item.promo_reward_meta ? (
+                                                                                <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                                                                    <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">
+                                                                                        Item Bonus Promo
+                                                                                    </span>
+                                                                                    <span className="text-[11px] text-emerald-700 dark:text-emerald-300">
+                                                                                        {item.promo_reward_meta
+                                                                                            ?.rule_name ||
+                                                                                            "promo aktif"}
+                                                                                    </span>
+                                                                                </div>
+                                                                            ) : null}
                                                                         </div>
                                                                     </div>
                                                                 </div>
@@ -4807,6 +5336,31 @@ export default function Index({
                                     {checkoutWarning && (
                                         <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300">
                                             {checkoutWarning}
+                                        </div>
+                                    )}
+                                    {unmetRewardWarnings.length > 0 && (
+                                        <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-300">
+                                            <p className="font-semibold">
+                                                Bonus promo lintas produk belum lengkap
+                                            </p>
+                                            <div className="mt-2 space-y-1 text-xs">
+                                                {unmetRewardWarnings.map((warning) => (
+                                                    <p key={warning.ruleId}>
+                                                        {warning.ruleName}: tambahkan{" "}
+                                                        {warning.missingRewards}.
+                                                    </p>
+                                                ))}
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={handleAddAllMissingRewards}
+                                                disabled={isAddingMissingRewards}
+                                                className="mt-3 inline-flex items-center rounded-xl border border-rose-300 bg-white px-3 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-rose-900/40 dark:bg-slate-900 dark:text-rose-200 dark:hover:bg-slate-800"
+                                            >
+                                                {isAddingMissingRewards
+                                                    ? "Menambahkan item bonus..."
+                                                    : "Tambah semua item bonus sekarang"}
+                                            </button>
                                         </div>
                                     )}
 
@@ -5057,10 +5611,10 @@ export default function Index({
                                                             </>
                                                         ) : null}
                                                     </div>
-                                                    {item.pricing_rule_name ? (
+                                                    {hasPromoApplied(item) ? (
                                                         <div className="mt-2 flex flex-wrap gap-2">
                                                             <span className="rounded-full bg-sky-50 px-2 py-1 text-[11px] font-semibold text-sky-700 dark:bg-sky-950/30 dark:text-sky-300">
-                                                                {item.pricing_rule_name}
+                                                                {promoTitleText(item)}
                                                             </span>
                                                             {item.pricing_rule_kind ? (
                                                                 <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
@@ -5068,6 +5622,11 @@ export default function Index({
                                                                 </span>
                                                             ) : null}
                                                         </div>
+                                                    ) : null}
+                                                    {promoDetailText(item) ? (
+                                                        <p className="mt-2 text-[11px] text-rose-600 dark:text-rose-300">
+                                                            {promoDetailText(item)}
+                                                        </p>
                                                     ) : null}
                                                     {item.modifiers?.length ? (
                                                         <div className="mt-2 flex flex-wrap gap-2">
@@ -5254,7 +5813,7 @@ export default function Index({
                         className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm"
                         onClick={closeModifierModal}
                     />
-                    <div className="relative w-full max-w-md overflow-hidden rounded-3xl bg-white shadow-2xl dark:bg-slate-900">
+                    <div className="relative flex max-h-[90vh] w-full max-w-md flex-col overflow-hidden rounded-3xl bg-white shadow-2xl dark:bg-slate-900">
                         <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4 dark:border-slate-800">
                             <div>
                                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary-500">
@@ -5279,48 +5838,318 @@ export default function Index({
                             </button>
                         </div>
 
-                        <div className="space-y-3 px-5 py-4">
-                            {(modifierModalProduct.modifier_options || []).map(
-                                (option) => {
-                                    const active =
-                                        selectedModifierOptionIds.includes(
-                                            option.id
-                                        );
-
-                                    return (
-                                        <button
-                                            key={option.id}
-                                            type="button"
-                                            onClick={() =>
-                                                handleToggleModifierOption(
-                                                    option.id
-                                                )
+                        <div className="min-h-0 flex-1 overflow-y-auto">
+                            {/* Pricing Badge / Promo Banner */}
+                            {modifierModalProduct.pricing_badge && (
+                                <div className="mx-5 mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 dark:border-rose-900/40 dark:bg-rose-950/20">
+                                    <div className="flex items-start gap-3">
+                                        <div className="shrink-0 rounded-lg bg-rose-500 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-white">
+                                            {modifierModalPromo.badge || "Promo"}
+                                        </div>
+                                        <div className="min-w-0">
+                                            <p className="text-sm font-semibold text-rose-800 dark:text-rose-200">
+                                                {modifierModalPromo.title || "Promo Spesial"}
+                                            </p>
+                                            {modifierModalPromo.detail && (
+                                                <p className="mt-0.5 text-xs text-rose-600 dark:text-rose-300">
+                                                    {modifierModalPromo.detail}
+                                                </p>
+                                            )}
+                                            {!modifierModalCartTargetId &&
+                                                modifierModalPromo.minimumQuantity >
+                                                    1 &&
+                                                modifierModalPromo.quantity <
+                                                    modifierModalPromo.minimumQuantity && (
+                                                    <p className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-300">
+                                                        Promo aktif mulai qty{" "}
+                                                        {
+                                                            modifierModalPromo.minimumQuantity
+                                                        }
+                                                        .
+                                                    </p>
+                                                )}
+                                            {modifierModalPromo.baseUnitPrice > 0 && (
+                                                <div className="mt-1 flex items-center gap-2 text-xs">
+                                                    {modifierModalPromo.promoEligible &&
+                                                    modifierModalPromo.effectiveUnitPrice <
+                                                        modifierModalPromo.baseUnitPrice ? (
+                                                        <>
+                                                            <span className="text-rose-500 line-through">
+                                                                {formatPrice(
+                                                                    modifierModalPromo.baseUnitPrice
+                                                                )}
+                                                            </span>
+                                                            <span className="font-bold text-rose-700 dark:text-rose-200">
+                                                                {formatPrice(
+                                                                    modifierModalPromo.effectiveUnitPrice
+                                                                )}
+                                                            </span>
+                                                        </>
+                                                    ) : (
+                                                        <span className="font-bold text-rose-700 dark:text-rose-200">
+                                                            {formatPrice(
+                                                                modifierModalPromo.baseUnitPrice
+                                                            )}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                    <div
+                                        className={`mt-3 rounded-2xl px-3 py-3 text-sm ${
+                                            modifierModalPromoBenefit.status ===
+                                            "active"
+                                                ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300"
+                                                : modifierModalPromoBenefit.status ===
+                                                    "pending"
+                                                  ? "bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300"
+                                                  : "bg-white/70 text-rose-700 dark:bg-slate-900/50 dark:text-rose-200"
+                                        }`}
+                                    >
+                                        <p className="font-semibold">
+                                            {
+                                                modifierModalPromoBenefit.headline
                                             }
-                                            className={`flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left transition ${
-                                                active
-                                                    ? "border-primary-500 bg-primary-50 dark:border-primary-400 dark:bg-primary-950/30"
-                                                    : "border-slate-200 bg-white hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-slate-600"
-                                            }`}
-                                        >
-                                            <div>
-                                                <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
-                                                    {option.name}
-                                                </p>
-                                                <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                                                    Tambahan {formatPrice(option.price)}
-                                                </p>
+                                        </p>
+                                        {modifierModalPromoBenefit.detail ? (
+                                            <p className="mt-1 text-xs opacity-90">
+                                                {
+                                                    modifierModalPromoBenefit.detail
+                                                }
+                                            </p>
+                                        ) : null}
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() =>
+                                            setIsModifierPromoDetailOpen(
+                                                (current) => !current
+                                            )
+                                        }
+                                        className="mt-3 inline-flex items-center gap-2 rounded-xl border border-rose-200 bg-white px-3 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-100 dark:border-rose-900/40 dark:bg-slate-900 dark:text-rose-200 dark:hover:bg-slate-800"
+                                    >
+                                        {isModifierPromoDetailOpen
+                                            ? "Sembunyikan benefit"
+                                            : "Lihat benefit promo"}
+                                        {isModifierPromoDetailOpen ? (
+                                            <IconChevronUp size={14} />
+                                        ) : (
+                                            <IconChevronDown size={14} />
+                                        )}
+                                    </button>
+                                    {isModifierPromoDetailOpen && (
+                                        <div className="mt-3 rounded-2xl border border-rose-200/70 bg-white/80 px-4 py-3 text-xs text-rose-700 dark:border-rose-900/30 dark:bg-slate-900/60 dark:text-rose-200">
+                                            <div className="grid gap-2">
+                                            <div className="flex items-center justify-between gap-3">
+                                                <span>Rule</span>
+                                                <strong className="text-right">
+                                                    {modifierModalPromo.title ||
+                                                        "Promo"}
+                                                </strong>
                                             </div>
-                                            <div
-                                                className={`h-5 w-5 rounded-md border ${
-                                                    active
-                                                        ? "border-primary-500 bg-primary-500"
-                                                        : "border-slate-300 dark:border-slate-600"
-                                                }`}
-                                            />
-                                        </button>
-                                    );
-                                }
+                                            {modifierModalProduct?.pricing_badge
+                                                ?.pricing_rule?.kind ===
+                                                "buy_x_get_y" && (
+                                                <>
+                                                    <div className="flex items-start justify-between gap-3">
+                                                        <span>Syarat beli</span>
+                                                        <strong className="text-right">
+                                                            {formatRuleItems(
+                                                                modifierModalProduct
+                                                                    ?.pricing_badge
+                                                                    ?.pricing_rule
+                                                                    ?.buy_items ||
+                                                                    []
+                                                            ) || "-"}
+                                                        </strong>
+                                                    </div>
+                                                    <div className="flex items-start justify-between gap-3">
+                                                        <span>Bonus</span>
+                                                        <strong className="text-right">
+                                                            {formatRuleItems(
+                                                                modifierModalProduct
+                                                                    ?.pricing_badge
+                                                                    ?.pricing_rule
+                                                                    ?.get_items ||
+                                                                    []
+                                                            ) || "-"}
+                                                        </strong>
+                                                    </div>
+                                                    {modifierModalProduct
+                                                        ?.pricing_badge
+                                                        ?.pricing_rule
+                                                        ?.get_items?.some(
+                                                            (rewardItem) =>
+                                                                Number(
+                                                                    rewardItem.product_id ||
+                                                                        0
+                                                                ) !==
+                                                                Number(
+                                                                    modifierModalProduct?.id ||
+                                                                        0
+                                                                )
+                                                        ) ? (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() =>
+                                                                handleAddRewardProducts(
+                                                                    modifierModalProduct
+                                                                        ?.pricing_badge
+                                                                        ?.pricing_rule
+                                                                )
+                                                            }
+                                                            className="mt-2 inline-flex items-center justify-center rounded-xl border border-primary-200 bg-primary-50 px-3 py-2 text-xs font-semibold text-primary-700 hover:bg-primary-100 dark:border-primary-900/40 dark:bg-primary-950/30 dark:text-primary-300 dark:hover:bg-primary-950/50"
+                                                        >
+                                                            Tambah item bonus ke keranjang
+                                                        </button>
+                                                    ) : null}
+                                                </>
+                                            )}
+                                            <div className="flex items-center justify-between gap-3">
+                                                <span>Qty dipilih</span>
+                                                <strong>
+                                                    {modifierModalQuantity}
+                                                </strong>
+                                                </div>
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <span>Estimasi subtotal</span>
+                                                    <strong>
+                                                        {formatPrice(
+                                                            modifierModalPromoBenefit.lineTotal
+                                                        )}
+                                                    </strong>
+                                                </div>
+                                                {modifierModalPromoBenefit.savings >
+                                                0 ? (
+                                                    <div className="flex items-center justify-between gap-3">
+                                                        <span>Estimasi hemat</span>
+                                                        <strong>
+                                                            {formatPrice(
+                                                                modifierModalPromoBenefit.savings
+                                                            )}
+                                                        </strong>
+                                                    </div>
+                                                ) : null}
+                                                {modifierModalPromo.detail ? (
+                                                    <p className="pt-1 leading-5 text-rose-600 dark:text-rose-300">
+                                                        {
+                                                            modifierModalPromo.detail
+                                                        }
+                                                    </p>
+                                                ) : null}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
                             )}
+
+                            {!modifierModalCartTargetId && (
+                                <div className="mx-5 mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/30">
+                                    <div className="flex items-center justify-between gap-3">
+                                        <div>
+                                            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                                Quantity
+                                            </p>
+                                            <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+                                                Tentukan jumlah item sebelum dimasukkan ke keranjang.
+                                            </p>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() =>
+                                                    setModifierModalQuantity((current) =>
+                                                        Math.max(1, current - 1)
+                                                    )
+                                                }
+                                                className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                                            >
+                                                -
+                                            </button>
+                                            <div className="min-w-[56px] rounded-xl bg-white px-3 py-2 text-center text-sm font-bold text-slate-900 dark:bg-slate-900 dark:text-white">
+                                                {modifierModalQuantity}
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() =>
+                                                    setModifierModalQuantity((current) =>
+                                                        current + 1
+                                                    )
+                                                }
+                                                className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                                            >
+                                                +
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div className="mt-3 flex items-center justify-between text-sm">
+                                        <span className="text-slate-500 dark:text-slate-400">
+                                            Estimasi subtotal item
+                                        </span>
+                                        <div className="text-right">
+                                            {modifierModalPromo.promoEligible &&
+                                            modifierModalPromoBenefit.lineTotal <
+                                                modifierModalPromo.baseLineTotal ? (
+                                                <p className="text-xs text-slate-400 line-through">
+                                                    {formatPrice(
+                                                        modifierModalPromo.baseLineTotal
+                                                    )}
+                                                </p>
+                                            ) : null}
+                                            <p className="font-semibold text-primary-600 dark:text-primary-400">
+                                                {formatPrice(
+                                                    modifierModalPromoBenefit.lineTotal
+                                                )}
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className="space-y-3 px-5 py-4">
+                                {(modifierModalProduct.modifier_options || []).map(
+                                    (option) => {
+                                        const active =
+                                            selectedModifierOptionIds.includes(
+                                                option.id
+                                            );
+
+                                        return (
+                                            <button
+                                                key={option.id}
+                                                type="button"
+                                                onClick={() =>
+                                                    handleToggleModifierOption(
+                                                        option.id
+                                                    )
+                                                }
+                                                className={`flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left transition ${
+                                                    active
+                                                        ? "border-primary-500 bg-primary-50 dark:border-primary-400 dark:bg-primary-950/30"
+                                                        : "border-slate-200 bg-white hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-slate-600"
+                                                }`}
+                                            >
+                                                <div>
+                                                    <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                                                        {option.name}
+                                                    </p>
+                                                    <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                                                        Tambahan {formatPrice(option.price)}
+                                                    </p>
+                                                </div>
+                                                <div
+                                                    className={`h-5 w-5 rounded-md border ${
+                                                        active
+                                                            ? "border-primary-500 bg-primary-500"
+                                                            : "border-slate-300 dark:border-slate-600"
+                                                    }`}
+                                                />
+                                            </button>
+                                        );
+                                    }
+                                )}
+                            </div>
                         </div>
 
                         <div className="border-t border-slate-200 bg-slate-50 px-5 py-4 dark:border-slate-800 dark:bg-slate-950/40">
@@ -5330,17 +6159,12 @@ export default function Index({
                                 </span>
                                 <span className="font-semibold text-primary-600 dark:text-primary-400">
                                     {formatPrice(
-                                        (modifierModalProduct.modifier_options || [])
-                                            .filter((option) =>
-                                                selectedModifierOptionIds.includes(
-                                                    option.id
-                                                )
-                                            )
-                                            .reduce(
-                                                (sum, option) =>
-                                                    sum +
-                                                    Number(option.price || 0),
-                                                0
+                                        modifierModalSelectedModifierTotal *
+                                            Math.max(
+                                                1,
+                                                modifierModalCartTargetId
+                                                    ? 1
+                                                    : modifierModalQuantity
                                             )
                                     )}
                                 </span>
@@ -6473,6 +7297,35 @@ export default function Index({
                                                                         detail.price
                                                                     )}
                                                                 </p>
+                                                                {promoTitleText(
+                                                                    detail
+                                                                ) ? (
+                                                                    <p className="mt-1 text-xs font-medium text-rose-600 dark:text-rose-300">
+                                                                        {promoTitleText(
+                                                                            detail
+                                                                        )}
+                                                                    </p>
+                                                                ) : null}
+                                                                {detail.is_promo_reward ? (
+                                                                    <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                                                        <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">
+                                                                            Item Bonus Promo
+                                                                        </span>
+                                                                        <span className="text-[11px] text-emerald-700 dark:text-emerald-300">
+                                                                            {detail.promo_reward_rule_name ||
+                                                                                "Promo aktif"}
+                                                                        </span>
+                                                                    </div>
+                                                                ) : null}
+                                                                {promoDetailText(
+                                                                    detail
+                                                                ) ? (
+                                                                    <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                                                                        {promoDetailText(
+                                                                            detail
+                                                                        )}
+                                                                    </p>
+                                                                ) : null}
                                                                 {Number(
                                                                     detail.discount_total ||
                                                                         0

@@ -114,6 +114,13 @@ class ReceiptLayoutService
 
     private function promoSummary(object $item, int $qty, int $baseUnitPrice, int $unitPrice): ?string
     {
+        if ((bool) ($item->is_promo_reward ?? false)) {
+            return implode(' • ', array_filter([
+                'Item Bonus Promo',
+                $item->promo_reward_rule_name ?? null,
+            ]));
+        }
+
         if ((int) ($item->discount_total ?? 0) <= 0) {
             return null;
         }
@@ -122,14 +129,14 @@ class ReceiptLayoutService
             'standard_discount' => 'Harga Spesial',
             'qty_break' => 'Belanja Lebih Untung',
             'bundle_price' => 'Paket Hemat',
-            'buy_x_get_y' => 'Bonus Item',
+            'buy_x_get_y' => 'Promo Buy Get',
             default => 'Promo Spesial',
         };
 
         $headline = match ($item->pricing_rule_kind) {
             'qty_break' => 'Beli '.$qty.'+ lebih hemat',
             'bundle_price' => 'Ambil paket, harga lebih hemat',
-            'buy_x_get_y' => 'Beli item pilihan, bonus langsung aktif',
+            'buy_x_get_y' => 'Benefit buy-get diterapkan pada item ini',
             default => null,
         };
 

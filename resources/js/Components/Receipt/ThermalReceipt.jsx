@@ -1,4 +1,8 @@
 import React from "react";
+import {
+    promoMetaText,
+    resolveBuyGetBreakdown,
+} from "@/Utils/pricingRules";
 
 const PAYMENT_LABELS = {
     cash: "TUNAI",
@@ -6,13 +10,6 @@ const PAYMENT_LABELS = {
     midtrans: "MIDTRANS",
     xendit: "XENDIT",
     pay_later: "PIUTANG",
-};
-
-const PROMO_KIND_LABELS = {
-    standard_discount: "Harga Spesial",
-    qty_break: "Belanja Lebih Untung",
-    bundle_price: "Paket Hemat",
-    buy_x_get_y: "Bonus Item",
 };
 
 const formatPrice = (price = 0, compact = false) =>
@@ -60,35 +57,6 @@ const paidAmount = (transaction) => {
     const grandTotal = Number(transaction?.grand_total || 0);
 
     return method === "cash" ? cash : Math.max(cash, grandTotal);
-};
-
-const promoMeta = (item) => {
-    if (Number(item?.discount_total || 0) <= 0) {
-        return null;
-    }
-
-    const kindLabel = PROMO_KIND_LABELS[item?.pricing_rule_kind] || null;
-    const title = item?.pricing_group_label || item?.pricing_rule_name || null;
-    const qty = Math.max(1, Number(item?.qty || 1));
-    const headline =
-        item?.pricing_rule_kind === "qty_break"
-            ? `Beli ${qty}+ lebih hemat`
-            : item?.pricing_rule_kind === "bundle_price"
-              ? "Ambil paket, harga lebih hemat"
-              : item?.pricing_rule_kind === "buy_x_get_y"
-                ? "Beli item pilihan, bonus langsung aktif"
-                : null;
-    const baseUnitPrice = Number(item?.base_unit_price || 0);
-    const unitPrice = Number(item?.unit_price || 0);
-    const parts = [kindLabel, headline, title].filter(Boolean);
-
-    if (baseUnitPrice > unitPrice && unitPrice > 0) {
-        parts.push(
-            `${formatPrice(baseUnitPrice)} -> ${formatPrice(unitPrice)}`
-        );
-    }
-
-    return parts.join(" • ") || "Promo Spesial";
 };
 
 const normalizeLineItem = (item) => {
@@ -196,21 +164,56 @@ const ReceiptItems = ({ items, compact = false }) => (
     <div className="my-1">
         {items.map((item, index) => {
             const { qty, unitPrice, baseItemTotal } = normalizeLineItem(item);
-            const promoText = promoMeta(item);
+            const promoText = promoMetaText(item, {
+                compact,
+                formatPrice: (value) => formatPrice(value, compact),
+            });
+            const lineBuyGetBreakdown = resolveBuyGetBreakdown({
+                ruleKind: item?.pricing_rule_kind,
+                quantity: item?.qty,
+                baseUnitPrice: item?.base_unit_price,
+                discountTotal: item?.discount_total,
+                allowAllFree: false,
+            });
 
             return (
                 <div key={item.id || index} className="mb-1">
                     <p className={`font-medium ${compact ? "truncate" : "break-words"}`}>
-                        {item.product?.title}
+                        {item.product?.title || item.product_title || "Produk"}
                     </p>
                     {promoText ? (
                         <p className="text-[10px] text-slate-500">{promoText}</p>
                     ) : null}
-                    <Row
-                        label={`${qty}x @ ${formatPrice(unitPrice, compact)}`}
-                        value={formatPrice(baseItemTotal, compact)}
-                        small={compact}
-                    />
+                    {lineBuyGetBreakdown ? (
+                        <>
+                            <Row
+                                label={`${lineBuyGetBreakdown.payableQty}x @ ${formatPrice(
+                                    lineBuyGetBreakdown.paidUnitPrice,
+                                    compact
+                                )}`}
+                                value={formatPrice(
+                                    lineBuyGetBreakdown.payableQty *
+                                        lineBuyGetBreakdown.paidUnitPrice,
+                                    compact
+                                )}
+                                small={compact}
+                            />
+                            <Row
+                                label={`${lineBuyGetBreakdown.bonusQty}x @ ${formatPrice(
+                                    0,
+                                    compact
+                                )}`}
+                                value={formatPrice(0, compact)}
+                                small
+                            />
+                        </>
+                    ) : (
+                        <Row
+                            label={`${qty}x @ ${formatPrice(unitPrice, compact)}`}
+                            value={formatPrice(baseItemTotal, compact)}
+                            small={compact}
+                        />
+                    )}
                     {item.modifiers?.map((modifier) => (
                         <Row
                             key={modifier.id}

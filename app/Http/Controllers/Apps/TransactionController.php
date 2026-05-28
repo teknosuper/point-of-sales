@@ -167,6 +167,7 @@ class TransactionController extends Controller
                     'label' => $pricing['pricing_rule']['label'],
                     'detail' => $pricing['pricing_rule']['detail'] ?? null,
                     'rule_name' => $pricing['pricing_rule']['name'] ?? null,
+                    'pricing_rule' => $pricing['pricing_rule'],
                     'promo_price' => $pricing['pricing_rule']['price_context']
                         ? $pricing['effective_unit_price']
                         : null,
@@ -362,6 +363,14 @@ class TransactionController extends Controller
     {
         $outlet = $this->resolveActiveOutlet($request);
         $forceNew = $request->boolean('force_new');
+        $supportsPromoRewardMeta = Schema::hasColumn('carts', 'is_promo_reward');
+        $isPromoReward = $request->boolean('is_promo_reward');
+        $promoRewardRuleName = filled($request->promo_reward_rule_name)
+            ? trim((string) $request->promo_reward_rule_name)
+            : null;
+        $promoRewardLabel = filled($request->promo_reward_label)
+            ? trim((string) $request->promo_reward_label)
+            : null;
 
         // Cari produk berdasarkan ID yang diberikan
         $product = Product::whereId($request->product_id)->first();
@@ -402,6 +411,10 @@ class TransactionController extends Controller
                 ->where('cashier_id', auth()->user()->id)
                 ->when($outlet, fn ($query) => $query->where('outlet_id', $outlet->id))
                 ->whereNull('notes')
+                ->when(
+                    $supportsPromoRewardMeta,
+                    fn ($query) => $query->where('is_promo_reward', false)
+                )
                 ->whereDoesntHave('modifiers')
                 ->active()
                 ->first();
@@ -417,7 +430,7 @@ class TransactionController extends Controller
             $cart->save();
         } else {
             // Insert ke keranjang
-            Cart::create([
+            $cartAttributes = [
                 'cashier_id' => auth()->user()->id,
                 'outlet_id' => $outlet?->id,
                 'tenant_outlet_id' => $product->tenant_outlet_id ?: $outlet?->id,
@@ -425,7 +438,15 @@ class TransactionController extends Controller
                 'qty' => $request->qty,
                 'price' => $request->sell_price * $request->qty,
                 'notes' => null,
-            ]);
+            ];
+
+            if ($supportsPromoRewardMeta) {
+                $cartAttributes['is_promo_reward'] = $isPromoReward;
+                $cartAttributes['promo_reward_rule_name'] = $promoRewardRuleName;
+                $cartAttributes['promo_reward_label'] = $promoRewardLabel;
+            }
+
+            Cart::create($cartAttributes);
 
             $cart = Cart::query()
                 ->with('product.modifierOptions', 'tenantOutlet:id,name,code', 'modifiers')
@@ -726,6 +747,8 @@ class TransactionController extends Controller
             return null;
         }
 
+        $supportsPromoRewardMeta = Schema::hasColumn('carts', 'is_promo_reward');
+
         return [
             'id' => $cart->id,
             'cashier_id' => $cart->cashier_id,
@@ -735,6 +758,13 @@ class TransactionController extends Controller
             'qty' => (int) $cart->qty,
             'price' => (int) $cart->price,
             'notes' => $cart->notes,
+            'is_promo_reward' => $supportsPromoRewardMeta ? (bool) $cart->is_promo_reward : false,
+            'promo_reward_rule_name' => $supportsPromoRewardMeta ? $cart->promo_reward_rule_name : null,
+            'promo_reward_label' => $supportsPromoRewardMeta ? $cart->promo_reward_label : null,
+            'promo_reward_meta' => $supportsPromoRewardMeta && $cart->is_promo_reward ? [
+                'rule_name' => $cart->promo_reward_rule_name,
+                'reward_label' => $cart->promo_reward_label,
+            ] : null,
             'product' => $cart->product ? [
                 'id' => $cart->product->id,
                 'barcode' => $cart->product->barcode,
@@ -953,6 +983,7 @@ class TransactionController extends Controller
      */
     public function store(Request $request, PaymentGatewayManager $paymentGatewayManager)
     {
+        $supportsDetailRewardMeta = Schema::hasColumn('transaction_details', 'is_promo_reward');
         $perfStartNs = hrtime(true);
         $perfMarks = [];
         $markPerf = static function (string $label) use (&$perfMarks) {
@@ -1192,7 +1223,7 @@ class TransactionController extends Controller
                 $baseUnitPrice = (int) data_get($pricingItem, 'base_unit_price', $cart->product->sell_price);
                 $unitPrice = (int) data_get($pricingItem, 'effective_unit_price', $cart->product->sell_price);
 
-                $detail = $transaction->details()->create([
+                $detailAttributes = [
                     'transaction_id' => $transaction->id,
                     'outlet_id' => $outlet?->id,
                     'tenant_outlet_id' => $cart->tenant_outlet_id ?: $outlet?->id,
@@ -1216,7 +1247,15 @@ class TransactionController extends Controller
                     'pricing_rule_price_basis' => data_get($pricingItem, 'pricing_rule.price_basis'),
                     'pricing_group_key' => data_get($pricingItem, 'pricing_group_key'),
                     'pricing_group_label' => data_get($pricingItem, 'pricing_group_label'),
-                ]);
+                ];
+
+                if ($supportsDetailRewardMeta) {
+                    $detailAttributes['is_promo_reward'] = (bool) ($cart->is_promo_reward ?? false);
+                    $detailAttributes['promo_reward_rule_name'] = $cart->promo_reward_rule_name ?? null;
+                    $detailAttributes['promo_reward_label'] = $cart->promo_reward_label ?? null;
+                }
+
+                $detail = $transaction->details()->create($detailAttributes);
 
                 foreach ($cart->modifiers as $modifier) {
                     $detail->modifiers()->create([
@@ -1407,6 +1446,7 @@ class TransactionController extends Controller
 
     public function syncOffline(Request $request): JsonResponse
     {
+        $supportsDetailRewardMeta = Schema::hasColumn('transaction_details', 'is_promo_reward');
         $validated = $request->validate([
             'offline_reference' => ['required', 'string', 'max:80'],
             'customer_id' => ['nullable', 'integer', 'exists:customers,id'],
@@ -1429,6 +1469,9 @@ class TransactionController extends Controller
             'details.*.pricing_rule_kind' => ['nullable', 'string', 'max:255'],
             'details.*.pricing_group_key' => ['nullable', 'string', 'max:255'],
             'details.*.pricing_group_label' => ['nullable', 'string', 'max:255'],
+            'details.*.is_promo_reward' => ['nullable', 'boolean'],
+            'details.*.promo_reward_rule_name' => ['nullable', 'string', 'max:255'],
+            'details.*.promo_reward_label' => ['nullable', 'string', 'max:255'],
             'details.*.modifiers' => ['nullable', 'array'],
             'details.*.modifiers.*.name' => ['required_with:details.*.modifiers', 'string', 'max:255'],
             'details.*.modifiers.*.qty' => ['nullable', 'integer', 'min:1'],
@@ -1504,7 +1547,7 @@ class TransactionController extends Controller
             foreach ($validated['details'] as $row) {
                 $product = Product::query()->findOrFail($row['product_id']);
 
-                $detail = $transaction->details()->create([
+                $detailAttributes = [
                     'transaction_id' => $transaction->id,
                     'outlet_id' => $outlet?->id,
                     'tenant_outlet_id' => $row['tenant_outlet_id'] ?? ($outlet?->id),
@@ -1519,7 +1562,15 @@ class TransactionController extends Controller
                     'pricing_rule_kind' => $row['pricing_rule_kind'] ?? null,
                     'pricing_group_key' => $row['pricing_group_key'] ?? null,
                     'pricing_group_label' => $row['pricing_group_label'] ?? null,
-                ]);
+                ];
+
+                if ($supportsDetailRewardMeta) {
+                    $detailAttributes['is_promo_reward'] = (bool) ($row['is_promo_reward'] ?? false);
+                    $detailAttributes['promo_reward_rule_name'] = $row['promo_reward_rule_name'] ?? null;
+                    $detailAttributes['promo_reward_label'] = $row['promo_reward_label'] ?? null;
+                }
+
+                $detail = $transaction->details()->create($detailAttributes);
 
                 foreach (($row['modifiers'] ?? []) as $modifier) {
                     $detail->modifiers()->create([
@@ -1964,7 +2015,7 @@ class TransactionController extends Controller
             'price',
         ];
 
-        foreach (['discount_total', 'base_unit_price', 'unit_price'] as $optionalColumn) {
+        foreach (['discount_total', 'base_unit_price', 'unit_price', 'pricing_rule_name', 'pricing_rule_kind', 'pricing_group_label', 'is_promo_reward', 'promo_reward_rule_name', 'promo_reward_label'] as $optionalColumn) {
             if (Schema::hasColumn('transaction_details', $optionalColumn)) {
                 $detailColumns[] = $optionalColumn;
             }
@@ -2033,6 +2084,12 @@ class TransactionController extends Controller
                     'price' => (int) ($detail->unit_price ?? $detail->price),
                     'total' => (int) $detail->price,
                     'discount_total' => (int) ($detail->discount_total ?? 0),
+                    'pricing_rule_name' => $detail->pricing_rule_name,
+                    'pricing_rule_kind' => $detail->pricing_rule_kind,
+                    'pricing_group_label' => $detail->pricing_group_label,
+                    'is_promo_reward' => (bool) ($detail->is_promo_reward ?? false),
+                    'promo_reward_rule_name' => $detail->promo_reward_rule_name,
+                    'promo_reward_label' => $detail->promo_reward_label,
                 ])->values()
                 : [],
         ];

@@ -17,6 +17,10 @@ import ThermalReceipt, {
     ThermalReceipt58mm,
 } from "@/Components/Receipt/ThermalReceipt";
 import ShippingLabel from "@/Components/Receipt/ShippingLabel";
+import {
+    promoDetailText,
+    resolveBuyGetBreakdown,
+} from "@/Utils/pricingRules";
 import { useAuthorization } from "@/Utils/authorization";
 
 export default function Print({
@@ -618,10 +622,23 @@ export default function Print({
                                                         item.base_unit_price || 0
                                                     ) || unitPrice;
                                                 const hasPromo =
-                                                    Number(
+                                                    item.is_promo_reward ||
+                                                    (Number(
                                                         item.discount_total || 0
                                                     ) > 0 &&
-                                                    baseUnitPrice > unitPrice;
+                                                        baseUnitPrice >
+                                                            unitPrice);
+                                                const lineBuyGetBreakdown =
+                                                    resolveBuyGetBreakdown({
+                                                        ruleKind:
+                                                            item?.pricing_rule_kind,
+                                                        quantity: item?.qty,
+                                                        baseUnitPrice:
+                                                            item?.base_unit_price,
+                                                        discountTotal:
+                                                            item?.discount_total,
+                                                        allowAllFree: false,
+                                                    });
 
                                                 return (
                                                     <tr
@@ -634,16 +651,27 @@ export default function Print({
                                                     >
                                                         <td className="py-3">
                                                             <p className="font-medium text-slate-900 dark:text-white">
-                                                                {
-                                                                    item.product
-                                                                        ?.title
-                                                                }
+                                                                {item.product
+                                                                    ?.title ||
+                                                                    item.product_title}
                                                             </p>
                                                             {hasPromo && (
                                                                 <p className="text-xs font-medium text-rose-500 dark:text-rose-400">
-                                                                    {item.pricing_group_label ||
+                                                                    {item.is_promo_reward
+                                                                        ? item.promo_reward_rule_name ||
+                                                                          "Item Bonus Promo"
+                                                                        : item.pricing_group_label ||
                                                                         item.pricing_rule_name ||
-                                                                        "Promo aktif"}
+                                                                          "Promo aktif"}
+                                                                </p>
+                                                            )}
+                                                            {promoDetailText(
+                                                                item
+                                                            ) && (
+                                                                <p className="mt-0.5 text-xs text-rose-400 dark:text-rose-300">
+                                                                    {promoDetailText(
+                                                                        item
+                                                                    )}
                                                                 </p>
                                                             )}
                                                             {item.product
@@ -699,15 +727,45 @@ export default function Print({
                                                                         )}
                                                                     </p>
                                                                 )}
-                                                                <p>
-                                                                    {formatPrice(
-                                                                        unitPrice
-                                                                    )}
-                                                                </p>
+                                                                {lineBuyGetBreakdown ? (
+                                                                    <>
+                                                                        <p>
+                                                                            {formatPrice(
+                                                                                lineBuyGetBreakdown.paidUnitPrice
+                                                                            )}
+                                                                        </p>
+                                                                        <p className="text-xs font-medium text-emerald-600 dark:text-emerald-300">
+                                                                            Bonus Rp 0
+                                                                        </p>
+                                                                    </>
+                                                                ) : (
+                                                                    <p>
+                                                                        {formatPrice(
+                                                                            unitPrice
+                                                                        )}
+                                                                    </p>
+                                                                )}
                                                             </div>
                                                         </td>
                                                         <td className="py-3 text-center text-slate-600 dark:text-slate-400">
-                                                            {quantity}
+                                                            {lineBuyGetBreakdown ? (
+                                                                <div>
+                                                                    <p>
+                                                                        {
+                                                                            lineBuyGetBreakdown.payableQty
+                                                                        }
+                                                                    </p>
+                                                                    <p className="text-xs font-medium text-emerald-600 dark:text-emerald-300">
+                                                                        +
+                                                                        {" "}
+                                                                        {
+                                                                            lineBuyGetBreakdown.bonusQty
+                                                                        }
+                                                                    </p>
+                                                                </div>
+                                                            ) : (
+                                                                quantity
+                                                            )}
                                                         </td>
                                                         <td className="py-3 text-right font-semibold text-slate-900 dark:text-white">
                                                             {formatPrice(

@@ -526,8 +526,14 @@ class PricingService
 
             foreach ($matched as $match) {
                 $match['basis_total'] = $this->participantBasisTotal($rule, $match);
-                $basisDiscount = (int) $match['basis_total'];
-                $discounted = $this->applyParticipantDiscountSplit($match, $rule, $basisDiscount);
+                // Reward item must be free for the customer, regardless of internal price basis.
+                $basisDiscount = (int) ($match['base_total'] ?? 0);
+                $discounted = $this->applyParticipantDiscountSplit(
+                    $match,
+                    $rule,
+                    $basisDiscount,
+                    PricingRule::PRICE_BASIS_SELL_PRICE
+                );
                 $rewardParticipants[] = $discounted;
                 $participants[] = $discounted;
             }
@@ -718,13 +724,19 @@ class PricingService
             : (int) ($participant['base_total'] ?? 0);
     }
 
-    private function applyParticipantDiscountSplit(array $participant, PricingRule $rule, int $discountTotal): array
+    private function applyParticipantDiscountSplit(
+        array $participant,
+        PricingRule $rule,
+        int $discountTotal,
+        ?string $priceBasisOverride = null
+    ): array
     {
         ['tenant_discount_total' => $tenantDiscountTotal, 'owner_discount_total' => $ownerDiscountTotal] = $this->splitDiscountBetweenTenantAndOwner(
             $rule,
             $discountTotal,
             (int) ($participant['tenant_base_total'] ?? 0),
-            (int) ($participant['owner_base_total'] ?? 0)
+            (int) ($participant['owner_base_total'] ?? 0),
+            $priceBasisOverride
         );
 
         $participant['discount_total'] = $discountTotal;
@@ -738,7 +750,8 @@ class PricingService
         PricingRule $rule,
         int $discountTotal,
         int $tenantBaseTotal,
-        int $ownerBaseTotal
+        int $ownerBaseTotal,
+        ?string $priceBasisOverride = null
     ): array {
         $discount = max(0, $discountTotal);
         $tenantBase = max(0, $tenantBaseTotal);
@@ -751,7 +764,9 @@ class PricingService
             ];
         }
 
-        if ($this->rulePriceBasis($rule) === PricingRule::PRICE_BASIS_BUY_PRICE) {
+        $priceBasis = $priceBasisOverride ?: $this->rulePriceBasis($rule);
+
+        if ($priceBasis === PricingRule::PRICE_BASIS_BUY_PRICE) {
             return [
                 'tenant_discount_total' => min($tenantBase, $discount),
                 'owner_discount_total' => 0,
@@ -838,18 +853,55 @@ class PricingService
 
     private function serializeRule(PricingRule $rule, bool $includePriceContext = true): array
     {
+        $buyItems = $rule->relationLoaded('buyGetItems')
+            ? $rule->buyGetItems
+            : collect();
+
+        $buyQty = $buyItems
+            ->where('role', PricingRuleBuyGetItem::ROLE_BUY)
+            ->sum('quantity');
+        $getQty = $buyItems
+            ->where('role', PricingRuleBuyGetItem::ROLE_GET)
+            ->sum('quantity');
+        $buyRows = $buyItems
+            ->where('role', PricingRuleBuyGetItem::ROLE_BUY)
+            ->map(fn (PricingRuleBuyGetItem $item) => [
+                'product_id' => (int) $item->product_id,
+                'product_title' => $item->product?->title ?? 'item',
+                'quantity' => (int) $item->quantity,
+            ])
+            ->values()
+            ->all();
+        $getRows = $buyItems
+            ->where('role', PricingRuleBuyGetItem::ROLE_GET)
+            ->map(fn (PricingRuleBuyGetItem $item) => [
+                'product_id' => (int) $item->product_id,
+                'product_title' => $item->product?->title ?? 'item',
+                'quantity' => (int) $item->quantity,
+            ])
+            ->values()
+            ->all();
+
         return [
             'id' => $rule->id,
             'name' => $rule->name,
             'kind' => $rule->kind,
             'label' => $this->ruleLabel($rule),
             'detail' => $this->ruleDetail($rule),
+            'minimum_quantity' => $rule->kind === PricingRule::KIND_QTY_BREAK
+                ? (int) max(1, $rule->qtyBreaks->min('min_qty') ?: 1)
+                : 1,
+            'preview_quantity' => max(1, (int) ($rule->preview_quantity_multiplier ?: 1)),
             'priority' => (int) $rule->priority,
             'target_type' => $rule->target_type,
             'customer_scope' => $rule->customer_scope,
             'eligible_loyalty_tiers' => $rule->eligible_loyalty_tiers,
             'price_basis' => $rule->price_basis ?: PricingRule::PRICE_BASIS_SELL_PRICE,
             'price_context' => $includePriceContext,
+            'buy_qty' => (int) max(1, $buyQty),
+            'free_qty' => (int) max(1, $getQty),
+            'buy_items' => $buyRows,
+            'get_items' => $getRows,
         ];
     }
 
