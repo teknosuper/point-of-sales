@@ -5409,6 +5409,59 @@ export default function Index({
                                         String(selectedTableId) ===
                                         String(table.id);
 
+                                    // Calculate minutes since last transaction
+                                    const minutesSinceLastTransaction = table.latest_transaction_at
+                                        ? Math.max(0, Math.round((Date.now() - new Date(table.latest_transaction_at).getTime()) / 60000))
+                                        : null;
+                                    let lastTxLabel = null;
+                                    let lastTxClass = "";
+                                    let statusBadge = null;
+                                    let statusClass = "";
+                                    if (minutesSinceLastTransaction === null) {
+                                        // Belum pernah transaksi — TERSEDIA
+                                        statusBadge = "TERSEDIA";
+                                        statusClass = "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300";
+                                        lastTxClass = "text-slate-400 dark:text-slate-500";
+                                    } else if (minutesSinceLastTransaction <= 15) {
+                                        // Baru transaksi — DIPESAN
+                                        statusBadge = "DIPESAN";
+                                        statusClass = "bg-rose-100 text-rose-700 dark:bg-rose-950/30 dark:text-rose-300";
+                                        lastTxLabel = `${minutesSinceLastTransaction} menit yang lalu`;
+                                        lastTxClass = "text-rose-600 dark:text-rose-400";
+                                    } else if (minutesSinceLastTransaction <= 60) {
+                                        // Mungkin masih ditempati — KEMUNGKINAN KOSONG
+                                        statusBadge = "KEMUNGKINAN KOSONG";
+                                        statusClass = "bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300";
+                                        lastTxLabel = `${minutesSinceLastTransaction} menit yang lalu`;
+                                        lastTxClass = "text-amber-600 dark:text-amber-400";
+                                    } else if (minutesSinceLastTransaction < 1440) {
+                                        // Antara 1-23 jam — KEMUNGKINAN KOSONG
+                                        statusBadge = "KEMUNGKINAN KOSONG";
+                                        statusClass = "bg-orange-100 text-orange-700 dark:bg-orange-950/30 dark:text-orange-300";
+                                        const hours = Math.floor(minutesSinceLastTransaction / 60);
+                                        const mins = minutesSinceLastTransaction % 60;
+                                        lastTxLabel = hours > 0
+                                            ? `${hours} jam${mins > 0 ? ` ${mins} menit` : ""} yang lalu`
+                                            : `${minutesSinceLastTransaction} menit yang lalu`;
+                                        lastTxClass = "text-orange-600 dark:text-orange-400";
+                                    } else {
+                                        // Lebih dari 24 jam — TERSEDIA
+                                        statusBadge = "TERSEDIA";
+                                        statusClass = "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300";
+                                        const days = Math.floor(minutesSinceLastTransaction / 1440);
+                                        const remainingHours = Math.floor((minutesSinceLastTransaction % 1440) / 60);
+                                        if (days === 1) {
+                                            lastTxLabel = remainingHours > 0
+                                                ? `1 hari ${remainingHours} jam yang lalu`
+                                                : `1 hari yang lalu`;
+                                        } else {
+                                            lastTxLabel = remainingHours > 0
+                                                ? `${days} hari ${remainingHours} jam yang lalu`
+                                                : `${days} hari yang lalu`;
+                                        }
+                                        lastTxClass = "text-slate-400 dark:text-slate-500";
+                                    }
+
                                     return (
                                         <button
                                             key={table.id}
@@ -5424,21 +5477,37 @@ export default function Index({
                                             className={`flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left transition ${
                                                 isActive
                                                     ? "border-primary-500 bg-primary-50 dark:border-primary-400 dark:bg-primary-950/30"
+                                                    : statusBadge === "DIPESAN"
+                                                    ? "border-rose-200 bg-rose-50/60 dark:border-rose-900/40 dark:bg-rose-950/20"
+                                                    : statusBadge === "KEMUNGKINAN KOSONG"
+                                                    ? "border-amber-200 bg-amber-50/60 dark:border-amber-900/40 dark:bg-amber-950/20"
                                                     : "border-slate-200 bg-white hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-slate-600"
                                             }`}
                                         >
-                                            <div>
-                                                <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
-                                                    {table.code
-                                                        ? `${table.code} - ${table.name}`
-                                                        : table.name}
-                                                </p>
+                                            <div className="min-w-0 flex-1">
+                                                <div className="flex items-center gap-2">
+                                                    <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                                                        {table.code
+                                                            ? `${table.code} - ${table.name}`
+                                                            : table.name}
+                                                    </p>
+                                                    {statusBadge && (
+                                                        <span className={`inline-flex shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${statusClass}`}>
+                                                            {statusBadge}
+                                                        </span>
+                                                    )}
+                                                </div>
                                                 <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
                                                     Kapasitas {table.capacity} orang
                                                 </p>
+                                                {lastTxLabel && (
+                                                    <p className={`mt-0.5 text-[11px] font-medium ${lastTxClass}`}>
+                                                        {lastTxLabel}
+                                                    </p>
+                                                )}
                                             </div>
                                             <div
-                                                className={`h-5 w-5 rounded-md border ${
+                                                className={`ml-3 h-5 w-5 shrink-0 rounded-md border ${
                                                     isActive
                                                         ? "border-primary-500 bg-primary-500"
                                                         : "border-slate-300 dark:border-slate-600"

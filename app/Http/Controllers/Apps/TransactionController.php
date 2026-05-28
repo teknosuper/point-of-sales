@@ -109,12 +109,18 @@ class TransactionController extends Controller
             ->where('status', 'active')
             ->orderBy('sort_order')
             ->orderBy('name')
-            ->get(['id', 'name', 'code', 'capacity'])
+            ->with(['transactions' => fn ($q) => $q->latest()->limit(1)])
+            ->get(['id', 'name', 'code', 'capacity', 'created_at'])
             ->map(fn (DiningTable $table) => [
                 'id' => $table->id,
                 'name' => $table->name,
                 'code' => $table->code,
                 'capacity' => (int) $table->capacity,
+                'latest_transaction_at' => $table->transactions->first()?->created_at
+                    ? ($table->transactions->first()->created_at instanceof \Carbon\Carbon
+                        ? $table->transactions->first()->created_at->toISOString()
+                        : \Carbon\Carbon::parse($table->transactions->first()->created_at)->toISOString())
+                    : null,
             ])
             ->values();
 
