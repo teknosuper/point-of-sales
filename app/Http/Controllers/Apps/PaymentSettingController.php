@@ -7,6 +7,8 @@ use App\Models\PaymentSetting;
 use App\Services\AuditLogService;
 use App\Services\OutletResolver;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 
@@ -23,6 +25,11 @@ class PaymentSettingController extends Controller
         $setting = PaymentSetting::firstOrCreateForOutlet($outletId, [
             'default_gateway' => 'cash',
         ]);
+
+        $qrisImageUrl = null;
+        if ($setting->qris_static_image) {
+            $qrisImageUrl = $this->resolveImageUrl($setting->qris_static_image);
+        }
 
         $midtransWebhookUrl = route('webhooks.midtrans');
         $xenditWebhookUrl = route('webhooks.xendit');
@@ -66,6 +73,8 @@ class PaymentSettingController extends Controller
                 'xendit_enabled' => (bool) $setting->xendit_enabled,
                 'xendit_public_key' => $setting->xendit_public_key,
                 'xendit_production' => (bool) $setting->xendit_production,
+                'qris_enabled' => (bool) $setting->qris_enabled,
+                'qris_static_image' => $qrisImageUrl,
             ],
             'paymentSettingSources' => $setting->paymentSettingSources(),
             'supportedGateways' => [
@@ -73,6 +82,7 @@ class PaymentSettingController extends Controller
                 ['value' => PaymentSetting::GATEWAY_BANK_TRANSFER, 'label' => 'Transfer Bank'],
                 ['value' => PaymentSetting::GATEWAY_MIDTRANS, 'label' => 'Midtrans'],
                 ['value' => PaymentSetting::GATEWAY_XENDIT, 'label' => 'Xendit'],
+                ['value' => PaymentSetting::GATEWAY_QRIS, 'label' => 'QRIS'],
             ],
             'webhookUrls' => [
                 'midtrans' => $midtransWebhookUrl,
@@ -93,7 +103,7 @@ class PaymentSettingController extends Controller
         $data = $request->validate([
             'default_gateway' => [
                 'required',
-                Rule::in(['cash', PaymentSetting::GATEWAY_BANK_TRANSFER, PaymentSetting::GATEWAY_MIDTRANS, PaymentSetting::GATEWAY_XENDIT]),
+                Rule::in(['cash', PaymentSetting::GATEWAY_BANK_TRANSFER, PaymentSetting::GATEWAY_MIDTRANS, PaymentSetting::GATEWAY_XENDIT, PaymentSetting::GATEWAY_QRIS]),
             ],
             'bank_transfer_enabled' => ['boolean'],
             'midtrans_enabled' => ['boolean'],
@@ -105,10 +115,14 @@ class PaymentSettingController extends Controller
             'xendit_public_key' => ['nullable', 'string'],
             'xendit_callback_token' => ['nullable', 'string', 'max:255'],
             'xendit_production' => ['boolean'],
+            'qris_enabled' => ['boolean'],
+            'qris_static_image' => ['nullable', 'image', 'mimes:png,jpg,jpeg', 'max:2048'],
+            'remove_qris_image' => ['nullable', 'boolean'],
         ]);
 
         $midtransEnabled = (bool) ($data['midtrans_enabled'] ?? false);
         $xenditEnabled = (bool) ($data['xendit_enabled'] ?? false);
+        $qrisEnabled = (bool) ($data['qris_enabled'] ?? false);
         $resolvedMidtransServerKey = $setting->secretManagedByEnvironment('midtrans_server_key')
             ? $setting->resolvedSecret('midtrans_server_key')
             : ($data['midtrans_server_key'] ?: $setting->getAttributeValue('midtrans_server_key'));
@@ -139,12 +153,30 @@ class PaymentSettingController extends Controller
 
         if (
             $data['default_gateway'] !== 'cash'
-            && ! (($data['default_gateway'] === PaymentSetting::GATEWAY_MIDTRANS && $midtransEnabled)
-                || ($data['default_gateway'] === PaymentSetting::GATEWAY_XENDIT && $xenditEnabled))
+            && ! (
+                ($data['default_gateway'] === PaymentSetting::GATEWAY_MIDTRANS && $midtransEnabled)
+                || ($data['default_gateway'] === PaymentSetting::GATEWAY_XENDIT && $xenditEnabled)
+                || ($data['default_gateway'] === PaymentSetting::GATEWAY_BANK_TRANSFER && (bool) ($data['bank_transfer_enabled'] ?? false))
+                || ($data['default_gateway'] === PaymentSetting::GATEWAY_QRIS && $qrisEnabled)
+            )
         ) {
             return back()->withErrors([
                 'default_gateway' => 'Gateway default harus dalam kondisi aktif.',
             ])->withInput();
+        }
+
+        // Handle QRIS image
+        $qrisImage = $setting->getRawOriginal('qris_static_image') ?? $setting->qris_static_image;
+        if ($request->boolean('remove_qris_image')) {
+            if ($qrisImage) {
+                Storage::disk('public')->delete($this->normalizeStoragePath($qrisImage));
+            }
+            $qrisImage = null;
+        } elseif ($request->file('qris_static_image')) {
+            if ($qrisImage) {
+                Storage::disk('public')->delete($this->normalizeStoragePath($qrisImage));
+            }
+            $qrisImage = $request->file('qris_static_image')->store('qris', 'public');
         }
 
         $setting->update([
@@ -165,6 +197,8 @@ class PaymentSettingController extends Controller
                 ? $setting->getRawOriginal('xendit_callback_token')
                 : ($data['xendit_callback_token'] ?: $setting->getAttributeValue('xendit_callback_token')),
             'xendit_production' => (bool) ($data['xendit_production'] ?? false),
+            'qris_enabled' => $qrisEnabled,
+            'qris_static_image' => $qrisImage,
         ]);
 
         $this->auditLogService->log(
@@ -179,6 +213,7 @@ class PaymentSettingController extends Controller
                 'midtrans_production' => (bool) $beforeState->midtrans_production,
                 'xendit_enabled' => (bool) $beforeState->xendit_enabled,
                 'xendit_production' => (bool) $beforeState->xendit_production,
+                'qris_enabled' => (bool) ($beforeState->qris_enabled ?? false),
                 'midtrans_server_key' => filled($beforeState->midtrans_server_key) ? 'configured' : 'empty',
                 'midtrans_client_key' => filled($beforeState->midtrans_client_key) ? 'configured' : 'empty',
                 'xendit_secret_key' => filled($beforeState->xendit_secret_key) ? 'configured' : 'empty',
@@ -192,6 +227,7 @@ class PaymentSettingController extends Controller
                 'midtrans_production' => (bool) $setting->midtrans_production,
                 'xendit_enabled' => (bool) $setting->xendit_enabled,
                 'xendit_production' => (bool) $setting->xendit_production,
+                'qris_enabled' => (bool) $setting->qris_enabled,
                 'midtrans_server_key' => $this->auditLogService->credentialState($beforeState->midtrans_server_key, $setting->midtrans_server_key),
                 'midtrans_client_key' => $this->auditLogService->credentialState($beforeState->midtrans_client_key, $setting->midtrans_client_key),
                 'xendit_secret_key' => $this->auditLogService->credentialState($beforeState->xendit_secret_key, $setting->xendit_secret_key),
@@ -220,6 +256,33 @@ class PaymentSettingController extends Controller
         return redirect()
             ->route('settings.payments.edit')
             ->with('success', 'Konfigurasi payment gateway berhasil disimpan.');
+    }
+
+    private function resolveImageUrl(?string $path): ?string
+    {
+        if (! $path) {
+            return null;
+        }
+
+        if (Str::startsWith($path, ['http://', 'https://', '/storage/']) || Str::startsWith($path, 'data:')) {
+            return $path;
+        }
+
+        return '/storage/'.ltrim($path, '/');
+    }
+
+    private function normalizeStoragePath(?string $path): ?string
+    {
+        if (! $path) {
+            return null;
+        }
+
+        $path = ltrim($path, '/');
+        if (Str::startsWith($path, 'storage/')) {
+            return substr($path, 8);
+        }
+
+        return $path;
     }
 
     private function isLocalAppUrl(string $appUrl): bool

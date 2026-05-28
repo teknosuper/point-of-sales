@@ -8,6 +8,7 @@ import React, {
 import { Head, Link, router, usePage } from "@inertiajs/react";
 import axios from "axios";
 import toast from "react-hot-toast";
+import Swal from "sweetalert2";
 import POSLayout from "@/Layouts/POSLayout";
 import ProductGrid from "@/Components/POS/ProductGrid";
 import CartPanel from "@/Components/POS/CartPanel";
@@ -46,6 +47,7 @@ import {
     IconCreditCard,
     IconBuildingBank,
     IconAlertTriangle,
+    IconQrcode,
     IconWallet,
     IconX,
     IconCheck,
@@ -142,6 +144,7 @@ export default function Index({
     initialPricingPreview = { items: [], summary: {} },
     paymentGateways: paymentGatewayOptions = [],
     defaultPaymentGateway = "cash",
+    paymentGatewayMeta = {},
     bankAccounts = [],
     pendingTableOrders = [],
     openTableOrderId = null,
@@ -336,6 +339,7 @@ export default function Index({
         defaultPaymentGateway ||
         offlineBootstrap?.defaultPaymentGateway ||
         "cash";
+    const qrisPaymentImageUrl = paymentGatewayMeta?.qrisImageUrl || null;
     const pricingItemsByCartId = useMemo(() => {
         const items = pricingPreview?.items || [];
 
@@ -993,6 +997,10 @@ export default function Index({
 
         if (paymentMethod === "xendit") {
             return "Xendit";
+        }
+
+        if (paymentMethod === "qris") {
+            return "QRIS";
         }
 
         return "Tunai";
@@ -2920,6 +2928,49 @@ export default function Index({
             return;
         }
 
+        if (paymentMethod === "qris" && !payLater) {
+            const result = await Swal.fire({
+                title: "Konfirmasi Pembayaran QRIS",
+                html: "Pastikan pembayaran QRIS manual sudah berhasil diterima.<br/>Lanjutkan hanya jika dana sudah benar-benar masuk.",
+                icon: "question",
+                showCancelButton: true,
+                confirmButtonText: "Sudah Dibayar",
+                cancelButtonText: "Periksa Lagi",
+                confirmButtonColor: "#16a34a",
+                cancelButtonColor: "#64748b",
+                reverseButtons: true,
+            });
+
+            if (!result.isConfirmed) {
+                return;
+            }
+        }
+
+        if (paymentMethod === "cash" && !payLater) {
+            const result = await Swal.fire({
+                title: "Periksa Pembayaran Tunai",
+                html: `
+                    <div style="text-align:left;display:grid;gap:8px;">
+                        <div style="display:flex;justify-content:space-between;gap:12px;"><span>Total</span><strong>${formatPrice(payable)}</strong></div>
+                        <div style="display:flex;justify-content:space-between;gap:12px;"><span>Dibayar</span><strong>${formatPrice(cash)}</strong></div>
+                        <div style="display:flex;justify-content:space-between;gap:12px;"><span>Kembalian</span><strong>${formatPrice(Math.max(cash - payable, 0))}</strong></div>
+                    </div>
+                    <p style="margin-top:16px;">Pastikan uang diterima dan kembalian sudah sesuai sebelum transaksi disimpan.</p>
+                `,
+                icon: "warning",
+                showCancelButton: true,
+                confirmButtonText: "Sudah Sesuai",
+                cancelButtonText: "Cek Lagi",
+                confirmButtonColor: "#16a34a",
+                cancelButtonColor: "#64748b",
+                reverseButtons: true,
+            });
+
+            if (!result.isConfirmed) {
+                return;
+            }
+        }
+
         setIsSubmitting(true);
 
         if (isOfflineMode) {
@@ -4662,6 +4713,31 @@ export default function Index({
                                                             selectedBankAccount.account_number
                                                         }
                                                     </p>
+                                                </div>
+                                            )}
+
+                                            {paymentMethod === "qris" &&
+                                                qrisPaymentImageUrl && (
+                                                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 dark:border-slate-800 dark:bg-slate-950/40">
+                                                    <div className="flex items-center gap-2">
+                                                        <IconQrcode
+                                                            size={18}
+                                                            className="text-slate-500 dark:text-slate-300"
+                                                        />
+                                                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                                            Konfirmasi QRIS
+                                                        </p>
+                                                    </div>
+                                                    <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+                                                        Tunjukkan QRIS ini ke pelanggan sebelum transaksi disimpan.
+                                                    </p>
+                                                    <div className="mt-3 overflow-hidden rounded-2xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+                                                        <img
+                                                            src={qrisPaymentImageUrl}
+                                                            alt="QRIS"
+                                                            className="mx-auto h-48 w-48 object-contain"
+                                                        />
+                                                    </div>
                                                 </div>
                                             )}
                                         </div>

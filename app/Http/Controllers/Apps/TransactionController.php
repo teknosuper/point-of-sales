@@ -190,6 +190,11 @@ class TransactionController extends Controller
             $defaultGateway = 'cash';
         }
 
+        $qrisImageUrl = null;
+        if ($paymentSetting?->qris_static_image) {
+            $qrisImageUrl = $this->resolveImageUrl($paymentSetting->qris_static_image);
+        }
+
         // Get active bank accounts for bank transfer
         $bankAccounts = \App\Models\BankAccount::active()
             ->ordered()
@@ -249,6 +254,9 @@ class TransactionController extends Controller
             'initialPricingPreview' => $initialPricingPreview,
             'paymentGateways' => $paymentSetting?->enabledGateways($outlet?->id) ?? [],
             'defaultPaymentGateway' => $defaultGateway,
+            'paymentGatewayMeta' => [
+                'qrisImageUrl' => $qrisImageUrl,
+            ],
             'bankAccounts' => $bankAccounts,
             'pendingTableOrders' => $pendingTableOrders,
             'openTableOrderId' => $openTableOrderId > 0 ? $openTableOrderId : null,
@@ -984,6 +992,7 @@ class TransactionController extends Controller
 
         $invoice = 'TRX-'.Str::upper($random);
         $isCashPayment = empty($paymentGateway) && ! $isPayLater;
+        $isManualQrisPayment = $paymentGateway === PaymentSetting::GATEWAY_QRIS;
         $manualDiscount = max(0, (int) $request->input('discount', 0));
         $shippingCost = max(0, (int) $request->input('shipping_cost', 0));
         $orderType = $validatedMeta['order_type'] ?? 'take_away';
@@ -1058,6 +1067,7 @@ class TransactionController extends Controller
             $cashAmount,
             $paymentGateway,
             $isCashPayment,
+            $isManualQrisPayment,
             $isPayLater,
             $manualDiscount,
             $shippingCost,
@@ -1164,7 +1174,7 @@ class TransactionController extends Controller
                 'shipping_cost' => $shippingCost,
                 'grand_total' => $grandTotal,
                 'payment_method' => $isPayLater ? 'pay_later' : ($paymentGateway ?: 'cash'),
-                'payment_status' => $isCashPayment ? 'paid' : ($isPayLater ? 'unpaid' : 'pending'),
+                'payment_status' => ($isCashPayment || $isManualQrisPayment) ? 'paid' : ($isPayLater ? 'unpaid' : 'pending'),
                 'bank_account_id' => $paymentGateway === 'bank_transfer' ? $request->bank_account_id : null,
                 ]);
                 $markPerf('transaction_created');
@@ -1271,7 +1281,7 @@ class TransactionController extends Controller
 
         $paymentWarning = null;
 
-        if ($paymentGateway) {
+        if ($paymentGateway && ! $isManualQrisPayment) {
             try {
                 $paymentResponse = $paymentGatewayManager->createPayment($transaction, $paymentGateway, $paymentSetting);
 
@@ -1374,6 +1384,19 @@ class TransactionController extends Controller
             'server_time' => now()->toIso8601String(),
             'outlet_id' => $this->resolveActiveOutlet($request)?->id,
         ]);
+    }
+
+    private function resolveImageUrl(?string $path): ?string
+    {
+        if (! $path) {
+            return null;
+        }
+
+        if (Str::startsWith($path, ['http://', 'https://', '/storage/']) || Str::startsWith($path, 'data:')) {
+            return $path;
+        }
+
+        return '/storage/'.ltrim($path, '/');
     }
 
     public function syncOffline(Request $request): JsonResponse

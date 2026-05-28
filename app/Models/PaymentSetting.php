@@ -17,6 +17,8 @@ class PaymentSetting extends Model
 
     public const GATEWAY_BANK_TRANSFER = 'bank_transfer';
 
+    public const GATEWAY_QRIS = 'qris';
+
     public const SECRET_FIELDS = [
         'midtrans_server_key',
         'xendit_secret_key',
@@ -36,6 +38,8 @@ class PaymentSetting extends Model
         'xendit_public_key',
         'xendit_callback_token',
         'xendit_production',
+        'qris_enabled',
+        'qris_static_image',
     ];
 
     protected $casts = [
@@ -45,6 +49,7 @@ class PaymentSetting extends Model
         'midtrans_production' => 'boolean',
         'xendit_enabled' => 'boolean',
         'xendit_production' => 'boolean',
+        'qris_enabled' => 'boolean',
         'midtrans_server_key' => 'encrypted',
         'xendit_secret_key' => 'encrypted',
         'xendit_callback_token' => 'encrypted',
@@ -132,6 +137,14 @@ class PaymentSetting extends Model
             ];
         }
 
+        if ($this->isGatewayReady(self::GATEWAY_QRIS)) {
+            $gateways[] = [
+                'value' => self::GATEWAY_QRIS,
+                'label' => 'QRIS',
+                'description' => 'Pembayaran manual via QRIS static.',
+            ];
+        }
+
         return $gateways;
     }
 
@@ -156,6 +169,8 @@ class PaymentSetting extends Model
             self::GATEWAY_XENDIT => $this->xendit_enabled
             && filled($this->resolvedSecret('xendit_secret_key'))
             && filled($this->xendit_public_key),
+            self::GATEWAY_QRIS => $this->qris_enabled
+            && filled($this->qris_static_image),
             default => false,
         };
     }

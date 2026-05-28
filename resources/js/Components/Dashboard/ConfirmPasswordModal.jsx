@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { useForm } from "@inertiajs/react";
+import axios from "axios";
+import toast from "react-hot-toast";
 import {
     IconLock,
     IconEye,
@@ -25,28 +26,37 @@ export default function ConfirmPasswordModal({
     challengeLabel = "aksi sensitif",
     onConfirmed,
 }) {
-    const { data, setData, post, processing, errors, reset } = useForm({
-        password: "",
-    });
+    const [password, setPassword] = useState("");
+    const [error, setError] = useState("");
+    const [processing, setProcessing] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
 
     useEffect(() => {
         if (show) {
-            reset("password");
+            setPassword("");
+            setError("");
         }
     }, [show]);
 
-    const submit = (e) => {
+    const submit = async (e) => {
         e.preventDefault();
+        setProcessing(true);
+        setError("");
 
-        post(route("password.confirm"), {
-            preserveScroll: true,
-            onSuccess: () => {
-                reset("password");
-                onConfirmed?.();
-                onClose();
-            },
-        });
+        try {
+            await axios.post(route("password.confirm"), { password });
+            setPassword("");
+            onConfirmed?.();
+            onClose();
+        } catch (err) {
+            const message = err?.response?.data?.errors?.password?.[0]
+                || err?.response?.data?.message
+                || "Password yang dimasukkan tidak sesuai. Silakan coba lagi.";
+            setError(message);
+            toast.error("Konfirmasi password gagal.");
+        } finally {
+            setProcessing(false);
+        }
     };
 
     if (!show) return null;
@@ -98,10 +108,10 @@ export default function ConfirmPasswordModal({
                             </div>
                             <input
                                 type={showPassword ? "text" : "password"}
-                                value={data.password}
-                                onChange={(e) => setData("password", e.target.value)}
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
                                 className={`w-full h-11 pl-10 pr-10 rounded-xl border-2 text-sm ${
-                                    errors.password
+                                    error
                                         ? "border-danger-500 focus:border-danger-500"
                                         : "border-slate-200 dark:border-slate-700 focus:border-primary-500"
                                 } bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder-slate-400 focus:ring-4 focus:ring-primary-500/20 transition-all`}
@@ -116,8 +126,8 @@ export default function ConfirmPasswordModal({
                                 {showPassword ? <IconEyeOff size={18} /> : <IconEye size={18} />}
                             </button>
                         </div>
-                        {errors.password && (
-                            <p className="mt-1.5 text-xs text-danger-500">{errors.password}</p>
+                        {error && (
+                            <p className="mt-1.5 text-xs text-danger-500">{error}</p>
                         )}
                     </div>
 
