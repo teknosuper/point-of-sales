@@ -174,17 +174,17 @@ export default function Login({
                                 </span>
                             </div>
                             <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-primary-200 bg-primary-50 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-primary-700 dark:border-primary-900/40 dark:bg-primary-950/30 dark:text-primary-200">
-                                {isKitchenMode ? "Workspace Dapur" : "Workspace Aplikasi"}
+                                {isKitchenMode ? "Workspace Dapur" : "Akses Aplikasi"}
                             </div>
                             <h1 className="text-3xl font-bold text-slate-900 dark:text-white sm:text-[2rem]">
                                 {isKitchenMode
                                     ? "Masuk ke Layar Dapur"
-                                    : "Masuk ke aplikasi POINZA"}
+                                    : "Masuk ke POINZA"}
                             </h1>
                             <p className="mt-2 text-slate-600 dark:text-slate-400">
                                 {isKitchenMode
                                     ? "Masuk untuk membuka antrean dapur pada stasiun kerja Anda"
-                                    : "Masuk untuk membuka dashboard, POS, dan modul operasional dari perangkat ini."}
+                                    : "Masuk untuk mengakses dashboard, POS, dan seluruh modul operasional toko."}
                             </p>
                             {isKitchenMode && stationHint ? (
                                 <div className="mt-4 rounded-2xl border border-primary-200 bg-primary-50 px-4 py-3 text-sm text-primary-800 dark:border-primary-900/40 dark:bg-primary-950/30 dark:text-primary-200">
@@ -199,14 +199,14 @@ export default function Login({
                             ) : null}
                             {isKitchenMode && kioskMode ? (
                                 <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
-                                    Mode kiosk aktif. Setelah login, perangkat akan diarahkan ke layar antrian dapur yang lebih sederhana.
+                                    Mode kiosk aktif. Setelah login, perangkat akan beralih ke tampilan antrean dapur yang lebih ringkas.
                                 </div>
                             ) : null}
                             {!isKitchenMode ? (
                                 <div className="mt-4 grid grid-cols-2 gap-3">
                                     {[
-                                        ["Kasir", "Transaksi cepat"],
-                                        ["Offline Cash", "Tetap jalan"],
+                                        ["Kasir", "Transaksi cepat & akurat"],
+                                        ["Offline Cash", "Tetap jalan tanpa internet"],
                                     ].map(([title, detail]) => (
                                         <div
                                             key={title}
@@ -414,16 +414,16 @@ export default function Login({
                             <IconShoppingCart size={48} />
                         </div>
                         <h2 className="text-3xl font-bold mb-4">
-                            Satu workspace untuk kasir, dapur, dan kontrol operasional.
+                            Satu platform untuk kasir, dapur, dan kendali operasional.
                         </h2>
                         <p className="text-lg opacity-90">
-                            Login dari perangkat ini untuk masuk langsung ke alur kerja yang paling sering dipakai tim Anda.
+                            Akses dari perangkat mana pun untuk langsung masuk ke alur kerja yang paling sering dipakai tim Anda.
                         </p>
                         <div className="mt-8 flex flex-wrap justify-center gap-3">
                             {[
                                 "Transaksi Cepat",
                                 "Offline Cash",
-                                "Kitchen Flow",
+                                "Alur Dapur",
                             ].map((feature, i) => (
                                 <span
                                     key={i}

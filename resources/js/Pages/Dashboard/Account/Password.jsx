@@ -1,7 +1,10 @@
-import React, { useRef } from "react";
+import React, { useRef, useEffect } from "react";
 import { Head, useForm, usePage } from "@inertiajs/react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import KitchenLayout from "@/Layouts/KitchenLayout";
+import Input from "@/Components/Dashboard/Input";
+import useFlashToast from "@/Hooks/useFlashToast";
+import toast from "react-hot-toast";
 import {
     IconCheck,
     IconLock,
@@ -9,6 +12,7 @@ import {
 } from "@/Utils/icons";
 
 export default function PasswordPage() {
+    useFlashToast();
     const { auth } = usePage().props;
     const isKitchenWorkspace = auth?.user?.preferred_workspace === "kitchen";
     const currentPasswordInput = useRef(null);
@@ -32,16 +36,21 @@ export default function PasswordPage() {
 
         put(route("password.update"), {
             preserveScroll: true,
-            onSuccess: () => reset(),
+            onSuccess: () => {
+                reset();
+                toast.success("Password berhasil diperbarui.");
+            },
             onError: (formErrors) => {
+                if (formErrors.current_password) {
+                    reset("current_password");
+                    currentPasswordInput.current?.focus();
+                }
                 if (formErrors.password) {
                     reset("password", "password_confirmation");
                     passwordInput.current?.focus();
                 }
-
-                if (formErrors.current_password) {
-                    reset("current_password");
-                    currentPasswordInput.current?.focus();
+                if (Object.keys(formErrors).length > 0) {
+                    toast.error("Gagal memperbarui password. Periksa kembali isian Anda.");
                 }
             },
         });
@@ -105,86 +114,71 @@ export default function PasswordPage() {
                     </div>
 
                     <div className="rounded-3xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
-                        <form onSubmit={submit} className="space-y-5">
-                            <div>
-                                <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                    Password Saat Ini
-                                </label>
-                                <input
-                                    ref={currentPasswordInput}
-                                    type="password"
-                                    autoComplete="current-password"
-                                    value={data.current_password}
-                                    onChange={(event) =>
-                                        setData(
-                                            "current_password",
-                                            event.target.value
-                                        )
-                                    }
-                                    className={`h-11 w-full rounded-xl border px-4 text-sm dark:bg-slate-800 ${
-                                        errors.current_password
-                                            ? "border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-800 dark:bg-rose-950/20 dark:text-rose-300"
-                                            : "border-slate-200 bg-slate-50 dark:border-slate-700"
-                                    }`}
-                                />
-                                {errors.current_password ? (
-                                    <p className="mt-2 text-xs text-rose-600 dark:text-rose-300">
-                                        {errors.current_password}
-                                    </p>
-                                ) : null}
-                            </div>
+                        <form onSubmit={submit} className="space-y-6">
+                            <Input
+                                ref={currentPasswordInput}
+                                label="Password Saat Ini"
+                                type="password"
+                                autoComplete="current-password"
+                                value={data.current_password}
+                                onChange={(event) =>
+                                    setData(
+                                        "current_password",
+                                        event.target.value
+                                    )
+                                }
+                                placeholder="Masukkan password aktif Anda"
+                                required
+                                hintText="Password saat ini digunakan untuk memverifikasi identitas Anda sebelum diizinkan mengganti ke password baru."
+                                errors={errors.current_password}
+                                className={
+                                    errors.current_password
+                                        ? "border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-800 dark:bg-rose-950/20 dark:text-rose-300"
+                                        : ""
+                                }
+                            />
 
-                            <div>
-                                <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                    Password Baru
-                                </label>
-                                <input
-                                    ref={passwordInput}
-                                    type="password"
-                                    autoComplete="new-password"
-                                    value={data.password}
-                                    onChange={(event) =>
-                                        setData("password", event.target.value)
-                                    }
-                                    className={`h-11 w-full rounded-xl border px-4 text-sm dark:bg-slate-800 ${
-                                        errors.password
-                                            ? "border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-800 dark:bg-rose-950/20 dark:text-rose-300"
-                                            : "border-slate-200 bg-slate-50 dark:border-slate-700"
-                                    }`}
-                                />
-                                {errors.password ? (
-                                    <p className="mt-2 text-xs text-rose-600 dark:text-rose-300">
-                                        {errors.password}
-                                    </p>
-                                ) : null}
-                            </div>
+                            <Input
+                                ref={passwordInput}
+                                label="Password Baru"
+                                type="password"
+                                autoComplete="new-password"
+                                value={data.password}
+                                onChange={(event) =>
+                                    setData("password", event.target.value)
+                                }
+                                placeholder="Minimal 8 karakter"
+                                required
+                                hintText="Gunakan kombinasi huruf besar, huruf kecil, angka, dan simbol minimal 8 karakter agar password sulit ditebak."
+                                errors={errors.password}
+                                className={
+                                    errors.password
+                                        ? "border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-800 dark:bg-rose-950/20 dark:text-rose-300"
+                                        : ""
+                                }
+                            />
 
-                            <div>
-                                <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                    Konfirmasi Password Baru
-                                </label>
-                                <input
-                                    type="password"
-                                    autoComplete="new-password"
-                                    value={data.password_confirmation}
-                                    onChange={(event) =>
-                                        setData(
-                                            "password_confirmation",
-                                            event.target.value
-                                        )
-                                    }
-                                    className={`h-11 w-full rounded-xl border px-4 text-sm dark:bg-slate-800 ${
-                                        errors.password_confirmation
-                                            ? "border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-800 dark:bg-rose-950/20 dark:text-rose-300"
-                                            : "border-slate-200 bg-slate-50 dark:border-slate-700"
-                                    }`}
-                                />
-                                {errors.password_confirmation ? (
-                                    <p className="mt-2 text-xs text-rose-600 dark:text-rose-300">
-                                        {errors.password_confirmation}
-                                    </p>
-                                ) : null}
-                            </div>
+                            <Input
+                                label="Konfirmasi Password Baru"
+                                type="password"
+                                autoComplete="new-password"
+                                value={data.password_confirmation}
+                                onChange={(event) =>
+                                    setData(
+                                        "password_confirmation",
+                                        event.target.value
+                                    )
+                                }
+                                placeholder="Ketik ulang password baru Anda"
+                                required
+                                hintText="Ketik ulang password baru yang sama persis dengan isian di atas untuk memastikan tidak ada typo."
+                                errors={errors.password_confirmation}
+                                className={
+                                    errors.password_confirmation
+                                        ? "border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-800 dark:bg-rose-950/20 dark:text-rose-300"
+                                        : ""
+                                }
+                            />
 
                             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                                 {recentlySuccessful ? (
@@ -194,15 +188,14 @@ export default function PasswordPage() {
                                     </div>
                                 ) : (
                                     <div className="text-xs text-slate-500 dark:text-slate-400">
-                                        Simpan perubahan setelah semua field
-                                        terisi benar.
+                                        Semua field wajib diisi.
                                     </div>
                                 )}
 
                                 <button
                                     type="submit"
                                     disabled={processing}
-                                    className="rounded-2xl bg-primary-600 px-5 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                                    className="rounded-2xl bg-primary-600 px-5 py-3 text-sm font-semibold text-white hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-60"
                                 >
                                     {processing
                                         ? "Menyimpan..."

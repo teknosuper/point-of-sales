@@ -2,964 +2,407 @@ import DashboardLayout from "@/Layouts/DashboardLayout";
 import { Head, useForm, usePage } from "@inertiajs/react";
 import { useMemo, useState } from "react";
 import toast from "react-hot-toast";
+import useFlashToast from "@/Hooks/useFlashToast";
 import {
     IconTarget,
-    IconChevronDown,
-    IconChevronUp,
     IconDeviceFloppy,
     IconCoin,
     IconChartBar,
     IconSearch,
     IconPackage,
     IconSparkles,
+    IconChevronDown,
+    IconChevronRight,
+    IconBuildingStore,
 } from "@/Utils/icons";
 
-const formatCurrency = (value = 0) =>
-    new Intl.NumberFormat("id-ID", {
-        style: "currency",
-        currency: "IDR",
-        minimumFractionDigits: 0,
-    }).format(Number(value || 0));
+const fmtCurrency = (v = 0) =>
+    new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", minimumFractionDigits: 0 }).format(Number(v || 0));
 
-const formatNumber = (value = 0, maximumFractionDigits = 0) =>
-    new Intl.NumberFormat("id-ID", {
-        minimumFractionDigits: 0,
-        maximumFractionDigits,
-    }).format(Number(value || 0));
+const fmtNum = (v = 0, d = 0) =>
+    new Intl.NumberFormat("id-ID", { minimumFractionDigits: 0, maximumFractionDigits: d }).format(Number(v || 0));
 
 export default function Target({ settings, products = [], targetMeta = {} }) {
+    useFlashToast();
     const { activeOutlet } = usePage().props;
     const daysInMonth = Number(targetMeta?.days_in_month || 30);
     const daysElapsed = Number(targetMeta?.days_elapsed || 1);
-    const targetMode = targetMeta?.mode === "tenant" ? "tenant" : "owner";
-    const isTenantMode = targetMode === "tenant";
-    const primaryMarginLabel = isTenantMode
-        ? "Estimasi Margin Tenant"
-        : "Estimasi Markup Owner";
-    const primaryUnitLabel = isTenantMode
-        ? "margin_tenant_per_item"
-        : "owner_markup_per_item";
+    const isTenant = targetMeta?.mode === "tenant";
     const [search, setSearch] = useState("");
     const [showValueTargets, setShowValueTargets] = useState(false);
-    const [showStationSummary, setShowStationSummary] = useState(false);
+    const [expandedTenants, setExpandedTenants] = useState({});
     const { data, setData, post, processing, errors } = useForm({
         monthly_sales_target: settings?.monthly_sales_target || "",
         monthly_profit_target: settings?.monthly_profit_target || "",
         daily_global_item_target: settings?.daily_global_item_target || "",
-        product_targets: products.map((product) => ({
-            product_id: product.id,
-            monthly_target: product.monthly_target || "",
+        product_targets: products.map((p) => ({
+            product_id: p.id,
+            monthly_target: p.monthly_target || "",
         })),
     });
 
     const indexedProducts = useMemo(
-        () =>
-            products.map((product, index) => ({
-                ...product,
-                form_index: index,
-                monthly_target:
-                    data.product_targets?.[index]?.monthly_target ?? "",
-            })),
+        () => products.map((p, i) => ({ ...p, form_index: i, monthly_target: data.product_targets?.[i]?.monthly_target ?? "" })),
         [products, data.product_targets]
     );
 
     const visibleProducts = useMemo(() => {
-        const keyword = search.trim().toLowerCase();
-
-        return indexedProducts.filter((product) => {
-            if (!keyword) {
-                return true;
-            }
-
-            return (
-                product.title?.toLowerCase().includes(keyword) ||
-                product.tenant_outlet?.name?.toLowerCase().includes(keyword) ||
-                product.tenant_outlet?.code?.toLowerCase().includes(keyword)
-            );
-        });
+        const kw = search.trim().toLowerCase();
+        return kw
+            ? indexedProducts.filter((p) =>
+                  [p.title, p.tenant_outlet?.name, p.tenant_outlet?.code].some((v) => v?.toLowerCase().includes(kw))
+              )
+            : indexedProducts;
     }, [indexedProducts, search]);
 
-    const targetedProductsCount = useMemo(
-        () =>
-            indexedProducts.filter(
-                (product) => Number(product.monthly_target || 0) > 0
-            ).length,
-        [indexedProducts]
-    );
-    const totalMonthlyItems = useMemo(
-        () =>
-            indexedProducts.reduce(
-                (sum, product) => sum + Number(product.monthly_target || 0),
-                0
-            ),
-        [indexedProducts]
-    );
-    const totalDailyItems = totalMonthlyItems / (daysInMonth || 1);
-    const totalActualMonthlyItems = useMemo(
-        () =>
-            indexedProducts.reduce(
-                (sum, product) => sum + Number(product.actual_monthly_qty || 0),
-                0
-            ),
-        [indexedProducts]
-    );
-    const totalActualDailyItems = totalActualMonthlyItems / Math.max(1, daysElapsed);
-    const globalDailyItemTarget = Number(data.daily_global_item_target || 0);
-    const globalMonthlyItemTarget = globalDailyItemTarget * (daysInMonth || 1);
-    const stationSummaries = useMemo(() => {
-        const grouped = indexedProducts.reduce((accumulator, product) => {
-            const key = product.kitchen_station_id || "unassigned_station";
-            const tenantMarginPerItem = Math.max(
-                0,
-                Number(product.buy_price || 0) -
-                    Number(product.tenant_hpp_price || product.buy_price || 0)
-            );
-            const ownerMarkupPerItem = Math.max(
-                0,
-                Number(product.sell_price || 0) - Number(product.buy_price || 0)
-            );
-            const monthlyTarget = Number(product.monthly_target || 0);
+    // === Global aggregation ===
+    const targetedCount = useMemo(() => indexedProducts.filter((p) => Number(p.monthly_target || 0) > 0).length, [indexedProducts]);
+    const totalMonthly = useMemo(() => indexedProducts.reduce((s, p) => s + Number(p.monthly_target || 0), 0), [indexedProducts]);
+    const totalDaily = totalMonthly / (daysInMonth || 1);
+    const totalActual = useMemo(() => indexedProducts.reduce((s, p) => s + Number(p.actual_monthly_qty || 0), 0), [indexedProducts]);
+    const globalDaily = Number(data.daily_global_item_target || 0);
+    const globalMonthly = globalDaily * daysInMonth;
 
-            if (!accumulator[key]) {
-                accumulator[key] = {
-                    kitchen_station_id: product.kitchen_station_id,
-                    kitchen_station_name:
-                        product.kitchen_station_name || "Belum Dipetakan",
-                    monthly_target_items: 0,
-                    daily_target_items: 0,
-                    estimated_tenant_margin_monthly: 0,
-                    estimated_tenant_margin_daily: 0,
-                    estimated_owner_margin_monthly: 0,
-                    estimated_owner_margin_daily: 0,
-                    product_count: 0,
+    // === Per-tenant breakdown ===
+    const tenantGroups = useMemo(() => {
+        const byTenant = { _unassigned: { tenant_name: "Tanpa Tenant", tenant_code: null, products: [] } };
+
+        indexedProducts.forEach((p) => {
+            const key = p.tenant_outlet ? `tenant_${p.tenant_outlet.id}` : "_unassigned";
+            if (!byTenant[key]) {
+                byTenant[key] = {
+                    tenant_name: p.tenant_outlet.name,
+                    tenant_code: p.tenant_outlet.code,
+                    tenant_id: p.tenant_outlet.id,
+                    products: [],
                 };
             }
+            byTenant[key].products.push(p);
+        });
 
-            accumulator[key].monthly_target_items += monthlyTarget;
-            accumulator[key].daily_target_items += monthlyTarget / (daysInMonth || 1);
-            accumulator[key].estimated_tenant_margin_monthly +=
-                monthlyTarget * tenantMarginPerItem;
-            accumulator[key].estimated_tenant_margin_daily +=
-                (monthlyTarget / (daysInMonth || 1)) * tenantMarginPerItem;
-            accumulator[key].estimated_owner_margin_monthly +=
-                monthlyTarget * ownerMarkupPerItem;
-            accumulator[key].estimated_owner_margin_daily +=
-                (monthlyTarget / (daysInMonth || 1)) * ownerMarkupPerItem;
-            accumulator[key].product_count += 1;
+        return Object.values(byTenant).sort((a, b) => {
+            if (a.tenant_name === "Tanpa Tenant") return 1;
+            if (b.tenant_name === "Tanpa Tenant") return -1;
+            return a.tenant_name.localeCompare(b.tenant_name);
+        });
+    }, [indexedProducts]);
 
-            return accumulator;
-        }, {});
-
-        return Object.values(grouped).sort((left, right) =>
-            String(left.kitchen_station_name).localeCompare(
-                String(right.kitchen_station_name)
-            )
-        );
-    }, [indexedProducts, daysInMonth]);
-    const totalEstimatedOwnerMargin = useMemo(
+    const totalMargin = useMemo(
         () =>
-            stationSummaries.reduce(
-                (sum, station) =>
-                    sum + Number(station.estimated_owner_margin_monthly || 0),
-                0
-            ),
-        [stationSummaries]
-    );
-    const totalEstimatedOwnerMarginDaily = useMemo(
-        () =>
-            stationSummaries.reduce(
-                (sum, station) =>
-                    sum + Number(station.estimated_owner_margin_daily || 0),
-                0
-            ),
-        [stationSummaries]
-    );
-    const totalEstimatedTenantMargin = useMemo(
-        () =>
-            stationSummaries.reduce(
-                (sum, station) =>
-                    sum + Number(station.estimated_tenant_margin_monthly || 0),
-                0
-            ),
-        [stationSummaries]
-    );
-    const totalEstimatedTenantMarginDaily = useMemo(
-        () =>
-            stationSummaries.reduce(
-                (sum, station) =>
-                    sum + Number(station.estimated_tenant_margin_daily || 0),
-                0
-            ),
-        [stationSummaries]
+            tenantGroups.reduce((sum, tg) => {
+                return (
+                    sum +
+                    tg.products.reduce((s, p) => {
+                        const mt = Number(p.monthly_target || 0);
+                        const margin = Math.max(0, Number(p.buy_price || 0) - Number(p.tenant_hpp_price || p.buy_price || 0));
+                        const markup = Math.max(0, Number(p.sell_price || 0) - Number(p.buy_price || 0));
+                        return s + mt * (isTenant ? margin : markup);
+                    }, 0)
+                );
+            }, 0),
+        [tenantGroups, isTenant]
     );
 
     const setProductTarget = (index, value) => {
-        const nextTargets = [...data.product_targets];
-        nextTargets[index] = {
-            ...nextTargets[index],
-            monthly_target: value,
-        };
-        setData("product_targets", nextTargets);
+        const next = [...data.product_targets];
+        next[index] = { ...next[index], monthly_target: value };
+        setData("product_targets", next);
     };
 
-    const applyGlobalDailyTarget = () => {
-        if (!indexedProducts.length) {
-            toast.error("Belum ada produk untuk diisi target.");
-            return;
-        }
-
-        const totalMonthlyTarget = Math.max(
-            0,
-            Math.round(Number(data.daily_global_item_target || 0) * daysInMonth)
-        );
-        const productCount = indexedProducts.length;
-        const baseTarget = Math.floor(totalMonthlyTarget / productCount);
-        const remainder = totalMonthlyTarget % productCount;
-        const nextTargets = indexedProducts.map((product, index) => ({
-            product_id: product.id,
-            monthly_target:
-                totalMonthlyTarget <= 0
-                    ? ""
-                    : String(baseTarget + (index < remainder ? 1 : 0)),
-        }));
-
-        setData("product_targets", nextTargets);
-        toast.success("Target item semua produk berhasil diisi.");
+    const applyGlobal = () => {
+        if (!indexedProducts.length) { toast.error("Belum ada produk."); return; }
+        const totalM = Math.max(0, Math.round(globalDaily * daysInMonth));
+        const base = Math.floor(totalM / indexedProducts.length);
+        const rem = totalM % indexedProducts.length;
+        setData("product_targets", indexedProducts.map((_, i) => ({ product_id: indexedProducts[i].id, monthly_target: totalM <= 0 ? "" : String(base + (i < rem ? 1 : 0)) })));
+        toast.success("Target terisi ke semua produk.");
     };
 
     const submit = (e) => {
         e.preventDefault();
         post(route("settings.target.update"), {
             preserveScroll: true,
-            onSuccess: () => toast.success("Target berhasil disimpan"),
-            onError: () => toast.error("Gagal menyimpan target"),
+            onSuccess: () => toast.success("Target disimpan"),
+            onError: () => toast.error("Gagal menyimpan"),
         });
     };
+
+    const toggleTenant = (key) => {
+        setExpandedTenants((prev) => ({ ...prev, [key]: !prev[key] }));
+    };
+
+    const AchievementBadge = ({ pct }) => (
+        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold leading-tight whitespace-nowrap ${
+            pct >= 100
+                ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300"
+                : pct >= 60
+                ? "bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300"
+                : "bg-rose-50 text-rose-700 dark:bg-rose-950/30 dark:text-rose-300"
+        }`}>{fmtNum(pct, 1)}%</span>
+    );
 
     return (
         <>
             <Head title="Target Bisnis" />
-
-            <div className="space-y-6">
-                <div>
-                    <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
-                        Target Bisnis
-                    </h1>
-                    <p className="text-sm text-slate-500 dark:text-slate-400">
-                        {isTenantMode
-                            ? "Tenant mengatur target item dan margin dapur sendiri berdasarkan harga jual ke outlet owner dan HPP produksi."
-                            : "Owner outlet mengatur target item dan markup outlet per produk setiap bulan, lalu sistem menurunkannya menjadi target harian."}
-                    </p>
-                    {activeOutlet?.name && (
-                        <p className="mt-2 text-xs font-medium uppercase tracking-[0.16em] text-primary-600 dark:text-primary-300">
-                            Outlet aktif: {activeOutlet.name}
-                        </p>
-                    )}
-                    <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
-                        {formatNumber(products.length)} produk siap dipakai untuk target item.
-                    </p>
+            <div className="max-w-full space-y-4 px-0">
+                {/* Header */}
+                <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                        <h1 className="text-lg font-bold text-slate-900 dark:text-white truncate sm:text-xl">Target Bisnis</h1>
+                        {activeOutlet?.name && (
+                            <p className="text-[11px] font-medium uppercase tracking-wider text-primary-600 dark:text-primary-300 truncate">{activeOutlet.name}</p>
+                        )}
+                    </div>
+                    <p className="text-[11px] text-slate-500 shrink-0">{fmtNum(products.length)} produk</p>
                 </div>
 
-                <div className="grid gap-4 lg:grid-cols-5">
-                    <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
-                        <div className="flex items-center gap-3">
-                            <div className="rounded-xl bg-primary-100 p-3 dark:bg-primary-900/30">
-                                <IconPackage
-                                    size={22}
-                                    className="text-primary-600 dark:text-primary-400"
-                                />
+                {/* Stat cards — responsive grid */}
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+                    <div className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
+                        <div className="flex items-center gap-2.5">
+                            <div className="rounded-lg bg-primary-100 p-2 text-primary-600 dark:bg-primary-900/30 dark:text-primary-400 shrink-0">
+                                <IconPackage size={16} />
                             </div>
-                            <div>
-                                <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
-                                    Produk Bertarget
-                                </p>
-                                <p className="text-2xl font-bold text-slate-900 dark:text-white">
-                                    {formatNumber(targetedProductsCount)}
-                                </p>
+                            <div className="min-w-0">
+                                <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400 truncate">Produk Bertarget</p>
+                                <p className="text-base font-bold text-slate-900 dark:text-white">{fmtNum(targetedCount)}</p>
+                                <p className="text-[10px] text-slate-400 truncate">dari {fmtNum(products.length)} produk</p>
                             </div>
                         </div>
                     </div>
-                    <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
-                        <div className="flex items-center gap-3">
-                            <div className="rounded-xl bg-emerald-100 p-3 dark:bg-emerald-900/30">
-                                <IconTarget
-                                    size={22}
-                                    className="text-emerald-600 dark:text-emerald-400"
-                                />
+                    <div className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
+                        <div className="flex items-center gap-2.5">
+                            <div className="rounded-lg bg-emerald-100 p-2 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400 shrink-0">
+                                <IconTarget size={16} />
                             </div>
-                            <div>
-                                <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
-                                    Target Item Bulanan
-                                </p>
-                                <p className="text-2xl font-bold text-slate-900 dark:text-white">
-                                    {formatNumber(totalMonthlyItems)}
-                                </p>
+                            <div className="min-w-0">
+                                <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400 truncate">Target Bulanan</p>
+                                <p className="text-base font-bold text-slate-900 dark:text-white">{fmtNum(totalMonthly)}</p>
+                                <p className="text-[10px] text-slate-400 truncate">{fmtNum(totalDaily, 2)}/hari</p>
                             </div>
                         </div>
                     </div>
-                    <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
-                        <div className="flex items-center gap-3">
-                            <div className="rounded-xl bg-amber-100 p-3 dark:bg-amber-900/30">
-                                <IconChartBar
-                                    size={22}
-                                    className="text-amber-600 dark:text-amber-400"
-                                />
+                    <div className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
+                        <div className="flex items-center gap-2.5">
+                            <div className="rounded-lg bg-amber-100 p-2 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400 shrink-0">
+                                <IconChartBar size={16} />
                             </div>
-                            <div>
-                                <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
-                                    Rata-rata Target Harian
-                                </p>
-                                <p className="text-2xl font-bold text-slate-900 dark:text-white">
-                                    {formatNumber(totalDailyItems, 2)}
-                                </p>
-                                <p className="text-xs text-slate-500 dark:text-slate-400">
-                                    Berdasarkan {daysInMonth} hari di{" "}
-                                    {targetMeta?.month_label || "bulan aktif"}
-                                </p>
+                            <div className="min-w-0">
+                                <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400 truncate">Global Harian</p>
+                                <p className="text-base font-bold text-slate-900 dark:text-white">{fmtNum(globalDaily)}</p>
+                                <p className="text-[10px] text-slate-400 truncate">{fmtNum(globalMonthly)}/bulan</p>
                             </div>
                         </div>
                     </div>
-                    <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
-                        <div className="flex items-center gap-3">
-                            <div className="rounded-xl bg-violet-100 p-3 dark:bg-violet-900/30">
-                                <IconSparkles
-                                    size={22}
-                                    className="text-violet-600 dark:text-violet-400"
-                                />
+                    <div className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
+                        <div className="flex items-center gap-2.5">
+                            <div className="rounded-lg bg-cyan-100 p-2 text-cyan-600 dark:bg-cyan-900/30 dark:text-cyan-400 shrink-0">
+                                <IconCoin size={16} />
                             </div>
-                            <div>
-                                    <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
-                                        {isTenantMode
-                                            ? "Target Harian Global Tenant"
-                                            : "Target Harian Global Owner"}
-                                    </p>
-                                <p className="text-2xl font-bold text-slate-900 dark:text-white">
-                                    {formatNumber(globalDailyItemTarget)}
-                                </p>
-                                <p className="text-xs text-slate-500 dark:text-slate-400">
-                                    Setara {formatNumber(globalMonthlyItemTarget)} item/bulan
-                                </p>
+                            <div className="min-w-0">
+                                <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400 truncate">Realisasi</p>
+                                <p className="text-base font-bold text-slate-900 dark:text-white">{fmtNum(totalActual)}</p>
+                                <p className="text-[10px] text-slate-400 truncate">{fmtNum(totalActual / Math.max(1, daysElapsed), 2)}/hari</p>
                             </div>
                         </div>
                     </div>
-                    <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
-                        <div className="flex items-center gap-3">
-                            <div className="rounded-xl bg-cyan-100 p-3 dark:bg-cyan-900/30">
-                                <IconCoin
-                                    size={22}
-                                    className="text-cyan-600 dark:text-cyan-400"
-                                />
+                    <div className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900 col-span-2 sm:col-span-1">
+                        <div className="flex items-center gap-2.5">
+                            <div className="rounded-lg bg-violet-100 p-2 text-violet-600 dark:bg-violet-900/30 dark:text-violet-400 shrink-0">
+                                <IconSparkles size={16} />
                             </div>
-                            <div>
-                                <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
-                                    Actual Bulan Berjalan
-                                </p>
-                                <p className="text-2xl font-bold text-slate-900 dark:text-white">
-                                    {formatNumber(totalActualMonthlyItems)}
-                                </p>
-                                <p className="text-xs text-slate-500 dark:text-slate-400">
-                                    Harian avg {formatNumber(totalActualDailyItems, 2)}
-                                </p>
+                            <div className="min-w-0">
+                                <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400 truncate">{isTenant ? "Estimasi Margin" : "Estimasi Markup"}</p>
+                                <p className="text-base font-bold text-slate-900 dark:text-white truncate">{fmtCurrency(totalMargin)}</p>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <form
-                    onSubmit={submit}
-                    className="space-y-6 rounded-2xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900"
-                >
-                    <div className="grid gap-5 xl:grid-cols-[1.2fr,0.8fr]">
-                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/40">
-                            <div className="mb-4 flex items-start gap-4">
-                                <div className="rounded-xl bg-primary-100 p-3 dark:bg-primary-900/30">
-                                    <IconTarget
-                                        size={24}
-                                        className="text-primary-600 dark:text-primary-400"
-                                    />
-                                </div>
-                                <div className="flex-1">
-                                        <h2 className="text-base font-semibold text-slate-900 dark:text-white">
-                                        {isTenantMode
-                                            ? "Target Item Tenant per Bulan"
-                                            : "Target Penjualan Item per Bulan"}
-                                        </h2>
-                                        <p className="text-sm text-slate-500 dark:text-slate-400">
-                                        {isTenantMode
-                                            ? "Isi jumlah item yang ingin dijual tenant ke outlet owner. Sistem akan menghitung target harian dan estimasi margin tenant otomatis."
-                                            : "Isi jumlah item yang ingin terjual untuk setiap produk. Sistem akan menampilkan konversi target harian dan estimasi markup owner otomatis."}
-                                        </p>
-                                </div>
-                            </div>
-
-                            <div className="mb-4 rounded-2xl border border-violet-200 bg-violet-50 p-4 dark:border-violet-900 dark:bg-violet-950/20">
-                                <div className="flex flex-col gap-3 xl:flex-row xl:items-end">
-                                    <div className="flex-1">
-                                        <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                            Target Harian Global
-                                        </label>
-                                        <input
-                                            type="number"
-                                            min="0"
-                                            value={data.daily_global_item_target}
-                                            onChange={(event) =>
-                                                setData(
-                                                    "daily_global_item_target",
-                                                    event.target.value
-                                                )
-                                            }
-                                            placeholder="Contoh: 100"
-                                            className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-slate-900 focus:border-violet-500 focus:ring-4 focus:ring-violet-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-                                        />
-                                        <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                                            Target ini akan dikonversi menjadi{" "}
-                                            <span className="font-semibold">
-                                                {formatNumber(globalMonthlyItemTarget)}
-                                            </span>{" "}
-                                            item per bulan, lalu dibagi merata-minimal ke semua produk.
-                                        </p>
-                                        {errors.daily_global_item_target && (
-                                            <p className="mt-1 text-sm text-danger-500">
-                                                {errors.daily_global_item_target}
-                                            </p>
-                                        )}
-                                    </div>
-                                    <button
-                                        type="button"
-                                        onClick={applyGlobalDailyTarget}
-                                        className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-violet-600 px-4 text-sm font-semibold text-white transition hover:bg-violet-700"
-                                    >
-                                        <IconSparkles size={18} />
-                                        Isi Minimal Semua Produk
-                                    </button>
-                                </div>
-                            </div>
-
-                            <div className="relative mb-4">
-                                <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
-                                    <IconSearch size={18} />
-                                </div>
-                                <input
-                                    type="text"
-                                    value={search}
-                                    onChange={(event) =>
-                                        setSearch(event.target.value)
-                                    }
-                                    placeholder="Cari produk atau tenant..."
-                                    className="h-11 w-full rounded-xl border border-slate-200 bg-white pl-11 pr-4 text-sm text-slate-900 focus:border-primary-500 focus:ring-4 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-                                />
-                            </div>
-
-                            <div className="mb-4 rounded-2xl border border-dashed border-primary-200 bg-white p-4 dark:border-primary-900 dark:bg-slate-900">
-                                <p className="text-sm font-semibold text-slate-900 dark:text-white">
-                                    Input Target Item
-                                </p>
-                                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                    Isi kolom <span className="font-semibold">Target/Bulan</span> pada produk yang ingin dikejar. Target harian akan muncul otomatis di kolom sebelahnya.
-                                </p>
-                            </div>
-
-                            <div className="max-h-[640px] overflow-auto rounded-2xl border border-slate-200 dark:border-slate-800">
-                                <table className="w-full text-sm">
-                                    <thead className="sticky top-0 bg-slate-100 dark:bg-slate-800">
-                                        <tr>
-                                            <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                                                Produk
-                                            </th>
-                                            <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                                                Target/Bulan
-                                            </th>
-                                            <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                                                Target/Hari
-                                            </th>
-                                            <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                                                Actual/Bulan
-                                            </th>
-                                            <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                                                Gap
-                                            </th>
-                                            <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                                                Achv
-                                            </th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                                        {visibleProducts.length > 0 ? visibleProducts.map((product) => {
-                                            const monthlyTarget = Number(
-                                                product.monthly_target || 0
-                                            );
-                                            const dailyTarget =
-                                                monthlyTarget / (daysInMonth || 1);
-
-                                            return (
-                                                <tr key={product.id}>
-                                                    <td className="px-4 py-3 align-top">
-                                                        <div className="font-medium text-slate-900 dark:text-white">
-                                                            {product.title}
-                                                        </div>
-                                                        <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                                            HPP tenant{" "}
-                                                            {formatCurrency(
-                                                                product.tenant_hpp_price
-                                                            )}{" "}
-                                                            • Beli outlet{" "}
-                                                            {formatCurrency(
-                                                                product.buy_price
-                                                            )}{" "}
-                                                            • Harga jual{" "}
-                                                            {formatCurrency(
-                                                                product.sell_price
-                                                            )}
-                                                        </div>
-                                                        <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                                            Kategori {product.category_name}
-                                                        </div>
-                                                        <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                                            Stok referensi{" "}
-                                                            {formatNumber(
-                                                                product.stock
-                                                            )}
-                                                            {product.tenant_outlet
-                                                                ? ` • Tenant ${product.tenant_outlet.name}`
-                                                                : ""}
-                                                        </div>
-                                                    </td>
-                                                    <td className="px-4 py-3 align-top">
-                                                        <input
-                                                            type="number"
-                                                            min="0"
-                                                            value={
-                                                                product.monthly_target
-                                                            }
-                                                            onChange={(event) =>
-                                                                setProductTarget(
-                                                                    product.form_index,
-                                                                    event.target
-                                                                        .value
-                                                                )
-                                                            }
-                                                            className="h-10 w-28 rounded-xl border border-slate-200 bg-white px-3 text-right text-slate-900 focus:border-primary-500 focus:ring-4 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-                                                        />
-                                                        {errors[
-                                                            `product_targets.${product.form_index}.monthly_target`
-                                                        ] && (
-                                                            <p className="mt-1 text-xs text-danger-500">
-                                                                {
-                                                                    errors[
-                                                                        `product_targets.${product.form_index}.monthly_target`
-                                                                    ]
-                                                                }
-                                                            </p>
-                                                        )}
-                                                    </td>
-                                                    <td className="px-4 py-3 text-right align-top font-medium text-slate-700 dark:text-slate-300">
-                                                            {monthlyTarget > 0
-                                                                ? formatNumber(
-                                                                      dailyTarget,
-                                                                      2
-                                                                  )
-                                                            : "0"}
-                                                    </td>
-                                                    <td className="px-4 py-3 text-right align-top font-medium text-slate-700 dark:text-slate-300">
-                                                        <div>
-                                                            {formatNumber(
-                                                                product.actual_monthly_qty || 0
-                                                            )}
-                                                        </div>
-                                                        <div className="text-xs text-slate-500 dark:text-slate-400">
-                                                            {formatNumber(
-                                                                product.actual_daily_avg || 0,
-                                                                2
-                                                            )}
-                                                            /hari
-                                                        </div>
-                                                    </td>
-                                                    <td className="px-4 py-3 text-right align-top font-medium text-amber-600 dark:text-amber-400">
-                                                        {formatNumber(
-                                                            product.target_gap_qty || 0
-                                                        )}
-                                                    </td>
-                                                    <td className="px-4 py-3 text-right align-top">
-                                                        <span
-                                                            className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
-                                                                Number(product.achievement_percentage || 0) >= 100
-                                                                    ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300"
-                                                                    : Number(product.achievement_percentage || 0) >= 60
-                                                                    ? "bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300"
-                                                                    : "bg-rose-50 text-rose-700 dark:bg-rose-950/30 dark:text-rose-300"
-                                                            }`}
-                                                        >
-                                                            {formatNumber(
-                                                                product.achievement_percentage || 0,
-                                                                1
-                                                            )}
-                                                            %
-                                                        </span>
-                                                    </td>
-                                                </tr>
-                                            );
-                                        }) : (
-                                            <tr>
-                                                <td
-                                                    colSpan={6}
-                                                    className="px-4 py-8 text-center text-sm text-slate-500 dark:text-slate-400"
-                                                >
-                                                    Tidak ada produk yang cocok
-                                                    dengan filter ini.
-                                                </td>
-                                            </tr>
-                                        )}
-                                    </tbody>
-                                </table>
-                            </div>
+                {/* Main form */}
+                <form onSubmit={submit} className="space-y-3 rounded-xl border border-slate-200 bg-white p-3 sm:p-5 dark:border-slate-800 dark:bg-slate-900">
+                    {/* Quick fill bar — stacks on mobile */}
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:gap-3 rounded-lg border border-violet-200 bg-violet-50 p-3 dark:border-violet-900 dark:bg-violet-950/20">
+                        <div className="flex-1 min-w-0">
+                            <label className="mb-1 block text-[11px] font-medium text-slate-600 dark:text-slate-300">Isi Cepat Target Harian</label>
+                            <input type="number" min="0" value={data.daily_global_item_target} onChange={(e) => setData("daily_global_item_target", e.target.value)} placeholder="cth: 100" className="h-9 w-full max-w-[200px] rounded-lg border border-slate-200 bg-white px-3 text-sm focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white" />
+                            {errors.daily_global_item_target && <p className="mt-1 text-[11px] text-danger-500">{errors.daily_global_item_target}</p>}
                         </div>
-
-                        <div className="space-y-5">
-                            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/40">
-                                <div className="mb-4 flex items-start justify-between gap-4">
-                                    <div className="flex items-start gap-4">
-                                        <div className="rounded-xl bg-cyan-100 p-3 dark:bg-cyan-900/30">
-                                            <IconCoin
-                                                size={24}
-                                                className="text-cyan-600 dark:text-cyan-400"
-                                            />
-                                        </div>
-                                        <div>
-                                            <h2 className="text-base font-semibold text-slate-900 dark:text-white">
-                                                Target Nilai Bulanan
-                                            </h2>
-                                            <p className="text-sm text-slate-500 dark:text-slate-400">
-                                                Opsional untuk laporan omzet dan profit.
-                                            </p>
-                                        </div>
-                                    </div>
-                                    <button
-                                        type="button"
-                                        onClick={() => setShowValueTargets((value) => !value)}
-                                        className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
-                                    >
-                                        {showValueTargets ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
-                                        {showValueTargets ? "Sembunyikan" : "Lihat detail"}
-                                    </button>
-                                </div>
-
-                                {showValueTargets ? (
-                                <div className="space-y-4">
-                                    <div>
-                                        <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                            Target Penjualan Bulanan
-                                        </label>
-                                        <input
-                                            type="number"
-                                            value={data.monthly_sales_target}
-                                            onChange={(e) =>
-                                                setData(
-                                                    "monthly_sales_target",
-                                                    e.target.value
-                                                )
-                                            }
-                                            placeholder="Contoh: 50000000"
-                                            className="h-12 w-full rounded-xl border-2 border-slate-200 bg-white px-4 text-slate-900 focus:border-primary-500 focus:ring-4 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-                                        />
-                                        {data.monthly_sales_target > 0 && (
-                                            <p className="mt-2 text-sm text-slate-500">
-                                                {formatCurrency(
-                                                    data.monthly_sales_target
-                                                )}
-                                            </p>
-                                        )}
-                                        {errors.monthly_sales_target && (
-                                            <p className="mt-1 text-sm text-danger-500">
-                                                {errors.monthly_sales_target}
-                                            </p>
-                                        )}
-                                    </div>
-
-                                    <div>
-                                        <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                            Target Keuntungan Bulanan
-                                        </label>
-                                        <input
-                                            type="number"
-                                            value={data.monthly_profit_target}
-                                            onChange={(e) =>
-                                                setData(
-                                                    "monthly_profit_target",
-                                                    e.target.value
-                                                )
-                                            }
-                                            placeholder="Contoh: 15000000"
-                                            className="h-12 w-full rounded-xl border-2 border-slate-200 bg-white px-4 text-slate-900 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-                                        />
-                                        {data.monthly_profit_target > 0 && (
-                                            <p className="mt-2 text-sm text-slate-500">
-                                                {formatCurrency(
-                                                    data.monthly_profit_target
-                                                )}
-                                            </p>
-                                        )}
-                                        {errors.monthly_profit_target && (
-                                            <p className="mt-1 text-sm text-danger-500">
-                                                {errors.monthly_profit_target}
-                                            </p>
-                                        )}
-                                    </div>
-                                </div>
-                                ) : null}
-                            </div>
-
-                            <div className="rounded-xl border border-primary-200 bg-primary-50 p-4 dark:border-primary-900 dark:bg-primary-950/30">
-                                <p className="text-sm text-primary-700 dark:text-primary-300">
-                                    <strong>Catatan:</strong> target item harian
-                                    dihitung otomatis dari target bulanan dibagi{" "}
-                                    {daysInMonth} hari di{" "}
-                                    {targetMeta?.month_label || "bulan aktif"}.
-                                    {isTenantMode
-                                        ? " Tenant bisa fokus pada volume produksi dan margin tenant per item."
-                                        : " Ini lebih relevan untuk owner outlet yang mengejar volume item dan markup outlet, bukan hanya target nominal."}
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="flex justify-end border-t border-slate-100 pt-4 dark:border-slate-800">
-                        <button
-                            type="submit"
-                            disabled={processing}
-                            className="inline-flex items-center gap-2 rounded-xl bg-primary-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-600 disabled:opacity-60"
-                        >
-                            <IconDeviceFloppy size={18} />
-                            {processing ? "Menyimpan..." : "Simpan Target"}
+                        <button type="button" onClick={applyGlobal} className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-violet-600 px-4 text-xs font-semibold text-white hover:bg-violet-700 shrink-0 sm:self-end">
+                            <IconSparkles size={14} /> Terapkan
                         </button>
                     </div>
 
-                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/40">
-                        <div className="mb-4 flex items-start justify-between gap-4">
-                            <div>
-                                <h2 className="text-base font-semibold text-slate-900 dark:text-white">
-                                    Ringkasan Target per Dapur
-                                </h2>
-                                <p className="text-sm text-slate-500 dark:text-slate-400">
-                                    Menjumlahkan target item per dapur/station dan estimasi margin tenant serta markup owner secara bulanan dan harian.
-                                </p>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <button
-                                    type="button"
-                                    onClick={() => setShowStationSummary((value) => !value)}
-                                    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
-                                >
-                                    {showStationSummary ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
-                                    {showStationSummary ? "Sembunyikan" : "Lihat detail"}
-                                </button>
-                                <div className="rounded-xl bg-white px-4 py-3 text-right shadow-sm dark:bg-slate-900">
-                                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                                        {isTenantMode
-                                            ? "Total Margin Tenant Bulanan"
-                                            : "Total Markup Owner Bulanan"}
-                                    </p>
-                                    <p className="text-lg font-bold text-slate-900 dark:text-white">
-                                        {formatCurrency(
-                                            isTenantMode
-                                                ? totalEstimatedTenantMargin
-                                                : totalEstimatedOwnerMargin
-                                        )}
-                                    </p>
-                                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                        Harian{" "}
-                                        {formatCurrency(
-                                            isTenantMode
-                                                ? totalEstimatedTenantMarginDaily
-                                                : totalEstimatedOwnerMarginDaily
-                                        )}
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
+                    {/* Search */}
+                    <div className="relative max-w-md">
+                        <IconSearch size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                        <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Cari produk atau tenant..." className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white" />
+                    </div>
 
-                        {showStationSummary && (
-                        <div className="space-y-3">
-                            {stationSummaries.length > 0 ? (
-                                <>
-                                    {stationSummaries.map((station) => {
-                                        const stationProducts = indexedProducts.filter(
-                                            (product) =>
-                                                String(product.kitchen_station_id || "unassigned_station") ===
-                                                String(station.kitchen_station_id || "unassigned_station")
-                                        );
+                    {/* === BREAKDOWN PER TENANT === */}
+                    <div className="space-y-3">
+                        {tenantGroups.map((tg) => {
+                            const tenantKey = tg.tenant_code || "unassigned";
+                            const tgMonthly = tg.products.reduce((s, p) => s + Number(p.monthly_target || 0), 0);
+                            const tgActual = tg.products.reduce((s, p) => s + Number(p.actual_monthly_qty || 0), 0);
+                            const tgAch = tgMonthly > 0 ? Math.min(100, (tgActual / tgMonthly) * 100) : 0;
+                            const tgCount = tg.products.length;
+                            const tgTargeted = tg.products.filter((p) => Number(p.monthly_target || 0) > 0).length;
+                            const tgMargin = tg.products.reduce((s, p) => {
+                                const mt = Number(p.monthly_target || 0);
+                                const margin = Math.max(0, Number(p.buy_price || 0) - Number(p.tenant_hpp_price || p.buy_price || 0));
+                                const markup = Math.max(0, Number(p.sell_price || 0) - Number(p.buy_price || 0));
+                                return s + mt * (isTenant ? margin : markup);
+                            }, 0);
+                            const isExpanded = expandedTenants[tenantKey] ?? true;
 
-                                        return (
-                                            <details
-                                                key={station.kitchen_station_id ?? station.kitchen_station_name}
-                                                className="overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900"
-                                            >
-                                                <summary className="cursor-pointer list-none px-4 py-3">
-                                                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                                                        <div>
-                                                            <div className="font-medium text-slate-900 dark:text-white">
-                                                                {station.kitchen_station_name}
-                                                            </div>
-                                                            <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                                                {formatNumber(station.product_count)} produk • {formatNumber(station.monthly_target_items)} item/bulan
-                                                            </div>
-                                                        </div>
-                                                        <div className="grid gap-3 text-right sm:grid-cols-3">
-                                                            <div>
-                                                                <div className="text-xs uppercase tracking-wide text-slate-400">
-                                                                    Target/Hari
-                                                                </div>
-                                                                    <div className="font-semibold text-slate-700 dark:text-slate-200">
-                                                                        {formatNumber(station.daily_target_items, 2)}
-                                                                    </div>
-                                                                    <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                                                                        Actual avg{" "}
-                                                                        {formatNumber(
-                                                                            stationProducts.reduce(
-                                                                                (sum, product) =>
-                                                                                    sum +
-                                                                                    Number(product.actual_daily_avg || 0),
-                                                                                0
-                                                                            ),
-                                                                            2
-                                                                        )}
-                                                                    </div>
-                                                                </div>
-                                                            <div>
-                                                                <div className="text-xs uppercase tracking-wide text-slate-400">
-                                                                    {isTenantMode
-                                                                        ? "Margin Tenant/Bulan"
-                                                                        : "Markup Owner/Bulan"}
-                                                                </div>
-                                                                <div className="font-semibold text-emerald-600 dark:text-emerald-400">
-                                                                    {formatCurrency(
-                                                                        isTenantMode
-                                                                            ? station.estimated_tenant_margin_monthly
-                                                                            : station.estimated_owner_margin_monthly
-                                                                    )}
-                                                                </div>
-                                                                <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                                                                    Harian{" "}
-                                                                    {formatCurrency(
-                                                                        isTenantMode
-                                                                            ? station.estimated_tenant_margin_daily
-                                                                            : station.estimated_owner_margin_daily
-                                                                    )}
-                                                                </div>
-                                                            </div>
-                                                            <div>
-                                                                <div className="text-xs uppercase tracking-wide text-slate-400">
-                                                                    Detail
-                                                                </div>
-                                                                <div className="font-semibold text-primary-600 dark:text-primary-400">
-                                                                    Lihat Item
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </summary>
-                                                <div className="border-t border-slate-100 px-4 py-3 dark:border-slate-800">
-                                                    <div className="space-y-2">
-                                                        {stationProducts.map((product) => {
-                                                            const monthlyTarget = Number(product.monthly_target || 0);
-                                                            const tenantMarginPerItem = Math.max(
-                                                                0,
-                                                                Number(product.buy_price || 0) -
-                                                                    Number(product.tenant_hpp_price || product.buy_price || 0)
-                                                            );
-                                                            const ownerMarkupPerItem = Math.max(
-                                                                0,
-                                                                Number(product.sell_price || 0) -
-                                                                    Number(product.buy_price || 0)
-                                                            );
-                                                            const primaryUnitValue =
-                                                                product[primaryUnitLabel] ??
-                                                                (isTenantMode
-                                                                    ? tenantMarginPerItem
-                                                                    : ownerMarkupPerItem);
-                                                            const dailyTarget = monthlyTarget / (daysInMonth || 1);
-
-                                                            return (
-                                                                <div
-                                                                    key={product.id}
-                                                                    className="grid gap-2 rounded-xl border border-slate-100 px-3 py-2 text-xs dark:border-slate-800 md:grid-cols-[1.4fr,0.8fr,0.8fr,0.8fr]"
-                                                                >
-                                                                    <div>
-                                                                        <div className="font-semibold text-slate-800 dark:text-slate-200">
-                                                                            {product.title}
-                                                                        </div>
-                                                                        <div className="text-slate-500 dark:text-slate-400">
-                                                                            HPP {formatCurrency(product.tenant_hpp_price)} • Beli outlet {formatCurrency(product.buy_price)} • Jual {formatCurrency(product.sell_price)}
-                                                                        </div>
-                                                                    </div>
-                                                                    <div className="text-slate-600 dark:text-slate-300">
-                                                                        <div>Target/Bulan {formatNumber(monthlyTarget)}</div>
-                                                                        <div>Target/Hari {formatNumber(dailyTarget, 2)}</div>
-                                                                    </div>
-                                                                    <div className="text-slate-600 dark:text-slate-300">
-                                                                        <div>
-                                                                            {isTenantMode ? "Margin Tenant/Item" : "Markup Owner/Item"}{" "}
-                                                                            {formatCurrency(primaryUnitValue)}
-                                                                        </div>
-                                                                        <div>Stok {formatNumber(product.stock)}</div>
-                                                                    </div>
-                                                                    <div className="text-emerald-600 dark:text-emerald-400">
-                                                                        <div className="font-semibold">
-                                                                            {formatCurrency(monthlyTarget * primaryUnitValue)}
-                                                                        </div>
-                                                                        <div className="text-slate-500 dark:text-slate-400">
-                                                                            Bulanan
-                                                                        </div>
-                                                                        <div className="text-slate-500 dark:text-slate-400">
-                                                                            Harian {formatCurrency(dailyTarget * primaryUnitValue)}
-                                                                        </div>
-                                                                    </div>
-                                                                </div>
-                                                            );
-                                                        })}
-                                                    </div>
-                                                </div>
-                                            </details>
-                                        );
-                                    })}
-
-                                    <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-900">
-                                            <div className="grid gap-3 lg:grid-cols-[1.2fr,0.8fr,0.8fr,0.8fr]">
-                                                <div className="font-semibold text-slate-900 dark:text-white">
-                                                Total Semua Dapur
-                                                </div>
-                                                <div className="text-right font-semibold text-slate-700 dark:text-slate-200">
-                                                {formatNumber(stationSummaries.reduce((sum, station) => sum + Number(station.monthly_target_items || 0), 0))} item/bulan
-                                                </div>
-                                                <div className="text-right font-semibold text-slate-700 dark:text-slate-200">
-                                                {formatNumber(stationSummaries.reduce((sum, station) => sum + Number(station.daily_target_items || 0), 0), 2)} item/hari
-                                                </div>
-                                                <div className="text-right font-semibold text-emerald-600 dark:text-emerald-400">
-                                                <div>
-                                                    {formatCurrency(
-                                                        isTenantMode
-                                                            ? totalEstimatedTenantMargin
-                                                            : totalEstimatedOwnerMargin
-                                                    )}
-                                                </div>
-                                                <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                                                    Harian{" "}
-                                                    {formatCurrency(
-                                                        isTenantMode
-                                                            ? totalEstimatedTenantMarginDaily
-                                                            : totalEstimatedOwnerMarginDaily
-                                                    )}
-                                                </div>
-                                                </div>
+                            return (
+                                <div key={tenantKey} className="rounded-lg border border-slate-200 dark:border-slate-800 overflow-hidden">
+                                    {/* Tenant header — stacks on mobile */}
+                                    <button type="button" onClick={() => toggleTenant(tenantKey)} className="flex w-full items-start gap-2 bg-slate-50 px-3 py-2.5 text-left hover:bg-slate-100 dark:bg-slate-900 dark:hover:bg-slate-800/80 transition-colors sm:items-center">
+                                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                                            <div className="rounded-lg bg-primary-100 p-1.5 text-primary-600 dark:bg-primary-900/30 dark:text-primary-400 shrink-0">
+                                                <IconBuildingStore size={14} />
+                                            </div>
+                                            <div className="min-w-0">
+                                                <p className="text-xs font-semibold text-slate-900 dark:text-white truncate">
+                                                    {tg.tenant_name}
+                                                    {tg.tenant_code && <span className="ml-1 font-normal text-slate-400">({tg.tenant_code})</span>}
+                                                </p>
+                                                <p className="text-[10px] text-slate-500 truncate">
+                                                    {fmtNum(tgCount)} produk · {fmtNum(tgTargeted)} bertarget · {fmtNum(tgMonthly)} item
+                                                </p>
                                             </div>
                                         </div>
-                                    </>
-                                ) : (
-                                    <div className="rounded-2xl border border-slate-200 bg-white px-4 py-8 text-center text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
-                                    Belum ada data dapur untuk diringkas.
+                                        <div className="flex items-center gap-2 shrink-0">
+                                            <div className="hidden sm:block text-right text-[11px]">
+                                                <p className="font-medium text-slate-700 dark:text-slate-300">{fmtCurrency(tgMargin)}</p>
+                                                <p className="text-slate-400">Realisasi {fmtNum(tgActual)}</p>
+                                            </div>
+                                            <AchievementBadge pct={tgAch} />
+                                            {isExpanded ? <IconChevronDown size={14} className="text-slate-400 shrink-0" /> : <IconChevronRight size={14} className="text-slate-400 shrink-0" />}
+                                        </div>
+                                    </button>
+
+                                    {/* Tenant product table — scrollable horizontally on mobile */}
+                                    {isExpanded && (
+                                        <div className="overflow-x-auto -mx-0">
+                                            <div className="inline-block min-w-full align-middle">
+                                                <table className="w-full text-sm">
+                                                    <thead className="bg-slate-100/60 dark:bg-slate-800/60">
+                                                        <tr>
+                                                            <th className="sticky left-0 z-10 bg-slate-100/60 dark:bg-slate-800/60 px-2 py-1.5 text-left text-[10px] font-semibold uppercase text-slate-500 whitespace-nowrap">Produk</th>
+                                                            <th className="px-2 py-1.5 text-right text-[10px] font-semibold uppercase text-slate-500 whitespace-nowrap">Harga</th>
+                                                            <th className="px-2 py-1.5 text-right text-[10px] font-semibold uppercase text-slate-500 whitespace-nowrap">Target/Bln</th>
+                                                            <th className="px-2 py-1.5 text-right text-[10px] font-semibold uppercase text-slate-500 whitespace-nowrap">/Hari</th>
+                                                            <th className="px-2 py-1.5 text-right text-[10px] font-semibold uppercase text-slate-500 whitespace-nowrap">Aktual</th>
+                                                            <th className="px-2 py-1.5 text-right text-[10px] font-semibold uppercase text-slate-500 whitespace-nowrap">Gap</th>
+                                                            <th className="px-2 py-1.5 text-right text-[10px] font-semibold uppercase text-slate-500 whitespace-nowrap">Achv</th>
+                                                            <th className="px-2 py-1.5 text-right text-[10px] font-semibold uppercase text-slate-500 whitespace-nowrap">Estimasi</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                                        {tg.products.map((p) => {
+                                                            const mt = Number(p.monthly_target || 0);
+                                                            const dt = mt / (daysInMonth || 1);
+                                                            const ach = Number(p.achievement_percentage || 0);
+                                                            const gap = Number(p.target_gap_qty || 0);
+                                                            const marginVal = Math.max(0, Number(p.buy_price || 0) - Number(p.tenant_hpp_price || p.buy_price || 0));
+                                                            const markupVal = Math.max(0, Number(p.sell_price || 0) - Number(p.buy_price || 0));
+                                                            const unitVal = isTenant ? marginVal : markupVal;
+                                                            const estMonthly = mt * unitVal;
+                                                            const estDaily = dt * unitVal;
+
+                                                            return (
+                                                                <tr key={p.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+                                                                    <td className="sticky left-0 z-10 bg-white dark:bg-slate-900 px-2 py-2 min-w-[120px] max-w-[180px]">
+                                                                        <p className="text-[11px] font-medium text-slate-900 dark:text-white truncate">{p.title}</p>
+                                                                        <p className="text-[10px] text-slate-400 truncate">
+                                                                            {p.category_name}
+                                                                            {p.kitchen_station_name !== "Belum Dipetakan" && ` · ${p.kitchen_station_name}`}
+                                                                        </p>
+                                                                    </td>
+                                                                    <td className="px-2 py-2 text-right text-[10px] text-slate-500 whitespace-nowrap">
+                                                                        <div>{fmtCurrency(p.sell_price)}</div>
+                                                                        <div>{fmtCurrency(p.buy_price)}</div>
+                                                                    </td>
+                                                                    <td className="px-2 py-2 whitespace-nowrap">
+                                                                        <input type="number" min="0" value={p.monthly_target} onChange={(e) => setProductTarget(p.form_index, e.target.value)} className="h-7 w-20 rounded-md border border-slate-200 bg-white px-1.5 text-right text-[11px] focus:border-primary-500 focus:ring-1.5 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white" />
+                                                                        {errors[`product_targets.${p.form_index}.monthly_target`] && (
+                                                                            <p className="text-[10px] text-danger-500">{errors[`product_targets.${p.form_index}.monthly_target`]}</p>
+                                                                        )}
+                                                                    </td>
+                                                                    <td className="px-2 py-2 text-right text-[11px] font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap">
+                                                                        {mt > 0 ? fmtNum(dt, 1) : "0"}
+                                                                    </td>
+                                                                    <td className="px-2 py-2 text-right whitespace-nowrap">
+                                                                        <div className="text-[11px] text-slate-700 dark:text-slate-300">{fmtNum(p.actual_monthly_qty || 0)}</div>
+                                                                        <div className="text-[10px] text-slate-400">{fmtNum(p.actual_daily_avg || 0, 1)}/hari</div>
+                                                                    </td>
+                                                                    <td className="px-2 py-2 text-right text-[11px] font-medium text-amber-600 whitespace-nowrap">
+                                                                        {gap > 0 ? fmtNum(gap) : "0"}
+                                                                    </td>
+                                                                    <td className="px-2 py-2 text-right whitespace-nowrap">
+                                                                        <AchievementBadge pct={ach} />
+                                                                    </td>
+                                                                    <td className="px-2 py-2 text-right whitespace-nowrap">
+                                                                        <div className="text-[11px] font-medium text-emerald-600">{fmtCurrency(estMonthly)}</div>
+                                                                        <div className="text-[10px] text-slate-400">{fmtCurrency(estDaily)}/hari</div>
+                                                                    </td>
+                                                                </tr>
+                                                            );
+                                                        })}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+
+                    {/* Bottom bar — stacks on mobile */}
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-stretch">
+                        {/* Target Nilai */}
+                        <div className="flex-1 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/40">
+                            <button type="button" onClick={() => setShowValueTargets((v) => !v)} className="flex w-full items-center justify-between text-xs font-semibold text-slate-900 dark:text-white">
+                                <span>Target Nilai Bulanan</span>
+                                {showValueTargets ? <IconChevronDown size={14} /> : <IconChevronRight size={14} />}
+                            </button>
+                            <p className="text-[10px] text-slate-400 mt-0.5">Opsional — omzet & profit</p>
+                            {showValueTargets && (
+                                <div className="mt-3 space-y-2">
+                                    <div>
+                                        <label className="mb-0.5 block text-[10px] font-medium text-slate-600">Target Penjualan</label>
+                                        <input type="number" value={data.monthly_sales_target} onChange={(e) => setData("monthly_sales_target", e.target.value)} placeholder="cth: 50000000" className="h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white" />
+                                        {data.monthly_sales_target > 0 && <p className="mt-0.5 text-[10px] text-slate-500">{fmtCurrency(data.monthly_sales_target)}</p>}
+                                        {errors.monthly_sales_target && <p className="mt-0.5 text-[10px] text-danger-500">{errors.monthly_sales_target}</p>}
                                     </div>
-                                )}
-                            </div>
-                        )}
+                                    <div>
+                                        <label className="mb-0.5 block text-[10px] font-medium text-slate-600">Target Keuntungan</label>
+                                        <input type="number" value={data.monthly_profit_target} onChange={(e) => setData("monthly_profit_target", e.target.value)} placeholder="cth: 15000000" className="h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white" />
+                                        {data.monthly_profit_target > 0 && <p className="mt-0.5 text-[10px] text-slate-500">{fmtCurrency(data.monthly_profit_target)}</p>}
+                                        {errors.monthly_profit_target && <p className="mt-0.5 text-[10px] text-danger-500">{errors.monthly_profit_target}</p>}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Info note */}
+                        <div className="flex-1 rounded-lg border border-primary-200 bg-primary-50 px-3 py-2.5 dark:border-primary-900 dark:bg-primary-950/20 flex items-center">
+                            <p className="text-[10px] text-primary-700 dark:text-primary-300 leading-relaxed">
+                                Target harian = target bulanan ÷ {daysInMonth} hari ({targetMeta?.month_label || "bulan aktif"}).
+                            </p>
+                        </div>
+
+                        {/* Save */}
+                        <div className="flex items-end sm:items-center">
+                            <button type="submit" disabled={processing} className="inline-flex h-9 w-full sm:w-auto items-center justify-center gap-1.5 rounded-lg bg-primary-600 px-5 text-xs font-semibold text-white hover:bg-primary-700 disabled:opacity-60">
+                                <IconDeviceFloppy size={15} />
+                                {processing ? "Menyimpan..." : "Simpan"}
+                            </button>
+                        </div>
                     </div>
                 </form>
             </div>
