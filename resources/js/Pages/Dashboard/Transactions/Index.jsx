@@ -203,12 +203,20 @@ export default function Index({
     const [isModifierModalSubmitting, setIsModifierModalSubmitting] =
         useState(false);
     const [selectedCustomer, setSelectedCustomer] = useState(WALK_IN_CUSTOMER);
+    const [isCustomerInfoConfirmed, setIsCustomerInfoConfirmed] =
+        useState(false);
+    const [isCustomerInfoModalOpen, setIsCustomerInfoModalOpen] =
+        useState(false);
+    const [draftCustomer, setDraftCustomer] = useState(WALK_IN_CUSTOMER);
     const [openAddCustomerModalSignal, setOpenAddCustomerModalSignal] =
         useState(0);
     const [orderType, setOrderType] = useState("dine_in");
+    const [draftOrderType, setDraftOrderType] = useState("dine_in");
     const [selectedTableId, setSelectedTableId] = useState("");
+    const [draftSelectedTableId, setDraftSelectedTableId] = useState("");
     const [isTablePickerModalOpen, setIsTablePickerModalOpen] =
         useState(false);
+    const [tablePickerContext, setTablePickerContext] = useState("final");
     const [pricingPreview, setPricingPreview] = useState(initialPricingPreview);
     const [isLoadingPricing, setIsLoadingPricing] = useState(false);
     const [redeemPointsInput, setRedeemPointsInput] = useState("");
@@ -268,7 +276,7 @@ export default function Index({
         }
     );
     const [prefersPrintOpenLabel, setPrefersPrintOpenLabel] = useState(false);
-    const [mobileView, setMobileView] = useState("products"); // 'products' | 'cart'
+    const [mobileView, setMobileView] = useState("products"); // 'products' | 'cart' | 'payment'
     const [numpadOpen, setNumpadOpen] = useState(false);
     const [showShortcuts, setShowShortcuts] = useState(false);
     const [selectedBankAccount, setSelectedBankAccount] = useState(null);
@@ -787,6 +795,20 @@ export default function Index({
             ) || null,
         [diningTables, selectedTableId]
     );
+    const draftSelectedDiningTable = useMemo(
+        () =>
+            diningTables.find(
+                (table) => String(table.id) === String(draftSelectedTableId)
+            ) || null,
+        [diningTables, draftSelectedTableId]
+    );
+    const isDraftTablePicker = tablePickerContext === "draft";
+    const customerInfoReady = useMemo(
+        () =>
+            Boolean(selectedCustomer) &&
+            (orderType !== "dine_in" || Boolean(selectedTableId)),
+        [orderType, selectedCustomer, selectedTableId]
+    );
     const pricingDependency = useMemo(
         () => localCarts.map((item) => `${item.id}:${item.qty}`).join("|"),
         [localCarts]
@@ -1272,6 +1294,19 @@ export default function Index({
 
         return "Tunai";
     }, [payLater, paymentMethod]);
+    const activePaymentOption = useMemo(
+        () =>
+            paymentOptions.find((option) => option.value === paymentMethod) || {
+                value: "cash",
+                label: "Tunai",
+                description: "Pembayaran tunai langsung di kasir.",
+            },
+        [paymentMethod, paymentOptions]
+    );
+    const needsCashAdjustment = useMemo(
+        () => isCashPayment && payable > 0 && cash < payable,
+        [cash, isCashPayment, payable]
+    );
 
     // Auto-set cash input for non-cash payment
     useEffect(() => {
@@ -1280,6 +1315,21 @@ export default function Index({
         }
     }, [isCashPayment, payable]);
 
+    useEffect(() => {
+        if (!isCustomerInfoModalOpen) {
+            return;
+        }
+
+        setDraftCustomer(selectedCustomer || WALK_IN_CUSTOMER);
+        setDraftOrderType(orderType || "dine_in");
+        setDraftSelectedTableId(selectedTableId || "");
+    }, [
+        isCustomerInfoModalOpen,
+        orderType,
+        selectedCustomer,
+        selectedTableId,
+    ]);
+
     const handleOpenShift = () => {
         router.post(route("cashier-shifts.store"), {
             opening_cash: Number(openingCashInput || 0),
@@ -1287,6 +1337,46 @@ export default function Index({
             redirect_to: "transactions",
         });
     };
+    const openCustomerInfoModal = useCallback(() => {
+        setDraftCustomer(selectedCustomer || WALK_IN_CUSTOMER);
+        setDraftOrderType(orderType || "dine_in");
+        setDraftSelectedTableId(selectedTableId || "");
+        setIsCustomerInfoModalOpen(true);
+    }, [orderType, selectedCustomer, selectedTableId]);
+    const handleSaveCustomerInfo = useCallback(() => {
+        if (!draftCustomer) {
+            toast.error("Pilih pelanggan terlebih dahulu.");
+            return;
+        }
+
+        if (draftOrderType === "dine_in" && !draftSelectedTableId) {
+            toast.error("Pilih meja untuk makan di tempat.");
+            return;
+        }
+
+        setSelectedCustomer(draftCustomer);
+        setOrderType(draftOrderType);
+        setSelectedTableId(
+            draftOrderType === "dine_in" ? draftSelectedTableId : ""
+        );
+        setIsCustomerInfoConfirmed(true);
+        setIsCustomerInfoModalOpen(false);
+    }, [draftCustomer, draftOrderType, draftSelectedTableId]);
+    const openPaymentInfoTab = useCallback(() => {
+        if (!isCustomerInfoConfirmed || !customerInfoReady) {
+            toast.error(
+                "Atur info pelanggan terlebih dahulu sebelum lanjut ke pembayaran."
+            );
+            openCustomerInfoModal();
+            return;
+        }
+
+        setMobileView("payment");
+    }, [
+        customerInfoReady,
+        isCustomerInfoConfirmed,
+        openCustomerInfoModal,
+    ]);
 
     const playCartTabSound = useCallback(() => {
         if (typeof window === "undefined" || !hasUnlockedAudioRef.current) {
@@ -3908,42 +3998,55 @@ export default function Index({
         <>
             <Head title="Transaksi" />
 
-            <div className="relative h-[calc(100vh-4rem)] overflow-hidden bg-slate-100 dark:bg-slate-950 flex flex-col lg:flex-row">
-                {/* Mobile Tab Switcher */}
-                <div className="lg:hidden flex border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+            <div className="relative flex h-[calc(100vh-4rem)] flex-col overflow-hidden bg-slate-100 dark:bg-slate-950">
+                <div className="grid grid-cols-3 border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
                     <button
+                        type="button"
                         onClick={() => setMobileView("products")}
-                        className={`flex-1 flex items-center justify-center gap-2 py-3 text-sm font-medium transition-colors ${
+                        className={`flex items-center justify-center gap-2 px-3 py-3 text-sm font-semibold transition-colors ${
                             mobileView === "products"
-                                ? "text-primary-600 border-b-2 border-primary-500"
-                                : "text-slate-500"
+                                ? "border-b-2 border-primary-500 text-primary-600 dark:text-primary-300"
+                                : "text-slate-500 dark:text-slate-400"
                         }`}
                     >
                         <IconShoppingCart size={18} />
                         <span>Produk</span>
                     </button>
                     <button
+                        type="button"
                         onClick={() => {
                             if (mobileView !== "cart") {
                                 playCartTabSound();
                             }
                             setMobileView("cart");
                         }}
-                        className={`flex-1 flex items-center justify-center gap-2 py-3 text-sm font-medium transition-colors relative ${
+                        className={`flex items-center justify-center gap-2 px-3 py-3 text-sm font-semibold transition-colors ${
                             mobileView === "cart"
-                                ? "text-primary-600 border-b-2 border-primary-500"
-                                : "text-slate-500"
+                                ? "border-b-2 border-primary-500 text-primary-600 dark:text-primary-300"
+                                : "text-slate-500 dark:text-slate-400"
                         }`}
                     >
                         <IconReceipt size={18} />
-                        <span className="relative inline-flex items-center gap-1">
+                        <span className="inline-flex items-center gap-1">
                             Keranjang
                             {cartCount > 0 && (
-                                <span className="inline-flex items-center justify-center px-1.5 min-w-[20px] h-5 text-[11px] font-bold bg-primary-500 text-white rounded-full">
+                                <span className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-primary-500 px-1.5 text-[11px] font-bold text-white">
                                     {cartCount}
                                 </span>
                             )}
                         </span>
+                    </button>
+                    <button
+                        type="button"
+                        onClick={openPaymentInfoTab}
+                        className={`flex items-center justify-center gap-2 px-2 py-3 text-center text-sm font-semibold transition-colors ${
+                            mobileView === "payment"
+                                ? "border-b-2 border-primary-500 text-primary-600 dark:text-primary-300"
+                                : "text-slate-500 dark:text-slate-400"
+                        }`}
+                    >
+                        <IconCash size={18} />
+                        <span className="truncate">Info Pembayaran</span>
                     </button>
                 </div>
 
@@ -4163,13 +4266,10 @@ export default function Index({
                     </div>
                 )}
 
-                <div className="min-h-0 flex-1 flex flex-col lg:flex-row">
-                {/* Left Panel - Products */}
+                <div className="min-h-0 flex flex-1 flex-col">
                 <div
-                    className={`flex-1 bg-slate-100 dark:bg-slate-950 overflow-hidden ${
-                        mobileView !== "products"
-                            ? "hidden lg:flex lg:flex-col"
-                            : "flex flex-col"
+                    className={`min-h-0 flex-1 bg-slate-100 dark:bg-slate-950 overflow-hidden ${
+                        mobileView !== "products" ? "hidden" : "flex flex-col"
                     } ${(isOfflineMode || offlineQueueCount > 0) ? "lg:pt-[76px]" : ""}`}
                 >
                         <ProductGrid
@@ -4191,141 +4291,48 @@ export default function Index({
                         />
                     </div>
 
-                    {/* Right Panel - Cart & Payment */}
-                <div
-                    className={`w-full lg:w-[520px] xl:w-[580px] flex flex-col bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 min-h-0 overflow-hidden ${
-                        mobileView !== "cart" ? "hidden lg:flex" : "flex"
-                    } ${(isOfflineMode || offlineQueueCount > 0) ? "lg:pt-[76px]" : ""}`}
-                >
-                    {/* Customer Select - Fixed */}
-                    <div className="border-b border-slate-200 p-2.5 dark:border-slate-800 lg:p-3 flex-shrink-0">
-                        <div className="space-y-2.5">
-                            <CustomerSelect
-                                customers={customers}
-                                selected={selectedCustomer}
-                                onSelect={setSelectedCustomer}
-                                placeholder="Pilih pelanggan umum atau terdaftar..."
-                                error={errors?.customer_id}
-                                tierOptions={loyaltyTierOptions}
-                                openAddModalSignal={openAddCustomerModalSignal}
-                            />
-                            <div className="space-y-2.5">
+                    {/* Cart Tab */}
+                    <div
+                        className={`flex h-full flex-col overflow-hidden bg-white dark:bg-slate-900 ${
+                            mobileView !== "cart" ? "hidden" : "flex"
+                        } ${(isOfflineMode || offlineQueueCount > 0) ? "lg:pt-[76px]" : ""}`}
+                    >
+                        <div className="border-b border-slate-200 px-3 py-3 dark:border-slate-800 lg:px-4">
+                            <div className="flex items-center justify-between gap-3">
                                 <div>
-                                <div className="grid grid-cols-2 gap-1 rounded-2xl bg-slate-100 p-1 dark:bg-slate-800">
-                                    {[
-                                        {
-                                            value: "take_away",
-                                            label: "Bawa Pulang",
-                                        },
-                                        {
-                                            value: "dine_in",
-                                            label: "Makan di Tempat",
-                                        },
-                                    ].map((option) => (
-                                        <button
-                                            key={option.value}
-                                            type="button"
-                                            onClick={() => {
-                                                setOrderType(option.value);
-                                                if (
-                                                    option.value === "dine_in" &&
-                                                    !selectedTableId
-                                                ) {
-                                                    setIsTablePickerModalOpen(
-                                                        true
-                                                    );
-                                                }
-                                            }}
-                                            className={`rounded-xl px-3 py-2 text-sm font-semibold transition-colors ${
-                                                orderType === option.value
-                                                    ? "bg-white text-primary-700 shadow-sm dark:bg-slate-900 dark:text-primary-300"
-                                                    : "text-slate-600 dark:text-slate-300"
-                                            }`}
-                                        >
-                                            {option.label}
-                                        </button>
-                                    ))}
+                                    <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                                        Keranjang
+                                    </p>
+                                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                                        Fokus ke daftar item yang sedang dipesan.
+                                    </p>
                                 </div>
-                                </div>
-                                {orderType === "dine_in" && (
-                                    <div>
-                                        <button
-                                            type="button"
-                                            onClick={() =>
-                                                setIsTablePickerModalOpen(true)
-                                            }
-                                            className="flex h-11 w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-3 text-left text-sm text-slate-700 transition hover:border-primary-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-                                        >
-                                            <div className="min-w-0">
-                                                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
-                                                    Meja
-                                                </p>
-                                                <p className="truncate font-medium">
-                                                    {selectedDiningTable
-                                                        ? selectedDiningTable.code
-                                                            ? `${selectedDiningTable.code} - ${selectedDiningTable.name}`
-                                                            : selectedDiningTable.name
-                                                        : "Pilih meja"}
-                                                </p>
-                                            </div>
-                                            <span className="text-xs font-semibold text-primary-600 dark:text-primary-300">
-                                                Ubah
-                                            </span>
-                                        </button>
-                                        {diningTables.length === 0 ? (
-                                            <p className="mt-2 text-[11px] text-amber-600 dark:text-amber-300">
-                                                Belum ada meja aktif untuk outlet ini.
-                                            </p>
-                                        ) : null}
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Held Transactions & Alerts */}
-                    {heldCarts.length > 0 && (
-                        <div className="p-3 border-b border-slate-200 dark:border-slate-800">
-                            <HeldTransactions
-                                heldCarts={heldCarts}
-                                hasActiveCart={localCarts.length > 0}
-                            />
-                        </div>
-                    )}
-
-                    {/* Cart Items - Scrollable */}
-                    <div className="flex-1 overflow-y-auto min-h-0">
-                        {/* Hold Button - at top of cart section */}
-                        {localCarts.length > 0 && (
-                        <div
-                            ref={cartSectionRef}
-                            className="border-b border-slate-200 p-2.5 dark:border-slate-800 lg:p-3"
-                        >
-                            <HoldButton
-                                hasItems={localCarts.length > 0}
-                                onHold={handleHoldCart}
-                                isHolding={isHolding}
-                            />
-                        </div>
-                    )}
-
-                        <div className="border-b border-slate-200 p-2.5 dark:border-slate-800 lg:p-3">
-                            <div className="mb-2 flex items-center justify-between">
-                                <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-2">
-                                    <IconShoppingCart size={16} />
-                                    Keranjang
-                                </h3>
                                 {localCarts.length > 0 && (
-                                    <span className="px-2.5 py-0.5 text-xs font-bold bg-primary-100 text-primary-700 dark:bg-primary-900/50 dark:text-primary-300 rounded-full whitespace-nowrap">
+                                    <span className="rounded-full bg-primary-100 px-2.5 py-1 text-xs font-bold text-primary-700 dark:bg-primary-900/40 dark:text-primary-300">
                                         {cartCount} item
                                     </span>
                                 )}
                             </div>
+                        </div>
 
-                            {localCarts.length > 0 ? (
-                                <div className="space-y-2 pr-1">
-                                    {localCarts.map((item) => (
-                                        (() => {
+                        <div className="min-h-0 flex-1 overflow-y-auto">
+                            {localCarts.length > 0 && (
+                                <div
+                                    ref={cartSectionRef}
+                                    className="border-b border-slate-200 p-2.5 dark:border-slate-800 lg:p-3"
+                                >
+                                    <HoldButton
+                                        hasItems={localCarts.length > 0}
+                                        onHold={handleHoldCart}
+                                        isHolding={isHolding}
+                                    />
+                                </div>
+                            )}
+
+                            <div className="p-2.5 dark:border-slate-800 lg:p-3">
+                                {localCarts.length > 0 ? (
+                                    <div className="space-y-2 pr-1">
+                                        {localCarts.map((item) => {
                                             const pricingItem =
                                                 pricingItemsByCartId[item.id];
                                             const resolvedLine =
@@ -4415,339 +4422,518 @@ export default function Index({
                                             );
 
                                             return (
-                                        <div
-                                            key={item.id}
-                                            className={`flex items-start gap-2.5 rounded-xl p-2.5 group transition-all ${
-                                                recentRewardProductIds.includes(
-                                                    Number(item.product_id || 0)
-                                                )
-                                                    ? "bg-emerald-50 ring-2 ring-emerald-200 dark:bg-emerald-950/20 dark:ring-emerald-900/40"
-                                                    : "bg-slate-50 dark:bg-slate-800/50"
-                                            }`}
-                                        >
-                                            <div className="mt-0.5 h-11 w-11 rounded-lg bg-slate-200 dark:bg-slate-700 overflow-hidden flex-shrink-0 self-start">
-                                                {item.product?.image ? (
-                                                    <img
-                                                        src={getProductImageUrl(
-                                                            item.product.image,
-                                                            item.product.title
-                                                        )}
-                                                        alt={item.product.title}
-                                                        className="w-full h-full object-cover"
-                                                        onError={(event) => {
-                                                            event.currentTarget.onerror =
-                                                                null;
-                                                            event.currentTarget.src =
-                                                                getProductImageUrl(
-                                                                    null,
+                                                <div
+                                                    key={item.id}
+                                                    className={`group flex items-start gap-2.5 rounded-xl p-2.5 transition-all ${
+                                                        recentRewardProductIds.includes(
+                                                            Number(
+                                                                item.product_id ||
+                                                                    0
+                                                            )
+                                                        )
+                                                            ? "bg-emerald-50 ring-2 ring-emerald-200 dark:bg-emerald-950/20 dark:ring-emerald-900/40"
+                                                            : "bg-slate-50 dark:bg-slate-800/50"
+                                                    }`}
+                                                >
+                                                    <div className="mt-0.5 flex h-11 w-11 flex-shrink-0 self-start overflow-hidden rounded-lg bg-slate-200 dark:bg-slate-700">
+                                                        {item.product?.image ? (
+                                                            <img
+                                                                src={getProductImageUrl(
+                                                                    item.product.image,
                                                                     item.product
-                                                                        ?.title ||
-                                                                        "Produk"
-                                                                );
-                                                        }}
-                                                    />
-                                                ) : (
-                                                    <div className="w-full h-full flex items-center justify-center">
-                                                        <IconShoppingCart
-                                                            size={14}
-                                                            className="text-slate-400"
-                                                        />
-                                                    </div>
-                                                )}
-                                            </div>
-                                            <div className="flex-1 min-w-0">
-                                                <p className="text-sm font-medium text-slate-700 dark:text-slate-300 truncate">
-                                                    {item.product?.title ||
-                                                        "Produk"}
-                                                </p>
-                                                {item.promo_reward_meta ? (
-                                                    <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                                                        <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">
-                                                            {REWARD_ITEM_LABEL}
-                                                        </span>
-                                                        <span className="text-[11px] text-emerald-700 dark:text-emerald-300">
-                                                            {item.promo_reward_meta
-                                                                ?.rule_name ||
-                                                                "Buy Get"}
-                                                        </span>
-                                                    </div>
-                                                ) : null}
-                                                <div className="text-xs text-slate-500">
-                                                    {pricingRule &&
-                                                        effectiveUnitPrice <
-                                                            baseUnitPrice && (
-                                                            <p className="line-through text-slate-400">
-                                                                {formatPrice(
-                                                                    baseUnitPrice
-                                                                )}{" "}
-                                                                × {item.qty}
-                                                            </p>
+                                                                        .title
+                                                                )}
+                                                                alt={
+                                                                    item.product
+                                                                        .title
+                                                                }
+                                                                className="h-full w-full object-cover"
+                                                                onError={(
+                                                                    event
+                                                                ) => {
+                                                                    event.currentTarget.onerror =
+                                                                        null;
+                                                                    event.currentTarget.src =
+                                                                        getProductImageUrl(
+                                                                            null,
+                                                                            item
+                                                                                .product
+                                                                                ?.title ||
+                                                                                "Produk"
+                                                                        );
+                                                                }}
+                                                            />
+                                                        ) : (
+                                                            <div className="flex h-full w-full items-center justify-center">
+                                                                <IconShoppingCart
+                                                                    size={14}
+                                                                    className="text-slate-400"
+                                                                />
+                                                            </div>
                                                         )}
-                                                    {buyGetBreakdown ? (
-                                                        <div className="space-y-0.5">
-                                                            {buyGetBreakdown.payableQty >
-                                                            0 ? (
+                                                    </div>
+                                                    <div className="min-w-0 flex-1">
+                                                        <p className="truncate text-sm font-medium text-slate-700 dark:text-slate-300">
+                                                            {item.product
+                                                                ?.title ||
+                                                                "Produk"}
+                                                        </p>
+                                                        {item.promo_reward_meta ? (
+                                                            <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                                                <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">
+                                                                    {
+                                                                        REWARD_ITEM_LABEL
+                                                                    }
+                                                                </span>
+                                                                <span className="text-[11px] text-emerald-700 dark:text-emerald-300">
+                                                                    {item
+                                                                        .promo_reward_meta
+                                                                        ?.rule_name ||
+                                                                        "Buy Get"}
+                                                                </span>
+                                                            </div>
+                                                        ) : null}
+                                                        <div className="text-xs text-slate-500">
+                                                            {pricingRule &&
+                                                                effectiveUnitPrice <
+                                                                    baseUnitPrice && (
+                                                                    <p className="text-slate-400 line-through">
+                                                                        {formatPrice(
+                                                                            baseUnitPrice
+                                                                        )}{" "}
+                                                                        ×{" "}
+                                                                        {
+                                                                            item.qty
+                                                                        }
+                                                                    </p>
+                                                                )}
+                                                            {buyGetBreakdown ? (
+                                                                <div className="space-y-0.5">
+                                                                    {buyGetBreakdown.payableQty >
+                                                                    0 ? (
+                                                                        <p>
+                                                                            {formatPrice(
+                                                                                buyGetBreakdown.paidUnitPrice
+                                                                            )}{" "}
+                                                                            ×{" "}
+                                                                            {
+                                                                                buyGetBreakdown.payableQty
+                                                                            }
+                                                                        </p>
+                                                                    ) : null}
+                                                                    <p className="font-medium text-emerald-600 dark:text-emerald-300">
+                                                                        Bonus Rp
+                                                                        0 ×{" "}
+                                                                        {
+                                                                            buyGetBreakdown.bonusQty
+                                                                        }
+                                                                    </p>
+                                                                </div>
+                                                            ) : (
                                                                 <p>
                                                                     {formatPrice(
-                                                                        buyGetBreakdown.paidUnitPrice
+                                                                        effectiveUnitPrice
                                                                     )}{" "}
                                                                     ×{" "}
+                                                                    {item.qty}
+                                                                </p>
+                                                            )}
+                                                            {promoSummary.title && (
+                                                                <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                                                    <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold text-rose-700 dark:bg-rose-950/30 dark:text-rose-300">
+                                                                        {promoSummary.badge ||
+                                                                            "Promo"}
+                                                                    </span>
+                                                                    <span className="text-[11px] font-medium text-rose-600 dark:text-rose-300">
+                                                                        {
+                                                                            promoSummary.title
+                                                                        }
+                                                                    </span>
+                                                                </div>
+                                                            )}
+                                                            {promoSummary.detail && (
+                                                                <p className="mt-1 text-[11px] text-rose-600 dark:text-rose-300">
+                                                                    {isCrossProductBuyGet
+                                                                        ? `Bonus: ${formatRuleItems(
+                                                                              previewRule?.get_items ||
+                                                                                  []
+                                                                          )}. Tambahkan item bonus ke keranjang agar benefit final dihitung.`
+                                                                        : promoSummary.detail}
+                                                                </p>
+                                                            )}
+                                                            {!pricingRule &&
+                                                            latentPromoPreview ? (
+                                                                <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-300">
                                                                     {
-                                                                        buyGetBreakdown.payableQty
+                                                                        latentPromoPreview.headline
                                                                     }
                                                                 </p>
                                                             ) : null}
-                                                            <p className="font-medium text-emerald-600 dark:text-emerald-300">
-                                                                Bonus Rp 0 ×{" "}
-                                                                {
-                                                                    buyGetBreakdown.bonusQty
-                                                                }
-                                                            </p>
-                                                        </div>
-                                                    ) : (
-                                                        <p>
-                                                            {formatPrice(
-                                                                effectiveUnitPrice
-                                                            )}{" "}
-                                                            × {item.qty}
-                                                        </p>
-                                                    )}
-                                                    {promoSummary.title && (
-                                                        <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                                                            <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold text-rose-700 dark:bg-rose-950/30 dark:text-rose-300">
-                                                                {promoSummary.badge ||
-                                                                    "Promo"}
-                                                            </span>
-                                                            <span className="text-[11px] font-medium text-rose-600 dark:text-rose-300">
-                                                                {
-                                                                    promoSummary.title
-                                                                }
-                                                            </span>
-                                                        </div>
-                                                    )}
-                                                    {promoSummary.detail && (
-                                                        <p className="mt-1 text-[11px] text-rose-600 dark:text-rose-300">
-                                                            {isCrossProductBuyGet
-                                                                ? `Bonus: ${formatRuleItems(
-                                                                      previewRule?.get_items ||
-                                                                          []
-                                                                  )}. Tambahkan item bonus ke keranjang agar benefit final dihitung.`
-                                                                : promoSummary.detail}
-                                                        </p>
-                                                    )}
-                                                    {!pricingRule &&
-                                                    latentPromoPreview ? (
-                                                        <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-300">
-                                                            {
-                                                                latentPromoPreview.headline
-                                                            }
-                                                        </p>
-                                                    ) : null}
-                                                    {isCrossProductBuyGet &&
-                                                    previewRule ? (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() =>
-                                                                handleAddRewardProducts(
-                                                                    previewRule
-                                                                )
-                                                            }
-                                                            className="mt-2 inline-flex items-center rounded-xl border border-primary-200 bg-primary-50 px-3 py-1.5 text-[11px] font-semibold text-primary-700 hover:bg-primary-100 dark:border-primary-900/40 dark:bg-primary-950/30 dark:text-primary-300 dark:hover:bg-primary-950/50"
-                                                        >
-                                                            Tambah item bonus
-                                                        </button>
-                                                    ) : null}
-                                                </div>
-                                                {item.product
-                                                    ?.supports_modifiers && (
-                                                    <div className="mt-1.5">
-                                                        <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                                                            Tambahan / topping
-                                                        </label>
-                                                        <div className="space-y-1.5">
-                                                            {(item.product
-                                                                ?.modifier_options ||
-                                                                []
-                                                            ).length > 0 && (
+                                                            {isCrossProductBuyGet &&
+                                                            previewRule ? (
                                                                 <button
                                                                     type="button"
                                                                     onClick={() =>
-                                                                        openCartModifierModal(
-                                                                            item
+                                                                        handleAddRewardProducts(
+                                                                            previewRule
+                                                                        )
+                                                                    }
+                                                                    className="mt-2 inline-flex items-center rounded-xl border border-primary-200 bg-primary-50 px-3 py-1.5 text-[11px] font-semibold text-primary-700 hover:bg-primary-100 dark:border-primary-900/40 dark:bg-primary-950/30 dark:text-primary-300 dark:hover:bg-primary-950/50"
+                                                                >
+                                                                    Tambah item bonus
+                                                                </button>
+                                                            ) : null}
+                                                        </div>
+                                                        {item.product
+                                                            ?.supports_modifiers && (
+                                                            <div className="mt-1.5">
+                                                                <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                                                                    Tambahan / topping
+                                                                </label>
+                                                                <div className="space-y-1.5">
+                                                                    {(item.product
+                                                                        ?.modifier_options ||
+                                                                        []
+                                                                    ).length >
+                                                                        0 && (
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() =>
+                                                                                openCartModifierModal(
+                                                                                    item
+                                                                                )
+                                                                            }
+                                                                            disabled={
+                                                                                savingModifierCartId ===
+                                                                                item.id
+                                                                            }
+                                                                            className="inline-flex items-center justify-center rounded-xl border border-primary-200 bg-primary-50 px-3 py-2 text-[11px] font-semibold text-primary-700 hover:border-primary-300 hover:bg-primary-100 disabled:opacity-60 dark:border-primary-900/60 dark:bg-primary-950/30 dark:text-primary-300"
+                                                                        >
+                                                                            Tambah topping / extra
+                                                                        </button>
+                                                                    )}
+                                                                    {(item.modifiers ||
+                                                                        []
+                                                                    ).map(
+                                                                        (
+                                                                            modifier
+                                                                        ) => (
+                                                                            <div
+                                                                                key={
+                                                                                    modifier.id
+                                                                                }
+                                                                                className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[11px] dark:border-slate-700 dark:bg-slate-900"
+                                                                            >
+                                                                                <div className="min-w-0">
+                                                                                    <p className="truncate font-medium text-slate-700 dark:text-slate-200">
+                                                                                        {
+                                                                                            modifier.name
+                                                                                        }
+                                                                                    </p>
+                                                                                    <p className="text-slate-500 dark:text-slate-400">
+                                                                                        {formatPrice(
+                                                                                            modifier.total_price
+                                                                                        )}
+                                                                                    </p>
+                                                                                </div>
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={() =>
+                                                                                        handleRemoveModifier(
+                                                                                            item.id,
+                                                                                            modifier.id
+                                                                                        )
+                                                                                    }
+                                                                                    disabled={
+                                                                                        savingModifierCartId ===
+                                                                                        item.id
+                                                                                    }
+                                                                                    className="rounded-lg p-1 text-slate-400 hover:bg-danger-50 hover:text-danger-500 disabled:opacity-60 dark:hover:bg-danger-950/40"
+                                                                                >
+                                                                                    <IconX
+                                                                                        size={
+                                                                                            12
+                                                                                        }
+                                                                                    />
+                                                                                </button>
+                                                                            </div>
+                                                                        )
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                        <div className="mt-2 flex items-start justify-between gap-2">
+                                                            <div className="min-w-0 flex-1">
+                                                                <textarea
+                                                                    value={
+                                                                        item.notes ||
+                                                                        ""
+                                                                    }
+                                                                    onChange={(
+                                                                        event
+                                                                    ) =>
+                                                                        handleLocalCartNotesChange(
+                                                                            item.id,
+                                                                            event
+                                                                                .target
+                                                                                .value
+                                                                        )
+                                                                    }
+                                                                    onBlur={(
+                                                                        event
+                                                                    ) =>
+                                                                        handleSaveCartNotes(
+                                                                            item.id,
+                                                                            event
+                                                                                .target
+                                                                                .value
+                                                                        )
+                                                                    }
+                                                                    rows={2}
+                                                                    placeholder="Catatan item..."
+                                                                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] text-slate-700 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                                                />
+                                                                {savingNoteCartId ===
+                                                                    item.id && (
+                                                                    <p className="mt-1 text-[10px] text-slate-400">
+                                                                        Menyimpan catatan...
+                                                                    </p>
+                                                                )}
+                                                            </div>
+                                                            <div className="flex flex-col items-end gap-2">
+                                                                <div className="flex items-center rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
+                                                                    <button
+                                                                        onClick={() =>
+                                                                            handleUpdateQty(
+                                                                                item.id,
+                                                                                item.qty -
+                                                                                    1
+                                                                            )
+                                                                        }
+                                                                        disabled={
+                                                                            updatingCartId ===
+                                                                                item.id ||
+                                                                            item.qty <=
+                                                                                1
+                                                                        }
+                                                                        className="px-2 py-1.5 text-slate-500 disabled:opacity-40"
+                                                                    >
+                                                                        -
+                                                                    </button>
+                                                                    <span className="min-w-[32px] px-2 text-center text-sm font-semibold text-slate-700 dark:text-slate-200">
+                                                                        {
+                                                                            item.qty
+                                                                        }
+                                                                    </span>
+                                                                    <button
+                                                                        onClick={() =>
+                                                                            handleUpdateQty(
+                                                                                item.id,
+                                                                                item.qty +
+                                                                                    1
+                                                                            )
+                                                                        }
+                                                                        disabled={
+                                                                            updatingCartId ===
+                                                                            item.id
+                                                                        }
+                                                                        className="px-2 py-1.5 text-slate-500 disabled:opacity-40"
+                                                                    >
+                                                                        +
+                                                                    </button>
+                                                                </div>
+                                                                {modifierTotal >
+                                                                0 ? (
+                                                                    <p className="text-[10px] font-medium text-slate-500 dark:text-slate-400">
+                                                                        Topping{" "}
+                                                                        {formatPrice(
+                                                                            modifierTotal
+                                                                        )}
+                                                                    </p>
+                                                                ) : null}
+                                                            </div>
+                                                            <div className="flex min-w-[88px] items-start justify-end gap-1.5">
+                                                                <div className="text-right">
+                                                                    {baseLineTotal >
+                                                                        effectiveLineTotal && (
+                                                                        <p className="text-[11px] text-slate-400 line-through">
+                                                                            {formatPrice(
+                                                                                baseLineTotal
+                                                                            )}
+                                                                        </p>
+                                                                    )}
+                                                                    <p className="text-sm font-semibold text-primary-600 dark:text-primary-400">
+                                                                        {formatPrice(
+                                                                            effectiveLineTotal
+                                                                        )}
+                                                                    </p>
+                                                                </div>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() =>
+                                                                        handleRemoveFromCart(
+                                                                            item.id
                                                                         )
                                                                     }
                                                                     disabled={
-                                                                        savingModifierCartId ===
+                                                                        removingItemId ===
                                                                         item.id
                                                                     }
-                                                                    className="inline-flex items-center justify-center rounded-xl border border-primary-200 bg-primary-50 px-3 py-2 text-[11px] font-semibold text-primary-700 hover:border-primary-300 hover:bg-primary-100 disabled:opacity-60 dark:border-primary-900/60 dark:bg-primary-950/30 dark:text-primary-300"
+                                                                    className="ml-1 flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 hover:bg-danger-50 hover:text-danger-500 dark:hover:bg-danger-950/50"
                                                                 >
-                                                                    Tambah topping / extra
-                                                                </button>
-                                                            )}
-                                                            {(item.modifiers ||
-                                                                []
-                                                            ).map(
-                                                                (modifier) => (
-                                                                    <div
-                                                                        key={
-                                                                            modifier.id
+                                                                    <IconTrash
+                                                                        size={
+                                                                            12
                                                                         }
-                                                                        className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[11px] dark:border-slate-700 dark:bg-slate-900"
-                                                                    >
-                                                                        <div className="min-w-0">
-                                                                            <p className="truncate font-medium text-slate-700 dark:text-slate-200">
-                                                                                {
-                                                                                    modifier.name
-                                                                                }
-                                                                            </p>
-                                                                            <p className="text-slate-500 dark:text-slate-400">
-                                                                                {formatPrice(
-                                                                                    modifier.total_price
-                                                                                )}
-                                                                            </p>
-                                                                        </div>
-                                                                        <div className="flex items-center gap-2">
-                                                                            <button
-                                                                                type="button"
-                                                                                onClick={() =>
-                                                                                    handleRemoveModifier(
-                                                                                        item.id,
-                                                                                        modifier.id
-                                                                                    )
-                                                                                }
-                                                                                className="rounded p-1 text-slate-400 hover:bg-danger-50 hover:text-danger-500 dark:hover:bg-danger-950/40"
-                                                                            >
-                                                                                <IconTrash
-                                                                                    size={
-                                                                                        12
-                                                                                    }
-                                                                                />
-                                                                            </button>
-                                                                        </div>
-                                                                    </div>
-                                                                )
-                                                            )}
-                                                            {modifierTotal >
-                                                            0 ? (
-                                                                <p className="text-[10px] font-medium text-primary-500">
-                                                                    Total
-                                                                    tambahan:{" "}
-                                                                    {formatPrice(
-                                                                        modifierTotal
-                                                                    )}
-                                                                </p>
-                                                            ) : null}
+                                                                    />
+                                                                </button>
+                                                            </div>
                                                         </div>
                                                     </div>
-                                                )}
-                                                <div className="mt-1.5">
-                                                    <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                                                        Catatan item
-                                                    </label>
-                                                    <div>
-                                                        <input
-                                                            type="text"
-                                                            value={
-                                                                item.notes || ""
-                                                            }
-                                                            onChange={(e) =>
-                                                                handleLocalCartNotesChange(
-                                                                    item.id,
-                                                                    e.target
-                                                                        .value
-                                                                )
-                                                            }
-                                                            onBlur={(e) =>
-                                                                handleSaveCartNotes(
-                                                                    item.id,
-                                                                    e.target
-                                                                        .value
-                                                                )
-                                                            }
-                                                            disabled={String(
-                                                                item.id
-                                                            ).startsWith(
-                                                                "temp-"
-                                                            )}
-                                                            placeholder="Contoh: es dipisah"
-                                                            className="h-8 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-[11px] text-slate-700 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-                                                        />
-                                                        {savingNoteCartId ===
-                                                        item.id ? (
-                                                            <p className="mt-1 text-[10px] text-primary-500">
-                                                                Menyimpan...
-                                                            </p>
-                                                        ) : null}
-                                                    </div>
                                                 </div>
-                                            </div>
-                                            <div className="flex items-center gap-1">
-                                                <button
-                                                    onClick={() =>
-                                                        handleUpdateQty(
-                                                            item.id,
-                                                            Math.max(
-                                                                1,
-                                                                item.qty - 1
-                                                            )
-                                                        )
-                                                    }
-                                                    disabled={item.qty <= 1}
-                                                    className="h-7 w-7 rounded-lg flex items-center justify-center bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-300 disabled:opacity-50 text-xs"
-                                                >
-                                                    -
-                                                </button>
-                                                <span className="w-7 text-center text-sm font-medium">
-                                                    {item.qty}
-                                                </span>
-                                                <button
-                                                    onClick={() =>
-                                                        handleUpdateQty(
-                                                            item.id,
-                                                            item.qty + 1
-                                                        )
-                                                    }
-                                                    className="h-7 w-7 rounded-lg flex items-center justify-center bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-300 text-xs"
-                                                >
-                                                    +
-                                                </button>
-                                                <button
-                                                    onClick={() =>
-                                                        handleRemoveFromCart(
-                                                            item.id
-                                                        )
-                                                    }
-                                                    className="ml-1 h-7 w-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-danger-500 hover:bg-danger-50 dark:hover:bg-danger-950/50"
-                                                >
-                                                    <IconTrash size={12} />
-                                                </button>
-                                            </div>
-                                            <p className="w-20 text-right text-sm font-semibold text-primary-600 dark:text-primary-400">
-                                                {formatPrice(
-                                                    effectiveLineTotal
-                                                )}
-                                            </p>
-                                        </div>
                                             );
-                                        })()
-                                    ))}
-                                </div>
-                            ) : (
-                                <div className="py-6 text-center">
-                                    <IconShoppingCart
-                                        size={32}
-                                        className="mx-auto text-slate-300 dark:text-slate-600 mb-2"
-                                    />
-                                    <p className="text-sm text-slate-400">
-                                        Keranjang kosong
-                                    </p>
-                                </div>
-                            )}
+                                        })}
+                                    </div>
+                                ) : (
+                                    <div className="py-10 text-center">
+                                        <IconShoppingCart
+                                            size={36}
+                                            className="mx-auto mb-3 text-slate-300 dark:text-slate-600"
+                                        />
+                                        <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
+                                            Keranjang kosong
+                                        </p>
+                                        <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
+                                            Tambahkan produk dari tab Produk.
+                                        </p>
+                                    </div>
+                                )}
+                            </div>
                         </div>
+                        <div className="flex-shrink-0 border-t border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900/80">
+                            <div className="flex flex-col gap-2">
+                                <button
+                                    type="button"
+                                    onClick={openCustomerInfoModal}
+                                    className="flex w-full items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left transition hover:border-primary-300 hover:bg-primary-50/40 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-primary-800 dark:hover:bg-primary-950/20"
+                                >
+                                    <div className="min-w-0">
+                                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                            Info Pelanggan
+                                        </p>
+                                        <p className="truncate text-sm font-semibold text-slate-800 dark:text-slate-100">
+                                            {isCustomerInfoConfirmed
+                                                ? selectedCustomer?.name ||
+                                                  "Pelanggan Umum"
+                                                : "Atur pelanggan dan pesanan"}
+                                        </p>
+                                        <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
+                                            {orderType === "dine_in"
+                                                ? selectedDiningTable
+                                                    ? `Makan di tempat • ${
+                                                          selectedDiningTable.code
+                                                              ? `${selectedDiningTable.code} - ${selectedDiningTable.name}`
+                                                              : selectedDiningTable.name
+                                                      }`
+                                                    : "Makan di tempat • meja belum dipilih"
+                                                : "Bawa pulang"}
+                                        </p>
+                                    </div>
+                                    <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                                        {isCustomerInfoConfirmed
+                                            ? "Ubah"
+                                            : "Lengkapi"}
+                                    </span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={openPaymentInfoTab}
+                                    className={`w-full rounded-2xl px-4 py-3 text-sm font-semibold text-white transition ${
+                                        isCustomerInfoConfirmed &&
+                                        customerInfoReady
+                                            ? "bg-gradient-to-r from-primary-500 to-primary-600 shadow-lg shadow-primary-500/30 hover:from-primary-600 hover:to-primary-700"
+                                            : "bg-slate-400 hover:bg-slate-500 dark:bg-slate-700 dark:hover:bg-slate-600"
+                                    }`}
+                                >
+                                    Lanjut pembayaran
+                                </button>
+                            </div>
+                        </div>
+                    </div>
 
-                        {/* Payment Details - Scrollable */}
-                        <div className="p-3 space-y-4">
+                    {/* Payment Tab */}
+                <div
+                    className={`flex h-full flex-col overflow-hidden bg-white dark:bg-slate-900 ${
+                        mobileView !== "payment" ? "hidden" : "flex"
+                    } ${(isOfflineMode || offlineQueueCount > 0) ? "lg:pt-[76px]" : ""}`}
+                >
+                    <div className="border-b border-slate-200 p-3 dark:border-slate-800 lg:p-4">
+                        <div className="flex items-start justify-between gap-3">
+                            <div>
+                                <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                                    Info Pelanggan
+                                </p>
+                                <p className="text-xs text-slate-500 dark:text-slate-400">
+                                    Data pesanan diambil dari form pelanggan sebelum masuk pembayaran.
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={openCustomerInfoModal}
+                                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                            >
+                                Ubah
+                            </button>
+                        </div>
+                        <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 dark:border-slate-700 dark:bg-slate-800/50">
+                                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                                    Pelanggan
+                                </p>
+                                <p className="mt-1 truncate text-sm font-semibold text-slate-800 dark:text-slate-100">
+                                    {selectedCustomer?.name || "Pelanggan Umum"}
+                                </p>
+                            </div>
+                            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 dark:border-slate-700 dark:bg-slate-800/50">
+                                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                                    Jenis Pesanan
+                                </p>
+                                <p className="mt-1 text-sm font-semibold text-slate-800 dark:text-slate-100">
+                                    {orderType === "dine_in"
+                                        ? "Makan di Tempat"
+                                        : "Bawa Pulang"}
+                                </p>
+                            </div>
+                            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 dark:border-slate-700 dark:bg-slate-800/50">
+                                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                                    Meja
+                                </p>
+                                <p className="mt-1 truncate text-sm font-semibold text-slate-800 dark:text-slate-100">
+                                    {orderType === "dine_in"
+                                        ? selectedDiningTable
+                                            ? selectedDiningTable.code
+                                                ? `${selectedDiningTable.code} - ${selectedDiningTable.name}`
+                                                : selectedDiningTable.name
+                                            : "Belum dipilih"
+                                        : "-"}
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Held Transactions & Alerts */}
+                    {heldCarts.length > 0 && (
+                        <div className="p-3 border-b border-slate-200 dark:border-slate-800">
+                            <HeldTransactions
+                                heldCarts={heldCarts}
+                                hasActiveCart={localCarts.length > 0}
+                            />
+                        </div>
+                    )}
+
+                    {/* Payment Details - Scrollable */}
+                    <div className="flex-1 overflow-y-auto min-h-0 p-3">
+                        <div className="space-y-4">
                             {/* Pay later toggle */}
                             <div className="flex items-center justify-between p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800">
                                 <div>
@@ -4819,88 +5005,107 @@ export default function Index({
                                 </div>
                             )}
 
-                            {/* Payment Method Selection */}
-                            <div>
-                                <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-2">
-                                    Metode Pembayaran
-                                </label>
-                                <div className="grid grid-cols-2 gap-2">
-                                    {paymentOptions.map((method) => {
-                                        const disabledByOffline =
-                                            isOfflineMode &&
-                                            method.value !== "cash";
+                            <div className="rounded-2xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+                                <div className="flex items-center gap-3">
+                                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary-50 text-primary-600 dark:bg-primary-950/30 dark:text-primary-300">
+                                        {activePaymentOption.value === "cash" ? (
+                                            <IconCash size={18} />
+                                        ) : activePaymentOption.value ===
+                                          "bank_transfer" ? (
+                                            <IconBuildingBank size={18} />
+                                        ) : (
+                                            <IconCreditCard size={18} />
+                                        )}
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                        <div className="mb-1 flex items-center justify-between gap-2">
+                                            <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                                Metode Pembayaran
+                                            </label>
+                                            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                                                {payLater
+                                                    ? "Nota Barang"
+                                                    : activePaymentOption.label}
+                                            </span>
+                                        </div>
+                                        <div className="relative">
+                                            <select
+                                                value={paymentMethod}
+                                                disabled={payLater}
+                                                onChange={(e) => {
+                                                    const nextMethod =
+                                                        e.target.value;
 
-                                        return (
-                                            <button
-                                                key={method.value}
-                                                onClick={() => {
-                                                    if (payLater) {
-                                                        return;
-                                                    }
-
-                                                    if (disabledByOffline) {
+                                                    if (
+                                                        isOfflineMode &&
+                                                        nextMethod !== "cash"
+                                                    ) {
                                                         toast.error(
                                                             "Saat offline hanya pembayaran tunai yang tersedia"
                                                         );
                                                         return;
                                                     }
 
-                                                    setPaymentMethod(method.value);
+                                                    setPaymentMethod(
+                                                        nextMethod
+                                                    );
 
-                                                    if (method.value === "cash") {
+                                                    if (
+                                                        nextMethod !==
+                                                        "bank_transfer"
+                                                    ) {
+                                                        setSelectedBankAccount(
+                                                            null
+                                                        );
+                                                    }
+
+                                                    if (
+                                                        nextMethod === "cash"
+                                                    ) {
                                                         setIsCashPaymentModalOpen(
                                                             true
                                                         );
                                                     }
                                                 }}
-                                                disabled={payLater || disabledByOffline}
-                                                className={`p-3 rounded-xl border-2 transition-all flex items-center gap-2 ${
-                                                    paymentMethod === method.value && !payLater
-                                                        ? "border-primary-500 bg-primary-50 dark:bg-primary-950/30"
-                                                        : "border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600"
-                                                } ${payLater || disabledByOffline ? "opacity-50 cursor-not-allowed" : ""}`}
+                                                className="h-11 w-full appearance-none rounded-xl border border-slate-200 bg-slate-50 px-3 pr-10 text-sm font-medium text-slate-800 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
                                             >
-                                                <div
-                                                    className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                                                        paymentMethod ===
-                                                            method.value &&
-                                                        !payLater
-                                                            ? "bg-primary-500 text-white"
-                                                            : "bg-slate-100 dark:bg-slate-800 text-slate-500"
-                                                    }`}
-                                                >
-                                                    {method.value === "cash" ? (
-                                                        <IconCash size={16} />
-                                                    ) : method.value ===
-                                                      "bank_transfer" ? (
-                                                        <IconBuildingBank
-                                                            size={16}
-                                                        />
-                                                    ) : (
-                                                        <IconCreditCard size={16} />
-                                                    )}
-                                                </div>
-                                                <div className="text-left">
-                                                    <p
-                                                        className={`text-sm font-semibold ${
-                                                            paymentMethod ===
-                                                            method.value
-                                                                ? "text-primary-700 dark:text-primary-300"
-                                                                : "text-slate-700 dark:text-slate-300"
-                                                        }`}
-                                                    >
-                                                        {method.label}
-                                                    </p>
-                                                    {disabledByOffline && (
-                                                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                                                            Butuh server online
-                                                        </p>
-                                                    )}
-                                                </div>
-                                            </button>
-                                        );
-                                    })}
+                                                {paymentOptions.map(
+                                                    (method) => (
+                                                        <option
+                                                            key={method.value}
+                                                            value={
+                                                                method.value
+                                                            }
+                                                            disabled={
+                                                                isOfflineMode &&
+                                                                method.value !==
+                                                                    "cash"
+                                                            }
+                                                        >
+                                                            {method.label}
+                                                        </option>
+                                                    )
+                                                )}
+                                            </select>
+                                            <IconChevronDown
+                                                size={16}
+                                                className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
+                                            />
+                                        </div>
+                                    </div>
                                 </div>
+                                {payLater ? (
+                                    <p className="mt-2 text-[11px] text-amber-600 dark:text-amber-300">
+                                        Pembayaran dicatat sebagai nota barang.
+                                    </p>
+                                ) : (
+                                    <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
+                                        {isOfflineMode &&
+                                        activePaymentOption.value !== "cash"
+                                            ? "Metode ini butuh koneksi server."
+                                            : activePaymentOption.description}
+                                    </p>
+                                )}
                             </div>
 
                             {/* Bank Selector - Only for bank_transfer */}
@@ -4990,7 +5195,7 @@ export default function Index({
                                                     ? `Tunai diterima ${formatPrice(
                                                           cash
                                                       )}`
-                                                    : "Atur nominal cepat dan jumlah bayar di pop-up"}
+                                                    : "Atur nominal bayar pelanggan di pop-up"}
                                             </p>
                                         </div>
                                         <button
@@ -5000,7 +5205,7 @@ export default function Index({
                                             }
                                             className="rounded-xl border border-primary-200 bg-primary-50 px-3 py-2 text-xs font-semibold text-primary-700 hover:border-primary-300 hover:bg-primary-100 dark:border-primary-900/60 dark:bg-primary-950/30 dark:text-primary-300"
                                         >
-                                            Atur Tunai
+                                            Atur nominal bayar
                                         </button>
                                     </div>
                                 </div>
@@ -5303,21 +5508,36 @@ export default function Index({
 
                         {/* Submit Button - Always visible */}
                         <button
-                            onClick={openCheckoutPreview}
+                            type="button"
+                            onClick={() => {
+                                if (
+                                    !localCarts.length ||
+                                    isLoadingPricing ||
+                                    isSubmitting
+                                ) {
+                                    return;
+                                }
+
+                                if (needsCashAdjustment) {
+                                    setIsCashPaymentModalOpen(true);
+                                    return;
+                                }
+
+                                openCheckoutPreview();
+                            }}
                             disabled={
                                 !localCarts.length ||
-                                (!payLater &&
-                                    paymentMethod === "cash" &&
-                                    cash < payable) ||
                                 isLoadingPricing ||
                                 isSubmitting
                             }
-                            className={`w-full h-12 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-all ${
-                                localCarts.length &&
-                                (paymentMethod !== "cash" || cash >= payable)
-                                    && !isLoadingPricing
-                                    ? "bg-gradient-to-r from-primary-500 to-primary-600 hover:from-primary-600 hover:to-primary-700 text-white shadow-lg shadow-primary-500/30"
-                                    : "bg-slate-200 dark:bg-slate-800 text-slate-400 cursor-not-allowed"
+                            className={`flex h-12 w-full items-center justify-center gap-2 rounded-xl text-sm font-semibold transition-all ${
+                                !localCarts.length ||
+                                isLoadingPricing ||
+                                isSubmitting
+                                    ? "cursor-not-allowed bg-slate-200 text-slate-400 dark:bg-slate-800"
+                                    : needsCashAdjustment
+                                    ? "bg-amber-500 text-white shadow-lg shadow-amber-500/25 hover:bg-amber-600"
+                                    : "bg-gradient-to-r from-primary-500 to-primary-600 text-white shadow-lg shadow-primary-500/30 hover:from-primary-600 hover:to-primary-700"
                             }`}
                         >
                             {isSubmitting || isLoadingPricing ? (
@@ -5328,11 +5548,8 @@ export default function Index({
                                     <span>
                                         {!localCarts.length
                                             ? "Pilih menu dulu"
-                                            : paymentMethod === "cash" &&
-                                              cash < payable
-                                            ? `Tambah ${formatPrice(
-                                                  payable - cash
-                                              )} lagi`
+                                            : needsCashAdjustment
+                                            ? "Atur nominal bayar"
                                             : isLoadingPricing
                                             ? "Menyiapkan total terbaik..."
                                             : "Lanjutkan pembayaran"}
@@ -6648,8 +6865,152 @@ export default function Index({
                 </div>
             )}
 
-            {isTablePickerModalOpen && orderType === "dine_in" && (
-                <div className="fixed inset-0 z-[70] flex items-end justify-center p-0 sm:items-center sm:p-4">
+            {isCustomerInfoModalOpen && (
+                <div className="fixed inset-0 z-[72] flex items-end justify-center p-0 sm:items-center sm:p-4">
+                    <div
+                        className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm"
+                        onClick={() => setIsCustomerInfoModalOpen(false)}
+                    />
+                    <div className="relative z-10 flex w-full max-w-2xl flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl dark:bg-slate-900 sm:rounded-3xl">
+                        <div className="border-b border-slate-200 px-5 py-4 dark:border-slate-800">
+                            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary-500">
+                                Info Pelanggan
+                            </p>
+                            <h3 className="mt-1 text-lg font-bold text-slate-900 dark:text-white">
+                                Atur pelanggan dan jenis pesanan
+                            </h3>
+                            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                Tab pembayaran baru bisa dibuka setelah data ini lengkap.
+                            </p>
+                        </div>
+
+                        <div className="space-y-4 px-5 py-4">
+                            <CustomerSelect
+                                customers={customers}
+                                selected={draftCustomer}
+                                onSelect={setDraftCustomer}
+                                placeholder="Pilih pelanggan umum atau terdaftar..."
+                                error={errors?.customer_id}
+                                tierOptions={loyaltyTierOptions}
+                                openAddModalSignal={openAddCustomerModalSignal}
+                            />
+
+                            <div>
+                                <p className="mb-2 text-xs font-medium text-slate-600 dark:text-slate-400">
+                                    Jenis Pesanan
+                                </p>
+                                <div className="grid grid-cols-2 gap-1 rounded-2xl bg-slate-100 p-1 dark:bg-slate-800">
+                                    {[
+                                        {
+                                            value: "take_away",
+                                            label: "Bawa Pulang",
+                                        },
+                                        {
+                                            value: "dine_in",
+                                            label: "Makan di Tempat",
+                                        },
+                                    ].map((option) => (
+                                        <button
+                                            key={option.value}
+                                            type="button"
+                                            onClick={() => {
+                                                setDraftOrderType(
+                                                    option.value
+                                                );
+                                                if (
+                                                    option.value ===
+                                                    "take_away"
+                                                ) {
+                                                    setDraftSelectedTableId(
+                                                        ""
+                                                    );
+                                                }
+                                            }}
+                                            className={`rounded-xl px-3 py-2 text-sm font-semibold transition-colors ${
+                                                draftOrderType === option.value
+                                                    ? "bg-white text-primary-700 shadow-sm dark:bg-slate-900 dark:text-primary-300"
+                                                    : "text-slate-600 dark:text-slate-300"
+                                            }`}
+                                        >
+                                            {option.label}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {draftOrderType === "dine_in" && (
+                                <div>
+                                    <label className="mb-2 block text-xs font-medium text-slate-600 dark:text-slate-400">
+                                        Pilih Meja
+                                    </label>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setTablePickerContext("draft");
+                                            setIsTablePickerModalOpen(true);
+                                        }}
+                                        className="flex h-11 w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-3 text-left text-sm text-slate-700 transition hover:border-primary-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                    >
+                                        <div className="min-w-0">
+                                            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                                                Meja
+                                            </p>
+                                            <p className="truncate font-medium">
+                                                {draftSelectedDiningTable
+                                                    ? draftSelectedDiningTable.code
+                                                        ? `${draftSelectedDiningTable.code} - ${draftSelectedDiningTable.name}`
+                                                        : draftSelectedDiningTable.name
+                                                    : "Pilih meja"}
+                                            </p>
+                                        </div>
+                                        <span className="text-xs font-semibold text-primary-600 dark:text-primary-300">
+                                            Pilih
+                                        </span>
+                                    </button>
+                                    {diningTables.length === 0 ? (
+                                        <p className="mt-2 text-[11px] text-amber-600 dark:text-amber-300">
+                                            Belum ada meja aktif untuk outlet ini.
+                                        </p>
+                                    ) : null}
+                                    {draftSelectedDiningTable ? (
+                                        <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
+                                            Meja terpilih:{" "}
+                                            {draftSelectedDiningTable.code
+                                                ? `${draftSelectedDiningTable.code} - ${draftSelectedDiningTable.name}`
+                                                : draftSelectedDiningTable.name}
+                                        </p>
+                                    ) : null}
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3 border-t border-slate-200 bg-slate-50 px-5 py-4 dark:border-slate-800 dark:bg-slate-950/40">
+                            <button
+                                type="button"
+                                onClick={() =>
+                                    setIsCustomerInfoModalOpen(false)
+                                }
+                                className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                            >
+                                Batal
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleSaveCustomerInfo}
+                                className="rounded-2xl bg-primary-500 px-4 py-3 text-sm font-semibold text-white hover:bg-primary-600"
+                            >
+                                Simpan info pelanggan
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {isTablePickerModalOpen &&
+                (isDraftTablePicker
+                    ? draftOrderType === "dine_in"
+                    : orderType === "dine_in") && (
+                <div className="fixed inset-0 z-[90] flex items-end justify-center p-0 sm:items-center sm:p-4">
                     <div
                         className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm"
                         onClick={() => setIsTablePickerModalOpen(false)}
@@ -6680,7 +7041,11 @@ export default function Index({
                             {diningTables.length > 0 ? (
                                 diningTables.map((table) => {
                                     const isActive =
-                                        String(selectedTableId) ===
+                                        String(
+                                            isDraftTablePicker
+                                                ? draftSelectedTableId
+                                                : selectedTableId
+                                        ) ===
                                         String(table.id);
 
                                     // Calculate minutes since last transaction
@@ -6741,9 +7106,15 @@ export default function Index({
                                             key={table.id}
                                             type="button"
                                             onClick={() => {
-                                                setSelectedTableId(
-                                                    String(table.id)
-                                                );
+                                                if (isDraftTablePicker) {
+                                                    setDraftSelectedTableId(
+                                                        String(table.id)
+                                                    );
+                                                } else {
+                                                    setSelectedTableId(
+                                                        String(table.id)
+                                                    );
+                                                }
                                                 setIsTablePickerModalOpen(
                                                     false
                                                 );

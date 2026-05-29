@@ -15,6 +15,7 @@ use App\Models\ProductOutletStock;
 use App\Models\Receivable;
 use App\Models\TableOrder;
 use App\Models\Transaction;
+use App\Models\TransactionDetail;
 use App\Models\CartModifier;
 use App\Services\AuditLogService;
 use App\Services\CashierShiftService;
@@ -140,6 +141,19 @@ class TransactionController extends Controller
                     ->where('stock', '>', 0));
             }, fn ($query) => $query->where('stock', '>', 0));
 
+        $soldQtyByProduct = TransactionDetail::query()
+            ->selectRaw('product_id, SUM(qty) as sold_qty')
+            ->whereNotNull('product_id')
+            ->when(
+                Schema::hasColumn('transaction_details', 'is_promo_reward'),
+                fn ($query) => $query->where('is_promo_reward', false)
+            )
+            ->whereHas('transaction', function ($query) use ($outlet) {
+                $query->when($outlet, fn ($innerQuery) => $innerQuery->where('outlet_id', $outlet->id));
+            })
+            ->groupBy('product_id')
+            ->pluck('sold_qty', 'product_id');
+
         $products = $productsQuery->get()->map(function (Product $product) use ($outlet) {
             $stock = $outlet && Schema::hasTable('product_outlet_stocks')
                 ? $product->outletStocks()->where('outlet_id', $outlet->id)->value('stock')
@@ -150,11 +164,12 @@ class TransactionController extends Controller
             return $product;
         });
         $pricingBadges = $this->pricingService->previewProducts($products, null, outletId: $outlet?->id);
-        $products = $products->map(function (Product $product) use ($pricingBadges) {
+        $products = $products->map(function (Product $product) use ($pricingBadges, $soldQtyByProduct) {
             $pricing = $pricingBadges->get($product->id);
 
             return [
                 ...$product->toArray(),
+                'sold_qty' => (int) ($soldQtyByProduct[$product->id] ?? 0),
                 'modifier_options' => $product->modifierOptions
                     ->where('is_active', true)
                     ->map(fn ($option) => [

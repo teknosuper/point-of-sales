@@ -22,6 +22,7 @@ const formatPrice = (value = 0) =>
 
 const FILTER_PANEL_STORAGE_KEY = "pos:product-grid:filter-panel-expanded";
 const VIEW_MODE_STORAGE_KEY = "pos:product-grid:view-mode";
+const SORT_MODE_STORAGE_KEY = "pos:product-grid:sort-mode";
 
 const promoExplanation = (badge) => {
     if (!badge) {
@@ -55,7 +56,7 @@ function ProductCard({ product, onAddToCart, isAdding, viewMode = "list" }) {
                     hasStock
                         ? "hover:border-primary-300 dark:hover:border-primary-700 hover:shadow-lg hover:-translate-y-0.5 active:scale-[0.98] cursor-pointer"
                         : "opacity-60 cursor-not-allowed"
-                } ${isListMode ? "w-full items-center gap-4 px-4 py-3 text-left" : "flex-col overflow-hidden"}
+                } ${isListMode ? "w-full items-center gap-3 px-3 py-2.5 text-left" : "flex-col overflow-hidden"}
             `}
         >
             {!isListMode && (
@@ -117,7 +118,7 @@ function ProductCard({ product, onAddToCart, isAdding, viewMode = "list" }) {
             <div
                 className={`flex-1 p-3 flex ${
                     isListMode
-                        ? "min-w-0 items-center justify-between gap-4 p-0"
+                        ? "min-w-0 items-center justify-between gap-3 p-0"
                         : "min-h-[80px] flex-col justify-between"
                 }`}
             >
@@ -146,11 +147,11 @@ function ProductCard({ product, onAddToCart, isAdding, viewMode = "list" }) {
                             </span>
                         )}
                     </div>
-                    <h3 className="mt-2 text-base font-semibold leading-tight text-slate-800 dark:text-slate-200">
+                    <h3 className="mt-1.5 text-sm font-semibold leading-tight text-slate-800 dark:text-slate-200">
                         {product.title}
                     </h3>
-                    <div className="mt-1 space-y-1 text-xs text-slate-500 dark:text-slate-400">
-                        <p>
+                    <div className="mt-1 space-y-0.5 text-[11px] text-slate-500 dark:text-slate-400">
+                        <p className="truncate">
                             Disiapkan oleh{" "}
                             <span className="font-medium text-slate-600 dark:text-slate-300">
                                 {product.tenant_outlet?.name || "-"}
@@ -161,7 +162,9 @@ function ProductCard({ product, onAddToCart, isAdding, viewMode = "list" }) {
                                 Sisa {Number(product.stock || 0)}
                             </span>
                         </p>
-                        <p>{product.barcode || "Tanpa barcode"}</p>
+                        {!isListMode && (
+                            <p>{product.barcode || "Tanpa barcode"}</p>
+                        )}
                     </div>
                 </div>
                 <div
@@ -172,16 +175,16 @@ function ProductCard({ product, onAddToCart, isAdding, viewMode = "list" }) {
                     }`}
                 >
                     {showPromo && (
-                        <p className="text-xs text-slate-400 line-through">
+                        <p className="text-[11px] text-slate-400 line-through">
                             {formatPrice(basePrice)}
                         </p>
                     )}
-                    <p className="text-base font-bold text-primary-600 dark:text-primary-400">
+                    <p className="text-sm font-bold text-primary-600 dark:text-primary-400">
                         {formatPrice(showPromo ? promoPrice : product.sell_price)}
                     </p>
                     {promoDetail && (
                         <p
-                            className={`mt-1 max-w-[220px] text-xs leading-5 ${
+                            className={`mt-0.5 max-w-[180px] text-[11px] leading-4 ${
                                 isListMode
                                     ? "text-right text-rose-600 dark:text-rose-300"
                                     : "text-rose-600 dark:text-rose-300"
@@ -191,7 +194,7 @@ function ProductCard({ product, onAddToCart, isAdding, viewMode = "list" }) {
                         </p>
                     )}
                     {isListMode && hasStock && (
-                        <span className="mt-2 inline-flex rounded-full bg-primary-50 px-3 py-1 text-[11px] font-semibold text-primary-600 dark:bg-primary-950/30 dark:text-primary-300">
+                        <span className="mt-1.5 inline-flex rounded-full bg-primary-50 px-2.5 py-0.5 text-[10px] font-semibold text-primary-600 dark:bg-primary-950/30 dark:text-primary-300">
                             Tambah
                         </span>
                     )}
@@ -285,9 +288,6 @@ function SearchInput({
 // Main ProductGrid Component
 export default function ProductGrid({
     products = [],
-    categories = [],
-    selectedCategory,
-    onCategoryChange,
     searchQuery,
     onSearchChange,
     onSearch,
@@ -297,8 +297,6 @@ export default function ProductGrid({
     searchInputRef,
     onBarcodeDetected,
 }) {
-    const normalizedSelectedCategory =
-        selectedCategory === null ? null : Number(selectedCategory);
     const [selectedTenantOutletId, setSelectedTenantOutletId] = useState(null);
     const [isFilterPanelExpanded, setIsFilterPanelExpanded] = useState(() => {
         if (typeof window === "undefined") {
@@ -321,6 +319,23 @@ export default function ProductGrid({
 
         return savedValue === "grid" ? "grid" : "list";
     });
+    const [sortMode, setSortMode] = useState(() => {
+        if (typeof window === "undefined") {
+            return "alphabetical";
+        }
+
+        return (
+            window.localStorage.getItem(SORT_MODE_STORAGE_KEY) ||
+            "alphabetical"
+        );
+    });
+    const sortOptions = [
+        { value: "alphabetical", label: "Urutan A-Z" },
+        { value: "cheapest", label: "Harga Termurah" },
+        { value: "expensive", label: "Harga Termahal" },
+        { value: "promo", label: "Promo" },
+        { value: "best_seller", label: "Best Seller" },
+    ];
     const tenantTabs = products
         .map((product) => product.tenant_outlet)
         .filter((tenant, index, array) =>
@@ -332,11 +347,8 @@ export default function ProductGrid({
             String(a?.name || "").localeCompare(String(b?.name || ""), "id")
         );
 
-    // Filter products by category, tenant, and search
+    // Filter products by tenant and search
     const filteredProducts = products.filter((product) => {
-        const matchesCategory =
-            normalizedSelectedCategory === null ||
-            Number(product.category_id) === normalizedSelectedCategory;
         const matchesTenant =
             selectedTenantOutletId === null ||
             Number(product.tenant_outlet?.id) ===
@@ -345,23 +357,48 @@ export default function ProductGrid({
             !searchQuery ||
             product.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
             product.barcode?.toLowerCase().includes(searchQuery.toLowerCase());
-        return matchesCategory && matchesTenant && matchesSearch;
+        return matchesTenant && matchesSearch;
+    });
+    const sortedProducts = [...filteredProducts].sort((left, right) => {
+        const leftName = String(left?.title || "");
+        const rightName = String(right?.title || "");
+        const alphabetical = leftName.localeCompare(rightName, "id");
+        const leftPrice = Number(
+            left?.pricing_badge?.promo_price ?? left?.sell_price ?? 0
+        );
+        const rightPrice = Number(
+            right?.pricing_badge?.promo_price ?? right?.sell_price ?? 0
+        );
+        const leftHasPromo = Boolean(left?.pricing_badge?.label);
+        const rightHasPromo = Boolean(right?.pricing_badge?.label);
+        const leftSoldQty = Number(left?.sold_qty || 0);
+        const rightSoldQty = Number(right?.sold_qty || 0);
+
+        switch (sortMode) {
+            case "cheapest":
+                return leftPrice - rightPrice || alphabetical;
+            case "expensive":
+                return rightPrice - leftPrice || alphabetical;
+            case "promo":
+                return (
+                    Number(rightHasPromo) - Number(leftHasPromo) ||
+                    leftPrice - rightPrice ||
+                    alphabetical
+                );
+            case "best_seller":
+                return rightSoldQty - leftSoldQty || alphabetical;
+            default:
+                return alphabetical;
+        }
     });
 
-    const selectedCategoryName =
-        normalizedSelectedCategory === null
-            ? "Semua"
-            : categories.find(
-                  (category) =>
-                      Number(category.id) === normalizedSelectedCategory
-              )?.name || "Kategori";
     const selectedTenantName =
         selectedTenantOutletId === null
-            ? "Semua Dapur"
+            ? "Semua Tenant"
             : tenantTabs.find(
                   (tenant) =>
                       Number(tenant.id) === Number(selectedTenantOutletId)
-              )?.name || "Dapur";
+              )?.name || "Tenant";
 
     useEffect(() => {
         if (typeof window === "undefined") {
@@ -382,8 +419,16 @@ export default function ProductGrid({
         window.localStorage.setItem(VIEW_MODE_STORAGE_KEY, viewMode);
     }, [viewMode]);
 
+    useEffect(() => {
+        if (typeof window === "undefined") {
+            return;
+        }
+
+        window.localStorage.setItem(SORT_MODE_STORAGE_KEY, sortMode);
+    }, [sortMode]);
+
     return (
-        <div className="h-full flex flex-col">
+        <div className="flex h-full min-h-0 flex-col">
             {/* Search Bar */}
             <div className="p-4 border-b border-slate-200 dark:border-slate-800">
                 <SearchInput
@@ -406,14 +451,22 @@ export default function ProductGrid({
                         </div>
                         <div className="mt-1 flex flex-wrap gap-2 text-xs text-slate-500 dark:text-slate-400">
                             <span className="rounded-full bg-slate-100 px-2.5 py-1 dark:bg-slate-800">
-                                {selectedCategoryName}
-                            </span>
-                            <span className="rounded-full bg-slate-100 px-2.5 py-1 dark:bg-slate-800">
                                 {selectedTenantName}
                             </span>
                         </div>
                     </div>
                     <div className="flex items-center gap-2">
+                        <select
+                            value={sortMode}
+                            onChange={(e) => setSortMode(e.target.value)}
+                            className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                        >
+                            {sortOptions.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                    {option.label}
+                                </option>
+                            ))}
+                        </select>
                         <div className="inline-flex rounded-xl border border-slate-200 bg-white p-1 dark:border-slate-700 dark:bg-slate-900">
                             <button
                                 type="button"
@@ -461,43 +514,13 @@ export default function ProductGrid({
                     <div className="space-y-3 px-4 pb-3">
                         <div>
                             <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400 dark:text-slate-500">
-                                Kategori
-                            </p>
-                            <div className="flex flex-wrap gap-2">
-                                <CategoryTab
-                                    category={{ id: null, name: "Semua" }}
-                                    isActive={
-                                        normalizedSelectedCategory === null
-                                    }
-                                    onClick={() => onCategoryChange(null)}
-                                />
-                                {categories.map((category) => (
-                                    <CategoryTab
-                                        key={category.id}
-                                        category={category}
-                                        isActive={
-                                            normalizedSelectedCategory ===
-                                            Number(category.id)
-                                        }
-                                        onClick={() =>
-                                            onCategoryChange(
-                                                Number(category.id)
-                                            )
-                                        }
-                                    />
-                                ))}
-                            </div>
-                        </div>
-
-                        <div>
-                            <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400 dark:text-slate-500">
-                                Dapur
+                                Tenant
                             </p>
                             <div className="flex flex-wrap gap-2">
                                 <CategoryTab
                                     category={{
                                         id: null,
-                                        name: "Semua Dapur",
+                                        name: "Semua Tenant",
                                     }}
                                     isActive={selectedTenantOutletId === null}
                                     onClick={() =>
@@ -529,16 +552,16 @@ export default function ProductGrid({
             </div>
 
             {/* Products Grid */}
-            <div className="flex-1 overflow-y-auto p-4 scrollbar-thin">
-                {filteredProducts.length > 0 ? (
+            <div className="min-h-0 flex-1 overflow-y-auto p-4 scrollbar-thin">
+                {sortedProducts.length > 0 ? (
                     <div
                         className={
                             viewMode === "grid"
                                 ? "grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3"
-                                : "space-y-3"
+                                : "grid grid-cols-1 gap-3 md:grid-cols-2"
                         }
                     >
-                        {filteredProducts.map((product) => (
+                        {sortedProducts.map((product) => (
                             <ProductCard
                                 key={product.id}
                                 product={product}
