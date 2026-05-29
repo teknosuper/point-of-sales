@@ -1,6 +1,8 @@
 import React from "react";
 import {
+    PROMO_TOTAL_LABEL,
     promoMetaText,
+    REWARD_ITEM_LABEL,
     resolveBuyGetBreakdown,
 } from "@/Utils/pricingRules";
 

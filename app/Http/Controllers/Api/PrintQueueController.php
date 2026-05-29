@@ -325,13 +325,20 @@ class PrintQueueController extends Controller
             'standard_discount' => 'Promo Harga Spesial',
             'qty_break' => 'Promo Belanja Lebih Untung',
             'bundle_price' => 'Promo Paket Hemat',
-            'buy_x_get_y' => 'Promo Bonus Item',
+            'buy_x_get_y' => 'Promo Buy Get',
             default => null,
         };
     }
 
     private function promoSummary($detail): ?string
     {
+        if ((bool) ($detail->is_promo_reward ?? false)) {
+            return implode(' • ', array_filter([
+                'Item Bonus Promo',
+                $detail->promo_reward_rule_name ?? null,
+            ]));
+        }
+
         $discount = (int) ($detail->discount_total ?? 0);
         if ($discount <= 0) {
             return null;
@@ -345,7 +352,7 @@ class PrintQueueController extends Controller
         $headline = match ($detail->pricing_rule_kind) {
             'qty_break' => sprintf('Beli %d+ lebih hemat', $qty),
             'bundle_price' => 'Ambil paket, harga lebih hemat',
-            'buy_x_get_y' => 'Beli item pilihan, bonus langsung aktif',
+            'buy_x_get_y' => 'Benefit buy-get diterapkan pada item ini',
             default => null,
         };
         $priceSnippet = null;

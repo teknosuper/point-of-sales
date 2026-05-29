@@ -73,9 +73,15 @@ class TransactionController extends Controller
             ->active()
             ->latest()
             ->get();
+        $activePricingRules = $this->pricingService->getActiveRules(outletId: $outlet?->id);
+        $carts = $this->pricingService->normalizeRewardCarts(
+            $carts,
+            outletId: $outlet?->id,
+            rules: $activePricingRules
+        );
 
         $initialPricingPreview = $this->loyaltyService->previewCheckout(
-            $this->pricingService->previewCart($carts, null, outletId: $outlet?->id),
+            $this->pricingService->previewCartWithRules($carts, null, $activePricingRules, outletId: $outlet?->id),
             outletId: $outlet?->id
         );
 
@@ -251,7 +257,10 @@ class TransactionController extends Controller
             ->values();
 
         return Inertia::render('Dashboard/Transactions/Index', [
-            'carts' => $carts,
+            'carts' => $carts
+                ->map(fn (Cart $cart) => $this->serializeCart($cart))
+                ->filter()
+                ->values(),
             'carts_total' => $carts_total,
             'heldCarts' => $heldCarts,
             'customers' => $customers,
@@ -324,6 +333,10 @@ class TransactionController extends Controller
             'shipping_cost' => ['nullable', 'integer', 'min:0'],
             'redeem_points' => ['nullable', 'integer', 'min:0'],
             'customer_voucher_id' => ['nullable', 'integer', 'exists:customer_vouchers,id'],
+            'reward_cart_meta' => ['nullable', 'array'],
+            'reward_cart_meta.*.cart_id' => ['required_with:reward_cart_meta', 'string', 'max:64'],
+            'reward_cart_meta.*.rule_name' => ['nullable', 'string', 'max:255'],
+            'reward_cart_meta.*.reward_label' => ['nullable', 'string', 'max:255'],
         ]);
 
         $customer = isset($validated['customer_id'])
@@ -339,6 +352,7 @@ class TransactionController extends Controller
             ->active()
             ->latest()
             ->get();
+        $this->applyRewardCartMeta($carts, $validated['reward_cart_meta'] ?? []);
 
         $pricingPreview = $this->pricingService->previewCart($carts, $customer, outletId: $outlet?->id);
 
@@ -446,14 +460,11 @@ class TransactionController extends Controller
                 $cartAttributes['promo_reward_label'] = $promoRewardLabel;
             }
 
-            Cart::create($cartAttributes);
+            $cart = Cart::create($cartAttributes);
 
             $cart = Cart::query()
                 ->with('product.modifierOptions', 'tenantOutlet:id,name,code', 'modifiers')
-                ->where('product_id', $request->product_id)
-                ->where('cashier_id', auth()->id())
-                ->when($outlet, fn ($query) => $query->where('outlet_id', $outlet->id))
-                ->active()
+                ->whereKey($cart->id)
                 ->first();
         }
 
@@ -994,6 +1005,10 @@ class TransactionController extends Controller
         $validatedMeta = $request->validate([
             'order_type' => ['nullable', 'in:dine_in,take_away'],
             'table_id' => ['nullable', 'exists:dining_tables,id'],
+            'reward_cart_meta' => ['nullable', 'array'],
+            'reward_cart_meta.*.cart_id' => ['required_with:reward_cart_meta', 'string', 'max:64'],
+            'reward_cart_meta.*.rule_name' => ['nullable', 'string', 'max:255'],
+            'reward_cart_meta.*.reward_label' => ['nullable', 'string', 'max:255'],
         ]);
         $isPayLater = $request->boolean('pay_later');
         $paymentGateway = $isPayLater ? null : $request->input('payment_gateway');
@@ -1070,6 +1085,11 @@ class TransactionController extends Controller
                 ->active();
 
             $checkoutCarts = $cartScope->get();
+            $this->applyRewardCartMeta($checkoutCarts, $validatedMeta['reward_cart_meta'] ?? []);
+            $checkoutCarts = $this->pricingService->normalizeRewardCarts(
+                $checkoutCarts,
+                outletId: $outlet?->id
+            );
             $markPerf('carts_loaded');
 
             if ($checkoutCarts->isEmpty()) {
@@ -1142,6 +1162,10 @@ class TransactionController extends Controller
                     ->when($outlet, fn ($query) => $query->where('outlet_id', $outlet->id))
                     ->active()
                     ->get();
+                $carts = $this->pricingService->normalizeRewardCarts(
+                    $carts,
+                    outletId: $outlet?->id
+                );
                 $markPerf('carts_reloaded');
 
                 if ($carts->isEmpty()) {
@@ -1157,6 +1181,11 @@ class TransactionController extends Controller
             // If carts changed between pre-checkout preview and the transactional save,
             // recompute pricing inside the transaction to avoid mismatched totals.
                 if ($currentSignature !== $cartSignature) {
+                    $this->applyRewardCartMeta($carts, $validatedMeta['reward_cart_meta'] ?? []);
+                    $carts = $this->pricingService->normalizeRewardCarts(
+                        $carts,
+                        outletId: $outlet?->id
+                    );
                     $pricingPreview = $this->pricingService->previewCart($carts, $customer, outletId: $outlet?->id);
                     $checkoutPreview = $this->loyaltyService->previewCheckout($pricingPreview, $customer, [
                         'manual_discount' => $manualDiscount,
@@ -2104,6 +2133,29 @@ class TransactionController extends Controller
             ->when($this->resolveActiveOutlet($request), fn ($query, $outlet) => $query->where('outlet_id', $outlet->id))
             ->active()
             ->first();
+    }
+
+    private function applyRewardCartMeta($carts, array $rewardCartMeta = []): void
+    {
+        $rewardMetaByCartId = collect($rewardCartMeta)
+            ->mapWithKeys(fn (array $item) => [
+                (string) ($item['cart_id'] ?? '') => [
+                    'rule_name' => $item['rule_name'] ?? null,
+                    'reward_label' => $item['reward_label'] ?? null,
+                ],
+            ]);
+
+        foreach ($carts as $cart) {
+            $meta = $rewardMetaByCartId->get((string) $cart->id);
+
+            if (! $meta) {
+                continue;
+            }
+
+            $cart->setAttribute('is_promo_reward', true);
+            $cart->setAttribute('promo_reward_rule_name', $meta['rule_name']);
+            $cart->setAttribute('promo_reward_label', $meta['reward_label']);
+        }
     }
 
 }

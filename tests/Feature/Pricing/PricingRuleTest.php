@@ -433,6 +433,11 @@ class PricingRuleTest extends TestCase
             60000,
             data_get($response->json(), 'data.summary.subtotal_after_promo')
         );
+        $this->assertCount(2, data_get($response->json(), 'data.items', []));
+        $this->assertFalse((bool) data_get($response->json(), 'data.items.0.is_promo_reward'));
+        $this->assertTrue((bool) data_get($response->json(), 'data.items.1.is_promo_reward'));
+        $this->assertSame(60000, data_get($response->json(), 'data.items.0.line_total'));
+        $this->assertSame(0, data_get($response->json(), 'data.items.1.line_total'));
         $this->assertCount(1, data_get($response->json(), 'data.applied_groups', []));
     }
 
@@ -921,6 +926,9 @@ class PricingRuleTest extends TestCase
             60000,
             data_get($response->json(), 'data.summary.promo_discount_total')
         );
+        $this->assertFalse((bool) data_get($response->json(), 'data.items.0.is_promo_reward'));
+        $this->assertTrue((bool) data_get($response->json(), 'data.items.1.is_promo_reward'));
+        $this->assertSame(0, data_get($response->json(), 'data.items.1.line_total'));
         $this->assertSame(
             'buy_x_get_y',
             data_get($response->json(), 'data.items.1.pricing_rule.kind')

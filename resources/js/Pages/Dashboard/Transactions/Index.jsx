@@ -21,13 +21,21 @@ import HeldTransactions, {
 import useBarcodeScanner from "@/Hooks/useBarcodeScanner";
 import { getProductImageUrl } from "@/Utils/imageUrl";
 import {
+    buildLocalPricingPreview,
+    buildPricingItemsByCartId,
     formatRuleItems,
     hasPromoApplied,
+    mergeRewardMetadataIntoCarts,
+    normalizeBuyGetRewardCarts,
+    PROMO_TOTAL_LABEL,
     promoBadgeSummary,
     promoBenefitPreview,
     promoDetailText,
+    REWARD_ITEM_LABEL,
     promoTitleText,
+    resolveCartPricingLine,
     resolveBuyGetBreakdown,
+    shouldUseLocalPricingPreview,
 } from "@/Utils/pricingRules";
 import { useAuthorization } from "@/Utils/authorization";
 import {
@@ -218,6 +226,7 @@ export default function Index({
     const [checkoutWarning, setCheckoutWarning] = useState("");
     const [isAddingMissingRewards, setIsAddingMissingRewards] = useState(false);
     const [recentRewardProductIds, setRecentRewardProductIds] = useState([]);
+    const isRewardSyncingRef = useRef(false);
     const [isReceiptFrameReady, setIsReceiptFrameReady] = useState(false);
     const [isBrowserOnline, setIsBrowserOnline] = useState(
         typeof navigator === "undefined" ? true : navigator.onLine
@@ -364,15 +373,22 @@ export default function Index({
         offlineBootstrap?.defaultPaymentGateway ||
         "cash";
     const qrisPaymentImageUrl = paymentGatewayMeta?.qrisImageUrl || null;
-    const pricingItemsByCartId = useMemo(() => {
-        const items = pricingPreview?.items || [];
+    const resolvedPricingPreview = useMemo(() => {
+        if (localCarts.length === 0) {
+            return pricingPreview;
+        }
 
-        return items.reduce((accumulator, item) => {
-            accumulator[item.cart_id] = item;
+        const fallbackPreview = buildLocalPricingPreview(localCarts);
+        if (shouldUseLocalPricingPreview(localCarts, pricingPreview)) {
+            return fallbackPreview;
+        }
 
-            return accumulator;
-        }, {});
-    }, [pricingPreview]);
+        return pricingPreview;
+    }, [localCarts, pricingPreview]);
+    const pricingItemsByCartId = useMemo(
+        () => buildPricingItemsByCartId(resolvedPricingPreview),
+        [resolvedPricingPreview]
+    );
     const modifierModalSelectedModifierTotal = useMemo(
         () =>
             (modifierModalProduct?.modifier_options || [])
@@ -430,6 +446,7 @@ export default function Index({
     const cartTabAudioContextRef = useRef(null);
     const addToCartAudioContextRef = useRef(null);
     const paymentSuccessAudioContextRef = useRef(null);
+    const hasUnlockedAudioRef = useRef(false);
 
     // Set default payment method
     useEffect(() => {
@@ -442,14 +459,24 @@ export default function Index({
 
     useEffect(() => {
         if (carts.length > 0) {
-            setLocalCarts(carts);
+            setLocalCarts(
+                normalizeBuyGetRewardCarts(
+                    mergeRewardMetadataIntoCarts(carts, loadOfflineCart()),
+                    productsById
+                )
+            );
             return;
         }
 
         if (!isOfflineMode) {
             setLocalCarts([]);
         }
-    }, [carts, isOfflineMode]);
+    }, [
+        carts,
+        isOfflineMode,
+        normalizeBuyGetRewardCarts,
+        productsById,
+    ]);
 
     useEffect(() => {
         if (isBrowserOnline && isServerReachable) {
@@ -660,29 +687,72 @@ export default function Index({
     const discount = 0;
     const shipping = 0;
     const baseSubtotal = useMemo(
-        () => Number(pricingPreview?.summary?.base_subtotal ?? carts_total ?? 0),
-        [pricingPreview, carts_total]
+        () =>
+            Number(
+                resolvedPricingPreview?.summary?.base_subtotal ??
+                    carts_total ??
+                    0
+            ),
+        [resolvedPricingPreview, carts_total]
     );
     const promoDiscount = useMemo(
-        () => Number(pricingPreview?.summary?.promo_discount_total ?? 0),
-        [pricingPreview]
+        () => Number(resolvedPricingPreview?.summary?.promo_discount_total ?? 0),
+        [resolvedPricingPreview]
     );
     const voucherDiscount = useMemo(
-        () => Number(pricingPreview?.summary?.voucher_discount_total ?? 0),
-        [pricingPreview]
+        () =>
+            Number(
+                resolvedPricingPreview?.summary?.voucher_discount_total ?? 0
+            ),
+        [resolvedPricingPreview]
     );
     const loyaltyDiscount = useMemo(
-        () => Number(pricingPreview?.summary?.loyalty_discount_total ?? 0),
-        [pricingPreview]
+        () =>
+            Number(
+                resolvedPricingPreview?.summary?.loyalty_discount_total ?? 0
+            ),
+        [resolvedPricingPreview]
     );
     const subtotal = useMemo(
-        () => Number(pricingPreview?.summary?.subtotal_after_promo ?? 0),
-        [pricingPreview]
+        () =>
+            Number(
+                resolvedPricingPreview?.summary?.subtotal_after_promo ?? 0
+            ),
+        [resolvedPricingPreview]
     );
     const payable = useMemo(
-        () => Number(pricingPreview?.summary?.grand_total ?? 0),
-        [pricingPreview]
+        () =>
+            Number(
+                resolvedPricingPreview?.summary?.grand_total ?? subtotal ?? 0
+            ),
+        [resolvedPricingPreview, subtotal]
     );
+    const appliedPromoGroups = useMemo(() => {
+        const groups = resolvedPricingPreview?.applied_groups || [];
+
+        return Object.values(
+            groups.reduce((accumulator, group, index) => {
+                const label = group?.label || group?.rule?.name || `Promo ${index + 1}`;
+                const key = `${group?.rule?.id || "rule"}:${label}`;
+
+                if (!accumulator[key]) {
+                    accumulator[key] = {
+                        key,
+                        label,
+                        count: 0,
+                        discount_total: 0,
+                    };
+                }
+
+                accumulator[key].count += 1;
+                accumulator[key].discount_total += Number(
+                    group?.discount_total || 0
+                );
+
+                return accumulator;
+            }, {})
+        );
+    }, [resolvedPricingPreview]);
     const quickCashAmounts = useMemo(() => {
         const normalizedPayable = Math.max(0, Math.ceil(payable));
         const denominations = [1000, 2000, 5000, 10000, 20000, 50000, 100000];
@@ -901,7 +971,7 @@ export default function Index({
 
                 return {
                     ruleId: rule.id,
-                    ruleName: rule.name || "Promo Buy Get",
+                    ruleName: rule.name || promoBadgeSummary(rule).title || "Promo",
                     sourceProduct: item.product?.title || fallbackProduct?.title,
                     missingRewards: formatRuleItems(missingRewards),
                     rule,
@@ -955,11 +1025,6 @@ export default function Index({
         if (recentRewardProductIds.length === 0) {
             return;
         }
-
-        cartSectionRef.current?.scrollIntoView({
-            behavior: "smooth",
-            block: "start",
-        });
 
         const timerId = window.setTimeout(() => {
             setRecentRewardProductIds([]);
@@ -1022,6 +1087,16 @@ export default function Index({
                         shipping_cost: shipping,
                         redeem_points: Number(redeemPointsInput || 0),
                         customer_voucher_id: selectedVoucherId || null,
+                        reward_cart_meta: localCarts
+                            .filter((item) => item.promo_reward_meta)
+                            .map((item) => ({
+                                cart_id: String(item.id),
+                                rule_name:
+                                    item.promo_reward_meta?.rule_name || null,
+                                reward_label:
+                                    item.promo_reward_meta?.reward_label ||
+                                    null,
+                            })),
                     },
                     {
                         signal: controller.signal,
@@ -1037,7 +1112,7 @@ export default function Index({
                         return;
                     }
 
-                    toast.error("Gagal memuat promo aktif");
+                    setPricingPreview(buildLocalPricingPreview(localCarts));
                 })
                 .finally(() => {
                     if (!cancelled) {
@@ -1075,6 +1150,24 @@ export default function Index({
             setSelectedVoucherId("");
         }
     }, [selectedCustomer?.id, selectedCustomer?.is_loyalty_member]);
+
+    useEffect(() => {
+        if (typeof window === "undefined") {
+            return undefined;
+        }
+
+        const unlockAudio = () => {
+            hasUnlockedAudioRef.current = true;
+        };
+
+        window.addEventListener("pointerdown", unlockAudio, { passive: true });
+        window.addEventListener("keydown", unlockAudio, { passive: true });
+
+        return () => {
+            window.removeEventListener("pointerdown", unlockAudio);
+            window.removeEventListener("keydown", unlockAudio);
+        };
+    }, []);
 
     useEffect(() => {
         if (orderType !== "dine_in") {
@@ -1119,7 +1212,7 @@ export default function Index({
 
     useEffect(() => {
         const eligibleVoucherIds = new Set(
-            (pricingPreview?.eligible_vouchers || []).map((voucher) =>
+            (resolvedPricingPreview?.eligible_vouchers || []).map((voucher) =>
                 String(voucher.id)
             )
         );
@@ -1127,7 +1220,7 @@ export default function Index({
         if (selectedVoucherId && !eligibleVoucherIds.has(selectedVoucherId)) {
             setSelectedVoucherId("");
         }
-    }, [pricingPreview?.eligible_vouchers, selectedVoucherId]);
+    }, [resolvedPricingPreview?.eligible_vouchers, selectedVoucherId]);
 
     useEffect(() => {
         if (localCarts.length > 0) {
@@ -1196,7 +1289,7 @@ export default function Index({
     };
 
     const playCartTabSound = useCallback(() => {
-        if (typeof window === "undefined") {
+        if (typeof window === "undefined" || !hasUnlockedAudioRef.current) {
             return;
         }
 
@@ -1248,7 +1341,7 @@ export default function Index({
     }, []);
 
     const playAddToCartSound = useCallback(() => {
-        if (typeof window === "undefined") {
+        if (typeof window === "undefined" || !hasUnlockedAudioRef.current) {
             return;
         }
 
@@ -1300,7 +1393,7 @@ export default function Index({
     }, []);
 
     const playPaymentSuccessSound = useCallback(() => {
-        if (typeof window === "undefined") {
+        if (typeof window === "undefined" || !hasUnlockedAudioRef.current) {
             return;
         }
 
@@ -1633,7 +1726,7 @@ export default function Index({
 
                 if (existingCart) {
                     return currentCarts.map((item) =>
-                            item.product_id === product.id
+                            item.id === existingCart.id
                             ? {
                                   ...item,
                                   qty: Number(item.qty || 0) + quantity,
@@ -1788,31 +1881,23 @@ export default function Index({
             });
     }, [isOfflineMode, localCarts, playAddToCartSound]);
 
-    // Handle add product to cart
-    const handleAddToCart = useCallback(
-        (product) => {
-            if (!product?.id) return;
-
-            if (hasPresetModifiers(product)) {
-                setModifierModalProduct(product);
-                setIsModifierPromoDetailOpen(false);
-                setSelectedModifierOptionIds([]);
-                setModifierModalQuantity(1);
+    const handleAddRewardProducts = useCallback(
+        async (rule, options = {}) => {
+            if (
+                !rule ||
+                rule.kind !== "buy_x_get_y" ||
+                !Array.isArray(rule?.buy_items) ||
+                !Array.isArray(rule?.get_items)
+            ) {
                 return;
             }
 
-            addProductToCart(product);
-        },
-        [addProductToCart, hasPresetModifiers]
-    );
-
-    const handleAddRewardProducts = useCallback(
-        async (rule) => {
+            const buyItems = Array.isArray(rule?.buy_items) ? rule.buy_items : [];
             const rewardItems = Array.isArray(rule?.get_items)
                 ? rule.get_items
                 : [];
 
-            if (rewardItems.length === 0) {
+            if (buyItems.length === 0 || rewardItems.length === 0) {
                 toast.error("Item bonus untuk promo ini tidak ditemukan.");
                 return;
             }
@@ -1820,10 +1905,82 @@ export default function Index({
             let addedCount = 0;
             const missingRewards = [];
             const addedRewardProductIds = [];
+            const ruleName =
+                rule?.name || rule?.label || promoBadgeSummary(rule).title || "Promo";
+            const buyAdjustments = Array.isArray(options?.buyAdjustments)
+                ? options.buyAdjustments
+                : [];
+            const buyCartQuantities = localCarts.reduce(
+                (accumulator, item) => {
+                    if (item.promo_reward_meta) {
+                        return accumulator;
+                    }
+
+                    const productId = Number(item.product_id || 0);
+                    accumulator[productId] =
+                        (accumulator[productId] || 0) + Number(item.qty || 0);
+                    return accumulator;
+                },
+                {}
+            );
+            for (const adjustment of buyAdjustments) {
+                const productId = Number(adjustment?.product_id || 0);
+                const qty = Number(adjustment?.qty || 0);
+
+                if (productId <= 0 || qty <= 0) {
+                    continue;
+                }
+
+                buyCartQuantities[productId] =
+                    Number(buyCartQuantities[productId] || 0) + qty;
+            }
+            const existingRewardQuantities = localCarts.reduce(
+                (accumulator, item) => {
+                    if (item.promo_reward_meta?.rule_name !== ruleName) {
+                        return accumulator;
+                    }
+
+                    const productId = Number(item.product_id || 0);
+                    accumulator[productId] =
+                        (accumulator[productId] || 0) + Number(item.qty || 0);
+                    return accumulator;
+                },
+                {}
+            );
+            const completedCycles = buyItems.reduce((currentMin, buyItem) => {
+                const productId = Number(buyItem.product_id || 0);
+                const requiredQty = Math.max(
+                    1,
+                    Number(buyItem.quantity || 1)
+                );
+                const currentQty = Number(buyCartQuantities[productId] || 0);
+                const nextCycles = Math.floor(currentQty / requiredQty);
+
+                return currentMin === null
+                    ? nextCycles
+                    : Math.min(currentMin, nextCycles);
+            }, null);
+
+            if (!completedCycles || completedCycles <= 0) {
+                return;
+            }
 
             for (const rewardItem of rewardItems) {
+                const rewardProductId = Number(rewardItem.product_id || 0);
+                const requiredQty =
+                    Math.max(1, Number(rewardItem.quantity || 1)) *
+                    completedCycles;
+                const currentQty = Number(
+                    existingRewardQuantities[rewardProductId] || 0
+                );
+                const qtyToAdd = Math.max(0, requiredQty - currentQty);
+
+                if (qtyToAdd <= 0) {
+                    continue;
+                }
+
                 const rewardProduct =
-                    productsById[Number(rewardItem.product_id || 0)] || null;
+                    productsById[rewardProductId] || null;
 
                 if (!rewardProduct) {
                     missingRewards.push(
@@ -1833,16 +1990,18 @@ export default function Index({
                 }
 
                 const success = await addProductToCart(rewardProduct, {
-                    qty: Math.max(1, Number(rewardItem.quantity || 1)),
+                    qty: qtyToAdd,
                     rewardPromoMeta: {
-                        rule_name: rule?.name || rule?.label || "Promo Buy Get",
+                        rule_name: ruleName,
                         reward_label:
                             rewardItem.product_title || rewardProduct.title,
                     },
                 });
 
                 if (success) {
-                    addedCount += Math.max(1, Number(rewardItem.quantity || 1));
+                    addedCount += qtyToAdd;
+                    existingRewardQuantities[rewardProductId] =
+                        currentQty + qtyToAdd;
                     addedRewardProductIds.push(Number(rewardProduct.id));
                 }
             }
@@ -1860,8 +2019,250 @@ export default function Index({
                 );
             }
         },
-        [addProductToCart, productsById]
+        [addProductToCart, localCarts, productsById]
     );
+
+    const collectActiveBuyGetRules = useCallback((cartItems = localCarts) => {
+        const seenRuleNames = new Set();
+        const rules = [];
+        const productCandidates = [
+            ...Object.values(productsById || {}),
+            ...cartItems
+                .map((item) => item?.product)
+                .filter(Boolean),
+        ];
+
+        for (const product of productCandidates) {
+            const rule = product?.pricing_badge?.pricing_rule;
+
+            if (!rule || rule.kind !== "buy_x_get_y") {
+                continue;
+            }
+
+            const ruleName = rule?.name || rule?.label || promoBadgeSummary(rule).title;
+
+            if (!ruleName || seenRuleNames.has(ruleName)) {
+                continue;
+            }
+
+            seenRuleNames.add(ruleName);
+            rules.push(rule);
+        }
+
+        return rules;
+    }, [localCarts, productsById]);
+
+    const syncRewardProducts = useCallback(async (cartItems = localCarts) => {
+        if (isRewardSyncingRef.current) {
+            return;
+        }
+
+        const rules = collectActiveBuyGetRules(cartItems);
+        if (rules.length === 0) {
+            return;
+        }
+
+        const operations = [];
+
+        for (const rule of rules) {
+            const buyItems = Array.isArray(rule?.buy_items) ? rule.buy_items : [];
+            const rewardItems = Array.isArray(rule?.get_items)
+                ? rule.get_items
+                : [];
+            const ruleName =
+                rule?.name || rule?.label || promoBadgeSummary(rule).title || "Promo";
+
+            if (buyItems.length === 0 || rewardItems.length === 0) {
+                continue;
+            }
+
+            const buyCartQuantities = cartItems.reduce((accumulator, item) => {
+                if (item.promo_reward_meta) {
+                    return accumulator;
+                }
+
+                const productId = Number(item.product_id || 0);
+                accumulator[productId] =
+                    (accumulator[productId] || 0) + Number(item.qty || 0);
+
+                return accumulator;
+            }, {});
+
+            const completedCycles = buyItems.reduce((currentMin, buyItem) => {
+                const productId = Number(buyItem.product_id || 0);
+                const requiredQty = Math.max(1, Number(buyItem.quantity || 1));
+                const currentQty = Number(buyCartQuantities[productId] || 0);
+                const nextCycles = Math.floor(currentQty / requiredQty);
+
+                return currentMin === null
+                    ? nextCycles
+                    : Math.min(currentMin, nextCycles);
+            }, null);
+
+            for (const rewardItem of rewardItems) {
+                const rewardProductId = Number(rewardItem.product_id || 0);
+                const desiredQty =
+                    Math.max(0, Number(completedCycles || 0)) *
+                    Math.max(1, Number(rewardItem.quantity || 1));
+                const rewardRows = cartItems
+                    .filter(
+                        (item) =>
+                            item.promo_reward_meta?.rule_name === ruleName &&
+                            Number(item.product_id || 0) === rewardProductId
+                    )
+                    .sort((left, right) => Number(right.qty || 0) - Number(left.qty || 0));
+                const currentQty = rewardRows.reduce(
+                    (sum, item) => sum + Number(item.qty || 0),
+                    0
+                );
+
+                if (currentQty < desiredQty) {
+                    operations.push({
+                        type: "add",
+                        rule,
+                        productId: rewardProductId,
+                        qty: desiredQty - currentQty,
+                        rewardLabel:
+                            rewardItem.product_title ||
+                            productsById[rewardProductId]?.title ||
+                            "Item bonus",
+                    });
+                    continue;
+                }
+
+                if (currentQty <= desiredQty) {
+                    continue;
+                }
+
+                let excessQty = currentQty - desiredQty;
+
+                for (const rewardRow of rewardRows) {
+                    const rowQty = Number(rewardRow.qty || 0);
+
+                    if (excessQty <= 0) {
+                        break;
+                    }
+
+                    if (rowQty <= excessQty) {
+                        operations.push({
+                            type: "remove",
+                            cartId: rewardRow.id,
+                        });
+                        excessQty -= rowQty;
+                        continue;
+                    }
+
+                    operations.push({
+                        type: "update",
+                        cartId: rewardRow.id,
+                        qty: rowQty - excessQty,
+                    });
+                    excessQty = 0;
+                }
+            }
+        }
+
+        if (operations.length === 0) {
+            return;
+        }
+
+        isRewardSyncingRef.current = true;
+        setPendingCartMutations((count) => count + 1);
+
+        try {
+            for (const operation of operations) {
+                if (operation.type === "add") {
+                    const rewardProduct =
+                        productsById[operation.productId] ||
+                        cartItems.find(
+                            (item) =>
+                                Number(item.product_id || 0) === operation.productId
+                        )?.product ||
+                        null;
+
+                    if (!rewardProduct) {
+                        continue;
+                    }
+
+                    await addProductToCart(rewardProduct, {
+                        qty: operation.qty,
+                        rewardPromoMeta: {
+                            rule_name:
+                                operation.rule?.name ||
+                                operation.rule?.label ||
+                                promoBadgeSummary(operation.rule).title ||
+                                "Promo",
+                            reward_label: operation.rewardLabel,
+                        },
+                    });
+
+                    continue;
+                }
+
+                if (operation.type === "remove") {
+                    setLocalCarts((currentCarts) =>
+                        currentCarts.filter((item) => item.id !== operation.cartId)
+                    );
+
+                    if (!isOfflineMode) {
+                        await axios.delete(route("transactions.destroyCart", operation.cartId));
+                    }
+
+                    continue;
+                }
+
+                if (operation.type === "update" && operation.qty >= 1) {
+                    setLocalCarts((currentCarts) =>
+                        currentCarts.map((item) =>
+                            item.id === operation.cartId
+                                ? {
+                                      ...item,
+                                      qty: operation.qty,
+                                      price:
+                                          Number(item.product?.sell_price || 0) *
+                                          operation.qty,
+                                  }
+                                : item
+                        )
+                    );
+
+                    if (!isOfflineMode) {
+                        const response = await axios.patch(
+                            route("transactions.updateCart", operation.cartId),
+                            { qty: operation.qty }
+                        );
+                        const serverCart = response.data?.data?.cart;
+
+                        if (serverCart) {
+                            setLocalCarts((currentCarts) =>
+                                currentCarts.map((item) =>
+                                    item.id === operation.cartId ? serverCart : item
+                                )
+                            );
+                        }
+                    }
+                }
+            }
+
+            setCartSyncVersion((version) => version + 1);
+        } catch (error) {
+            if (error?.response) {
+                toast.error(
+                    error?.response?.data?.message ||
+                        "Sinkronisasi bonus promo gagal."
+                );
+            }
+        } finally {
+            setPendingCartMutations((count) => Math.max(0, count - 1));
+            isRewardSyncingRef.current = false;
+        }
+    }, [
+        addProductToCart,
+        collectActiveBuyGetRules,
+        isOfflineMode,
+        localCarts,
+        productsById,
+    ]);
 
     const handleAddAllMissingRewards = useCallback(async () => {
         if (unmetRewardWarnings.length === 0) {
@@ -1882,6 +2283,40 @@ export default function Index({
             setIsAddingMissingRewards(false);
         }
     }, [handleAddRewardProducts, unmetRewardWarnings]);
+
+    // Handle add product to cart
+    const handleAddToCart = useCallback(
+        async (product) => {
+            if (!product?.id) return;
+
+            if (hasPresetModifiers(product)) {
+                setModifierModalProduct(product);
+                setIsModifierPromoDetailOpen(false);
+                setSelectedModifierOptionIds([]);
+                setModifierModalQuantity(1);
+                return;
+            }
+
+            const success = await addProductToCart(product);
+
+            if (!success) {
+                return;
+            }
+
+            await handleAddRewardProducts(
+                product?.pricing_badge?.pricing_rule || null,
+                {
+                    buyAdjustments: [
+                        {
+                            product_id: product.id,
+                            qty: 1,
+                        },
+                    ],
+                }
+            );
+        },
+        [addProductToCart, handleAddRewardProducts, hasPresetModifiers]
+    );
 
     const handleToggleModifierOption = useCallback((optionId) => {
         setSelectedModifierOptionIds((current) =>
@@ -2041,6 +2476,22 @@ export default function Index({
                         qty: modifierModalQuantity,
                         modifiers: selectedModifiers,
                     });
+
+                    if (success) {
+                        await handleAddRewardProducts(
+                            modifierModalProduct?.pricing_badge?.pricing_rule ||
+                                null,
+                            {
+                                buyAdjustments: [
+                                    {
+                                        product_id:
+                                            modifierModalProduct?.id,
+                                        qty: modifierModalQuantity,
+                                    },
+                                ],
+                            }
+                        );
+                    }
                 }
 
                 if (success) {
@@ -2061,12 +2512,13 @@ export default function Index({
         },
         [
             addProductToCart,
+            handleAddRewardProducts,
+            isOfflineMode,
             localCarts,
             modifierModalCartTargetId,
             modifierModalProduct,
             modifierModalQuantity,
             selectedModifierOptionIds,
-            isOfflineMode,
         ]
     );
 
@@ -2078,16 +2530,18 @@ export default function Index({
         if (newQty < 1) return;
 
         if (isOfflineMode) {
-            setLocalCarts((currentCarts) =>
-                currentCarts.map((item) =>
+            const nextCarts = localCarts.map((item) =>
                     item.id === cartId
                         ? {
                               ...item,
                               qty: newQty,
                           }
                         : item
-                )
             );
+            setLocalCarts(nextCarts);
+            window.setTimeout(() => {
+                syncRewardProducts(nextCarts);
+            }, 0);
             return;
         }
 
@@ -2095,8 +2549,7 @@ export default function Index({
         setPendingCartMutations((count) => count + 1);
         const previousCarts = localCarts;
 
-        setLocalCarts((currentCarts) =>
-            currentCarts.map((item) =>
+        const nextCarts = localCarts.map((item) =>
                 item.id === cartId
                     ? {
                           ...item,
@@ -2110,8 +2563,8 @@ export default function Index({
                               ) * newQty,
                       }
                     : item
-            )
         );
+        setLocalCarts(nextCarts);
 
         axios
             .patch(route("transactions.updateCart", cartId), { qty: newQty })
@@ -2119,11 +2572,17 @@ export default function Index({
                 const serverCart = response.data?.data?.cart;
 
                 if (serverCart) {
-                    setLocalCarts((currentCarts) =>
-                        currentCarts.map((item) =>
-                            item.id === cartId ? serverCart : item
-                        )
+                    const syncedCarts = nextCarts.map((item) =>
+                        item.id === cartId ? serverCart : item
                     );
+                    setLocalCarts(syncedCarts);
+                    window.setTimeout(() => {
+                        syncRewardProducts(syncedCarts);
+                    }, 0);
+                } else {
+                    window.setTimeout(() => {
+                        syncRewardProducts(nextCarts);
+                    }, 0);
                 }
 
                 setCartSyncVersion((version) => version + 1);
@@ -2452,6 +2911,13 @@ export default function Index({
                 paymentMethod === "bank_transfer"
                     ? selectedBankAccount?.id
                     : null,
+            reward_cart_meta: localCarts
+                .filter((item) => item.promo_reward_meta)
+                .map((item) => ({
+                    cart_id: String(item.id),
+                    rule_name: item.promo_reward_meta?.rule_name || null,
+                    reward_label: item.promo_reward_meta?.reward_label || null,
+                })),
             pay_later: payLater,
             due_date: dueDate,
         }),
@@ -2459,6 +2925,7 @@ export default function Index({
             cash,
             dueDate,
             isCashPayment,
+            localCarts,
             orderType,
             payLater,
             payable,
@@ -2787,17 +3254,7 @@ export default function Index({
         const offlineReference = buildOfflineInvoice();
         const normalizedItems = localCarts.map((item) => {
             const pricingItem = pricingItemsByCartId[item.id];
-            const baseUnitPrice = Number(
-                pricingItem?.base_unit_price ??
-                    item.product?.sell_price ??
-                    0
-            );
-            const unitPrice = Number(
-                pricingItem?.effective_unit_price ??
-                    item.product?.pricing_badge?.promo_price ??
-                    item.product?.sell_price ??
-                    0
-            );
+            const resolvedLine = resolveCartPricingLine(item, pricingItem);
             const modifiers = (item.modifiers || []).map((modifier) => ({
                 name: modifier.name,
                 qty: Number(modifier.qty || 1),
@@ -2812,18 +3269,22 @@ export default function Index({
                 (sum, modifier) => sum + Number(modifier.total_price || 0),
                 0
             );
-            const lineTotal = unitPrice * Number(item.qty || 1) + modifierTotal;
+            const lineTotal = Number(
+                pricingItem?.line_total ??
+                    resolvedLine.effectiveUnitPrice * Number(item.qty || 1) +
+                        modifierTotal
+            );
 
             return {
                 product_id: item.product_id,
                 product_title: item.product?.title || "Produk",
                 tenant_outlet_id: item.tenant_outlet_id || null,
                 qty: Number(item.qty || 1),
-                base_unit_price: baseUnitPrice,
-                unit_price: unitPrice,
+                base_unit_price: resolvedLine.baseUnitPrice,
+                unit_price: resolvedLine.effectiveUnitPrice,
                 price: lineTotal,
                 notes: item.notes || null,
-                discount_total: Number(pricingItem?.line_discount_total || 0),
+                discount_total: resolvedLine.discountTotal,
                 pricing_rule_name:
                     pricingItem?.pricing_rule?.name ||
                     pricingItem?.pricing_rule?.label ||
@@ -3187,9 +3648,11 @@ export default function Index({
     // Handle remove from cart
     const handleRemoveFromCart = (cartId) => {
         if (isOfflineMode) {
-            setLocalCarts((currentCarts) =>
-                currentCarts.filter((item) => item.id !== cartId)
-            );
+            const nextCarts = localCarts.filter((item) => item.id !== cartId);
+            setLocalCarts(nextCarts);
+            window.setTimeout(() => {
+                syncRewardProducts(nextCarts);
+            }, 0);
             return;
         }
 
@@ -3197,13 +3660,15 @@ export default function Index({
         setPendingCartMutations((count) => count + 1);
         const previousCarts = localCarts;
 
-        setLocalCarts((currentCarts) =>
-            currentCarts.filter((item) => item.id !== cartId)
-        );
+        const nextCarts = localCarts.filter((item) => item.id !== cartId);
+        setLocalCarts(nextCarts);
 
         axios
             .delete(route("transactions.destroyCart", cartId))
             .then(() => {
+                window.setTimeout(() => {
+                    syncRewardProducts(nextCarts);
+                }, 0);
                 setCartSyncVersion((version) => version + 1);
                 toast.success("Item dihapus dari keranjang");
             })
@@ -3863,26 +4328,19 @@ export default function Index({
                                         (() => {
                                             const pricingItem =
                                                 pricingItemsByCartId[item.id];
-                                            const baseLineTotal = Number(
-                                                pricingItem?.line_base_total ??
-                                                    item.price ??
-                                                    0
-                                            );
-                                            const effectiveLineTotal = Number(
-                                                pricingItem?.line_total ??
-                                                    item.price ??
-                                                    0
-                                            );
-                                            const effectiveUnitPrice = Number(
-                                                pricingItem?.effective_unit_price ??
-                                                    item.product?.sell_price ??
-                                                    0
-                                            );
-                                            const baseUnitPrice = Number(
-                                                pricingItem?.base_unit_price ??
-                                                    item.product?.sell_price ??
-                                                    0
-                                            );
+                                            const resolvedLine =
+                                                resolveCartPricingLine(
+                                                    item,
+                                                    pricingItem
+                                                );
+                                            const baseLineTotal =
+                                                resolvedLine.baseLineTotal;
+                                            const effectiveLineTotal =
+                                                resolvedLine.effectiveLineTotal;
+                                            const effectiveUnitPrice =
+                                                resolvedLine.effectiveUnitPrice;
+                                            const baseUnitPrice =
+                                                resolvedLine.baseUnitPrice;
                                             const pricingRule =
                                                 pricingItem?.pricing_rule;
                                             const fallbackProduct =
@@ -3940,10 +4398,8 @@ export default function Index({
                                                         item.qty || 1
                                                     ),
                                                     baseUnitPrice,
-                                                    discountTotal: Number(
-                                                        pricingItem?.line_discount_total ||
-                                                            0
-                                                    ),
+                                                    discountTotal:
+                                                        resolvedLine.discountTotal,
                                                     productId:
                                                         item.product_id,
                                                 });
@@ -4007,7 +4463,7 @@ export default function Index({
                                                 {item.promo_reward_meta ? (
                                                     <div className="mt-1 flex flex-wrap items-center gap-1.5">
                                                         <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">
-                                                            Item Bonus Promo
+                                                            {REWARD_ITEM_LABEL}
                                                         </span>
                                                         <span className="text-[11px] text-emerald-700 dark:text-emerald-300">
                                                             {item.promo_reward_meta
@@ -4618,7 +5074,7 @@ export default function Index({
                                     <div className="flex items-start justify-between gap-3">
                                         <div>
                                             <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">
-                                                Promo otomatis aktif
+                                                {PROMO_TOTAL_LABEL} aktif
                                             </p>
                                             <p className="text-xs text-emerald-600/80 dark:text-emerald-400/80">
                                                 Harga item sudah disesuaikan berdasarkan rule promo yang berlaku.
@@ -4672,7 +5128,7 @@ export default function Index({
                                             </p>
                                             <p className="text-xs text-primary-600/80 dark:text-primary-400/80">
                                                 Tier {selectedCustomer.loyalty_tier} | saldo{" "}
-                                                {pricingPreview?.summary
+                                                {resolvedPricingPreview?.summary
                                                     ?.available_loyalty_points ??
                                                     0}{" "}
                                                 poin
@@ -4700,7 +5156,7 @@ export default function Index({
                                             )
                                         }
                                         placeholder={`Maks ${
-                                            pricingPreview?.summary
+                                            resolvedPricingPreview?.summary
                                                 ?.available_loyalty_points ?? 0
                                         } poin`}
                                         disabled={isOfflineMode}
@@ -4710,7 +5166,7 @@ export default function Index({
                             )}
 
                             {selectedCustomer?.is_loyalty_member &&
-                                (pricingPreview?.eligible_vouchers || [])
+                                (resolvedPricingPreview?.eligible_vouchers || [])
                                     .length > 0 && (
                                     <div>
                                         <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-2">
@@ -4730,7 +5186,7 @@ export default function Index({
                                                 Tanpa voucher
                                             </option>
                                             {(
-                                                pricingPreview?.eligible_vouchers ||
+                                                resolvedPricingPreview?.eligible_vouchers ||
                                                 []
                                             ).map((voucher) => (
                                                 <option
@@ -4760,34 +5216,39 @@ export default function Index({
                         {promoDiscount > 0 && (
                             <div className="flex justify-between items-center mb-2 text-sm">
                                 <span className="text-slate-500">
-                                    Promo Spesial
+                                    {PROMO_TOTAL_LABEL}
                                 </span>
                                 <span className="text-emerald-600">
                                     -{formatPrice(promoDiscount)}
                                 </span>
                             </div>
                         )}
-                        {(pricingPreview?.applied_groups || []).length > 0 && (
+                        {appliedPromoGroups.length > 0 && (
                             <div className="mb-3 rounded-xl border border-slate-200 bg-white/70 p-2 dark:border-slate-700 dark:bg-slate-900/60">
                                 <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                                     Promo yang sedang bekerja
                                 </div>
-                                <div className="space-y-1.5">
-                                    {(pricingPreview?.applied_groups || []).map(
-                                        (group) => (
+                                <div className="max-h-36 space-y-1.5 overflow-y-auto pr-1">
+                                    {appliedPromoGroups.map((group) => (
                                             <div
                                                 key={group.key}
-                                                className="flex items-center justify-between text-xs"
+                                                className="flex items-start justify-between gap-3 text-xs"
                                             >
-                                                <span className="truncate pr-3 text-slate-600 dark:text-slate-300">
-                                                    {group.label}
-                                                </span>
+                                                <div className="min-w-0 flex-1">
+                                                    <span className="block break-words text-slate-600 dark:text-slate-300">
+                                                        {group.label}
+                                                    </span>
+                                                    {group.count > 1 ? (
+                                                        <span className="text-[11px] text-slate-400 dark:text-slate-500">
+                                                            {group.count} siklus promo
+                                                        </span>
+                                                    ) : null}
+                                                </div>
                                                 <span className="font-medium text-emerald-600">
                                                     -{formatPrice(group.discount_total)}
                                                 </span>
                                             </div>
-                                        )
-                                    )}
+                                        ))}
                                 </div>
                             </div>
                         )}
@@ -4973,6 +5434,11 @@ export default function Index({
                                                         pricingItemsByCartId[
                                                             item.id
                                                         ];
+                                                    const resolvedLine =
+                                                        resolveCartPricingLine(
+                                                            item,
+                                                            pricingItem
+                                                        );
                                                     const promoLabel =
                                                         pricingItem?.pricing_rule
                                                             ?.label ||
@@ -4981,12 +5447,8 @@ export default function Index({
                                                     const promoDetail =
                                                         pricingItem?.pricing_rule
                                                             ?.detail || null;
-                                                    const baseUnitPrice = Number(
-                                                        pricingItem?.base_unit_price ??
-                                                            item.product
-                                                                ?.sell_price ??
-                                                            0
-                                                    );
+                                                    const baseUnitPrice =
+                                                        resolvedLine.baseUnitPrice;
                                                     const buyGetBreakdown =
                                                         resolveBuyGetBreakdown(
                                                             {
@@ -5000,19 +5462,13 @@ export default function Index({
                                                                 ),
                                                                 baseUnitPrice,
                                                                 discountTotal:
-                                                                    Number(
-                                                                        pricingItem?.line_discount_total ||
-                                                                            0
-                                                                    ),
+                                                                    resolvedLine.discountTotal,
                                                                 productId:
                                                                     item.product_id,
                                                             }
                                                         );
-                                                    const lineTotal = Number(
-                                                        pricingItem?.line_total ??
-                                                            item.price ??
-                                                            0
-                                                    );
+                                                    const lineTotal =
+                                                        resolvedLine.effectiveLineTotal;
 
                                                     return (
                                                         <div
@@ -5064,13 +5520,7 @@ export default function Index({
                                                                                     <>
                                                                                         @{" "}
                                                                                         {formatPrice(
-                                                                                            Number(
-                                                                                                pricingItem?.effective_unit_price ??
-                                                                                                    item
-                                                                                                        .product
-                                                                                                        ?.sell_price ??
-                                                                                                    0
-                                                                                            )
+                                                                                            resolvedLine.effectiveUnitPrice
                                                                                         )}
                                                                                         {promoLabel
                                                                                             ? ` • ${promoLabel}`
@@ -5088,7 +5538,7 @@ export default function Index({
                                                                             {item.promo_reward_meta ? (
                                                                                 <div className="mt-1 flex flex-wrap items-center gap-1.5">
                                                                                     <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">
-                                                                                        Item Bonus Promo
+                                                                                        {REWARD_ITEM_LABEL}
                                                                                     </span>
                                                                                     <span className="text-[11px] text-emerald-700 dark:text-emerald-300">
                                                                                         {item.promo_reward_meta
@@ -5848,7 +6298,7 @@ export default function Index({
                                         </div>
                                         <div className="min-w-0">
                                             <p className="text-sm font-semibold text-rose-800 dark:text-rose-200">
-                                                {modifierModalPromo.title || "Promo Spesial"}
+                                                {modifierModalPromo.title || PROMO_TOTAL_LABEL}
                                             </p>
                                             {modifierModalPromo.detail && (
                                                 <p className="mt-0.5 text-xs text-rose-600 dark:text-rose-300">
@@ -7271,7 +7721,7 @@ export default function Index({
                                                         0
                                                 ) > 0 && (
                                                     <div className="rounded-full bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-600 dark:bg-rose-950/30 dark:text-rose-300">
-                                                        Promo{" "}
+                                                        {PROMO_TOTAL_LABEL}{" "}
                                                         {formatPrice(
                                                             selectedHistoryTransaction.total_discount
                                                         )}
@@ -7309,7 +7759,7 @@ export default function Index({
                                                                 {detail.is_promo_reward ? (
                                                                     <div className="mt-1 flex flex-wrap items-center gap-1.5">
                                                                         <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">
-                                                                            Item Bonus Promo
+                                                                            {REWARD_ITEM_LABEL}
                                                                         </span>
                                                                         <span className="text-[11px] text-emerald-700 dark:text-emerald-300">
                                                                             {detail.promo_reward_rule_name ||

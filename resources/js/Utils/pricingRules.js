@@ -1,8 +1,8 @@
 export const PROMO_KIND_LABELS = {
     standard_discount: "Harga Spesial",
-    qty_break: "Promo Qty",
-    bundle_price: "Bundle",
-    buy_x_get_y: "Buy X Get Y",
+    qty_break: "Belanja Lebih Untung",
+    bundle_price: "Paket Hemat",
+    buy_x_get_y: "Promo Buy Get",
 };
 
 export const RECEIPT_PROMO_KIND_LABELS = {
@@ -11,6 +11,9 @@ export const RECEIPT_PROMO_KIND_LABELS = {
     bundle_price: "Paket Hemat",
     buy_x_get_y: "Promo Buy Get",
 };
+
+export const REWARD_ITEM_LABEL = "Item Bonus Promo";
+export const PROMO_TOTAL_LABEL = "Promo Otomatis";
 
 const defaultFormatPrice = (value = 0) =>
     Number(value || 0).toLocaleString("id-ID", {
@@ -44,6 +47,24 @@ export const promoBadgeSummary = (rule, fallbackLabel = null) => {
                 : rule.label || rule.name || fallbackLabel || "Promo aktif",
         detail: rule.detail || null,
     };
+};
+
+export const promoKindLabel = (kind, { receipt = false } = {}) => {
+    const labels = receipt ? RECEIPT_PROMO_KIND_LABELS : PROMO_KIND_LABELS;
+
+    return labels[kind] || "Promo";
+};
+
+export const promoHeadline = (kind, qty = 1) => {
+    const quantity = Math.max(1, Number(qty || 1));
+
+    return (
+        {
+            qty_break: `Beli ${quantity}+ lebih hemat`,
+            bundle_price: "Ambil paket, harga lebih hemat",
+            buy_x_get_y: "Benefit buy-get diterapkan",
+        }[kind] || null
+    );
 };
 
 export const promoBenefitPreview = ({
@@ -112,20 +133,19 @@ export const promoBenefitPreview = ({
 
         const buyQty = Math.max(1, Number(rule.buy_qty || 1));
         const freeQty = Math.max(1, Number(rule.free_qty || 1));
-        const cycle = buyQty + freeQty;
-        const completedCycles = Math.floor(qty / cycle);
+        const completedCycles = Math.floor(qty / buyQty);
         const bonusItems = completedCycles * freeQty;
-        const payableItems = Math.max(0, qty - bonusItems);
+        const payableItems = qty;
         const lineTotal = payableItems * basePrice;
         const savings = bonusItems * basePrice;
 
         if (bonusItems <= 0) {
-            const needed = Math.max(1, cycle - qty);
+            const needed = Math.max(1, buyQty - qty);
 
-            return {
-                status: "pending",
-                headline: `Tambah ${needed} item lagi untuk mengaktifkan bonus ${freeQty} item.`,
-                detail: rule.detail,
+        return {
+            status: "pending",
+            headline: `Tambah ${needed} item lagi untuk mengaktifkan bonus ${freeQty} item.`,
+            detail: rule.detail,
                 lineTotal: basePrice * qty,
                 savings: 0,
             };
@@ -133,8 +153,8 @@ export const promoBenefitPreview = ({
 
         return {
             status: "active",
-            headline: `${bonusItems} item bonus aktif untuk qty ${qty}.`,
-            detail: `Pelanggan bayar ${payableItems} item, hemat ${formatPrice(
+            headline: `${bonusItems} item bonus akan otomatis ditambahkan.`,
+            detail: `Pelanggan bayar ${payableItems} item, dapat bonus ${bonusItems} item dengan hemat ${formatPrice(
                 savings
             )}.`,
             lineTotal,
@@ -257,7 +277,7 @@ export const promoMetaText = (
     { compact = false, formatPrice = defaultFormatPrice } = {}
 ) => {
     if (item?.is_promo_reward) {
-        return ["Item Bonus Promo", item?.promo_reward_rule_name || "Promo aktif"]
+        return [REWARD_ITEM_LABEL, item?.promo_reward_rule_name || "Promo aktif"]
             .filter(Boolean)
             .join(" • ");
     }
@@ -266,20 +286,11 @@ export const promoMetaText = (
         return null;
     }
 
-    const kindLabel =
-        (compact ? RECEIPT_PROMO_KIND_LABELS : RECEIPT_PROMO_KIND_LABELS)[
-            item?.pricing_rule_kind
-        ] || null;
+    const kindLabel = promoKindLabel(item?.pricing_rule_kind, {
+        receipt: compact,
+    });
     const title = item?.pricing_group_label || item?.pricing_rule_name || null;
-    const qty = Math.max(1, Number(item?.qty || 1));
-    const headline =
-        item?.pricing_rule_kind === "qty_break"
-            ? `Beli ${qty}+ lebih hemat`
-            : item?.pricing_rule_kind === "bundle_price"
-              ? "Ambil paket, harga lebih hemat"
-              : item?.pricing_rule_kind === "buy_x_get_y"
-                ? "Benefit buy-get diterapkan"
-                : null;
+    const headline = promoHeadline(item?.pricing_rule_kind, item?.qty);
     const baseUnitPrice = Number(item?.base_unit_price || 0);
     const unitPrice = Number(item?.unit_price || 0);
     const parts = [kindLabel, headline, title].filter(Boolean);
@@ -290,12 +301,12 @@ export const promoMetaText = (
         );
     }
 
-    return parts.join(" • ") || "Promo Spesial";
+    return parts.join(" • ") || PROMO_TOTAL_LABEL;
 };
 
 export const promoDetailText = (item) => {
     if (item?.is_promo_reward) {
-        return `Item bonus promo • ${
+        return `${REWARD_ITEM_LABEL} • ${
             item?.promo_reward_rule_name || "Promo aktif"
         }`;
     }
@@ -314,7 +325,7 @@ export const promoDetailText = (item) => {
         kind === "qty_break"
             ? `Qty ${qty} memenuhi promo jumlah.`
             : kind === "bundle_price"
-              ? "Promo bundle diterapkan."
+              ? "Paket promo diterapkan."
               : kind === "buy_x_get_y"
                 ? "Benefit buy-get diterapkan."
                 : "Harga promo diterapkan.";
@@ -324,7 +335,7 @@ export const promoDetailText = (item) => {
 
 export const promoTitleText = (item) => {
     if (item?.is_promo_reward) {
-        return item?.promo_reward_rule_name || "Item Bonus Promo";
+        return item?.promo_reward_rule_name || REWARD_ITEM_LABEL;
     }
 
     return item?.pricing_group_label || item?.pricing_rule_name || null;
@@ -334,3 +345,403 @@ export const hasPromoApplied = (item) =>
     Boolean(item?.is_promo_reward) ||
     Number(item?.discount_total || 0) > 0 ||
     Boolean(promoTitleText(item));
+
+export const buildPricingItemsByCartId = (pricingPreview) => {
+    const items = pricingPreview?.items || [];
+
+    return items.reduce((accumulator, item) => {
+        accumulator[item.cart_id] = item;
+
+        return accumulator;
+    }, {});
+};
+
+const buildCartFingerprint = (item) => {
+    const modifierSignature = Array.isArray(item?.modifiers)
+        ? item.modifiers
+              .map(
+                  (modifier) =>
+                      `${modifier?.name || ""}:${Number(
+                          modifier?.qty || 0
+                      )}:${Number(modifier?.unit_price || 0)}`
+              )
+              .sort()
+              .join("|")
+        : "";
+
+    return [
+        Number(item?.product_id || 0),
+        Number(item?.qty || 0),
+        String(item?.notes || "").trim(),
+        modifierSignature,
+    ].join("::");
+};
+
+export const mergeRewardMetadataIntoCarts = (
+    serverCarts = [],
+    cachedCarts = []
+) => {
+    if (!Array.isArray(serverCarts) || serverCarts.length === 0) {
+        return [];
+    }
+
+    const cachedRewardCarts = Array.isArray(cachedCarts)
+        ? cachedCarts.filter((item) => item?.promo_reward_meta)
+        : [];
+
+    if (cachedRewardCarts.length === 0) {
+        return serverCarts;
+    }
+
+    const cachedById = new Map(
+        cachedRewardCarts.map((item) => [String(item.id), item])
+    );
+    const usedCacheIds = new Set();
+
+    return serverCarts.map((cart) => {
+        if (cart?.promo_reward_meta) {
+            return cart;
+        }
+
+        const exactCachedCart = cachedById.get(String(cart.id));
+        if (exactCachedCart?.promo_reward_meta) {
+            usedCacheIds.add(String(exactCachedCart.id));
+
+            return {
+                ...cart,
+                is_promo_reward: true,
+                promo_reward_rule_name:
+                    exactCachedCart.promo_reward_meta?.rule_name ||
+                    exactCachedCart.promo_reward_rule_name ||
+                    null,
+                promo_reward_label:
+                    exactCachedCart.promo_reward_meta?.reward_label ||
+                    exactCachedCart.promo_reward_label ||
+                    null,
+                promo_reward_meta: exactCachedCart.promo_reward_meta,
+            };
+        }
+
+        const cartFingerprint = buildCartFingerprint(cart);
+        const fallbackCachedCart = cachedRewardCarts.find((item) => {
+            if (usedCacheIds.has(String(item.id))) {
+                return false;
+            }
+
+            return buildCartFingerprint(item) === cartFingerprint;
+        });
+
+        if (!fallbackCachedCart?.promo_reward_meta) {
+            return cart;
+        }
+
+        usedCacheIds.add(String(fallbackCachedCart.id));
+
+        return {
+            ...cart,
+            is_promo_reward: true,
+            promo_reward_rule_name:
+                fallbackCachedCart.promo_reward_meta?.rule_name ||
+                fallbackCachedCart.promo_reward_rule_name ||
+                null,
+            promo_reward_label:
+                fallbackCachedCart.promo_reward_meta?.reward_label ||
+                fallbackCachedCart.promo_reward_label ||
+                null,
+            promo_reward_meta: fallbackCachedCart.promo_reward_meta,
+        };
+    });
+};
+
+export const normalizeBuyGetRewardCarts = (
+    cartItems = [],
+    productsById = {}
+) => {
+    if (!Array.isArray(cartItems) || cartItems.length === 0) {
+        return [];
+    }
+
+    let nextCarts = [...cartItems];
+    const processedRules = new Set();
+
+    const resolveProductRule = (cartItem) => {
+        const productId = Number(cartItem?.product_id || 0);
+        const product = productsById[productId] || cartItem?.product || null;
+
+        return product?.pricing_badge?.pricing_rule || null;
+    };
+
+    for (const cartItem of nextCarts) {
+        const rule = resolveProductRule(cartItem);
+
+        if (
+            !rule ||
+            rule.kind !== "buy_x_get_y" ||
+            !Array.isArray(rule?.buy_items) ||
+            !Array.isArray(rule?.get_items)
+        ) {
+            continue;
+        }
+
+        const buyItems = rule.buy_items;
+        const rewardItems = rule.get_items;
+        if (buyItems.length !== 1 || rewardItems.length !== 1) {
+            continue;
+        }
+
+        const buyItem = buyItems[0];
+        const rewardItem = rewardItems[0];
+        const buyProductId = Number(buyItem?.product_id || 0);
+        const rewardProductId = Number(rewardItem?.product_id || 0);
+
+        if (
+            buyProductId <= 0 ||
+            rewardProductId <= 0 ||
+            buyProductId !== rewardProductId
+        ) {
+            continue;
+        }
+
+        const ruleName = rule?.name || promoBadgeSummary(rule).title || "Promo";
+        const processedKey = `${ruleName}:${buyProductId}`;
+
+        if (processedRules.has(processedKey)) {
+            continue;
+        }
+
+        processedRules.add(processedKey);
+
+        const targetRows = nextCarts
+            .map((item, index) => ({
+                item,
+                index,
+            }))
+            .filter(
+                ({ item }) => Number(item?.product_id || 0) === buyProductId
+            );
+
+        if (targetRows.length === 0) {
+            continue;
+        }
+
+        const totalQty = targetRows.reduce(
+            (sum, entry) => sum + Number(entry.item?.qty || 0),
+            0
+        );
+        const buyQty = Math.max(1, Number(buyItem?.quantity || 1));
+        const rewardQty = Math.max(1, Number(rewardItem?.quantity || 1));
+        const cycleSize = buyQty + rewardQty;
+        const desiredRewardQty =
+            Math.floor(totalQty / cycleSize) * rewardQty;
+        let remainingRewardQty = desiredRewardQty;
+
+        const orderedRows = [...targetRows].sort((left, right) => {
+            const leftIsReward = Boolean(
+                left.item?.promo_reward_meta?.rule_name === ruleName ||
+                    left.item?.is_promo_reward
+            );
+            const rightIsReward = Boolean(
+                right.item?.promo_reward_meta?.rule_name === ruleName ||
+                    right.item?.is_promo_reward
+            );
+
+            if (leftIsReward !== rightIsReward) {
+                return leftIsReward ? -1 : 1;
+            }
+
+            return Number(left.item?.qty || 0) - Number(right.item?.qty || 0);
+        });
+
+        for (const { item, index } of orderedRows) {
+            const rowQty = Math.max(1, Number(item?.qty || 1));
+            const rewardLabel =
+                rewardItem?.product_title ||
+                item?.product?.title ||
+                item?.product_title ||
+                "Item bonus";
+
+            if (rowQty <= remainingRewardQty) {
+                nextCarts[index] = {
+                    ...item,
+                    is_promo_reward: true,
+                    promo_reward_rule_name: ruleName,
+                    promo_reward_label: rewardLabel,
+                    promo_reward_meta: {
+                        rule_name: ruleName,
+                        reward_label: rewardLabel,
+                    },
+                };
+                remainingRewardQty -= rowQty;
+                continue;
+            }
+
+            nextCarts[index] = {
+                ...item,
+                is_promo_reward: false,
+                promo_reward_rule_name: null,
+                promo_reward_label: null,
+                promo_reward_meta: null,
+            };
+        }
+    }
+
+    return nextCarts;
+};
+
+export const shouldUseLocalPricingPreview = (
+    cartItems = [],
+    pricingPreview = null
+) => {
+    if (!Array.isArray(cartItems) || cartItems.length === 0) {
+        return false;
+    }
+
+    const currentItems = pricingPreview?.items || [];
+    if (currentItems.length === 0) {
+        return true;
+    }
+
+    const rewardCartIds = cartItems
+        .filter(
+            (item) =>
+                Boolean(item?.promo_reward_meta) ||
+                Boolean(item?.is_promo_reward)
+        )
+        .map((item) => String(item.id));
+
+    if (
+        rewardCartIds.length > 0 &&
+        rewardCartIds.some((cartId) => {
+            const pricingItem = currentItems.find(
+                (item) => String(item?.cart_id) === cartId
+            );
+
+            if (!pricingItem) {
+                return true;
+            }
+
+            return Number(pricingItem?.effective_unit_price ?? 0) > 0;
+        })
+    ) {
+        return true;
+    }
+
+    const currentGrandTotal = Number(pricingPreview?.summary?.grand_total ?? 0);
+    const fallbackGrandTotal = Number(
+        buildLocalPricingPreview(cartItems)?.summary?.grand_total ?? 0
+    );
+
+    return currentGrandTotal <= 0 && fallbackGrandTotal > 0;
+};
+
+export const resolveCartPricingLine = (cartItem, pricingItem = null) => {
+    const qty = Math.max(1, Number(cartItem?.qty || 1));
+    const productSellPrice = Math.max(
+        0,
+        Number(cartItem?.product?.sell_price || cartItem?.sell_price || 0)
+    );
+    const modifierTotal = (cartItem?.modifiers || []).reduce(
+        (sum, modifier) => sum + Math.max(0, Number(modifier?.total_price || 0)),
+        0
+    );
+    const isReward =
+        Boolean(cartItem?.promo_reward_meta) || Boolean(cartItem?.is_promo_reward);
+    const baseUnitPrice = Math.max(
+        0,
+        Number(pricingItem?.base_unit_price ?? productSellPrice)
+    );
+    const fallbackUnitPrice = isReward ? 0 : productSellPrice;
+    const effectiveUnitPrice = Math.max(
+        0,
+        Number(pricingItem?.effective_unit_price ?? fallbackUnitPrice)
+    );
+    const baseLineTotal = Math.max(
+        0,
+        Number(pricingItem?.line_base_total ?? baseUnitPrice * qty + modifierTotal)
+    );
+    const effectiveLineTotal = Math.max(
+        0,
+        Number(pricingItem?.line_total ?? effectiveUnitPrice * qty + modifierTotal)
+    );
+    const discountTotal = Math.max(
+        0,
+        Number(
+            pricingItem?.line_discount_total ??
+                Math.max(0, baseLineTotal - effectiveLineTotal)
+        )
+    );
+
+    return {
+        qty,
+        modifierTotal,
+        isReward,
+        baseUnitPrice,
+        effectiveUnitPrice,
+        baseLineTotal,
+        effectiveLineTotal,
+        discountTotal,
+        pricingRule: pricingItem?.pricing_rule || null,
+        pricingGroupKey: pricingItem?.pricing_group_key || null,
+        pricingGroupLabel: pricingItem?.pricing_group_label || null,
+    };
+};
+
+export const buildLocalPricingPreview = (cartItems = []) => {
+    const items = (cartItems || []).map((cartItem) => {
+        const resolved = resolveCartPricingLine(cartItem, null);
+
+        return {
+            cart_id: cartItem?.id,
+            product_id: cartItem?.product_id,
+            product_title: cartItem?.product?.title || "Produk",
+            qty: resolved.qty,
+            base_unit_price: resolved.baseUnitPrice,
+            customer_base_unit_price: resolved.baseUnitPrice,
+            tenant_base_unit_price: Number(
+                cartItem?.product?.buy_price || 0
+            ),
+            owner_markup_unit_price: Math.max(
+                0,
+                resolved.baseUnitPrice - Number(cartItem?.product?.buy_price || 0)
+            ),
+            effective_unit_price: resolved.effectiveUnitPrice,
+            line_base_total: resolved.baseLineTotal,
+            line_total: resolved.effectiveLineTotal,
+            line_discount_total: resolved.discountTotal,
+            modifier_total: resolved.modifierTotal,
+            pricing_rule: null,
+            pricing_group_key: null,
+            pricing_group_label: null,
+            is_promo_reward: resolved.isReward,
+        };
+    });
+
+    const baseSubtotal = items.reduce(
+        (sum, item) => sum + Number(item.line_base_total || 0),
+        0
+    );
+    const promoDiscountTotal = items.reduce(
+        (sum, item) => sum + Number(item.line_discount_total || 0),
+        0
+    );
+    const subtotalAfterPromo = Math.max(0, baseSubtotal - promoDiscountTotal);
+
+    return {
+        items,
+        applied_groups: [],
+        consumed_quantities: {},
+        unmatched_items: {},
+        summary: {
+            base_subtotal: baseSubtotal,
+            promo_discount_total: promoDiscountTotal,
+            tenant_discount_total: 0,
+            owner_discount_total: 0,
+            subtotal_after_promo: subtotalAfterPromo,
+            voucher_discount_total: 0,
+            loyalty_discount_total: 0,
+            manual_discount_total: 0,
+            shipping_cost: 0,
+            grand_total: subtotalAfterPromo,
+        },
+    };
+};

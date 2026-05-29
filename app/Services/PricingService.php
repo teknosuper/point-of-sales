@@ -64,21 +64,41 @@ class PricingService
 
     public function previewCart(iterable $carts, ?Customer $customer = null, ?CarbonInterface $at = null, ?int $outletId = null): array
     {
-        $cartCollection = collect($carts)
-            ->filter(fn ($cart) => $cart instanceof Cart && $cart->product)
-            ->values();
         $rules = $this->getActiveRules($at, $outletId);
+        $cartCollection = $this->normalizeRewardCarts(
+            $carts,
+            $at,
+            $outletId,
+            $rules
+        );
 
         return $this->buildPreview($cartCollection, $customer, $rules, $outletId);
     }
 
     public function previewCartWithRules(iterable $carts, ?Customer $customer, Collection $rules, ?int $outletId = null): array
     {
+        $cartCollection = $this->normalizeRewardCarts(
+            $carts,
+            null,
+            $outletId,
+            $rules
+        );
+
+        return $this->buildPreview($cartCollection, $customer, $rules->values(), $outletId);
+    }
+
+    public function normalizeRewardCarts(
+        iterable $carts,
+        ?CarbonInterface $at = null,
+        ?int $outletId = null,
+        ?Collection $rules = null
+    ): Collection {
         $cartCollection = collect($carts)
             ->filter(fn ($cart) => $cart instanceof Cart && $cart->product)
             ->values();
+        $rules = $rules ?? $this->getActiveRules($at, $outletId);
 
-        return $this->buildPreview($cartCollection, $customer, $rules->values(), $outletId);
+        return $this->applySameProductBuyGetRewardNormalization($cartCollection, $rules);
     }
 
     public function previewDraftRule(PricingRule $rule, ?Customer $customer = null, ?int $outletId = null): array
@@ -194,6 +214,7 @@ class PricingService
             'tenant_net_total' => (int) $components['tenant_base_total'],
             'owner_net_total' => (int) $components['owner_base_total'],
             'pricing_rule' => $complexRule ? $this->serializeRule($complexRule, false) : null,
+            'is_promo_reward' => false,
         ];
     }
 
@@ -205,6 +226,101 @@ class PricingService
             PricingRule::KIND_BUY_X_GET_Y => 'Buy X Get Y',
             default => $this->standardDiscountLabel($rule),
         };
+    }
+
+    private function applySameProductBuyGetRewardNormalization(
+        Collection $carts,
+        Collection $rules
+    ): Collection {
+        $processedKeys = [];
+
+        foreach ($rules as $rule) {
+            if (! $rule instanceof PricingRule || $rule->kind !== PricingRule::KIND_BUY_X_GET_Y) {
+                continue;
+            }
+
+            $buyItems = $rule->buyGetItems
+                ->where('role', PricingRuleBuyGetItem::ROLE_BUY)
+                ->values();
+            $getItems = $rule->buyGetItems
+                ->where('role', PricingRuleBuyGetItem::ROLE_GET)
+                ->values();
+
+            if ($buyItems->count() !== 1 || $getItems->count() !== 1) {
+                continue;
+            }
+
+            $buyItem = $buyItems->first();
+            $rewardItem = $getItems->first();
+            $buyProductId = (int) ($buyItem?->product_id ?? 0);
+            $rewardProductId = (int) ($rewardItem?->product_id ?? 0);
+
+            if ($buyProductId <= 0 || $rewardProductId <= 0 || $buyProductId !== $rewardProductId) {
+                continue;
+            }
+
+            $ruleName = $rule->name ?: $this->ruleLabel($rule);
+            $processedKey = $rule->id.':'.$buyProductId;
+            if (isset($processedKeys[$processedKey])) {
+                continue;
+            }
+
+            $processedKeys[$processedKey] = true;
+
+            $matchingCarts = $carts
+                ->filter(fn (Cart $cart) => (int) $cart->product_id === $buyProductId)
+                ->values();
+
+            if ($matchingCarts->isEmpty()) {
+                continue;
+            }
+
+            $totalQty = (int) $matchingCarts->sum('qty');
+            $buyQty = max(1, (int) ($buyItem?->quantity ?? 1));
+            $rewardQty = max(1, (int) ($rewardItem?->quantity ?? 1));
+            $cycleSize = $buyQty + $rewardQty;
+            $desiredRewardQty = (int) floor($totalQty / $cycleSize) * $rewardQty;
+            $remainingRewardQty = $desiredRewardQty;
+            $rewardLabel = $rewardItem?->product?->title ?: $rewardItem?->product_title ?: 'Item bonus';
+
+            $orderedRows = $matchingCarts
+                ->sort(function (Cart $left, Cart $right) use ($ruleName) {
+                    $leftIsReward = (bool) ($left->is_promo_reward ?? false)
+                        || (string) ($left->promo_reward_rule_name ?? '') === $ruleName;
+                    $rightIsReward = (bool) ($right->is_promo_reward ?? false)
+                        || (string) ($right->promo_reward_rule_name ?? '') === $ruleName;
+
+                    if ($leftIsReward !== $rightIsReward) {
+                        return $leftIsReward ? -1 : 1;
+                    }
+
+                    $qtyCompare = (int) $left->qty <=> (int) $right->qty;
+                    if ($qtyCompare !== 0) {
+                        return $qtyCompare;
+                    }
+
+                    return (int) $left->id <=> (int) $right->id;
+                })
+                ->values();
+
+            foreach ($orderedRows as $cart) {
+                $rowQty = max(1, (int) $cart->qty);
+
+                if ($rowQty <= $remainingRewardQty) {
+                    $cart->setAttribute('is_promo_reward', true);
+                    $cart->setAttribute('promo_reward_rule_name', $ruleName);
+                    $cart->setAttribute('promo_reward_label', $rewardLabel);
+                    $remainingRewardQty -= $rowQty;
+                    continue;
+                }
+
+                $cart->setAttribute('is_promo_reward', false);
+                $cart->setAttribute('promo_reward_rule_name', null);
+                $cart->setAttribute('promo_reward_label', null);
+            }
+        }
+
+        return $carts;
     }
 
     private function buildPreview(Collection $carts, ?Customer $customer, Collection $rules, ?int $outletId = null): array
@@ -238,6 +354,7 @@ class PricingService
                 'pricing_group_key' => null,
                 'pricing_group_label' => null,
                 'applied_rules' => [],
+                'is_promo_reward' => (bool) ($cart->is_promo_reward ?? false),
             ];
         })->keyBy('cart_id');
 
@@ -494,7 +611,8 @@ class PricingService
             $matched = $this->consumeMatchingItems(
                 $items,
                 $tempRemaining,
-                fn (array $item) => (int) $item['product_id'] === (int) $buyItem->product_id,
+                fn (array $item) => (int) $item['product_id'] === (int) $buyItem->product_id
+                    && ! (bool) ($item['is_promo_reward'] ?? false),
                 (int) $buyItem->quantity
             );
 
@@ -516,7 +634,8 @@ class PricingService
             $matched = $this->consumeMatchingItems(
                 $items,
                 $tempRemaining,
-                fn (array $item) => (int) $item['product_id'] === (int) $getItem->product_id,
+                fn (array $item) => (int) $item['product_id'] === (int) $getItem->product_id
+                    && (bool) ($item['is_promo_reward'] ?? false),
                 (int) $getItem->quantity
             );
 
@@ -1113,7 +1232,8 @@ class PricingService
                 return $this->makePreviewCart(
                     $product,
                     max(1, (int) data_get($row, $quantityKey, 1)),
-                    $index
+                    $index,
+                    data_get($row, 'role') === PricingRuleBuyGetItem::ROLE_GET
                 );
             })
             ->filter()
@@ -1146,13 +1266,19 @@ class PricingService
             ));
     }
 
-    private function makePreviewCart(Product $product, int $qty, int $index): Cart
+    private function makePreviewCart(
+        Product $product,
+        int $qty,
+        int $index,
+        bool $isPromoReward = false
+    ): Cart
     {
         $quantity = max(1, $qty);
         $cart = new Cart([
             'product_id' => $product->id,
             'qty' => $quantity,
             'price' => (int) ($product->sell_price ?? 0) * $quantity,
+            'is_promo_reward' => $isPromoReward,
         ]);
         $cart->id = -($index + 1);
         $cart->setRelation('product', $product);

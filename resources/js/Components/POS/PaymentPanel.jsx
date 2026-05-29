@@ -12,6 +12,7 @@ import {
     bankPlaceholderDataUri,
     setFallbackImage,
 } from "@/Utils/imagePlaceholder";
+import { PROMO_TOTAL_LABEL } from "@/Utils/pricingRules";
 
 const formatPrice = (value = 0) =>
     Number(value || 0).toLocaleString("id-ID", {
@@ -185,7 +186,7 @@ export default function PaymentPanel({
                     </div>
                     <div className="flex justify-between text-sm">
                         <span className="text-slate-500 dark:text-slate-400">
-                            Promo Spesial
+                            {PROMO_TOTAL_LABEL}
                         </span>
                         <span className="font-medium text-danger-500">
                             - {formatPrice(promoDiscount)}

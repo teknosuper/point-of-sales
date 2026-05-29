@@ -18,7 +18,9 @@ import ThermalReceipt, {
 } from "@/Components/Receipt/ThermalReceipt";
 import ShippingLabel from "@/Components/Receipt/ShippingLabel";
 import {
+    PROMO_TOTAL_LABEL,
     promoDetailText,
+    REWARD_ITEM_LABEL,
     resolveBuyGetBreakdown,
 } from "@/Utils/pricingRules";
 import { useAuthorization } from "@/Utils/authorization";
@@ -659,7 +661,7 @@ export default function Print({
                                                                 <p className="text-xs font-medium text-rose-500 dark:text-rose-400">
                                                                     {item.is_promo_reward
                                                                         ? item.promo_reward_rule_name ||
-                                                                          "Item Bonus Promo"
+                                                                          REWARD_ITEM_LABEL
                                                                         : item.pricing_group_label ||
                                                                         item.pricing_rule_name ||
                                                                           "Promo aktif"}
@@ -880,7 +882,7 @@ export default function Print({
                                                                 <span>{formatPrice(allocation.subtotal)}</span>
                                                             </div>
                                                             <div className="flex justify-between gap-3">
-                                                                <span>Promo item</span>
+                                                                <span>{PROMO_TOTAL_LABEL}</span>
                                                                 <span>- {formatPrice(allocation.promo_discount_total)}</span>
                                                             </div>
                                                             <div className="flex justify-between gap-3">
@@ -924,7 +926,7 @@ export default function Print({
                                     </div>
                                     {promoDiscountTotal > 0 && (
                                         <div className="flex justify-between text-slate-600 dark:text-slate-400">
-                                            <span>Promo Otomatis</span>
+                                            <span>{PROMO_TOTAL_LABEL}</span>
                                             <span>
                                                 -{" "}
                                                 {formatPrice(
