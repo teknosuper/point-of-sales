@@ -277,13 +277,26 @@ export const promoMetaText = (
     { compact = false, formatPrice = defaultFormatPrice } = {}
 ) => {
     if (item?.is_promo_reward) {
-        return [REWARD_ITEM_LABEL, item?.promo_reward_rule_name || "Promo aktif"]
+        const rewardQty = Math.max(1, Number(item?.qty || 1));
+        return [
+            compact ? `Bonus Gratis ${rewardQty}x` : REWARD_ITEM_LABEL,
+            item?.promo_reward_rule_name || "Promo aktif",
+        ]
             .filter(Boolean)
             .join(" • ");
     }
 
     if (Number(item?.discount_total || 0) <= 0) {
         return null;
+    }
+
+    if (compact && item?.pricing_rule_kind === "buy_x_get_y") {
+        return [
+            "Promo Buy Get",
+            item?.pricing_group_label || item?.pricing_rule_name || null,
+        ]
+            .filter(Boolean)
+            .join(" • ");
     }
 
     const kindLabel = promoKindLabel(item?.pricing_rule_kind, {
@@ -306,7 +319,7 @@ export const promoMetaText = (
 
 export const promoDetailText = (item) => {
     if (item?.is_promo_reward) {
-        return `${REWARD_ITEM_LABEL} • ${
+        return `Bonus Gratis • ${
             item?.promo_reward_rule_name || "Promo aktif"
         }`;
     }
@@ -327,7 +340,7 @@ export const promoDetailText = (item) => {
             : kind === "bundle_price"
               ? "Paket promo diterapkan."
               : kind === "buy_x_get_y"
-                ? "Benefit buy-get diterapkan."
+                ? "Promo buy-get aktif."
                 : "Harga promo diterapkan.";
 
     return `${title} • ${detail}`;

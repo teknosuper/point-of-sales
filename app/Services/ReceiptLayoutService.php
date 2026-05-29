@@ -47,10 +47,16 @@ class ReceiptLayoutService
                 $unitPrice = (int) ($item->unit_price ?: ($qty ? $baseLineTotal / $qty : $baseLineTotal));
                 $baseUnitPrice = (int) ($item->base_unit_price ?: $unitPrice);
 
+                $isReward = (bool) ($item->is_promo_reward ?? false) || ($unitPrice <= 0 && $baseUnitPrice > 0);
+
                 return [
                     'name' => $item->product->title ?? 'Produk',
                     'promo' => $this->promoSummary($item, $qty, $baseUnitPrice, $unitPrice),
-                    'detail_left' => sprintf('%dx %s', $qty, $this->compactMoney($unitPrice)),
+                    'qty' => $qty,
+                    'unit_price_label' => $isReward ? 'Bonus' : $this->compactMoney($unitPrice),
+                    'unit_note' => $isReward ? null : '@ '.$this->compactMoney($unitPrice).'/item',
+                    'line_total_label' => $this->compactMoney($baseLineTotal),
+                    'detail_left' => sprintf('%dx %s', $qty, $isReward ? 'Bonus' : $this->compactMoney($unitPrice)),
                     'detail_right' => $this->compactMoney($baseLineTotal),
                     'notes' => $item->notes ?: null,
                     'modifiers' => collect($item->modifiers ?? [])->map(fn ($modifier) => [
@@ -60,24 +66,20 @@ class ReceiptLayoutService
                 ];
             })->values()->all(),
             'totals' => array_values(array_filter([
-                ['label' => 'Sub Total', 'value' => $this->compactMoney($subtotal)],
-                $promoDiscount > 0 ? ['label' => 'Diskon Item', 'value' => $this->compactMoney($promoDiscount)] : null,
+                ['label' => 'Subtotal', 'value' => $this->compactMoney($subtotal)],
+                $promoDiscount > 0 ? ['label' => 'Diskon', 'value' => $this->compactMoney($promoDiscount)] : null,
                 $manualDiscount > 0 ? ['label' => 'Diskon Manual', 'value' => '-'.$this->compactMoney($manualDiscount)] : null,
                 $voucherDiscount > 0 ? ['label' => 'Voucher', 'value' => '-'.$this->compactMoney($voucherDiscount)] : null,
-                $loyaltyDiscount > 0 ? ['label' => 'Redeem Poin', 'value' => '-'.$this->compactMoney($loyaltyDiscount)] : null,
+                $loyaltyDiscount > 0 ? ['label' => 'Poin', 'value' => '-'.$this->compactMoney($loyaltyDiscount)] : null,
                 $shippingCost > 0 ? ['label' => 'Ongkir', 'value' => $this->compactMoney($shippingCost)] : null,
-                ['label' => 'Netto', 'value' => $this->compactMoney($grandTotal), 'strong' => true],
+                ['label' => 'Total', 'value' => $this->compactMoney($grandTotal), 'strong' => true],
             ])),
             'payments' => array_values(array_filter([
-                $paymentMethodKey === 'cash'
-                    ? ['label' => 'Bayar Tunai', 'value' => $this->compactMoney($paidAmount)]
-                    : ['label' => 'Bayar Tunai', 'value' => $this->compactMoney($cash)],
-                $paymentMethodKey !== 'cash'
-                    ? ['label' => $paymentMethodLabel, 'value' => $this->compactMoney($paidAmount)]
-                    : null,
-                ['label' => 'Nominal Bayar', 'value' => $this->compactMoney($paidAmount)],
-                ['label' => 'Kembali', 'value' => $this->compactMoney($change)],
                 ['label' => 'Metode', 'value' => $paymentMethodLabel],
+                $paymentMethodKey === 'cash'
+                    ? ['label' => 'Tunai', 'value' => $this->compactMoney($paidAmount)]
+                    : ['label' => $paymentMethodLabel, 'value' => $this->compactMoney($paidAmount)],
+                $change > 0 ? ['label' => 'Kembalian', 'value' => $this->compactMoney($change)] : null,
                 $paymentSummary ? ['label' => 'Info', 'value' => $paymentSummary] : null,
             ])),
             'footer_lines' => [
@@ -116,7 +118,7 @@ class ReceiptLayoutService
     {
         if ((bool) ($item->is_promo_reward ?? false)) {
             return implode(' • ', array_filter([
-                'Item Bonus Promo',
+                'Bonus Gratis '.max(1, $qty).'x',
                 $item->promo_reward_rule_name ?? null,
             ]));
         }
@@ -136,9 +138,15 @@ class ReceiptLayoutService
         $headline = match ($item->pricing_rule_kind) {
             'qty_break' => 'Beli '.$qty.'+ lebih hemat',
             'bundle_price' => 'Ambil paket, harga lebih hemat',
-            'buy_x_get_y' => 'Benefit buy-get diterapkan pada item ini',
+            'buy_x_get_y' => null,
             default => null,
         };
+
+        if ($item->pricing_rule_kind === 'buy_x_get_y') {
+            $name = $item->pricing_group_label ?: $item->pricing_rule_name;
+
+            return 'Promo: '.$name;
+        }
 
         $parts = array_filter([
             $kindLabel,

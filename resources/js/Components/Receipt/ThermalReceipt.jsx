@@ -91,6 +91,52 @@ const Row = ({ label, value, small = false, strong = false }) => (
     </div>
 );
 
+const ItemRow = ({
+    name,
+    qty,
+    total,
+    compact = false,
+    strong = false,
+}) => (
+    <div
+        className={`flex items-start gap-0 ${
+            compact ? "text-[10px]" : ""
+        } ${strong ? "font-bold" : ""}`}
+    >
+        <span className="w-[26px] shrink-0 whitespace-nowrap">{qty}</span>
+        <span className="min-w-0 flex-1 break-words">{name}</span>
+        <span className="w-[52px] shrink-0 whitespace-nowrap text-right">{total}</span>
+    </div>
+);
+
+const ItemColumnsHeader = ({ compact = false }) => (
+    <div
+        className={`flex items-center gap-0 text-slate-500 ${
+            compact ? "text-[9px]" : "text-[10px]"
+        }`}
+    >
+        <span className="w-[26px] shrink-0">Qty</span>
+        <span className="min-w-0 flex-1">Item</span>
+        <span className="w-[52px] shrink-0 text-right">Total</span>
+    </div>
+);
+
+const PromoLine = ({ text }) => (
+    <div className="flex items-start gap-0">
+        <span className="w-[26px] shrink-0" />
+        <p className="min-w-0 flex-1 break-words text-[9px] leading-tight text-slate-500">{text}</p>
+        <span className="w-[52px] shrink-0" />
+    </div>
+);
+
+const UnitNoteLine = ({ text }) => (
+    <div className="flex items-start gap-0">
+        <span className="w-[26px] shrink-0" />
+        <p className="min-w-0 flex-1 break-words text-[9px] leading-tight text-slate-500">{text}</p>
+        <span className="w-[52px] shrink-0" />
+    </div>
+);
+
 const LayoutRows = ({ rows = [], compact = false }) => (
     <>
         {rows.map((row, index) => (
@@ -117,19 +163,18 @@ const ReceiptLayoutSections = ({ layout, compact = false }) => {
             <pre>{compact ? "-".repeat(24) : "-".repeat(32)}</pre>
 
             <div className="my-1">
+                <ItemColumnsHeader compact={compact} />
                 {items.map((item, index) => (
                     <div key={`${item.name}-${index}`} className="mb-1">
-                        <p className={`font-medium ${compact ? "truncate" : "break-words"}`}>
-                            {item.name}
-                        </p>
-                        {item.promo ? (
-                            <p className="text-[10px] text-slate-500">{item.promo}</p>
-                        ) : null}
-                        <Row
-                            label={item.detail_left}
-                            value={item.detail_right}
-                            small={compact}
+                        <ItemRow
+                            name={item.name}
+                            qty={`${Number(item.qty || 1)}x`}
+                            total={item.line_total_label || item.detail_right}
+                            compact={compact}
+                            strong
                         />
+                        {item.promo ? <PromoLine text={item.promo} /> : null}
+                        {item.unit_note ? <UnitNoteLine text={item.unit_note} /> : null}
                         {(item.modifiers || []).map((modifier, modifierIndex) => (
                             <Row
                                 key={`${modifier.label}-${modifierIndex}`}
@@ -164,6 +209,7 @@ const ReceiptLayoutSections = ({ layout, compact = false }) => {
 
 const ReceiptItems = ({ items, compact = false }) => (
     <div className="my-1">
+        <ItemColumnsHeader compact={compact} />
         {items.map((item, index) => {
             const { qty, unitPrice, baseItemTotal } = normalizeLineItem(item);
             const promoText = promoMetaText(item, {
@@ -180,42 +226,52 @@ const ReceiptItems = ({ items, compact = false }) => (
 
             return (
                 <div key={item.id || index} className="mb-1">
-                    <p className={`font-medium ${compact ? "truncate" : "break-words"}`}>
-                        {item.product?.title || item.product_title || "Produk"}
-                    </p>
-                    {promoText ? (
-                        <p className="text-[10px] text-slate-500">{promoText}</p>
-                    ) : null}
                     {lineBuyGetBreakdown ? (
                         <>
-                            <Row
-                                label={`${lineBuyGetBreakdown.payableQty}x @ ${formatPrice(
-                                    lineBuyGetBreakdown.paidUnitPrice,
-                                    compact
-                                )}`}
-                                value={formatPrice(
+                            <ItemRow
+                                name={
+                                    item.product?.title ||
+                                    item.product_title ||
+                                    "Produk"
+                                }
+                                qty={`${lineBuyGetBreakdown.payableQty}x`}
+                                total={formatPrice(
                                     lineBuyGetBreakdown.payableQty *
                                         lineBuyGetBreakdown.paidUnitPrice,
                                     compact
                                 )}
-                                small={compact}
+                                compact={compact}
+                                strong
                             />
-                            <Row
-                                label={`${lineBuyGetBreakdown.bonusQty}x @ ${formatPrice(
-                                    0,
-                                    compact
-                                )}`}
-                                value={formatPrice(0, compact)}
-                                small
+                            {promoText ? <UnitNoteLine text={promoText} /> : null}
+                            <UnitNoteLine text={`@ ${formatPrice(lineBuyGetBreakdown.paidUnitPrice, compact)}/item`} />
+                            <ItemRow
+                                name="Bonus Gratis"
+                                qty={`${lineBuyGetBreakdown.bonusQty}x`}
+                                total={formatPrice(0, compact)}
+                                compact
+                                strong
                             />
                         </>
                     ) : (
-                        <Row
-                            label={`${qty}x @ ${formatPrice(unitPrice, compact)}`}
-                            value={formatPrice(baseItemTotal, compact)}
-                            small={compact}
-                        />
+                        <>
+                            <ItemRow
+                                name={
+                                    item.product?.title ||
+                                    item.product_title ||
+                                    "Produk"
+                                }
+                                qty={`${qty}x`}
+                                total={formatPrice(baseItemTotal, compact)}
+                                compact={compact}
+                                strong
+                            />
+                            {promoText ? <PromoLine text={promoText} /> : null}
+                        </>
                     )}
+                    {!lineBuyGetBreakdown ? (
+                        <UnitNoteLine text={`@ ${formatPrice(unitPrice, compact)}/item`} />
+                    ) : null}
                     {item.modifiers?.map((modifier) => (
                         <Row
                             key={modifier.id}
