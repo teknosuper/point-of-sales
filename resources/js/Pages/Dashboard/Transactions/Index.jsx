@@ -4015,6 +4015,14 @@ export default function Index({
                     <button
                         type="button"
                         onClick={() => {
+                            if (localCarts.length === 0) {
+                                toast("Keranjang masih kosong, tambahkan produk terlebih dahulu", {
+                                    icon: "🛒",
+                                    duration: 2000,
+                                });
+                                setMobileView("products");
+                                return;
+                            }
                             if (mobileView !== "cart") {
                                 playCartTabSound();
                             }
@@ -6508,9 +6516,21 @@ export default function Index({
                         <div className="min-h-0 flex-1 overflow-y-auto">
                             {/* Pricing Badge / Promo Banner */}
                             {modifierModalProduct.pricing_badge && (
-                                <div className="mx-5 mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 dark:border-rose-900/40 dark:bg-rose-950/20">
+                                <div className={`mx-5 mt-4 rounded-2xl border px-4 py-3 ${
+                                    modifierModalPromoBenefit.status === "active"
+                                        ? "border-emerald-200 bg-emerald-50 dark:border-emerald-900/40 dark:bg-emerald-950/20"
+                                        : modifierModalPromoBenefit.status === "pending"
+                                        ? "border-amber-200 bg-amber-50 dark:border-amber-900/40 dark:bg-amber-950/20"
+                                        : "border-sky-200 bg-sky-50 dark:border-sky-900/40 dark:bg-sky-950/20"
+                                }`}>
                                     <div className="flex items-start gap-3">
-                                        <div className="shrink-0 rounded-lg bg-rose-500 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-white">
+                                        <div className={`shrink-0 rounded-lg px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-white ${
+                                            modifierModalPromoBenefit.status === "active"
+                                                ? "bg-emerald-500"
+                                                : modifierModalPromoBenefit.status === "pending"
+                                                ? "bg-amber-500"
+                                                : "bg-sky-500"
+                                        }`}>
                                             {modifierModalPromo.badge || "Promo"}
                                         </div>
                                         <div className="min-w-0">

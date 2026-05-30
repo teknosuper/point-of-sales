@@ -48,7 +48,7 @@ function ProductCard({ product, onAddToCart, isAdding, viewMode = "list" }) {
         <button
             onClick={() => hasStock && onAddToCart(product)}
             disabled={!hasStock || isAdding}
-            className={`
+                className={`
                 group relative flex bg-white dark:bg-slate-900
                 rounded-2xl border border-slate-200 dark:border-slate-800
                 transition-all duration-200
@@ -56,7 +56,7 @@ function ProductCard({ product, onAddToCart, isAdding, viewMode = "list" }) {
                     hasStock
                         ? "hover:border-primary-300 dark:hover:border-primary-700 hover:shadow-lg hover:-translate-y-0.5 active:scale-[0.98] cursor-pointer"
                         : "opacity-60 cursor-not-allowed"
-                } ${isListMode ? "w-full items-center gap-3 px-3 py-2.5 text-left" : "flex-col overflow-hidden"}
+                } ${isListMode ? "w-full items-center gap-2 px-2.5 py-1.5 text-left" : "flex-col overflow-hidden rounded-xl"}
             `}
         >
             {!isListMode && (
@@ -118,73 +118,81 @@ function ProductCard({ product, onAddToCart, isAdding, viewMode = "list" }) {
             <div
                 className={`flex-1 p-3 flex ${
                     isListMode
-                        ? "min-w-0 items-center justify-between gap-3 p-0"
-                        : "min-h-[80px] flex-col justify-between"
+                        ? "min-w-0 items-center justify-between gap-2 p-0"
+                        : "min-h-0 flex-col justify-between p-2"
                 }`}
             >
                 <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-1">
                         {!isListMode && product.tenant_outlet?.name && (
-                            <span className="inline-flex max-w-full items-center rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                            <span className="inline-flex max-w-full items-center rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-800 dark:text-slate-300">
                                 <span className="truncate">
                                     {product.tenant_outlet.name}
                                 </span>
                             </span>
                         )}
                         {showBadge && !showPromo && (
-                            <span className="inline-flex rounded-full bg-rose-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-rose-600 dark:bg-rose-950/30 dark:text-rose-300">
+                            <span className="inline-flex rounded-full bg-rose-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-rose-600 dark:bg-rose-950/30 dark:text-rose-300">
                                 Promo
                             </span>
                         )}
                         {!hasStock && (
-                            <span className="inline-flex rounded-full bg-slate-200 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                            <span className="inline-flex rounded-full bg-slate-200 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-800 dark:text-slate-300">
                                 Habis
                             </span>
                         )}
                         {lowStock && hasStock && (
-                            <span className="inline-flex rounded-full bg-warning-100 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-warning-700 dark:bg-warning-900/50 dark:text-warning-400">
+                            <span className="inline-flex rounded-full bg-warning-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-warning-700 dark:bg-warning-900/50 dark:text-warning-400">
                                 Sisa {product.stock}
                             </span>
                         )}
                     </div>
-                    <h3 className="mt-1.5 text-sm font-semibold leading-tight text-slate-800 dark:text-slate-200">
+                    <h3 className={`font-semibold truncate ${
+                        isListMode 
+                            ? "text-xs leading-tight" 
+                            : "mt-1 text-[13px] leading-tight"
+                    } text-slate-800 dark:text-slate-200`}>
                         {product.title}
                     </h3>
-                    <div className="mt-1 space-y-0.5 text-[11px] text-slate-500 dark:text-slate-400">
+                    <div className={`${isListMode ? "mt-0.5" : "mt-0.5"} space-y-0.5 text-[10px] text-slate-500 dark:text-slate-400`}>
                         <p className="truncate">
-                            Disiapkan oleh{" "}
-                            <span className="font-medium text-slate-600 dark:text-slate-300">
-                                {product.tenant_outlet?.name || "-"}
-                            </span>
+                            {isListMode ? (
+                                <span className="font-medium text-slate-600 dark:text-slate-300">
+                                    {product.tenant_outlet?.name || "-"}
+                                </span>
+                            ) : (
+                                <span className="font-medium text-slate-600 dark:text-slate-300">
+                                    {product.tenant_outlet?.name || "-"}
+                                </span>
+                            )}
                         </p>
                         <p>
                             <span className="font-medium text-slate-600 dark:text-slate-300">
-                                Sisa {Number(product.stock || 0)}
+                                {Number(product.stock || 0)} tersisa
                             </span>
                         </p>
-                        {!isListMode && (
-                            <p>{product.barcode || "Tanpa barcode"}</p>
-                        )}
                     </div>
                 </div>
                 <div
                     className={`${
                         isListMode
                             ? "flex shrink-0 flex-col items-end text-right"
-                            : "mt-2"
+                            : "mt-1.5"
                     }`}
                 >
                     {showPromo && (
-                        <p className="text-[11px] text-slate-400 line-through">
+                        <p className={`${isListMode ? "text-[11px]" : "text-[10px]"} text-slate-400 line-through`}>
                             {formatPrice(basePrice)}
                         </p>
                     )}
-                    <p className="text-sm font-bold text-primary-600 dark:text-primary-400">
+                    <p className={`font-bold text-primary-600 dark:text-primary-400 ${
+                        isListMode ? "text-xs" : "text-[13px]"
+                    }`}>
                         {formatPrice(showPromo ? promoPrice : product.sell_price)}
                     </p>
                     {promoDetail && (
                         <p
-                            className={`mt-0.5 max-w-[180px] text-[11px] leading-4 ${
+                            className={`mt-0.5 max-w-[180px] text-[10px] leading-3 ${
                                 isListMode
                                     ? "text-right text-rose-600 dark:text-rose-300"
                                     : "text-rose-600 dark:text-rose-300"
@@ -194,7 +202,7 @@ function ProductCard({ product, onAddToCart, isAdding, viewMode = "list" }) {
                         </p>
                     )}
                     {isListMode && hasStock && (
-                        <span className="mt-1.5 inline-flex rounded-full bg-primary-50 px-2.5 py-0.5 text-[10px] font-semibold text-primary-600 dark:bg-primary-950/30 dark:text-primary-300">
+                        <span className="mt-1 inline-flex rounded-full bg-primary-50 px-2 py-0.5 text-[10px] font-semibold text-primary-600 dark:bg-primary-950/30 dark:text-primary-300">
                             Tambah
                         </span>
                     )}
@@ -557,7 +565,7 @@ export default function ProductGrid({
                     <div
                         className={
                             viewMode === "grid"
-                                ? "grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3"
+                                ? "grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-2"
                                 : "grid grid-cols-1 gap-3 md:grid-cols-2"
                         }
                     >
