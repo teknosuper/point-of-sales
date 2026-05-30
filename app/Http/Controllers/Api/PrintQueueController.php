@@ -410,9 +410,15 @@ class PrintQueueController extends Controller
     private function encodeReceiptPayload(array $layout): string
     {
         $isCompact58 = ($layout['paper_width'] ?? '58mm') !== '80mm';
-        $cols = $isCompact58 ? 24 : 32;
+        $cols = $isCompact58 ? 32 : 48;
         $separator = str_repeat('-', $cols);
         $chunks = ["\x1B\x40", "\x1B\x61\x01"];
+
+        if ($isCompact58) {
+            $chunks[] = "\x1B\x4D\x01";
+        } else {
+            $chunks[] = "\x1B\x4D\x00";
+        }
 
         $store = $layout['store'] ?? [];
         $metaRows = $layout['meta_rows'] ?? [];
@@ -517,7 +523,7 @@ class PrintQueueController extends Controller
             $chunks[] = "\x1D\x48\x00";
             $chunks[] = "\x1D\x77\x02";
             $chunks[] = "\x1D\x68\x50";
-            $chunks[] = "\x1D\x6B\x04".$this->sanitizeReceiptText($invoice)."\x00";
+            $chunks[] = "\x1D\x6B\x04".$this->sanitizeReceiptContent($invoice)."\x00";
         }
 
         $chunks[] = "\n\n\n";
@@ -528,7 +534,7 @@ class PrintQueueController extends Controller
 
     private function appendLine(array &$chunks, string $text = ''): void
     {
-        $chunks[] = $this->sanitizeReceiptText($text)."\n";
+        $chunks[] = $this->sanitizeReceiptLine($text)."\n";
     }
 
     private function appendWrappedLines(array &$chunks, string $text, int $width, string $prefix = ''): void
@@ -540,7 +546,7 @@ class PrintQueueController extends Controller
 
     private function wrapText(string $text, int $width): array
     {
-        $text = $this->sanitizeReceiptText($text);
+        $text = $this->sanitizeReceiptContent($text);
         if ($text === '') {
             return [];
         }
@@ -586,8 +592,8 @@ class PrintQueueController extends Controller
 
     private function twoColumnLines(string $left, string $right, int $cols): array
     {
-        $left = $this->sanitizeReceiptText($left);
-        $right = $this->sanitizeReceiptText($right);
+        $left = $this->sanitizeReceiptContent($left);
+        $right = $this->sanitizeReceiptContent($right);
 
         if ($right === '') {
             return $this->wrapText($left, $cols);
@@ -633,9 +639,9 @@ class PrintQueueController extends Controller
 
     private function wrapReceiptPrimaryLine(string $qty, string $name, string $total, int $cols): array
     {
-        $qty = $this->sanitizeReceiptText($qty);
-        $name = $this->sanitizeReceiptText($name);
-        $total = $this->sanitizeReceiptText($total);
+        $qty = $this->sanitizeReceiptContent($qty);
+        $name = $this->sanitizeReceiptContent($name);
+        $total = $this->sanitizeReceiptContent($total);
 
         if ($name === '') {
             return [];
@@ -668,9 +674,9 @@ class PrintQueueController extends Controller
         ?int $totalWidth = null,
         ?int $nameWidth = null
     ): string {
-        $qty = $this->sanitizeReceiptText($qty);
-        $name = $this->sanitizeReceiptText($name);
-        $total = $this->sanitizeReceiptText($total);
+        $qty = $this->sanitizeReceiptContent($qty);
+        $name = $this->sanitizeReceiptContent($name);
+        $total = $this->sanitizeReceiptContent($total);
         $totalWidth ??= min(max(strlen($total), 5), 8);
         $nameWidth ??= max(8, $cols - $qtyWidth - $totalWidth - 2);
 
@@ -681,7 +687,7 @@ class PrintQueueController extends Controller
             .str_pad($total, $totalWidth, ' ', STR_PAD_LEFT);
     }
 
-    private function sanitizeReceiptText(string $text): string
+    private function sanitizeReceiptContent(string $text): string
     {
         $text = str_replace(
             ["\r\n", "\r", '•', '→', '–', '—', "\t"],
@@ -693,5 +699,23 @@ class PrintQueueController extends Controller
         $text = preg_replace('/ +/', ' ', $text) ?? '';
 
         return trim($text);
+    }
+
+    private function sanitizeReceiptLine(string $text): string
+    {
+        $text = str_replace(
+            ["\r\n", "\r", '•', '→', '–', '—', "\t"],
+            ["\n", "\n", '-', '->', '-', '-', ' '],
+            $text
+        );
+
+        $parts = explode("\n", $text);
+        $parts = array_map(function (string $line) {
+            $line = preg_replace('/[^\x20-\x7E ]/', '', $line) ?? '';
+
+            return rtrim($line, ' ');
+        }, $parts);
+
+        return implode("\n", $parts);
     }
 }
