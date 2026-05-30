@@ -200,6 +200,7 @@ class PrintQueueController extends Controller
         $paidAmount = $paymentMethod === 'cash'
             ? (int) ($transaction->cash ?? 0)
             : max((int) ($transaction->cash ?? 0), $grandTotal);
+        $paperWidth = (string) data_get($job->payload, 'paper_width', '58mm');
         $layout = $transaction
             ? $this->receiptLayoutService->build(
                 $transaction,
@@ -208,7 +209,7 @@ class PrintQueueController extends Controller
                     'address' => $storeProfile['address'] ?? '',
                     'phone' => $storeProfile['phone'] ?? '',
                 ],
-                (string) data_get($job->payload, 'paper_width', '58mm')
+                $paperWidth
             )
             : null;
 
@@ -216,7 +217,11 @@ class PrintQueueController extends Controller
             'id' => $job->id,
             'type' => 'receipt',
             'copies' => $job->copies ?: 1,
-            'paper_width' => data_get($job->payload, 'paper_width', '58mm'),
+            'paper_width' => $paperWidth,
+            'payload' => array_filter([
+                'paper_width' => $paperWidth,
+                'raw_base64' => $layout ? $this->encodeReceiptPayload($layout) : null,
+            ]),
             'store' => [
                 'name' => $storeProfile['name'] ?? '',
                 'address' => $storeProfile['address'] ?? '',
@@ -400,5 +405,219 @@ class PrintQueueController extends Controller
             ] : null,
             'queued_at' => $job->queued_at?->toIso8601String(),
         ];
+    }
+
+    private function encodeReceiptPayload(array $layout): string
+    {
+        $cols = ($layout['paper_width'] ?? '58mm') === '80mm' ? 48 : 32;
+        $separator = str_repeat('-', $cols);
+        $chunks = ["\x1B\x40", "\x1B\x61\x01"];
+
+        $store = $layout['store'] ?? [];
+        $metaRows = $layout['meta_rows'] ?? [];
+        $items = $layout['items'] ?? [];
+        $totals = $layout['totals'] ?? [];
+        $payments = $layout['payments'] ?? [];
+        $footerLines = $layout['footer_lines'] ?? [];
+
+        if (! empty($store['name'])) {
+            $chunks[] = "\x1B\x45\x01";
+            $this->appendWrappedLines($chunks, (string) $store['name'], $cols);
+            $chunks[] = "\x1B\x45\x00";
+        }
+
+        foreach (['address', 'phone', 'email', 'website'] as $field) {
+            if (! empty($store[$field])) {
+                $this->appendWrappedLines($chunks, (string) $store[$field], $cols);
+            }
+        }
+
+        $this->appendLine($chunks, $separator);
+        $chunks[] = "\x1B\x61\x00";
+
+        foreach ($metaRows as $row) {
+            foreach ($this->twoColumnLines((string) ($row['label'] ?? ''), (string) ($row['value'] ?? ''), $cols) as $line) {
+                $this->appendLine($chunks, $line);
+            }
+        }
+
+        $this->appendLine($chunks, $separator);
+
+        foreach ($items as $item) {
+            $this->appendWrappedLines($chunks, (string) ($item['name'] ?? 'Item'), $cols);
+
+            if (! empty($item['promo'])) {
+                $this->appendWrappedLines($chunks, (string) $item['promo'], $cols, '  ');
+            }
+
+            foreach ($this->twoColumnLines((string) ($item['detail_left'] ?? ''), (string) ($item['detail_right'] ?? ''), $cols) as $line) {
+                $this->appendLine($chunks, $line);
+            }
+
+            foreach (($item['modifiers'] ?? []) as $modifier) {
+                foreach ($this->twoColumnLines((string) ($modifier['label'] ?? ''), (string) ($modifier['value'] ?? ''), $cols) as $line) {
+                    $this->appendLine($chunks, $line);
+                }
+            }
+
+            if (! empty($item['notes'])) {
+                $this->appendWrappedLines($chunks, 'Catatan: '.(string) $item['notes'], $cols);
+            }
+        }
+
+        $this->appendLine($chunks, $separator);
+
+        foreach ($totals as $row) {
+            $strong = (bool) ($row['strong'] ?? false);
+            if ($strong) {
+                $chunks[] = "\x1B\x45\x01";
+            }
+
+            foreach ($this->twoColumnLines((string) ($row['label'] ?? ''), (string) ($row['value'] ?? ''), $cols) as $line) {
+                $this->appendLine($chunks, $line);
+            }
+
+            if ($strong) {
+                $chunks[] = "\x1B\x45\x00";
+            }
+        }
+
+        $this->appendLine($chunks, $separator);
+
+        foreach ($payments as $row) {
+            if (($row['label'] ?? '') === 'Info') {
+                $this->appendWrappedLines($chunks, (string) ($row['value'] ?? ''), $cols, '  ');
+                continue;
+            }
+
+            foreach ($this->twoColumnLines((string) ($row['label'] ?? ''), (string) ($row['value'] ?? ''), $cols) as $line) {
+                $this->appendLine($chunks, $line);
+            }
+        }
+
+        $this->appendLine($chunks, $separator);
+        $chunks[] = "\x1B\x61\x01";
+
+        foreach ($footerLines as $line) {
+            $this->appendWrappedLines($chunks, (string) $line, $cols);
+        }
+
+        $invoice = ltrim((string) ($layout['footer_lines'][1] ?? ''), '#');
+        if ($invoice !== '') {
+            $chunks[] = "\x1D\x48\x00";
+            $chunks[] = "\x1D\x77\x02";
+            $chunks[] = "\x1D\x68\x50";
+            $chunks[] = "\x1D\x6B\x04".$this->sanitizeReceiptText($invoice)."\x00";
+        }
+
+        $chunks[] = "\n\n\n";
+        $chunks[] = "\x1D\x56\x00";
+
+        return base64_encode(implode('', $chunks));
+    }
+
+    private function appendLine(array &$chunks, string $text = ''): void
+    {
+        $chunks[] = $this->sanitizeReceiptText($text)."\n";
+    }
+
+    private function appendWrappedLines(array &$chunks, string $text, int $width, string $prefix = ''): void
+    {
+        foreach ($this->wrapText($text, max(1, $width - strlen($prefix))) as $line) {
+            $this->appendLine($chunks, $prefix.$line);
+        }
+    }
+
+    private function wrapText(string $text, int $width): array
+    {
+        $text = $this->sanitizeReceiptText($text);
+        if ($text === '') {
+            return [];
+        }
+
+        $words = preg_split('/\s+/', $text) ?: [];
+        $lines = [];
+        $current = '';
+
+        foreach ($words as $word) {
+            if ($word === '') {
+                continue;
+            }
+
+            if (strlen($word) > $width) {
+                if ($current !== '') {
+                    $lines[] = $current;
+                    $current = '';
+                }
+
+                foreach (str_split($word, $width) as $segment) {
+                    $lines[] = $segment;
+                }
+
+                continue;
+            }
+
+            $candidate = $current === '' ? $word : $current.' '.$word;
+            if (strlen($candidate) <= $width) {
+                $current = $candidate;
+                continue;
+            }
+
+            $lines[] = $current;
+            $current = $word;
+        }
+
+        if ($current !== '') {
+            $lines[] = $current;
+        }
+
+        return $lines;
+    }
+
+    private function twoColumnLines(string $left, string $right, int $cols): array
+    {
+        $left = $this->sanitizeReceiptText($left);
+        $right = $this->sanitizeReceiptText($right);
+
+        if ($right === '') {
+            return $this->wrapText($left, $cols);
+        }
+
+        $rightWidth = min(strlen($right), max(8, intdiv($cols, 2)));
+        $leftWidth = max(1, $cols - $rightWidth - 1);
+        $leftLines = $this->wrapText($left, $leftWidth);
+
+        if ($leftLines === []) {
+            $leftLines = [''];
+        }
+
+        $lines = [];
+        $lastIndex = count($leftLines) - 1;
+
+        foreach ($leftLines as $index => $line) {
+            if ($index === $lastIndex) {
+                $spaces = max(1, $cols - strlen($line) - strlen($right));
+                $lines[] = $line.str_repeat(' ', $spaces).$right;
+                continue;
+            }
+
+            $lines[] = $line;
+        }
+
+        return $lines;
+    }
+
+    private function sanitizeReceiptText(string $text): string
+    {
+        $text = str_replace(
+            ["\r\n", "\r", '•', '→', '–', '—', "\t"],
+            ["\n", "\n", '-', '->', '-', '-', ' '],
+            $text
+        );
+
+        $text = preg_replace('/[^\x20-\x7E\n]/', '', $text) ?? '';
+        $text = preg_replace('/ +/', ' ', $text) ?? '';
+
+        return trim($text);
     }
 }
