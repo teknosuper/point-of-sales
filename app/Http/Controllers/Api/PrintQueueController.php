@@ -409,7 +409,8 @@ class PrintQueueController extends Controller
 
     private function encodeReceiptPayload(array $layout): string
     {
-        $cols = ($layout['paper_width'] ?? '58mm') === '80mm' ? 48 : 32;
+        $isCompact58 = ($layout['paper_width'] ?? '58mm') !== '80mm';
+        $cols = $isCompact58 ? 24 : 32;
         $separator = str_repeat('-', $cols);
         $chunks = ["\x1B\x40", "\x1B\x61\x01"];
 
@@ -426,7 +427,11 @@ class PrintQueueController extends Controller
             $chunks[] = "\x1B\x45\x00";
         }
 
-        foreach (['address', 'phone', 'email', 'website'] as $field) {
+        $storeFields = $isCompact58
+            ? ['phone', 'email', 'website']
+            : ['address', 'phone', 'email', 'website'];
+
+        foreach ($storeFields as $field) {
             if (! empty($store[$field])) {
                 $this->appendWrappedLines($chunks, (string) $store[$field], $cols);
             }
@@ -442,16 +447,21 @@ class PrintQueueController extends Controller
         }
 
         $this->appendLine($chunks, $separator);
+        $this->appendLine($chunks, $this->receiptItemsHeaderLine($cols));
 
         foreach ($items as $item) {
-            $this->appendWrappedLines($chunks, (string) ($item['name'] ?? 'Item'), $cols);
-
-            if (! empty($item['promo'])) {
-                $this->appendWrappedLines($chunks, (string) $item['promo'], $cols, '  ');
+            foreach ($this->receiptItemPrimaryLines($item, $cols) as $line) {
+                $chunks[] = "\x1B\x45\x01";
+                $this->appendLine($chunks, $line);
+                $chunks[] = "\x1B\x45\x00";
             }
 
-            foreach ($this->twoColumnLines((string) ($item['detail_left'] ?? ''), (string) ($item['detail_right'] ?? ''), $cols) as $line) {
-                $this->appendLine($chunks, $line);
+            if (! empty($item['promo'])) {
+                $this->appendWrappedLines($chunks, (string) $item['promo'], $cols, '    ');
+            }
+
+            if (! empty($item['unit_note'])) {
+                $this->appendWrappedLines($chunks, (string) $item['unit_note'], $cols, '    ');
             }
 
             foreach (($item['modifiers'] ?? []) as $modifier) {
@@ -461,7 +471,7 @@ class PrintQueueController extends Controller
             }
 
             if (! empty($item['notes'])) {
-                $this->appendWrappedLines($chunks, 'Catatan: '.(string) $item['notes'], $cols);
+                $this->appendWrappedLines($chunks, '* '.(string) $item['notes'], $cols);
             }
         }
 
@@ -498,8 +508,8 @@ class PrintQueueController extends Controller
         $this->appendLine($chunks, $separator);
         $chunks[] = "\x1B\x61\x01";
 
-        foreach ($footerLines as $line) {
-            $this->appendWrappedLines($chunks, (string) $line, $cols);
+        if (! empty($footerLines[0])) {
+            $this->appendWrappedLines($chunks, (string) $footerLines[0], $cols);
         }
 
         $invoice = ltrim((string) ($layout['footer_lines'][1] ?? ''), '#');
@@ -605,6 +615,70 @@ class PrintQueueController extends Controller
         }
 
         return $lines;
+    }
+
+    private function receiptItemsHeaderLine(int $cols): string
+    {
+        return $this->receiptPrimaryLine('Qty', 'Item', 'Total', $cols, 3, 5);
+    }
+
+    private function receiptItemPrimaryLines(array $item, int $cols): array
+    {
+        $name = (string) ($item['name'] ?? 'Item');
+        $qty = sprintf('%sx', max(1, (int) ($item['qty'] ?? 1)));
+        $total = (string) (($item['line_total_label'] ?? $item['detail_right'] ?? '0'));
+
+        return $this->wrapReceiptPrimaryLine($qty, $name, $total, $cols);
+    }
+
+    private function wrapReceiptPrimaryLine(string $qty, string $name, string $total, int $cols): array
+    {
+        $qty = $this->sanitizeReceiptText($qty);
+        $name = $this->sanitizeReceiptText($name);
+        $total = $this->sanitizeReceiptText($total);
+
+        if ($name === '') {
+            return [];
+        }
+
+        $qtyWidth = 3;
+        $totalWidth = min(max(strlen($total), 5), 6);
+        $nameWidth = max(8, $cols - $qtyWidth - $totalWidth - 2);
+        $nameLines = $this->wrapText($name, $nameWidth);
+        $lines = [];
+
+        foreach ($nameLines as $index => $line) {
+            if ($index === 0) {
+                $lines[] = $this->receiptPrimaryLine($qty, $line, $total, $cols, $qtyWidth, $totalWidth, $nameWidth);
+                continue;
+            }
+
+            $lines[] = str_repeat(' ', $qtyWidth + 1).$line;
+        }
+
+        return $lines;
+    }
+
+    private function receiptPrimaryLine(
+        string $qty,
+        string $name,
+        string $total,
+        int $cols,
+        int $qtyWidth = 4,
+        ?int $totalWidth = null,
+        ?int $nameWidth = null
+    ): string {
+        $qty = $this->sanitizeReceiptText($qty);
+        $name = $this->sanitizeReceiptText($name);
+        $total = $this->sanitizeReceiptText($total);
+        $totalWidth ??= min(max(strlen($total), 5), 8);
+        $nameWidth ??= max(8, $cols - $qtyWidth - $totalWidth - 2);
+
+        return str_pad($qty, $qtyWidth)
+            .' '
+            .str_pad(substr($name, 0, $nameWidth), $nameWidth)
+            .' '
+            .str_pad($total, $totalWidth, ' ', STR_PAD_LEFT);
     }
 
     private function sanitizeReceiptText(string $text): string
