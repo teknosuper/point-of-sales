@@ -23,9 +23,7 @@ class PrinterSettingController extends Controller
 
         $token = (string) config('services.print_bridge.token', '0000');
         $baseUrl = rtrim((string) config('app.url'), '/');
-        $printClientVersion = file_exists(public_path('print-client.html'))
-            ? (string) filemtime(public_path('print-client.html'))
-            : now()->format('YmdHis');
+        $printClientVersion = $this->resolvePrintClientVersion();
 
         $stations = KitchenStation::query()
             ->where('outlet_id', $outlet->id)
@@ -94,5 +92,26 @@ class PrinterSettingController extends Controller
                 'print_client_kitchen' => "{$baseUrl}/print-client.html?v={$printClientVersion}&base_url=" . urlencode($baseUrl) . "&token={$token}&outlet_id={$outlet->id}&type=kitchen&autostart=1",
             ],
         ]);
+    }
+
+    private function resolvePrintClientVersion(): string
+    {
+        $paths = [
+            public_path('print-client.html'),
+            app_path('Http/Controllers/Api/PrintQueueController.php'),
+            app_path('Services/ReceiptLayoutService.php'),
+            app_path('Services/PrintJobService.php'),
+        ];
+
+        $signature = collect($paths)
+            ->filter(fn ($path) => file_exists($path))
+            ->map(fn ($path) => basename($path).':'.filemtime($path))
+            ->implode('|');
+
+        if ($signature === '') {
+            return now()->format('YmdHis');
+        }
+
+        return substr(sha1($signature), 0, 12);
     }
 }

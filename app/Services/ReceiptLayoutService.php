@@ -32,7 +32,7 @@ class ReceiptLayoutService
             ]),
             'meta_rows' => array_values(array_filter([
                 ['label' => 'No', 'value' => $transaction->invoice ?? '-'],
-                ['label' => 'Tgl', 'value' => $transaction->created_at ? \Carbon\Carbon::parse($transaction->created_at)->format('d/m/Y H:i') : '-'],
+                ['label' => 'Tgl', 'value' => $transaction->created_at ? $this->formatReceiptDateTime($transaction->created_at, $paperWidth) : '-'],
                 ['label' => 'Kasir', 'value' => $transaction->cashier->name ?? '-'],
                 ['label' => 'Pelanggan', 'value' => $transaction->customer->name ?? 'Umum'],
                 ['label' => 'Pesanan', 'value' => ($transaction->order_type ?? 'take_away') === 'dine_in' ? 'Dine In' : 'Take Away'],
@@ -58,7 +58,7 @@ class ReceiptLayoutService
                     'line_total_label' => $this->compactMoney($baseLineTotal),
                     'detail_left' => sprintf('%dx %s', $qty, $isReward ? 'Bonus' : $this->compactMoney($unitPrice)),
                     'detail_right' => $this->compactMoney($baseLineTotal),
-                    'notes' => $item->notes ?: null,
+                    'notes' => $this->normalizeOptionalText($item->notes ?? null),
                     'modifiers' => collect($item->modifiers ?? [])->map(fn ($modifier) => [
                         'label' => '+ '.$modifier->name,
                         'value' => $this->compactMoney((int) ($modifier->total_price ?? 0)),
@@ -104,7 +104,7 @@ class ReceiptLayoutService
     private function paymentSummary(object $transaction, string $methodKey): ?string
     {
         return match ($methodKey) {
-            'bank_transfer' => trim(implode(' • ', array_filter([
+            'bank_transfer' => trim(implode(' / ', array_filter([
                 $transaction->bankAccount->bank_name ?? null,
                 $transaction->bankAccount->account_number ?? null,
             ]))),
@@ -117,7 +117,7 @@ class ReceiptLayoutService
     private function promoSummary(object $item, int $qty, int $baseUnitPrice, int $unitPrice): ?string
     {
         if ((bool) ($item->is_promo_reward ?? false)) {
-            return implode(' • ', array_filter([
+            return implode(' - ', array_filter([
                 'Bonus Gratis '.max(1, $qty).'x',
                 $item->promo_reward_rule_name ?? null,
             ]));
@@ -155,11 +155,35 @@ class ReceiptLayoutService
             $baseUnitPrice > $unitPrice ? $this->compactMoney($baseUnitPrice).' -> '.$this->compactMoney($unitPrice) : null,
         ]);
 
-        return implode(' • ', $parts);
+        return implode(' - ', $parts);
     }
 
     private function compactMoney(int $value): string
     {
         return number_format($value, 0, ',', '.');
+    }
+
+    private function formatReceiptDateTime(mixed $value, string $paperWidth): string
+    {
+        $date = \Carbon\Carbon::parse($value);
+
+        return $paperWidth === '58mm'
+            ? $date->format('d/m/y H:i')
+            : $date->format('d/m/Y H:i');
+    }
+
+    private function normalizeOptionalText(mixed $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        $text = trim((string) $value);
+
+        if ($text === '' || in_array(strtolower($text), ['null', 'undefined', '-'], true)) {
+            return null;
+        }
+
+        return $text;
     }
 }
