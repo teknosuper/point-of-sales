@@ -45,12 +45,18 @@
         .stat-value { font-size: 18px; font-weight: 700; color: #1e293b; }
         .stat-label { font-size: 10px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; }
         .hidden { display: none; }
+        .meta-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+        .meta-text { font-size: 11px; color: #64748b; }
     </style>
 </head>
 <body>
     <div class="card">
         <h1>🖨️ ESC/POS Print Client</h1>
         <p class="subtitle">Hubungkan ke sistem POS untuk auto-print struk & tiket dapur.</p>
+        <div class="meta-row">
+            <span class="badge badge-blue" id="clientVersionBadge">v-unknown</span>
+            <span class="meta-text" id="clientCacheStatus">Memeriksa status cache...</span>
+        </div>
         <div id="statusBar" class="status status-idle">⏸️ Belum terhubung</div>
     </div>
 
@@ -115,6 +121,47 @@
     let pollingTimer = null;
     let isPolling = false;
     let stats = { printed: 0, failed: 0, polls: 0 };
+
+    function getClientVersion() {
+        const params = new URLSearchParams(window.location.search);
+        return params.get('v') || 'dev';
+    }
+
+    function setClientMeta(version, cacheStatus) {
+        const versionBadge = document.getElementById('clientVersionBadge');
+        const cacheStatusText = document.getElementById('clientCacheStatus');
+
+        if (versionBadge) {
+            versionBadge.textContent = `v-${version}`;
+        }
+
+        if (cacheStatusText) {
+            cacheStatusText.textContent = cacheStatus;
+        }
+    }
+
+    async function syncServiceWorkerForPrintClient() {
+        if (!('serviceWorker' in navigator)) {
+            setClientMeta(getClientVersion(), 'Service worker tidak aktif');
+            return;
+        }
+
+        try {
+            const registration = await navigator.serviceWorker.getRegistration();
+            if (!registration) {
+                setClientMeta(getClientVersion(), 'Tidak ada service worker terpasang');
+                return;
+            }
+
+            await registration.update();
+            setClientMeta(getClientVersion(), 'Service worker diperiksa ulang');
+            log(`Versi client aktif: ${getClientVersion()}`);
+        } catch (error) {
+            setClientMeta(getClientVersion(), 'Gagal cek service worker');
+            log(`⚠️ Gagal update service worker: ${error.message}`);
+        }
+    }
+
     function getConfig() {
         return {
             baseUrl: document.getElementById('baseUrl').value.replace(/\/$/, ''),
@@ -887,6 +934,8 @@
 
     // Auto-load saved config
     (function() {
+        setClientMeta(getClientVersion(), 'Memeriksa service worker...');
+
         try {
             const saved = JSON.parse(localStorage.getItem('pos-print-config'));
             if (saved) {
@@ -908,6 +957,8 @@
         if (params.get('type')) document.getElementById('queueType').value = params.get('type');
         if (params.get('station_id')) document.getElementById('stationId').value = params.get('station_id');
         if (params.get('paper')) document.getElementById('paperWidth').value = params.get('paper');
+
+        syncServiceWorkerForPrintClient();
 
         if (params.get('autostart') === '1') setTimeout(startPolling, 500);
     })();
