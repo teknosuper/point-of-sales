@@ -1,5 +1,6 @@
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import KitchenLayout from "@/Layouts/KitchenLayout";
+import KitchenTicketPreview from "@/Components/Dashboard/KitchenTicketPreview";
 import { Head, Link, router, usePage } from "@inertiajs/react";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -10,6 +11,7 @@ import {
     IconClockHour4,
     IconDeviceDesktop,
     IconDeviceIpad,
+    IconEye,
     IconFilter,
     IconInfoCircle,
     IconMaximize,
@@ -117,6 +119,8 @@ export default function KitchenIndex({
     const [selectedPrinterId, setSelectedPrinterId] = useState(null);
     const [showAdvancedFilter, setShowAdvancedFilter] = useState(false);
     const [showGuideModal, setShowGuideModal] = useState(false);
+    const [showPreviewModal, setShowPreviewModal] = useState(false);
+    const [previewTicket, setPreviewTicket] = useState(null);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [boardState, setBoardState] = useState(
         buildBoardState({ activeStation, tickets, refreshMeta, filters, selectedDevice })
@@ -334,6 +338,11 @@ export default function KitchenIndex({
             { device_id: selectedPrinterId },
             { preserveScroll: true }
         );
+    };
+
+    const handlePreview = (ticket) => {
+        setPreviewTicket(ticket);
+        setShowPreviewModal(true);
     };
 
     const handleDispatchFailed = (ticketId) => {
@@ -1087,6 +1096,14 @@ export default function KitchenIndex({
                                                                         Kirim ke Printer
                                                                     </button>
                                                                 ) : null}
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handlePreview(ticket)}
+                                                                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                                                >
+                                                                    <IconEye size={16} />
+                                                                    Preview
+                                                                </button>
                                                             </div>
                                                         </td>
                                                     </tr>
@@ -1197,6 +1214,17 @@ export default function KitchenIndex({
                         </div>
                     </div>
                 </div>
+            ) : null}
+
+            {showPreviewModal && previewTicket ? (
+                <KitchenTicketPreview
+                    ticket={previewTicket}
+                    station={selectedStation}
+                    onClose={() => {
+                        setShowPreviewModal(false);
+                        setPreviewTicket(null);
+                    }}
+                />
             ) : null}
         </>
     );

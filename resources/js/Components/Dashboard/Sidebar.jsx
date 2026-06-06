@@ -1,6 +1,6 @@
 import React from "react";
 import { Link, usePage } from "@inertiajs/react";
-import { IconLayoutGrid, IconLock, IconLogout } from "@/Utils/icons";
+import { IconLayoutGrid, IconLogout } from "@/Utils/icons";
 import LinkItem from "@/Components/Dashboard/LinkItem";
 import LinkItemDropdown from "@/Components/Dashboard/LinkItemDropdown";
 import OutletSwitcher from "@/Components/Dashboard/OutletSwitcher";
@@ -163,14 +163,6 @@ export default function Sidebar({ sidebarOpen, hideWhenCollapsed = false }) {
 
             <div className="border-t border-slate-100 dark:border-slate-800">
                 <div className={sidebarOpen ? "px-3 py-3" : "py-3"}>
-                    <LinkItem
-                        title="Ganti Password"
-                        href={route("account.password.edit")}
-                        icon={<IconLock size={20} strokeWidth={1.5} />}
-                        access={true}
-                        active={false}
-                        sidebarOpen={sidebarOpen}
-                    />
                     {sidebarOpen ? (
                         <Link
                             href={route("logout")}

@@ -65,6 +65,7 @@ class PrinterSettingController extends Controller
             'name' => $station->name,
             'code' => $station->code,
             'url' => "{$baseUrl}/api/print-queue/kitchen?token={$token}&outlet_id={$outlet->id}&station_id={$station->id}",
+            'print_client_url' => "{$baseUrl}/print-client.html?v={$printClientVersion}&base_url=" . urlencode($baseUrl) . "&token={$token}&outlet_id={$outlet->id}&type=kitchen&station_id={$station->id}&autostart=1",
         ]);
 
         // Build per-device URLs
