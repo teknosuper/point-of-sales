@@ -280,8 +280,10 @@ export default function Dashboard({
     activeShifts = [],
     onboardingChecklist = [],
     onboardingSummary = {},
+    workspace = {},
 }) {
     const { can } = useAuthorization();
+    const isTenantDashboard = Boolean(workspace?.is_tenant_dashboard);
     const chartRef = useRef(null);
     const chartInstance = useRef(null);
     const [pwaInstalled, setPwaInstalled] = useState(false);
@@ -337,7 +339,9 @@ export default function Dashboard({
                     ? {
                           title: "Sales Report",
                           description:
-                              "Pantau omzet, settlement tenant, dan performa penjualan.",
+                              isTenantDashboard
+                                  ? "Pantau omzet tenant, settlement, dan performa penjualan tenant."
+                                  : "Pantau omzet, settlement tenant, dan performa penjualan.",
                           href: route("reports.sales.index"),
                           icon: IconFileAnalytics,
                           tone: "amber",
@@ -347,7 +351,9 @@ export default function Dashboard({
                     ? {
                           title: "Profit Report",
                           description:
-                              "Lihat profit, markup owner, dan breakdown target keuntungan.",
+                              isTenantDashboard
+                                  ? "Lihat profit tenant, biaya dasar, dan breakdown target keuntungan."
+                                  : "Lihat profit, markup owner, dan breakdown target keuntungan.",
                           href: route("reports.profits.index"),
                           icon: IconTrendingUp,
                           tone: "violet",
@@ -357,14 +363,16 @@ export default function Dashboard({
                     ? {
                           title: "Workspace Sales",
                           description:
-                              "Buka kumpulan report tenant, best seller, dan breakdown harian.",
+                              isTenantDashboard
+                                  ? "Buka kumpulan report tenant, best seller, dan breakdown harian tenant."
+                                  : "Buka kumpulan report tenant, best seller, dan breakdown harian.",
                           href: route("workspace-sales.index"),
                           icon: IconDeviceDesktopAnalytics,
                           tone: "slate",
                       }
                     : null,
             ].filter(Boolean),
-        [can]
+        [can, isTenantDashboard]
     );
 
     useEffect(() => {
@@ -488,7 +496,9 @@ export default function Dashboard({
                             Dashboard
                         </h1>
                         <p className="text-sm text-slate-500 dark:text-slate-400">
-                            Ringkasan aktivitas bisnis Anda
+                            {isTenantDashboard
+                                ? `Ringkasan aktivitas ${workspace?.active_outlet?.name || "tenant aktif"}`
+                                : "Ringkasan aktivitas bisnis Anda"}
                         </p>
                     </div>
                     <Link
@@ -528,6 +538,7 @@ export default function Dashboard({
                     </div>
                 )}
 
+                {!isTenantDashboard ? (
                 <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                         <div>
@@ -641,6 +652,7 @@ export default function Dashboard({
                         </div>
                     ) : null}
                 </div>
+                ) : null}
 
                 {/* Main Stat Cards - Reorganized */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">

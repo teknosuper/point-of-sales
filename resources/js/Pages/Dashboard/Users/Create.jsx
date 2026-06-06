@@ -18,12 +18,17 @@ import {
 import Input from "@/Components/Dashboard/Input";
 import Checkbox from "@/Components/Dashboard/Checkbox";
 import toast from "react-hot-toast";
+import Swal from "sweetalert2";
 import { useState } from "react";
 import { roleDescription, roleLabel } from "@/Utils/rolePresentation";
 import {
     decoratePermission,
     permissionGroupLabel,
 } from "@/Utils/permissionPresentation";
+import {
+    hasAnyPermissionName,
+    permissionNamesFromRoles,
+} from "@/Utils/rbacHelpers";
 
 function groupOutlets(outlets = []) {
     return {
@@ -32,8 +37,21 @@ function groupOutlets(outlets = []) {
     };
 }
 
+const OWNER_SCOPE_PERMISSIONS = [
+    "users-access",
+    "roles-access",
+    "permissions-access",
+    "payment-settings-access",
+    "payment-settings-update",
+    "business-settings-access",
+    "business-settings-update",
+    "cashier-settlements-approve",
+    "outlets-create",
+    "outlets-update",
+];
+
 function roleGroupMeta(roleName) {
-    if (["cashier", "waiter", "kitchen-operator", "transactions-access"].includes(roleName)) {
+    if (["cashier", "waiter", "kitchen-operator", "kasir-operasional", "petugas-antar", "operator-dapur"].includes(roleName)) {
         return { key: "operational", label: "Operasional" };
     }
 
@@ -100,7 +118,7 @@ function templateMeta(template) {
         return { group: "Tim Operasional", order: 2, badge: "Operasional" };
     }
 
-    if (["tenant-operational", "tenant-promo"].includes(template.key)) {
+    if (["tenant-operational", "tenant-delivery", "tenant-promo", "tenant-owner"].includes(template.key)) {
         return { group: "Tenant", order: 3, badge: "Tenant" };
     }
 
@@ -108,6 +126,10 @@ function templateMeta(template) {
 }
 
 function templateMatchesRole(template, role, allPermissions = []) {
+    if (role.name === "super-admin" && !template.use_all_permissions) {
+        return false;
+    }
+
     if (template.use_all_permissions) {
         return role.name === "super-admin" || (role.permissions || []).length === allPermissions.length;
     }
@@ -115,6 +137,47 @@ function templateMatchesRole(template, role, allPermissions = []) {
     const names = new Set((role.permissions || []).map((permission) => permission.name));
 
     return (template.permissions || []).every((permission) => names.has(permission));
+}
+
+function resolveTemplateMatchedRole(template, roles = [], allPermissions = []) {
+    const matches = roles.filter((role) =>
+        templateMatchesRole(template, role, allPermissions)
+    );
+
+    if (matches.length === 0) {
+        return null;
+    }
+
+    const requiredCount = template.use_all_permissions
+        ? allPermissions.length
+        : (template.permissions || []).length;
+
+    return [...matches].sort((left, right) => {
+        const leftIsSuggested = left.name === template.suggested_role_name;
+        const rightIsSuggested = right.name === template.suggested_role_name;
+
+        if (leftIsSuggested !== rightIsSuggested) {
+            return leftIsSuggested ? -1 : 1;
+        }
+
+        const leftIsSuperAdmin = left.name === "super-admin";
+        const rightIsSuperAdmin = right.name === "super-admin";
+
+        if (leftIsSuperAdmin !== rightIsSuperAdmin) {
+            return leftIsSuperAdmin ? 1 : -1;
+        }
+
+        const leftPermissionCount = (left.permissions || []).length;
+        const rightPermissionCount = (right.permissions || []).length;
+        const leftExtra = Math.max(0, leftPermissionCount - requiredCount);
+        const rightExtra = Math.max(0, rightPermissionCount - requiredCount);
+
+        if (leftExtra !== rightExtra) {
+            return leftExtra - rightExtra;
+        }
+
+        return left.name.localeCompare(right.name, "id-ID");
+    })[0];
 }
 
 export default function Create() {
@@ -219,17 +282,42 @@ export default function Create() {
         });
     };
 
-    const availableKitchenStations = kitchenStations.filter((station) =>
-        data.selectedOutlets.includes(Number(station.outlet_id))
-    );
-    const isWaiterSelected = data.selectedRoles.includes("waiter");
-    const isKitchenOperatorSelected = data.selectedRoles.includes("kitchen-operator");
-    const accessibleTenantOutlets = tenantOutlets.filter((outlet) =>
-        data.selectedOutlets.includes(outlet.id)
-    );
+    const focusSingleOutlet = (outletId) => {
+        const nextOutletId = Number(outletId);
+
+        setData((current) => ({
+            ...current,
+            selectedOutlets: [nextOutletId],
+            primary_outlet_id: String(nextOutletId),
+            preferred_kitchen_station_id: "",
+            waiter_tenant_outlet_ids: current.waiter_tenant_outlet_ids.filter(
+                (id) => Number(id) === nextOutletId
+            ),
+        }));
+
+        toast.success("Akses outlet dibatasi ke outlet utama ini.");
+    };
+
     const selectedRoleObjects = roles.filter((role) =>
         data.selectedRoles.includes(role.name)
     );
+    const selectedPermissionNames = permissionNamesFromRoles(selectedRoleObjects);
+    const availableKitchenStations = kitchenStations.filter((station) =>
+        data.selectedOutlets.includes(Number(station.outlet_id))
+    );
+    const isWaiterSelected = hasAnyPermissionName(selectedPermissionNames, [
+        "waiter-board-access",
+    ]);
+    const isKitchenOperatorSelected = hasAnyPermissionName(selectedPermissionNames, [
+        "kitchen-access",
+        "kitchen-manage",
+    ]);
+    const accessibleTenantOutlets = tenantOutlets.filter((outlet) =>
+        data.selectedOutlets.includes(outlet.id)
+    );
+    const isTenantScopedSelection =
+        selectedPermissionNames.length > 0 &&
+        !hasAnyPermissionName(selectedPermissionNames, OWNER_SCOPE_PERMISSIONS);
     const unselectedRoleObjects = roles.filter(
         (role) => !data.selectedRoles.includes(role.name)
     );
@@ -266,8 +354,10 @@ export default function Create() {
             .map((template) => ({
                 ...template,
                 meta: templateMeta(template),
-                matchedRole: roles.find((role) =>
-                    templateMatchesRole(template, role, roles.flatMap((item) => item.permissions || []))
+                matchedRole: resolveTemplateMatchedRole(
+                    template,
+                    roles,
+                    roles.flatMap((item) => item.permissions || [])
                 ),
             }))
             .reduce((accumulator, template) => {
@@ -552,7 +642,28 @@ export default function Create() {
                                                             {template.matchedRole ? (
                                                                 <button
                                                                     type="button"
-                                                                    onClick={() => setData("selectedRoles", [template.matchedRole.name])}
+                                                                    onClick={() => {
+                                                                        Swal.fire({
+                                                                            title: "Pakai template role ini?",
+                                                                            html: `
+                                                                                <div style="text-align:left">
+                                                                                    <p>Role aktif akan diganti menjadi <strong>${roleLabel(template.matchedRole.name)}</strong>.</p>
+                                                                                    <p style="margin-top:8px">Akses outlet <strong>tidak berubah otomatis</strong>. Jika user hanya boleh masuk ke satu tenant, lanjutkan pengaturan di bagian <strong>Akses Outlet</strong>.</p>
+                                                                                </div>
+                                                                            `,
+                                                                            icon: "question",
+                                                                            showCancelButton: true,
+                                                                            confirmButtonText: "Ya, pakai role ini",
+                                                                            cancelButtonText: "Batal",
+                                                                            confirmButtonColor: "#2563eb",
+                                                                            cancelButtonColor: "#64748b",
+                                                                        }).then((result) => {
+                                                                            if (result.isConfirmed) {
+                                                                                setData("selectedRoles", [template.matchedRole.name]);
+                                                                                toast.success(`Role aktif diganti ke ${roleLabel(template.matchedRole.name)}`);
+                                                                            }
+                                                                        });
+                                                                    }}
                                                                     className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
                                                                 >
                                                                     <IconBolt size={16} />
@@ -960,20 +1071,61 @@ export default function Create() {
                             <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">
                                 Outlet utama adalah outlet yang akan dipakai sebagai konteks default saat user login.
                             </p>
-                            <select
-                                value={data.primary_outlet_id}
-                                onChange={(e) => setData("primary_outlet_id", e.target.value)}
-                                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-                            >
-                                <option value="">Pilih outlet utama</option>
+                            {isTenantScopedSelection && data.selectedOutlets.length > 1 ? (
+                                <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100">
+                                    Role tenant aktif terpilih. Jika user ini hanya boleh masuk ke satu tenant, pilih outlet utama lalu klik <strong>Pakai outlet ini saja</strong>.
+                                </div>
+                            ) : null}
+                            <div className="space-y-2">
                                 {outlets
                                     .filter((outlet) => data.selectedOutlets.includes(outlet.id))
                                     .map((outlet) => (
-                                        <option key={outlet.id} value={outlet.id}>
-                                            [{outlet.outlet_type === "tenant" ? "Tenant" : "Owner"}] {outlet.code} - {outlet.name}
-                                        </option>
+                                        <label
+                                            key={outlet.id}
+                                            className={`flex cursor-pointer items-start gap-3 rounded-xl border px-4 py-3 transition-all ${
+                                                Number(data.primary_outlet_id) === Number(outlet.id)
+                                                    ? "border-primary-500 bg-primary-50 dark:bg-primary-950/40"
+                                                    : "border-slate-200 dark:border-slate-700 hover:border-primary-300"
+                                            }`}
+                                        >
+                                            <input
+                                                type="radio"
+                                                name="primary_outlet_id"
+                                                value={outlet.id}
+                                                checked={Number(data.primary_outlet_id) === Number(outlet.id)}
+                                                onChange={(e) => setData("primary_outlet_id", e.target.value)}
+                                                className="mt-0.5 h-4 w-4 border-slate-300 text-primary-600 focus:ring-primary-500"
+                                            />
+                                            <div>
+                                                <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                                                    [{outlet.outlet_type === "tenant" ? "Tenant" : "Owner"}] {outlet.code} - {outlet.name}
+                                                </p>
+                                                <p className="text-xs text-slate-500 dark:text-slate-400">
+                                                    {Number(data.primary_outlet_id) === Number(outlet.id)
+                                                        ? "Sedang dipakai sebagai outlet utama."
+                                                        : "Pilih jika ini harus jadi konteks default saat login."}
+                                                </p>
+                                                {isTenantScopedSelection && data.selectedOutlets.length > 1 ? (
+                                                    <button
+                                                        type="button"
+                                                        onClick={(event) => {
+                                                            event.preventDefault();
+                                                            focusSingleOutlet(outlet.id);
+                                                        }}
+                                                        className="mt-2 inline-flex items-center rounded-lg border border-primary-200 bg-white px-2.5 py-1 text-xs font-medium text-primary-700 hover:bg-primary-50 dark:border-primary-900/40 dark:bg-slate-900 dark:text-primary-300 dark:hover:bg-primary-950/20"
+                                                    >
+                                                        Pakai outlet ini saja
+                                                    </button>
+                                                ) : null}
+                                            </div>
+                                        </label>
                                     ))}
-                            </select>
+                                {!outlets.filter((outlet) => data.selectedOutlets.includes(outlet.id)).length ? (
+                                    <div className="rounded-xl border border-dashed border-slate-300 px-4 py-3 text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                                        Pilih minimal satu outlet akses dulu.
+                                    </div>
+                                ) : null}
+                            </div>
                             {errors.primary_outlet_id && (
                                 <p className="text-xs text-danger-500 mt-3">
                                     {errors.primary_outlet_id}

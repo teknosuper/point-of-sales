@@ -12,6 +12,25 @@ use Spatie\Permission\Models\Role;
 
 class RoleController extends Controller
 {
+    private const SYSTEM_ROLE_NAMES = [
+        'super-admin',
+        'cashier',
+        'waiter',
+        'kitchen-operator',
+        'kasir-operasional',
+        'petugas-antar',
+        'operator-dapur',
+    ];
+
+    private const TENANT_ROLE_NAMES = [
+        'kitchen-operator',
+        'operator-dapur',
+        'tenant-operasional',
+        'tenant-promo',
+        'tenant-owner',
+        'tenant-petugas-antar',
+    ];
+
     public function __construct(
         private readonly AuditLogService $auditLogService
     ) {}
@@ -39,16 +58,33 @@ class RoleController extends Controller
             ->when($filters['search'] !== '', fn ($query) => $query->where('name', 'like', '%'.$filters['search'].'%'))
             ->when($filters['kind'] !== '', function ($query) use ($filters) {
                 match ($filters['kind']) {
-                    'system' => $query->whereIn('name', ['super-admin', 'cashier', 'waiter', 'kitchen-operator']),
+                    'system' => $query->whereIn('name', self::SYSTEM_ROLE_NAMES),
                     'tenant' => $query->where(function ($builder) {
                         $builder
-                            ->where('name', 'kitchen-operator')
-                            ->orWhere('name', 'pricing-rules-access')
-                            ->orWhere('name', 'products-access')
-                            ->orWhere('name', 'outlets-access');
+                            ->whereIn('name', self::TENANT_ROLE_NAMES)
+                            ->orWhereHas('permissions', fn ($permissionQuery) => $permissionQuery->whereIn('name', [
+                                'products-access',
+                                'pricing-rules-access',
+                                'outlets-access',
+                                'waiter-board-access',
+                            ]));
                     }),
-                    'pricing' => $query->whereIn('name', ['pricing-rules-access', 'products-access']),
-                    'admin' => $query->whereNotIn('name', ['super-admin', 'cashier', 'waiter', 'kitchen-operator']),
+                    'pricing' => $query->where(function ($builder) {
+                        $builder
+                            ->whereIn('name', ['tenant-promo', 'tenant-owner', 'owner-pricing'])
+                            ->orWhereHas('permissions', fn ($permissionQuery) => $permissionQuery->whereIn('name', [
+                                'pricing-rules-access',
+                                'products-pricing-update',
+                            ]));
+                    }),
+                    'admin' => $query
+                        ->whereNotIn('name', array_merge(self::SYSTEM_ROLE_NAMES, self::TENANT_ROLE_NAMES))
+                        ->whereDoesntHave('permissions', fn ($permissionQuery) => $permissionQuery->whereIn('name', [
+                            'products-access',
+                            'pricing-rules-access',
+                            'outlets-access',
+                            'waiter-board-access',
+                        ])),
                     default => null,
                 };
             })

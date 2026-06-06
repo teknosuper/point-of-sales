@@ -3,6 +3,7 @@ import { Head, router, usePage } from "@inertiajs/react";
 import toast from "react-hot-toast";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import KitchenLayout from "@/Layouts/KitchenLayout";
+import Modal from "@/Components/Dashboard/Modal";
 import Pagination from "@/Components/Dashboard/Pagination";
 import {
     IconCashBanknote,
@@ -11,6 +12,7 @@ import {
     IconChevronUp,
     IconClockHour4,
     IconFileExport,
+    IconInfoCircle,
     IconPrinter,
     IconReceipt2,
     IconSearch,
@@ -111,6 +113,7 @@ export default function Index({
         () => isKitchenWorkspace
     );
     const [showFilters, setShowFilters] = useState(false);
+    const [showHelpModal, setShowHelpModal] = useState(false);
 
     useEffect(() => {
         if (flash?.success) toast.success(flash.success);
@@ -355,6 +358,14 @@ export default function Index({
                         </p>
                     </div>
                     <div className="flex gap-2">
+                        <button
+                            type="button"
+                            onClick={() => setShowHelpModal(true)}
+                            className="inline-flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm font-medium text-blue-700 transition hover:bg-blue-100 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-200 dark:hover:bg-blue-950/40"
+                        >
+                            <IconInfoCircle size={16} />
+                            Bantuan
+                        </button>
                         <button
                             type="button"
                             onClick={() => setShowRequestPanel((value) => !value)}
@@ -1098,6 +1109,96 @@ export default function Index({
                         </div>
                     </div>
                 ) : null}
+
+                <Modal
+                    show={showHelpModal}
+                    onClose={() => setShowHelpModal(false)}
+                    title="Bantuan Penarikan Dana / Settlement"
+                    maxWidth="2xl"
+                >
+                    <div className="space-y-5 text-sm text-slate-600 dark:text-slate-300">
+                        <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 dark:border-blue-900/40 dark:bg-blue-950/20">
+                            <p className="font-semibold text-slate-900 dark:text-white">
+                                Fungsi Halaman Settlement
+                            </p>
+                            <p className="mt-2">
+                                Halaman ini digunakan untuk mengelola pengajuan pencairan dana tenant (foodcourt) atau setoran kasir. Tenant mengajukan penarikan, admin outlet menyetujui atau menolak.
+                            </p>
+                            <p className="mt-2">
+                                Untuk tenant/dapur: halaman ini untuk mengajukan pencairan dana dari saldo penjualan yang sudah selesai diantar. Untuk admin: halaman ini untuk meninjau dan menyetujui pengajuan dari tenant.
+                            </p>
+                        </div>
+
+                        <div>
+                            <p className="font-semibold text-slate-900 dark:text-white">
+                                Alur Kerja
+                            </p>
+                            <ol className="mt-2 list-decimal space-y-2 pl-5">
+                                <li><strong>Tenant</strong> mengajukan penarikan dana dari saldo yang tersedia, bisa sebagian atau seluruhnya.</li>
+                                <li><strong>Admin</strong> menerima notifikasi pengajuan, memeriksa nominal dan lampiran.</li>
+                                <li>Admin bisa <strong>Approve</strong> (setujui) dengan mengisi rincian pembayaran: cash, transfer, atau metode lain.</li>
+                                <li>Admin juga bisa <strong>Tolak</strong> pengajuan dengan alasan yang jelas.</li>
+                                <li>Setelah approve, bukti pembayaran bisa dicetak dan diberikan ke tenant.</li>
+                            </ol>
+                        </div>
+
+                        <div>
+                            <p className="font-semibold text-slate-900 dark:text-white">
+                                Kartu Ringkasan
+                            </p>
+                            <ul className="mt-2 list-disc space-y-1 pl-5">
+                                <li><strong>Menunggu Approval</strong>: jumlah pengajuan yang belum diproses.</li>
+                                <li><strong>Disetujui</strong>: pengajuan yang sudah dibayar.</li>
+                                <li><strong>Total Pending</strong>: nominal total yang masih menunggu approval.</li>
+                                <li><strong>Total Disetujui</strong>: nominal total yang sudah dibayarkan.</li>
+                                <li>Untuk tenant: tambahan <strong>Saldo Masuk</strong>, <strong>Piutang</strong>, dan <strong>Saldo Tersedia</strong>.</li>
+                            </ul>
+                        </div>
+
+                        <div>
+                            <p className="font-semibold text-slate-900 dark:text-white">
+                                Cara Menggunakan (Tenant)
+                            </p>
+                            <ol className="mt-2 list-decimal space-y-2 pl-5">
+                                <li>Buka panel <strong>Ajukan Penarikan Dana Tenant</strong>.</li>
+                                <li>Masukkan nominal yang ingin dicairkan (maksimal sesuai saldo tersedia).</li>
+                                <li>Tambahkan catatan jika perlu (misal: rekening tujuan, metode pencairan).</li>
+                                <li>Lampirkan bukti pendukung (opsional).</li>
+                                <li>Klik <strong>Ajukan Penarikan Dana</strong>. Pengajuan akan masuk ke daftar riwayat.</li>
+                                <li>Pantau status pengajuan di tabel riwayat sampai disetujui admin.</li>
+                            </ol>
+                        </div>
+
+                        <div>
+                            <p className="font-semibold text-slate-900 dark:text-white">
+                                Cara Menggunakan (Admin)
+                            </p>
+                            <ol className="mt-2 list-decimal space-y-2 pl-5">
+                                <li>Lihat daftar pengajuan di tabel <strong>Riwayat Pengajuan</strong>.</li>
+                                <li>Untuk pengajuan <strong>Pending</strong>, klik <strong>Approve</strong>.</li>
+                                <li>Isi rincian pembayaran: nominal approve, cash, transfer, lainnya, nama penerima, referensi, dan waktu bayar.</li>
+                                <li>Total pembayaran (cash + transfer + lainnya) harus sama dengan nominal approve.</li>
+                                <li>Masukkan password untuk konfirmasi, lalu klik <strong>Simpan Approval</strong>.</li>
+                                <li>Setelah approve, klik <strong>Cetak</strong> untuk mencetak bukti pembayaran.</li>
+                                <li>Untuk menolak, klik <strong>Tolak</strong>, isi alasan dan password.</li>
+                            </ol>
+                        </div>
+
+                        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/40 dark:bg-amber-950/20">
+                            <p className="font-semibold text-slate-900 dark:text-white">
+                                Catatan Penting
+                            </p>
+                            <ul className="mt-2 list-disc space-y-1 pl-5">
+                                <li>Tenant hanya bisa mengajukan penarikan maksimal sebesar <strong>saldo tersedia</strong>.</li>
+                                <li>Admin tidak bisa membuat pengajuan - hanya tenant yang bisa mengajukan (mencegah fraud).</li>
+                                <li>Approval memerlukan password admin untuk keamanan.</li>
+                                <li>Setelah approve, status pengajuan tidak bisa diubah lagi.</li>
+                                <li>Gunakan filter untuk mencari pengajuan berdasarkan status, pengaju, atau rentang tanggal.</li>
+                                <li>Bukti pembayaran yang di-approve bisa dicetak langsung dari tabel riwayat.</li>
+                            </ul>
+                        </div>
+                    </div>
+                </Modal>
             </div>
         </>
     );

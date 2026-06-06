@@ -307,7 +307,9 @@ const ProfitReport = ({
     customers = [],
     pricingRuleKinds = [],
     tenantOutlets = [],
+    workspace = {},
 }) => {
+    const isTenantWorkspace = Boolean(workspace?.is_tenant_workspace);
     const [showFilters, setShowFilters] = useState(false);
     const [filterData, setFilterData] = useState({
         ...defaultFilters,
@@ -448,16 +450,20 @@ const ProfitReport = ({
             tone: "blue",
         },
         {
-            title: "Biaya Dasar",
+            title: isTenantWorkspace ? "HPP Tenant" : "Biaya Dasar",
             value: formatCurrency(summary?.base_cost_total ?? 0),
-            description: "Akumulasi base cost / harga dasar",
+            description: isTenantWorkspace
+                ? "Akumulasi HPP tenant"
+                : "Akumulasi base cost / harga dasar",
             icon: <IconBuildingWarehouse />,
             tone: "slate",
         },
         {
-            title: "Markup Owner",
+            title: isTenantWorkspace ? "Margin Tenant" : "Markup Owner",
             value: formatCurrency(summary?.markup_total ?? 0),
-            description: "Selisih omzet vs biaya dasar",
+            description: isTenantWorkspace
+                ? "Selisih harga beli outlet vs HPP tenant"
+                : "Selisih omzet vs biaya dasar",
             icon: <IconTrendingUp />,
             tone: "amber",
         },
@@ -469,13 +475,6 @@ const ProfitReport = ({
             tone: "violet",
         },
         {
-            title: "Diskon Owner",
-            value: formatCurrency(summary?.owner_discount_total ?? 0),
-            description: "Bagian promo yang mengurangi sisi owner",
-            icon: <IconPercentage />,
-            tone: "rose",
-        },
-        {
             title: "Margin",
             value: `${summary?.margin ?? 0}%`,
             description: `${formatNumber(summary?.orders_count ?? 0)} transaksi • ${formatNumber(summary?.items_sold ?? 0)} item`,
@@ -483,6 +482,16 @@ const ProfitReport = ({
             tone: "rose",
         },
     ];
+
+    if (!isTenantWorkspace) {
+        cards.splice(5, 0, {
+            title: "Diskon Owner",
+            value: formatCurrency(summary?.owner_discount_total ?? 0),
+            description: "Bagian promo yang mengurangi sisi owner",
+            icon: <IconPercentage />,
+            tone: "rose",
+        });
+    }
 
     return (
         <>
@@ -495,7 +504,9 @@ const ProfitReport = ({
                             Laporan Keuntungan
                         </h1>
                         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                            Cek profit, omzet, dan pembagian tenant-owner.
+                            {isTenantWorkspace
+                                ? "Cek profit, omzet, biaya dasar, dan diskon untuk tenant aktif."
+                                : "Cek profit, omzet, dan pembagian tenant-owner."}
                         </p>
                     </div>
                     <button
@@ -614,7 +625,11 @@ const ProfitReport = ({
                 {showFilters && (
                     <SectionCard
                         title="Filter Profit Report"
-                        description="Gunakan rentang waktu, invoice, kasir, customer, atau tenant untuk menyempitkan analisis."
+                        description={
+                            isTenantWorkspace
+                                ? "Gunakan rentang waktu, invoice, kasir, customer, atau item untuk menyempitkan analisis tenant aktif."
+                                : "Gunakan rentang waktu, invoice, kasir, customer, atau tenant untuk menyempitkan analisis."
+                        }
                     >
                         <form onSubmit={applyFilters} className="space-y-4">
                             <div className="flex flex-wrap gap-2">
@@ -705,16 +720,18 @@ const ProfitReport = ({
                                     }}
                                     placeholder="Pilih customer"
                                 />
-                                <RemoteSelect
-                                    type="tenant"
-                                    label="Tenant"
-                                    selected={selectedTenantOutlet}
-                                    onSelect={(value) => {
-                                        setSelectedTenantOutlet(value);
-                                        handleChange("tenant_outlet_id", value?.id ?? "");
-                                    }}
-                                    placeholder="Pilih tenant"
-                                />
+                                {!isTenantWorkspace ? (
+                                    <RemoteSelect
+                                        type="tenant"
+                                        label="Tenant"
+                                        selected={selectedTenantOutlet}
+                                        onSelect={(value) => {
+                                            setSelectedTenantOutlet(value);
+                                            handleChange("tenant_outlet_id", value?.id ?? "");
+                                        }}
+                                        placeholder="Pilih tenant"
+                                    />
+                                ) : null}
                             </div>
 
                             <div className="flex flex-wrap items-center gap-3">
@@ -788,7 +805,9 @@ const ProfitReport = ({
                                                         {item.product_name}
                                                     </p>
                                                     <p className="text-xs text-slate-500 dark:text-slate-400">
-                                                        {item.tenant_outlet_name
+                                                        {isTenantWorkspace
+                                                            ? `Tenant ${item.tenant_outlet_name || workspace?.active_outlet?.name || "-"}`
+                                                            : item.tenant_outlet_name
                                                             ? `Tenant ${item.tenant_outlet_name}`
                                                             : "Owner direct"}{" "}
                                                         • Promo lines {formatNumber(item.promo_lines_count)}
@@ -808,15 +827,19 @@ const ProfitReport = ({
                                                 </td>
                                                 <td className="px-4 py-4 text-right text-sm font-semibold text-emerald-600 dark:text-emerald-400">
                                                     <div>{formatCurrency(item.gross_profit_total)}</div>
-                                                    <div className="text-[11px] font-normal text-slate-500 dark:text-slate-400">
-                                                        Owner net {formatCurrency(item.owner_net_total)}
-                                                    </div>
+                                                    {!isTenantWorkspace ? (
+                                                        <div className="text-[11px] font-normal text-slate-500 dark:text-slate-400">
+                                                            Owner net {formatCurrency(item.owner_net_total)}
+                                                        </div>
+                                                    ) : null}
                                                 </td>
                                                 <td className="px-4 py-4 text-right text-sm text-slate-700 dark:text-slate-300">
                                                     <div>Tenant {formatCurrency(item.tenant_discount_total)}</div>
-                                                    <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                                                        Owner {formatCurrency(item.owner_discount_total)}
-                                                    </div>
+                                                    {!isTenantWorkspace ? (
+                                                        <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                                                            Owner {formatCurrency(item.owner_discount_total)}
+                                                        </div>
+                                                    ) : null}
                                                 </td>
                                             </tr>
                                         ))}
@@ -838,7 +861,11 @@ const ProfitReport = ({
                 <div className="grid gap-6 xl:grid-cols-[1.6fr,1fr]">
                     <SectionCard
                         title="Profit Harian"
-                        description="Klik salah satu hari untuk melihat snapshot omzet, cost, markup, tenant, dan diskon pada hari itu."
+                        description={
+                            isTenantWorkspace
+                                ? "Klik salah satu hari untuk melihat snapshot omzet tenant, cost, profit, dan diskon pada hari itu."
+                                : "Klik salah satu hari untuk melihat snapshot omzet, cost, markup, tenant, dan diskon pada hari itu."
+                        }
                     >
                         {dailyProfitTrend.length > 0 ? (
                             <div className="space-y-4">
@@ -915,13 +942,19 @@ const ProfitReport = ({
                                         </div>
                                         <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/30">
                                             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                                                Markup Owner Direct
+                                                {isTenantWorkspace ? "Margin Tenant" : "Markup Owner Direct"}
                                             </p>
                                             <p className="mt-2 text-xl font-bold text-slate-900 dark:text-white">
-                                                {formatCurrency(activeDaySummary.owner_direct_markup_total)}
+                                                {formatCurrency(
+                                                    isTenantWorkspace
+                                                        ? activeDaySummary.profit_total
+                                                        : activeDaySummary.owner_direct_markup_total
+                                                )}
                                             </p>
                                             <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                                                Revenue owner {formatCurrency(activeDaySummary.owner_direct_revenue_total)}
+                                                {isTenantWorkspace
+                                                    ? `Base cost ${formatCurrency(activeDaySummary.base_cost_total)}`
+                                                    : `Revenue owner ${formatCurrency(activeDaySummary.owner_direct_revenue_total)}`}
                                             </p>
                                         </div>
                                         <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/30">
@@ -946,8 +979,12 @@ const ProfitReport = ({
                     </SectionCard>
 
                     <SectionCard
-                        title="Breakdown Tenant"
-                        description="Lihat tenant mana yang paling besar omzet, diskon, dan profitnya. Klik tenant untuk fokus ke ringkasannya."
+                        title={isTenantWorkspace ? "Ringkasan Tenant Aktif" : "Breakdown Tenant"}
+                        description={
+                            isTenantWorkspace
+                                ? "Ringkasan omzet, diskon, dan profit untuk tenant aktif."
+                                : "Lihat tenant mana yang paling besar omzet, diskon, dan profitnya. Klik tenant untuk fokus ke ringkasannya."
+                        }
                     >
                         {tenantBreakdown.length > 0 ? (
                             <div className="space-y-3">
@@ -1014,7 +1051,7 @@ const ProfitReport = ({
                                 {activeTenantSummary ? (
                                     <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/30">
                                         <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                                            Fokus Tenant
+                                            {isTenantWorkspace ? "Fokus Tenant Aktif" : "Fokus Tenant"}
                                         </p>
                                         <h3 className="mt-1 text-lg font-semibold text-slate-900 dark:text-white">
                                             {activeTenantSummary.tenant_outlet?.name || `Tenant ${activeTenantSummary.tenant_outlet_id}`}
@@ -1064,6 +1101,7 @@ const ProfitReport = ({
                     </SectionCard>
                 </div>
 
+                {!isTenantWorkspace ? (
                 <SectionCard
                     title="Markup Owner Outlet"
                     description="Menunjukkan sumber markup owner berdasarkan item owner direct dan item tenant yang ikut dijual di outlet aktif."
@@ -1145,6 +1183,7 @@ const ProfitReport = ({
                         </div>
                     )}
                 </SectionCard>
+                ) : null}
 
                 {cashierSummary.length > 0 && (
                     <SectionCard
@@ -1211,7 +1250,11 @@ const ProfitReport = ({
 
                 <SectionCard
                     title="Transaksi Profit Detail"
-                    description="Digunakan untuk audit invoice per invoice: omzet, base cost, markup owner, revenue tenant, dan profit yang tercatat."
+                    description={
+                        isTenantWorkspace
+                            ? "Digunakan untuk audit invoice tenant: omzet tenant, base cost, diskon, dan profit yang tercatat."
+                            : "Digunakan untuk audit invoice per invoice: omzet, base cost, markup owner, revenue tenant, dan profit yang tercatat."
+                    }
                 >
                     {rows.length > 0 ? (
                         <>
@@ -1285,12 +1328,20 @@ const ProfitReport = ({
                                                     </td>
                                                     <td className="px-4 py-4 text-right text-sm font-semibold text-emerald-600 dark:text-emerald-400">
                                                         <div>{formatCurrency(trx.total_profit ?? 0)}</div>
-                                                        <div className="text-[11px] font-normal text-slate-500 dark:text-slate-400">
-                                                            Owner cut {formatCurrency(trx.owner_discount_total ?? 0)}
-                                                        </div>
-                                                        <div className="text-[11px] font-normal text-slate-500 dark:text-slate-400">
-                                                            Owner net {formatCurrency(trx.owner_net_total ?? 0)}
-                                                        </div>
+                                                        {!isTenantWorkspace ? (
+                                                            <>
+                                                                <div className="text-[11px] font-normal text-slate-500 dark:text-slate-400">
+                                                                    Owner cut {formatCurrency(trx.owner_discount_total ?? 0)}
+                                                                </div>
+                                                                <div className="text-[11px] font-normal text-slate-500 dark:text-slate-400">
+                                                                    Owner net {formatCurrency(trx.owner_net_total ?? 0)}
+                                                                </div>
+                                                            </>
+                                                        ) : (
+                                                            <div className="text-[11px] font-normal text-slate-500 dark:text-slate-400">
+                                                                Base cost {formatCurrency(trx.base_cost_total ?? 0)}
+                                                            </div>
+                                                        )}
                                                     </td>
                                                 </tr>
                                                 {Array.isArray(trx.detail_items) && trx.detail_items.length > 0 ? (
@@ -1324,7 +1375,9 @@ const ProfitReport = ({
                                                                                 <div>Tenant net {formatCurrency(item.tenant_net_total ?? 0)}</div>
                                                                             </div>
                                                                             <div className="text-slate-600 dark:text-slate-300">
-                                                                                <div>Owner cut {formatCurrency(item.owner_discount_total ?? 0)}</div>
+                                                                                {!isTenantWorkspace ? (
+                                                                                    <div>Owner cut {formatCurrency(item.owner_discount_total ?? 0)}</div>
+                                                                                ) : null}
                                                                                 <div>Base cost {formatCurrency(item.base_cost_total ?? 0)}</div>
                                                                             </div>
                                                                         </div>

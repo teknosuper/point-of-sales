@@ -211,6 +211,8 @@ class DiningTableController extends Controller
 
     private function tablePayload(DiningTable $table): array
     {
+        $table = $this->ensureQrToken($table);
+
         return [
             'id' => $table->id,
             'outlet_id' => (int) $table->outlet_id,
@@ -225,5 +227,18 @@ class DiningTableController extends Controller
             'notes' => $table->notes,
             'transactions_count' => (int) ($table->transactions_count ?? 0),
         ];
+    }
+
+    private function ensureQrToken(DiningTable $table): DiningTable
+    {
+        if (filled($table->qr_token)) {
+            return $table;
+        }
+
+        $table->forceFill([
+            'qr_token' => (string) Str::uuid(),
+        ])->save();
+
+        return $table->fresh() ?? $table;
     }
 }

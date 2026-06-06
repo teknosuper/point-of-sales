@@ -73,6 +73,7 @@ class HandleInertiaRequests extends Middleware
                         'slug' => $outlet->slug,
                         'name' => $outlet->name,
                         'city' => $outlet->city,
+                        'outlet_type' => $outlet->outlet_type ?? 'main',
                         'is_primary' => (bool) ($outlet->pivot?->is_primary ?? false),
                     ])
                     ->values();
@@ -210,12 +211,40 @@ class HandleInertiaRequests extends Middleware
         }
 
         $storeProfile = app(OutletResolver::class)->profilePayload($request);
+        $availableOutletCollection = collect($availableOutlets);
+        $accessibleOutletTypes = $availableOutletCollection
+            ->pluck('outlet_type')
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+        $isTenantScopedAccount = $request->user()
+            ? $availableOutletCollection->isNotEmpty()
+                && $availableOutletCollection->every(
+                    fn (array $outlet) => ($outlet['outlet_type'] ?? 'main') === 'tenant'
+                )
+            : false;
 
         return [
             ...parent::share($request),
             'auth' => [
                 'user' => $request->user(),
-                'permissions' => $request->user() ? $request->user()->getPermissions() : [],
+                'permissions' => $request->user()
+                    ? $request->user()
+                        ->getAllPermissions()
+                        ->pluck('name')
+                        ->mapWithKeys(fn ($name) => [$name => true])
+                        ->all()
+                    : [],
+                'roleNames' => $request->user() ? $request->user()->getRoleNames()->values()->all() : [],
+                'accessProfile' => [
+                    'tenantScoped' => $isTenantScopedAccount,
+                    'accessibleOutletTypes' => $accessibleOutletTypes,
+                    'primaryOutletType' => $availableOutletCollection
+                        ->firstWhere('is_primary', true)['outlet_type']
+                        ?? $availableOutletCollection->first()['outlet_type']
+                        ?? null,
+                ],
                 'super' => $request->user() ? $request->user()->isSuperAdmin() : false,
             ],
             'flash' => [

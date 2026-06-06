@@ -15,6 +15,7 @@ import CartPanel from "@/Components/POS/CartPanel";
 import PaymentPanel from "@/Components/POS/PaymentPanel";
 import CustomerSelect from "@/Components/POS/CustomerSelect";
 import NumpadModal from "@/Components/POS/NumpadModal";
+import { ThermalReceipt58mm } from "@/Components/Receipt/ThermalReceipt";
 import HeldTransactions, {
     HoldButton,
 } from "@/Components/POS/HeldTransactions";
@@ -318,6 +319,7 @@ export default function Index({
         useState(false);
     const [isRequeueingHistoryReceipt, setIsRequeueingHistoryReceipt] =
         useState(false);
+    const [isThermalPreviewOpen, setIsThermalPreviewOpen] = useState(false);
     const offlineSyncInFlightRef = useRef(false);
     useEffect(() => {
         if (typeof window === "undefined") {
@@ -3258,6 +3260,11 @@ export default function Index({
         setIsHistoryModalOpen(false);
     }, [isConfirmingHistoryPayment]);
 
+    const openThermalPreview = useCallback((transaction) => {
+        if (!transaction) return;
+        setIsThermalPreviewOpen(true);
+    }, []);
+
     const updateHistoryFilter = useCallback((field, value) => {
         setHistoryFilters((current) => ({
             ...current,
@@ -4863,7 +4870,14 @@ export default function Index({
                                             : "bg-slate-400 hover:bg-slate-500 dark:bg-slate-700 dark:hover:bg-slate-600"
                                     }`}
                                 >
-                                    Lanjut pembayaran
+                                    <span className="flex flex-col items-center text-center">
+                                        <span className="block text-sm font-semibold">
+                                            Lanjut pembayaran
+                                        </span>
+                                        <span className="block text-[11px] font-medium text-white/85">
+                                            Total bayar {formatPrice(payable)}
+                                        </span>
+                                    </span>
                                 </button>
                             </div>
                         </div>
@@ -4939,271 +4953,248 @@ export default function Index({
                         </div>
                     )}
 
-                    {/* Payment Details - Scrollable */}
-                    <div className="flex-1 overflow-y-auto min-h-0 p-3">
-                        <div className="space-y-4">
-                            {/* Pay later toggle */}
-                            <div className="flex items-center justify-between p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800">
-                                <div>
-                                    <p className="text-sm font-semibold text-slate-800 dark:text-white">
-                                        Bayar Belakangan (Nota Barang)
-                                    </p>
-                                    <p className="text-xs text-slate-500">
-                                        Tidak perlu bayar sekarang, catat sebagai piutang.
-                                    </p>
-                                </div>
-                                <label className="inline-flex items-center cursor-pointer">
-                                    <input
-                                        type="checkbox"
-                                        className="sr-only"
-                                        checked={payLater}
-                                        onChange={(e) => {
-                                            if (isOfflineMode) {
-                                                toast.error(
-                                                    "Nota barang tidak tersedia saat offline"
-                                                );
-                                                return;
-                                            }
-
-                                            if (
-                                                e.target.checked &&
-                                                selectedCustomer?.is_walk_in
-                                            ) {
-                                                toast.error(
-                                                    "Pilih pelanggan terdaftar sebelum memakai nota barang"
-                                                );
-                                                setOpenAddCustomerModalSignal(
-                                                    (value) => value + 1
-                                                );
-                                                return;
-                                            }
-
-                                            setPayLater(e.target.checked);
-                                            if (e.target.checked) {
-                                                setSelectedBankAccount(null);
-                                                setPaymentMethod("cash");
-                                            }
-                                        }}
-                                    />
-                                    <span
-                                        className={`w-11 h-6 flex items-center bg-slate-300 rounded-full p-1 transition ${
-                                            payLater ? "bg-primary-500" : ""
-                                        }`}
-                                    >
-                                        <span
-                                            className={`bg-white w-4 h-4 rounded-full shadow transform transition ${
-                                                payLater ? "translate-x-5" : ""
-                                            }`}
-                                        />
-                                    </span>
-                                </label>
-                            </div>
-
-                            {payLater && (
-                                <div>
-                                    <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-2">
-                                        Tanggal Jatuh Tempo
-                                    </label>
-                                    <input
-                                        type="date"
-                                        value={dueDate}
-                                        onChange={(e) => setDueDate(e.target.value)}
-                                        className="w-full h-11 px-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
-                                    />
-                                </div>
-                            )}
-
-                            <div className="rounded-2xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
-                                <div className="flex items-center gap-3">
-                                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary-50 text-primary-600 dark:bg-primary-950/30 dark:text-primary-300">
-                                        {activePaymentOption.value === "cash" ? (
-                                            <IconCash size={18} />
-                                        ) : activePaymentOption.value ===
-                                          "bank_transfer" ? (
-                                            <IconBuildingBank size={18} />
-                                        ) : (
-                                            <IconCreditCard size={18} />
-                                        )}
+                    {/* Summary & Submit - Fixed at bottom, 2 columns */}
+                    <div className="flex-shrink-0 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/80 p-3">
+                        <div className="grid gap-3 sm:grid-cols-2">
+                            {/* Left Column - Payment Controls */}
+                            <div className="space-y-2">
+                                {/* Pay later toggle */}
+                                <div className="flex items-center justify-between p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+                                    <div>
+                                        <p className="text-[11px] font-semibold text-slate-800 dark:text-white">
+                                            Bayar Belakangan (Nota Barang)
+                                        </p>
+                                        <p className="text-[10px] text-slate-500">
+                                            Catat sebagai piutang.
+                                        </p>
                                     </div>
-                                    <div className="min-w-0 flex-1">
-                                        <div className="mb-1 flex items-center justify-between gap-2">
-                                            <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                    <label className="inline-flex items-center cursor-pointer">
+                                        <input
+                                            type="checkbox"
+                                            className="sr-only"
+                                            checked={payLater}
+                                            onChange={(e) => {
+                                                if (isOfflineMode) {
+                                                    toast.error(
+                                                        "Nota barang tidak tersedia saat offline"
+                                                    );
+                                                    return;
+                                                }
+
+                                                if (
+                                                    e.target.checked &&
+                                                    selectedCustomer?.is_walk_in
+                                                ) {
+                                                    toast.error(
+                                                        "Pilih pelanggan terdaftar sebelum memakai nota barang"
+                                                    );
+                                                    setOpenAddCustomerModalSignal(
+                                                        (value) => value + 1
+                                                    );
+                                                    return;
+                                                }
+
+                                                setPayLater(e.target.checked);
+                                                if (e.target.checked) {
+                                                    setSelectedBankAccount(null);
+                                                    setPaymentMethod("cash");
+                                                }
+                                            }}
+                                        />
+                                        <span
+                                            className={`w-11 h-6 flex items-center bg-slate-300 rounded-full p-1 transition ${
+                                                payLater ? "bg-primary-500" : ""
+                                            }`}
+                                        >
+                                            <span
+                                                className={`bg-white w-4 h-4 rounded-full shadow transform transition ${
+                                                    payLater ? "translate-x-5" : ""
+                                                }`}
+                                            />
+                                        </span>
+                                    </label>
+                                </div>
+
+                                {payLater && (
+                                    <div>
+                                        <label className="block text-[10px] font-medium text-slate-600 dark:text-slate-400 mb-1">
+                                            Tanggal Jatuh Tempo
+                                        </label>
+                                        <input
+                                            type="date"
+                                            value={dueDate}
+                                            onChange={(e) => setDueDate(e.target.value)}
+                                            className="w-full h-9 px-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
+                                        />
+                                    </div>
+                                )}
+
+                                {/* Payment Method */}
+                                <div className="rounded-xl border border-slate-200 bg-white p-2 dark:border-slate-700 dark:bg-slate-900">
+                                    <div className="flex items-center gap-2">
+                                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-50 text-primary-600 dark:bg-primary-950/30 dark:text-primary-300">
+                                            {activePaymentOption.value === "cash" ? (
+                                                <IconCash size={14} />
+                                            ) : activePaymentOption.value ===
+                                              "bank_transfer" ? (
+                                                <IconBuildingBank size={14} />
+                                            ) : (
+                                                <IconCreditCard size={14} />
+                                            )}
+                                        </div>
+                                        <div className="min-w-0 flex-1">
+                                            <label className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                                                 Metode Pembayaran
                                             </label>
-                                            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                                                {payLater
-                                                    ? "Nota Barang"
-                                                    : activePaymentOption.label}
-                                            </span>
-                                        </div>
-                                        <div className="relative">
-                                            <select
-                                                value={paymentMethod}
-                                                disabled={payLater}
-                                                onChange={(e) => {
-                                                    const nextMethod =
-                                                        e.target.value;
+                                            <div className="relative mt-1">
+                                                <select
+                                                    value={paymentMethod}
+                                                    disabled={payLater}
+                                                    onChange={(e) => {
+                                                        const nextMethod =
+                                                            e.target.value;
 
-                                                    if (
-                                                        isOfflineMode &&
-                                                        nextMethod !== "cash"
-                                                    ) {
-                                                        toast.error(
-                                                            "Saat offline hanya pembayaran tunai yang tersedia"
+                                                        if (
+                                                            isOfflineMode &&
+                                                            nextMethod !== "cash"
+                                                        ) {
+                                                            toast.error(
+                                                                "Saat offline hanya pembayaran tunai yang tersedia"
+                                                            );
+                                                            return;
+                                                        }
+
+                                                        setPaymentMethod(
+                                                            nextMethod
                                                         );
-                                                        return;
-                                                    }
 
-                                                    setPaymentMethod(
-                                                        nextMethod
-                                                    );
+                                                        if (
+                                                            nextMethod !==
+                                                            "bank_transfer"
+                                                        ) {
+                                                            setSelectedBankAccount(
+                                                                null
+                                                            );
+                                                        }
 
-                                                    if (
-                                                        nextMethod !==
-                                                        "bank_transfer"
-                                                    ) {
-                                                        setSelectedBankAccount(
-                                                            null
-                                                        );
-                                                    }
-
-                                                    if (
-                                                        nextMethod === "cash"
-                                                    ) {
-                                                        setIsCashPaymentModalOpen(
-                                                            true
-                                                        );
-                                                    }
-                                                }}
-                                                className="h-11 w-full appearance-none rounded-xl border border-slate-200 bg-slate-50 px-3 pr-10 text-sm font-medium text-slate-800 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
-                                            >
-                                                {paymentOptions.map(
-                                                    (method) => (
-                                                        <option
-                                                            key={method.value}
-                                                            value={
-                                                                method.value
-                                                            }
-                                                            disabled={
-                                                                isOfflineMode &&
-                                                                method.value !==
-                                                                    "cash"
-                                                            }
-                                                        >
-                                                            {method.label}
-                                                        </option>
-                                                    )
-                                                )}
-                                            </select>
-                                            <IconChevronDown
-                                                size={16}
-                                                className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
-                                            />
+                                                        if (
+                                                            nextMethod === "cash"
+                                                        ) {
+                                                            setIsCashPaymentModalOpen(
+                                                                true
+                                                            );
+                                                        }
+                                                    }}
+                                                    className="h-8 w-full appearance-none rounded-lg border border-slate-200 bg-slate-50 px-2 pr-8 text-xs font-medium text-slate-800 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                                                >
+                                                    {paymentOptions.map(
+                                                        (method) => (
+                                                            <option
+                                                                key={method.value}
+                                                                value={
+                                                                    method.value
+                                                                }
+                                                                disabled={
+                                                                    isOfflineMode &&
+                                                                    method.value !==
+                                                                        "cash"
+                                                                }
+                                                            >
+                                                                {method.label}
+                                                            </option>
+                                                        )
+                                                    )}
+                                                </select>
+                                                <IconChevronDown
+                                                    size={12}
+                                                    className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-slate-400"
+                                                />
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
-                                {payLater ? (
-                                    <p className="mt-2 text-[11px] text-amber-600 dark:text-amber-300">
-                                        Pembayaran dicatat sebagai nota barang.
-                                    </p>
-                                ) : (
-                                    <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
-                                        {isOfflineMode &&
-                                        activePaymentOption.value !== "cash"
+                                    <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">
+                                        {payLater
+                                            ? "Pembayaran dicatat sebagai nota barang."
+                                            : isOfflineMode && activePaymentOption.value !== "cash"
                                             ? "Metode ini butuh koneksi server."
                                             : activePaymentOption.description}
                                     </p>
-                                )}
-                            </div>
+                                </div>
 
-                            {/* Bank Selector - Only for bank_transfer */}
-                            {paymentMethod === "bank_transfer" &&
-                                bankAccounts.length > 0 &&
-                                !payLater && (
-                                    <div>
-                                        <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-2">
-                                            Rekening Tujuan
-                                        </label>
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                            {bankAccounts.map((bank) => {
-                                                const isActive =
-                                                    selectedBankAccount?.id ===
-                                                    bank.id;
-                                                return (
-                                                    <button
-                                                        key={bank.id}
-                                                        onClick={() =>
-                                                            setSelectedBankAccount(
-                                                                bank
-                                                            )
-                                                        }
-                                                        className={`p-3 rounded-xl border-2 transition-colors flex items-center gap-3 text-left ${
-                                                            isActive
-                                                                ? "border-primary-500 bg-primary-50 dark:bg-primary-950/30"
-                                                                : "border-slate-200 dark:border-slate-700 hover:border-primary-200 dark:hover:border-primary-800"
-                                                        }`}
-                                                    >
-                                                        <div className="w-10 h-10 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 flex items-center justify-center overflow-hidden">
-                                                            {bank.logo_url ? (
-                                                                <img
-                                                                    src={
-                                                                        bank.logo_url
-                                                                    }
-                                                                    alt={
-                                                                        bank.bank_name
-                                                                    }
-                                                                    className="max-w-full max-h-full object-contain"
-                                                                />
-                                                            ) : (
-                                                                <IconBuildingBank
-                                                                    size={18}
-                                                                    className="text-slate-500"
-                                                                />
-                                                            )}
-                                                        </div>
-                                                        <div className="flex-1">
-                                                            <p className="text-xs font-semibold text-slate-800 dark:text-slate-200">
-                                                                {
-                                                                    bank.bank_name
-                                                                }
-                                                            </p>
-                                                            <p className="text-xs text-slate-600 dark:text-slate-400">
-                                                                {
-                                                                    bank.account_number
-                                                                }
-                                                            </p>
-                                                            <p className="text-[11px] text-slate-500 dark:text-slate-500">
-                                                                a.n.{" "}
-                                                                {
-                                                                    bank.account_name
-                                                                }
-                                                            </p>
-                                                        </div>
-                                                        {isActive && (
-                                                            <span className="text-[11px] font-semibold text-primary-600">
-                                                                Dipilih
-                                                            </span>
-                                                        )}
-                                                    </button>
-                                                );
-                                            })}
-                                        </div>
-                                    </div>
-                                )}
-
-                            {paymentMethod === "cash" && !payLater && (
-                                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/50">
-                                    <div className="flex items-center justify-between gap-3">
+                                {/* Bank Selector */}
+                                {paymentMethod === "bank_transfer" &&
+                                    bankAccounts.length > 0 &&
+                                    !payLater && (
                                         <div>
-                                            <p className="text-sm font-semibold text-slate-800 dark:text-white">
+                                            <label className="block text-[10px] font-medium text-slate-600 dark:text-slate-400 mb-1">
+                                                Rekening Tujuan
+                                            </label>
+                                            <div className="grid grid-cols-1 gap-1">
+                                                {bankAccounts.map((bank) => {
+                                                    const isActive =
+                                                        selectedBankAccount?.id ===
+                                                        bank.id;
+                                                    return (
+                                                        <button
+                                                            key={bank.id}
+                                                            onClick={() =>
+                                                                setSelectedBankAccount(
+                                                                    bank
+                                                                )
+                                                            }
+                                                            className={`p-2 rounded-lg border-2 transition-colors flex items-center gap-2 text-left ${
+                                                                isActive
+                                                                    ? "border-primary-500 bg-primary-50 dark:bg-primary-950/30"
+                                                                    : "border-slate-200 dark:border-slate-700 hover:border-primary-200 dark:hover:border-primary-800"
+                                                            }`}
+                                                        >
+                                                            <div className="w-8 h-8 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 flex items-center justify-center overflow-hidden shrink-0">
+                                                                {bank.logo_url ? (
+                                                                    <img
+                                                                        src={
+                                                                            bank.logo_url
+                                                                        }
+                                                                        alt={
+                                                                            bank.bank_name
+                                                                        }
+                                                                        className="max-w-full max-h-full object-contain"
+                                                                    />
+                                                                ) : (
+                                                                    <IconBuildingBank
+                                                                        size={14}
+                                                                        className="text-slate-500"
+                                                                    />
+                                                                )}
+                                                            </div>
+                                                            <div className="flex-1 min-w-0">
+                                                                <p className="text-[11px] font-semibold text-slate-800 dark:text-slate-200 truncate">
+                                                                    {bank.bank_name}
+                                                                </p>
+                                                                <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
+                                                                    {bank.account_number} • a.n. {bank.account_name}
+                                                                </p>
+                                                            </div>
+                                                            {isActive && (
+                                                                <IconCheck size={14} className="text-primary-600 shrink-0" />
+                                                            )}
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                {/* Cash Payment */}
+                                {paymentMethod === "cash" && !payLater && (
+                                    <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-white p-2 dark:border-slate-700 dark:bg-slate-900">
+                                        <div>
+                                            <p className="text-[11px] font-semibold text-slate-800 dark:text-white">
                                                 Pembayaran Tunai
                                             </p>
-                                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                            <p className="text-[10px] text-slate-500 dark:text-slate-400">
                                                 {cash > 0
-                                                    ? `Tunai diterima ${formatPrice(
-                                                          cash
-                                                      )}`
-                                                    : "Atur nominal bayar pelanggan di pop-up"}
+                                                    ? `Diterima ${formatPrice(cash)}`
+                                                    : "Atur nominal di pop-up"}
                                             </p>
                                         </div>
                                         <button
@@ -5211,360 +5202,193 @@ export default function Index({
                                             onClick={() =>
                                                 setIsCashPaymentModalOpen(true)
                                             }
-                                            className="rounded-xl border border-primary-200 bg-primary-50 px-3 py-2 text-xs font-semibold text-primary-700 hover:border-primary-300 hover:bg-primary-100 dark:border-primary-900/60 dark:bg-primary-950/30 dark:text-primary-300"
+                                            className="rounded-lg border border-primary-200 bg-primary-50 px-2 py-1 text-[11px] font-semibold text-primary-700 hover:border-primary-300 hover:bg-primary-100 dark:border-primary-900/60 dark:bg-primary-950/30 dark:text-primary-300"
                                         >
                                             Atur nominal bayar
                                         </button>
                                     </div>
-                                </div>
-                            )}
+                                )}
+                            </div>
 
-                            {offlineQueueCount > 0 && (
-                                <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/40 dark:bg-amber-950/20">
-                                    <div className="flex items-start justify-between gap-3">
-                                        <div>
-                                            <p className="text-sm font-semibold text-amber-700 dark:text-amber-300">
-                                                Antrean Sinkronisasi Offline
-                                            </p>
-                                            <p className="text-xs text-amber-600/80 dark:text-amber-400/80">
-                                                Transaksi tunai yang sudah tersimpan lokal dan menunggu dikirim ke server.
-                                            </p>
+                            {/* Right Column - Promo, Customer Info, Summary & Button */}
+                            <div className="flex flex-col">
+                                <div className="space-y-1.5">
+                                    {promoDiscount > 0 && (
+                                        <div className="flex justify-between items-center text-xs">
+                                            <span className="text-slate-500">
+                                                {PROMO_TOTAL_LABEL}
+                                            </span>
+                                            <span className="font-medium text-emerald-600">
+                                                -{formatPrice(promoDiscount)}
+                                            </span>
                                         </div>
-                                        <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-amber-700 dark:bg-slate-900 dark:text-amber-300">
-                                            {offlineQueueCount} pending
-                                        </span>
-                                    </div>
-                                    <div className="mt-3 space-y-2">
-                                        {offlineQueue.slice(0, 3).map((queuedItem) => (
-                                            <div
-                                                key={queuedItem.offline_reference}
-                                                className="flex items-center justify-between rounded-xl bg-white px-3 py-2 text-xs text-slate-700 dark:bg-slate-900 dark:text-slate-300"
-                                            >
-                                                <div className="min-w-0">
-                                                    <p className="truncate font-semibold">
-                                                        {queuedItem.offline_reference}
-                                                    </p>
-                                                    <p className="text-slate-500 dark:text-slate-400">
-                                                        {queuedItem.customer_name || "Pelanggan Umum"}
-                                                    </p>
-                                                </div>
-                                                <span className="ml-3 shrink-0 font-semibold text-amber-700 dark:text-amber-300">
-                                                    {formatPrice(queuedItem.grand_total || 0)}
-                                                </span>
+                                    )}
+                                    {appliedPromoGroups.length > 0 && (
+                                        <div className="rounded-lg border border-slate-200 bg-white/70 p-1.5 dark:border-slate-700 dark:bg-slate-900/60">
+                                            <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                                Promo yang sedang bekerja
                                             </div>
-                                        ))}
-                                    </div>
-                                    <div className="mt-3 grid grid-cols-2 gap-2">
-                                        <button
-                                            type="button"
-                                            onClick={() =>
-                                                setIsOfflineHistoryOpen(true)
-                                            }
-                                            className="rounded-xl border border-amber-300 bg-white px-3 py-2 text-xs font-semibold text-amber-700 dark:border-amber-700 dark:bg-slate-900 dark:text-amber-300"
-                                        >
-                                            Lihat Riwayat
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={syncOfflineQueue}
-                                            disabled={
-                                                isOfflineMode ||
-                                                isSyncingOfflineQueue
-                                            }
-                                            className="rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white disabled:opacity-60 dark:bg-white dark:text-slate-900"
-                                        >
-                                            {isSyncingOfflineQueue
-                                                ? "Menyinkronkan..."
-                                                : "Sync Sekarang"}
-                                        </button>
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Discount Input */}
-                            {promoDiscount > 0 && (
-                                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-900/40 dark:bg-emerald-950/20">
-                                    <div className="flex items-start justify-between gap-3">
-                                        <div>
-                                            <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">
-                                                {PROMO_TOTAL_LABEL} aktif
+                                            <div className="max-h-16 space-y-0.5 overflow-y-auto pr-1">
+                                                {appliedPromoGroups.map((group) => (
+                                                    <div
+                                                        key={group.key}
+                                                        className="flex items-start justify-between gap-2 text-[10px]"
+                                                    >
+                                                        <div className="min-w-0 flex-1">
+                                                            <span className="block break-words text-slate-600 dark:text-slate-300">
+                                                                {group.label}
+                                                            </span>
+                                                        </div>
+                                                        <span className="font-medium text-emerald-600 whitespace-nowrap">
+                                                            -{formatPrice(group.discount_total)}
+                                                        </span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                    {selectedCustomer?.is_walk_in && (
+                                        <div className="rounded-lg border border-amber-200 bg-amber-50 p-1.5 dark:border-amber-900/40 dark:bg-amber-950/20">
+                                            <p className="text-[10px] font-semibold text-amber-700 dark:text-amber-300">
+                                                Pelanggan Umum
                                             </p>
-                                            <p className="text-xs text-emerald-600/80 dark:text-emerald-400/80">
-                                                Harga item sudah disesuaikan berdasarkan rule promo yang berlaku.
+                                            <p className="text-[9px] text-amber-600/80 dark:text-amber-400/80">
+                                                Poin & voucher tidak berlaku.
                                             </p>
                                         </div>
-                                        <span className="text-sm font-bold text-emerald-700 dark:text-emerald-300">
-                                            -{formatPrice(promoDiscount)}
-                                        </span>
-                                    </div>
-                                </div>
-                            )}
-
-                            {selectedCustomer?.is_walk_in && (
-                                <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/40 dark:bg-amber-950/20">
-                                    <div className="flex items-start justify-between gap-3">
-                                        <div>
-                                            <p className="text-sm font-semibold text-amber-700 dark:text-amber-300">
-                                                Transaksi Pelanggan Umum
-                                            </p>
-                                            <p className="text-xs text-amber-600/80 dark:text-amber-400/80">
-                                                Poin, voucher pelanggan, dan manfaat member tidak berlaku karena transaksi ini tidak terhubung ke pelanggan terdaftar.
-                                            </p>
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-
-                            {selectedCustomer &&
-                                !selectedCustomer?.is_walk_in &&
-                                !selectedCustomer?.is_loyalty_member && (
-                                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/50">
-                                        <div className="flex items-start justify-between gap-3">
-                                            <div>
-                                                <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                                    )}
+                                    {selectedCustomer &&
+                                        !selectedCustomer?.is_walk_in &&
+                                        !selectedCustomer?.is_loyalty_member && (
+                                            <div className="rounded-lg border border-slate-200 bg-slate-50 p-1.5 dark:border-slate-700 dark:bg-slate-800/50">
+                                                <p className="text-[10px] font-semibold text-slate-700 dark:text-slate-200">
                                                     Pelanggan Non-member
                                                 </p>
-                                                <p className="text-xs text-slate-500 dark:text-slate-400">
-                                                    Transaksi tetap bisa diproses, tetapi penukaran poin dan voucher pelanggan belum tersedia sampai pelanggan di-upgrade menjadi member.
+                                                <p className="text-[9px] text-slate-500 dark:text-slate-400">
+                                                    Upgrade ke member.
                                                 </p>
                                             </div>
-                                        </div>
-                                    </div>
-                                )}
-
-                            {selectedCustomer?.is_loyalty_member && (
-                                <div className="rounded-xl border border-primary-200 bg-primary-50 p-3 dark:border-primary-900/40 dark:bg-primary-950/20">
-                                    <div className="flex items-start justify-between gap-3">
-                                        <div>
-                                            <p className="text-sm font-semibold text-primary-700 dark:text-primary-300">
-                                                Member Loyalty
+                                        )}
+                                    {selectedCustomer?.is_loyalty_member && (
+                                        <div className="rounded-lg border border-primary-200 bg-primary-50 p-1.5 dark:border-primary-900/40 dark:bg-primary-950/20">
+                                            <p className="text-[10px] font-semibold text-primary-700 dark:text-primary-300">
+                                                Member: {selectedCustomer.loyalty_tier}
                                             </p>
-                                            <p className="text-xs text-primary-600/80 dark:text-primary-400/80">
-                                                Tier {selectedCustomer.loyalty_tier} | saldo{" "}
-                                                {resolvedPricingPreview?.summary
-                                                    ?.available_loyalty_points ??
-                                                    0}{" "}
-                                                poin
+                                            <p className="text-[9px] text-primary-600/80 dark:text-primary-400/80">
+                                                Saldo {resolvedPricingPreview?.summary?.available_loyalty_points ?? 0} poin
                                             </p>
                                         </div>
+                                    )}
+                                </div>
+
+                                <div className="mt-2 border-t border-dashed border-slate-200 dark:border-slate-700 pt-2">
+                                    <div className="flex justify-between items-center text-xs">
+                                        <span className="text-slate-500">Subtotal Dasar</span>
+                                        <span className="font-medium">
+                                            {formatPrice(baseSubtotal)}
+                                        </span>
                                     </div>
-                                </div>
-                            )}
-
-                            {selectedCustomer?.is_loyalty_member && (
-                                <div>
-                                    <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-2">
-                                        Redeem Poin
-                                    </label>
-                                    <input
-                                        type="text"
-                                        inputMode="numeric"
-                                        value={redeemPointsInput}
-                                        onChange={(e) =>
-                                            setRedeemPointsInput(
-                                                e.target.value.replace(
-                                                    /[^\d]/g,
-                                                    ""
-                                                )
-                                            )
-                                        }
-                                        placeholder={`Maks ${
-                                            resolvedPricingPreview?.summary
-                                                ?.available_loyalty_points ?? 0
-                                        } poin`}
-                                        disabled={isOfflineMode}
-                                        className="w-full h-10 px-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 disabled:cursor-not-allowed disabled:opacity-60"
-                                    />
-                                </div>
-                            )}
-
-                            {selectedCustomer?.is_loyalty_member &&
-                                (resolvedPricingPreview?.eligible_vouchers || [])
-                                    .length > 0 && (
-                                    <div>
-                                        <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-2">
-                                            Voucher Customer
-                                        </label>
-                                        <select
-                                            value={selectedVoucherId}
-                                            onChange={(e) =>
-                                                setSelectedVoucherId(
-                                                    e.target.value
-                                                )
-                                            }
-                                            disabled={isOfflineMode}
-                                            className="w-full h-10 px-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 disabled:cursor-not-allowed disabled:opacity-60"
-                                        >
-                                            <option value="">
-                                                Tanpa voucher
-                                            </option>
-                                            {(
-                                                resolvedPricingPreview?.eligible_vouchers ||
-                                                []
-                                            ).map((voucher) => (
-                                                <option
-                                                    key={voucher.id}
-                                                    value={voucher.id}
-                                                >
-                                                    {voucher.code} -{" "}
-                                                    {voucher.name}
-                                                </option>
-                                            ))}
-                                        </select>
+                                    {voucherDiscount > 0 && (
+                                        <div className="flex justify-between items-center text-xs">
+                                            <span className="text-slate-500">Voucher</span>
+                                            <span className="text-primary-600">
+                                                -{formatPrice(voucherDiscount)}
+                                            </span>
+                                        </div>
+                                    )}
+                                    {loyaltyDiscount > 0 && (
+                                        <div className="flex justify-between items-center text-xs">
+                                            <span className="text-slate-500">Redeem Poin</span>
+                                            <span className="text-primary-600">
+                                                -{formatPrice(loyaltyDiscount)}
+                                            </span>
+                                        </div>
+                                    )}
+                                    {shipping > 0 && (
+                                        <div className="flex justify-between items-center text-xs">
+                                            <span className="text-slate-500">Ongkir</span>
+                                            <span className="font-medium">
+                                                +{formatPrice(shipping)}
+                                            </span>
+                                        </div>
+                                    )}
+                                    <div className="flex justify-between items-center mt-1">
+                                        <span className="font-semibold text-sm text-slate-800 dark:text-white">
+                                            Total
+                                        </span>
+                                        <span className="text-base font-bold text-primary-600 dark:text-primary-400">
+                                            {formatPrice(payable)}
+                                        </span>
                                     </div>
-                                )}
 
-                        </div>
-                    </div>
-
-                    {/* Summary & Submit - Fixed at bottom */}
-                    <div className="flex-shrink-0 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/80 p-3">
-                        {/* Summary Row */}
-                        <div className="flex justify-between items-center mb-2 text-sm">
-                            <span className="text-slate-500">Subtotal Dasar</span>
-                            <span className="font-medium">
-                                {formatPrice(baseSubtotal)}
-                            </span>
-                        </div>
-                        {promoDiscount > 0 && (
-                            <div className="flex justify-between items-center mb-2 text-sm">
-                                <span className="text-slate-500">
-                                    {PROMO_TOTAL_LABEL}
-                                </span>
-                                <span className="text-emerald-600">
-                                    -{formatPrice(promoDiscount)}
-                                </span>
-                            </div>
-                        )}
-                        {appliedPromoGroups.length > 0 && (
-                            <div className="mb-3 rounded-xl border border-slate-200 bg-white/70 p-2 dark:border-slate-700 dark:bg-slate-900/60">
-                                <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                                    Promo yang sedang bekerja
-                                </div>
-                                <div className="max-h-36 space-y-1.5 overflow-y-auto pr-1">
-                                    {appliedPromoGroups.map((group) => (
-                                            <div
-                                                key={group.key}
-                                                className="flex items-start justify-between gap-3 text-xs"
-                                            >
-                                                <div className="min-w-0 flex-1">
-                                                    <span className="block break-words text-slate-600 dark:text-slate-300">
-                                                        {group.label}
-                                                    </span>
-                                                    {group.count > 1 ? (
-                                                        <span className="text-[11px] text-slate-400 dark:text-slate-500">
-                                                            {group.count} siklus promo
-                                                        </span>
-                                                    ) : null}
-                                                </div>
-                                                <span className="font-medium text-emerald-600">
-                                                    -{formatPrice(group.discount_total)}
+                                    {paymentMethod === "cash" &&
+                                        !payLater &&
+                                        cash >= payable &&
+                                        payable > 0 && (
+                                            <div className="flex justify-between items-center mt-1 p-1 rounded bg-success-50 dark:bg-success-950/30 text-xs">
+                                                <span className="text-success-700 dark:text-success-400">
+                                                    Kembalian
+                                                </span>
+                                                <span className="font-bold text-success-600">
+                                                    {formatPrice(cash - payable)}
                                                 </span>
                                             </div>
-                                        ))}
+                                        )}
                                 </div>
-                            </div>
-                        )}
-                        {voucherDiscount > 0 && (
-                            <div className="flex justify-between items-center mb-2 text-sm">
-                                <span className="text-slate-500">Voucher</span>
-                                <span className="text-primary-600">
-                                    -{formatPrice(voucherDiscount)}
-                                </span>
-                            </div>
-                        )}
-                        {loyaltyDiscount > 0 && (
-                            <div className="flex justify-between items-center mb-2 text-sm">
-                                <span className="text-slate-500">
-                                    Redeem Poin
-                                </span>
-                                <span className="text-primary-600">
-                                    -{formatPrice(loyaltyDiscount)}
-                                </span>
-                            </div>
-                        )}
-                        {shipping > 0 && (
-                            <div className="flex justify-between items-center mb-2 text-sm">
-                                <span className="text-slate-500">Ongkir</span>
-                                <span className="font-medium">
-                                    +{formatPrice(shipping)}
-                                </span>
-                            </div>
-                        )}
-                        <div className="flex justify-between items-center mb-3">
-                            <span className="font-semibold text-slate-800 dark:text-white">
-                                Total
-                            </span>
-                            <span className="text-xl font-bold text-primary-600 dark:text-primary-400">
-                                {formatPrice(payable)}
-                            </span>
-                        </div>
 
-                        {paymentMethod === "cash" &&
-                            !payLater &&
-                            cash >= payable &&
-                            payable > 0 && (
-                                <div className="flex justify-between items-center mb-3 p-2 rounded-lg bg-success-50 dark:bg-success-950/30">
-                                    <span className="text-sm text-success-700 dark:text-success-400">
-                                        Kembalian
-                                    </span>
-                                    <span className="font-bold text-success-600">
-                                        {formatPrice(cash - payable)}
-                                    </span>
-                                </div>
-                            )}
+                                {/* Submit Button */}
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        if (
+                                            !localCarts.length ||
+                                            isLoadingPricing ||
+                                            isSubmitting
+                                        ) {
+                                            return;
+                                        }
 
-                        {/* Submit Button - Always visible */}
-                        <button
-                            type="button"
-                            onClick={() => {
-                                if (
-                                    !localCarts.length ||
-                                    isLoadingPricing ||
-                                    isSubmitting
-                                ) {
-                                    return;
-                                }
+                                        if (needsCashAdjustment) {
+                                            setIsCashPaymentModalOpen(true);
+                                            return;
+                                        }
 
-                                if (needsCashAdjustment) {
-                                    setIsCashPaymentModalOpen(true);
-                                    return;
-                                }
-
-                                openCheckoutPreview();
-                            }}
-                            disabled={
-                                !localCarts.length ||
-                                isLoadingPricing ||
-                                isSubmitting
-                            }
-                            className={`flex h-12 w-full items-center justify-center gap-2 rounded-xl text-sm font-semibold transition-all ${
-                                !localCarts.length ||
-                                isLoadingPricing ||
-                                isSubmitting
-                                    ? "cursor-not-allowed bg-slate-200 text-slate-400 dark:bg-slate-800"
-                                    : needsCashAdjustment
-                                    ? "bg-amber-500 text-white shadow-lg shadow-amber-500/25 hover:bg-amber-600"
-                                    : "bg-gradient-to-r from-primary-500 to-primary-600 text-white shadow-lg shadow-primary-500/30 hover:from-primary-600 hover:to-primary-700"
-                            }`}
-                        >
-                            {isSubmitting || isLoadingPricing ? (
-                                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                            ) : (
-                                <>
-                                    <IconReceipt size={18} />
-                                    <span>
-                                        {!localCarts.length
-                                            ? "Pilih menu dulu"
+                                        openCheckoutPreview();
+                                    }}
+                                    disabled={
+                                        !localCarts.length ||
+                                        isLoadingPricing ||
+                                        isSubmitting
+                                    }
+                                    className={`flex h-10 w-full items-center justify-center gap-2 rounded-xl text-sm font-semibold transition-all mt-2 ${
+                                        !localCarts.length ||
+                                        isLoadingPricing ||
+                                        isSubmitting
+                                            ? "cursor-not-allowed bg-slate-200 text-slate-400 dark:bg-slate-800"
                                             : needsCashAdjustment
-                                            ? "Atur nominal bayar"
-                                            : isLoadingPricing
-                                            ? "Menyiapkan total terbaik..."
-                                            : "Lanjutkan pembayaran"}
-                                    </span>
-                                </>
-                            )}
-                        </button>
+                                            ? "bg-amber-500 text-white shadow-lg shadow-amber-500/25 hover:bg-amber-600"
+                                            : "bg-gradient-to-r from-primary-500 to-primary-600 text-white shadow-lg shadow-primary-500/30 hover:from-primary-600 hover:to-primary-700"
+                                    }`}
+                                >
+                                    {isSubmitting || isLoadingPricing ? (
+                                        <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                    ) : (
+                                        <>
+                                            <IconReceipt size={16} />
+                                            <span>
+                                                {!localCarts.length
+                                                    ? "Pilih menu dulu"
+                                                    : needsCashAdjustment
+                                                    ? "Atur nominal bayar"
+                                                    : isLoadingPricing
+                                                    ? "Menyiapkan total terbaik..."
+                                                    : "Lanjutkan pembayaran"}
+                                            </span>
+                                        </>
+                                    )}
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -8226,6 +8050,20 @@ export default function Index({
                                 <button
                                     type="button"
                                     onClick={() =>
+                                        openThermalPreview(selectedHistoryTransaction)
+                                    }
+                                    className="inline-flex items-center justify-center gap-2 rounded-2xl border border-primary-200 bg-primary-50 px-4 py-3 text-sm font-semibold text-primary-700 dark:border-primary-900/40 dark:bg-primary-950/20 dark:text-primary-300"
+                                >
+                                    <IconReceipt size={16} />
+                                    Preview Thermal
+                                </button>
+                            ) : (
+                                <div />
+                            )}
+                            {selectedHistoryTransaction ? (
+                                <button
+                                    type="button"
+                                    onClick={() =>
                                         handleRequeueHistoryReceipt(
                                             selectedHistoryTransaction.id
                                         )
@@ -8267,6 +8105,59 @@ export default function Index({
                             ) : (
                                 <div />
                             )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Thermal Preview Modal */}
+            {isThermalPreviewOpen && selectedHistoryTransaction && (
+                <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
+                    <div
+                        className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm"
+                        onClick={() => setIsThermalPreviewOpen(false)}
+                    />
+                    <div className="relative z-10 flex max-h-[85vh] w-full max-w-sm flex-col overflow-hidden rounded-3xl bg-white shadow-2xl dark:bg-slate-900">
+                        <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4 dark:border-slate-800">
+                            <div>
+                                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
+                                    Preview Thermal
+                                </p>
+                                <h3 className="mt-1 text-lg font-bold text-slate-900 dark:text-white">
+                                    Struk {selectedHistoryTransaction.invoice}
+                                </h3>
+                                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                    Tampilan real di printer thermal 58mm.
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setIsThermalPreviewOpen(false)}
+                                className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 text-slate-500 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"
+                            >
+                                <IconX size={18} />
+                            </button>
+                        </div>
+                        <div className="flex-1 overflow-y-auto px-4 py-4">
+                            <div className="mx-auto flex max-w-[280px] justify-center rounded-lg bg-slate-950 px-2 py-4 shadow-inner">
+                                <ThermalReceipt58mm
+                                    transaction={selectedHistoryTransaction}
+                                    layout={selectedHistoryTransaction.receiptLayout}
+                                    storeName={storeProfile?.name || "POINZA"}
+                                    storePhone={storeProfile?.phone || ""}
+                                    storeEmail={storeProfile?.email || ""}
+                                    storeWebsite={storeProfile?.website || ""}
+                                />
+                            </div>
+                        </div>
+                        <div className="border-t border-slate-200 bg-slate-50 px-5 py-4 dark:border-slate-800 dark:bg-slate-900/80">
+                            <button
+                                type="button"
+                                onClick={() => setIsThermalPreviewOpen(false)}
+                                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                            >
+                                Tutup
+                            </button>
                         </div>
                     </div>
                 </div>

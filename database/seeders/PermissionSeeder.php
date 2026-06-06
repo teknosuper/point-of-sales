@@ -48,6 +48,7 @@ class PermissionSeeder extends Seeder
         $create('products-access');
         $create('products-create');
         $create('products-edit');
+        $create('products-stock-update');
         $create('products-pricing-update');
         $create('products-delete');
         $create('dining-tables-access');
@@ -86,7 +87,10 @@ class PermissionSeeder extends Seeder
 
         // permission transactions
         $create('transactions-access');
+        $create('transactions-history-access');
         $create('transactions-confirm-payment');
+        $create('kitchen-access');
+        $create('kitchen-manage');
         $create('waiter-board-access');
         $create('table-orders-access');
         $create('table-orders-approve');
@@ -105,6 +109,8 @@ class PermissionSeeder extends Seeder
         // payment settings
         $create('payment-settings-access');
         $create('payment-settings-update');
+        $create('business-settings-access');
+        $create('business-settings-update');
 
         // stock opnames
         $create('stock-opnames-access');
@@ -122,6 +128,8 @@ class PermissionSeeder extends Seeder
         $create('cashier-shifts-open');
         $create('cashier-shifts-close');
         $create('cashier-shifts-force-close');
+        $create('cashier-settlements-access');
+        $create('cashier-settlements-approve');
 
         // audit logs
         $create('audit-logs-access');

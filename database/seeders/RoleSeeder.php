@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Support\RbacPresetCatalog;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 use Spatie\Permission\Models\Permission;
@@ -19,40 +20,7 @@ class RoleSeeder extends Seeder
         app(PermissionRegistrar::class)->forgetCachedPermissions();
 
         $this->normalizeLegacyPermissionRole();
-
-        $this->createRoleWithPermissions('users-access', '%users%');
-        $this->createRoleWithPermissions('roles-access', '%roles%');
-        $this->createRoleWithPermissions('permissions-access', '%permissions%');
-        $this->createRoleWithPermissions('categories-access', '%categories%');
-        $this->createRoleWithPermissions('products-access', '%products%');
-        $this->createRoleWithPermissions('dining-tables-access', '%dining-tables%');
-        $this->createRoleWithPermissions('pricing-rules-access', '%pricing-rules%');
-        $this->createRoleWithPermissions('outlets-access', '%outlets%');
-        $this->createRoleWithPermissions('customers-access', '%customers%');
-        $this->createRoleWithPermissions('customer-vouchers-access', '%customer-vouchers%');
-        $this->createRoleWithPermissions('customer-segments-access', '%customer-segments%');
-        $this->createRoleWithPermissions('crm-campaigns-access', '%crm-campaigns%');
-        $this->createRoleWithPermissions('crm-reminders-access', '%crm-reminders%');
-        $this->createRoleWithPermissions('transactions-access', '%transactions%');
-        $this->createRoleWithPermissions('transactions-confirm-payment', 'transactions-confirm-payment');
-        $this->createRoleWithPermissions('waiter-board-access', 'waiter-board-access');
-        $this->createRoleWithPermissions('table-orders-access', 'table-orders-access');
-        $this->createRoleWithPermissions('table-orders-approve', 'table-orders-approve');
-        $this->createRoleWithPermissions('receivables-access', '%receivables%');
-        $this->createRoleWithPermissions('payables-access', '%payables%');
-        $this->createRoleWithPermissions('suppliers-access', '%suppliers%');
-        $this->createRoleWithPermissions('reports-access', '%reports%');
-        $this->createRoleWithPermissions('profits-access', '%profits%');
-        $this->createRoleWithPermissions('payment-settings-access', '%payment-settings%');
-        $this->createRoleWithPermissions('payment-settings-update', 'payment-settings-update');
-        $this->createRoleWithPermissions('stock-opnames-access', '%stock-opnames%');
-        $this->createRoleWithPermissions('stock-mutations-access', '%stock-mutations%');
-        $this->createRoleWithPermissions('sales-returns-access', '%sales-returns%');
-        $this->createRoleWithPermissions('cashier-shifts-access', '%cashier-shifts%');
-        $this->createRoleWithPermissions('audit-logs-access', '%audit-logs%');
-        $this->createRoleWithPermissions('purchase-orders-access', '%purchase-orders%');
-        $this->createRoleWithPermissions('goods-receivings-access', '%goods-receivings%');
-        $this->createRoleWithPermissions('supplier-returns-access', '%supplier-returns%');
+        $this->deleteLegacyGeneratedAccessRoles();
 
         $superAdminRole = Role::firstOrCreate(['name' => 'super-admin']);
         $superAdminRole->syncPermissions(Permission::all());
@@ -62,6 +30,7 @@ class RoleSeeder extends Seeder
         $cashierPermissions = Permission::whereIn('name', [
             'dashboard-access',
             'transactions-access',
+            'transactions-history-access',
             'table-orders-access',
             'table-orders-approve',
             'cashier-shifts-access',
@@ -70,32 +39,27 @@ class RoleSeeder extends Seeder
             'dining-tables-access',
             'customers-access',
             'customers-create',
-            'receivables-access',
-            'receivables-pay',
-            'payables-access',
-            'payables-pay',
-            'suppliers-access',
         ])->get();
         $cashierRole->syncPermissions($cashierPermissions);
 
         $waiterRole = Role::firstOrCreate(['name' => 'waiter']);
         $waiterPermissions = Permission::whereIn('name', [
             'dashboard-access',
-            'transactions-access',
             'waiter-board-access',
-            'table-orders-access',
         ])->get();
         $waiterRole->syncPermissions($waiterPermissions);
 
         $kitchenRole = Role::firstOrCreate(['name' => 'kitchen-operator']);
         $kitchenPermissions = Permission::whereIn('name', [
             'dashboard-access',
-            'outlets-access',
-            'outlets-toggle',
+            'kitchen-access',
             'products-access',
-            'products-edit',
+            'products-stock-update',
         ])->get();
         $kitchenRole->syncPermissions($kitchenPermissions);
+
+        $this->syncPresetRoles();
+        $this->syncOutletOwnerRole();
 
         app(PermissionRegistrar::class)->forgetCachedPermissions();
     }
@@ -128,10 +92,132 @@ class RoleSeeder extends Seeder
         $legacyRole->delete();
     }
 
-    private function createRoleWithPermissions($roleName, $permissionNamePattern)
+    private function deleteLegacyGeneratedAccessRoles(): void
     {
-        $permissions = Permission::where('name', 'like', $permissionNamePattern)->get();
-        $role = Role::firstOrCreate(['name' => $roleName]);
+        $legacyRoleNames = [
+            'users-access',
+            'roles-access',
+            'permissions-access',
+            'categories-access',
+            'products-access',
+            'products-stock-update',
+            'dining-tables-access',
+            'pricing-rules-access',
+            'outlets-access',
+            'customers-access',
+            'customer-vouchers-access',
+            'customer-segments-access',
+            'crm-campaigns-access',
+            'crm-reminders-access',
+            'transactions-access',
+            'transactions-confirm-payment',
+            'kitchen-access',
+            'kitchen-manage',
+            'waiter-board-access',
+            'table-orders-access',
+            'table-orders-approve',
+            'receivables-access',
+            'payables-access',
+            'suppliers-access',
+            'reports-access',
+            'profits-access',
+            'payment-settings-access',
+            'payment-settings-update',
+            'business-settings-access',
+            'business-settings-update',
+            'stock-opnames-access',
+            'stock-mutations-access',
+            'sales-returns-access',
+            'cashier-shifts-access',
+            'cashier-settlements-access',
+            'cashier-settlements-approve',
+            'audit-logs-access',
+            'purchase-orders-access',
+            'goods-receivings-access',
+            'supplier-returns-access',
+        ];
+
+        Role::query()->whereIn('name', $legacyRoleNames)->delete();
+    }
+
+    private function syncPresetRoles(): void
+    {
+        foreach (RbacPresetCatalog::all() as $preset) {
+            if (($preset['use_all_permissions'] ?? false) === true) {
+                continue;
+            }
+
+            $roleName = (string) ($preset['suggested_role_name'] ?? '');
+            if ($roleName === '') {
+                continue;
+            }
+
+            $permissions = Permission::query()
+                ->whereIn('name', $preset['permissions'] ?? [])
+                ->get();
+
+            $role = Role::firstOrCreate(['name' => $roleName]);
+            $role->syncPermissions($permissions);
+        }
+    }
+
+    private function syncOutletOwnerRole(): void
+    {
+        $permissions = Permission::query()
+            ->whereIn('name', [
+                'dashboard-access',
+                'waiter-board-access',
+                'cashier-shifts-access',
+                'cashier-shifts-open',
+                'cashier-shifts-close',
+                'cashier-settlements-access',
+                'cashier-settlements-approve',
+                'kitchen-access',
+                'kitchen-manage',
+                'dining-tables-access',
+                'dining-tables-create',
+                'dining-tables-update',
+                'customers-access',
+                'customers-create',
+                'products-access',
+                'products-create',
+                'products-edit',
+                'products-stock-update',
+                'products-delete',
+                'products-pricing-update',
+                'pricing-rules-access',
+                'pricing-rules-create',
+                'pricing-rules-update',
+                'pricing-rules-delete',
+                'outlets-access',
+                'outlets-update',
+                'outlets-toggle',
+                'payment-settings-access',
+                'payment-settings-update',
+                'business-settings-access',
+                'business-settings-update',
+                'stock-opnames-access',
+                'stock-opnames-create',
+                'stock-opnames-finalize',
+                'stock-mutations-access',
+                'purchase-orders-access',
+                'purchase-orders-create',
+                'purchase-orders-update',
+                'purchase-orders-delete',
+                'goods-receivings-access',
+                'goods-receivings-create',
+                'supplier-returns-access',
+                'supplier-returns-create',
+                'supplier-returns-update',
+                'suppliers-access',
+                'receivables-access',
+                'payables-access',
+                'reports-access',
+                'profits-access',
+            ])
+            ->get();
+
+        $role = Role::firstOrCreate(['name' => 'outlet-owner']);
         $role->syncPermissions($permissions);
     }
 }

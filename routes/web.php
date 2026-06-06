@@ -147,10 +147,10 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
         ->middleware(['permission:products-edit', 'step_up'])
         ->name('products.bulk-mapping');
     Route::patch('products/{product}/daily-stock', [ProductController::class, 'updateDailyStock'])
-        ->middleware('permission:products-edit')
+        ->middleware('permission:products-stock-update')
         ->name('products.daily-stock.update');
     Route::patch('products/{product}/outlet-stocks', [ProductController::class, 'updateOutletStocks'])
-        ->middleware(['permission:products-edit', 'step_up'])
+        ->middleware(['permission:products-stock-update', 'step_up'])
         ->name('products.outlet-stocks.update');
     Route::resource('pricing-rules', PricingRuleController::class)
         ->except(['show'])
@@ -181,11 +181,11 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
     Route::post('cashier-shifts', [CashierShiftController::class, 'store'])->middleware('permission:cashier-shifts-open')->name('cashier-shifts.store');
     Route::get('cashier-shifts/{cashierShift}', [CashierShiftController::class, 'show'])->middleware('permission:cashier-shifts-access')->name('cashier-shifts.show');
     Route::post('cashier-shifts/{cashierShift}/close', [CashierShiftController::class, 'close'])->middleware('permission:cashier-shifts-close')->name('cashier-shifts.close');
-    Route::get('cashier-settlements', [CashierSettlementController::class, 'index'])->middleware(['permission:dashboard-access', 'outlet_access'])->name('cashier-settlements.index');
-    Route::post('cashier-settlements', [CashierSettlementController::class, 'store'])->middleware(['permission:dashboard-access', 'outlet_access'])->name('cashier-settlements.store');
-    Route::patch('cashier-settlements/{cashierSettlement}/approve', [CashierSettlementController::class, 'approve'])->middleware(['permission:dashboard-access', 'outlet_access'])->name('cashier-settlements.approve');
-    Route::patch('cashier-settlements/{cashierSettlement}/reject', [CashierSettlementController::class, 'reject'])->middleware(['permission:dashboard-access', 'outlet_access'])->name('cashier-settlements.reject');
-    Route::get('cashier-settlements/{cashierSettlement}/receipt', [CashierSettlementController::class, 'receipt'])->middleware(['permission:dashboard-access', 'outlet_access'])->name('cashier-settlements.receipt');
+    Route::get('cashier-settlements', [CashierSettlementController::class, 'index'])->middleware(['permission:cashier-settlements-access', 'outlet_access'])->name('cashier-settlements.index');
+    Route::post('cashier-settlements', [CashierSettlementController::class, 'store'])->middleware(['permission:cashier-settlements-access', 'outlet_access'])->name('cashier-settlements.store');
+    Route::patch('cashier-settlements/{cashierSettlement}/approve', [CashierSettlementController::class, 'approve'])->middleware(['permission:cashier-settlements-approve', 'outlet_access'])->name('cashier-settlements.approve');
+    Route::patch('cashier-settlements/{cashierSettlement}/reject', [CashierSettlementController::class, 'reject'])->middleware(['permission:cashier-settlements-approve', 'outlet_access'])->name('cashier-settlements.reject');
+    Route::get('cashier-settlements/{cashierSettlement}/receipt', [CashierSettlementController::class, 'receipt'])->middleware(['permission:cashier-settlements-access', 'outlet_access'])->name('cashier-settlements.receipt');
     Route::resource('customers', CustomerController::class)
         ->middlewareFor(['index', 'show'], 'permission:customers-access')
         ->middlewareFor(['create', 'store'], 'permission:customers-create')
@@ -235,29 +235,29 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
         ->middleware('permission:crm-reminders-access')
         ->name('crm-reminders.index');
     Route::get('workspace-sales', [WorkspaceSalesController::class, 'index'])
-        ->middleware(['permission:dashboard-access', 'outlet_access'])
+        ->middleware(['permission:reports-access', 'outlet_access'])
         ->name('workspace-sales.index');
     Route::get('workspace-sales/daily-breakdown', [WorkspaceSalesController::class, 'dailyBreakdown'])
-        ->middleware(['permission:dashboard-access', 'outlet_access'])
+        ->middleware(['permission:reports-access', 'outlet_access'])
         ->name('workspace-sales.daily-breakdown');
     Route::get('workspace-sales/daily-breakdown/export', [WorkspaceSalesController::class, 'exportDailyBreakdown'])
-        ->middleware(['permission:dashboard-access', 'outlet_access'])
+        ->middleware(['permission:reports-access', 'outlet_access'])
         ->name('workspace-sales.daily-breakdown.export');
     Route::get('workspace-sales/hourly-breakdown', [WorkspaceSalesController::class, 'hourlyBreakdown'])
-        ->middleware(['permission:dashboard-access', 'outlet_access'])
+        ->middleware(['permission:reports-access', 'outlet_access'])
         ->name('workspace-sales.hourly-breakdown');
     Route::get('workspace-sales/hourly-breakdown/export', [WorkspaceSalesController::class, 'exportHourlyBreakdown'])
-        ->middleware(['permission:dashboard-access', 'outlet_access'])
+        ->middleware(['permission:reports-access', 'outlet_access'])
         ->name('workspace-sales.hourly-breakdown.export');
     Route::get('workspace-sales/product-breakdown', [WorkspaceSalesController::class, 'productBreakdown'])
-        ->middleware(['permission:dashboard-access', 'outlet_access'])
+        ->middleware(['permission:reports-access', 'outlet_access'])
         ->name('workspace-sales.product-breakdown');
     Route::get('workspace-sales/product-breakdown/export', [WorkspaceSalesController::class, 'exportProductBreakdown'])
-        ->middleware(['permission:dashboard-access', 'outlet_access'])
+        ->middleware(['permission:reports-access', 'outlet_access'])
         ->name('workspace-sales.product-breakdown.export');
 
     // route customer history
-    Route::get('/customers/{customer}/history', [CustomerController::class, 'getHistory'])->middleware('permission:transactions-access')->name('customers.history');
+    Route::get('/customers/{customer}/history', [CustomerController::class, 'getHistory'])->middleware('permission:transactions-history-access')->name('customers.history');
     Route::put('/customers/{customer}/segments', [CustomerController::class, 'syncSegments'])->middleware('permission:customers-edit')->name('customers.segments.sync');
     Route::match(['post', 'put'], '/customers/{customer}/upgrade-member', [CustomerController::class, 'upgradeToMember'])
         ->middleware('permission:customers-edit')
@@ -298,18 +298,18 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
     Route::get('/transactions/health', [TransactionController::class, 'health'])->middleware('permission:transactions-access')->name('transactions.health');
     Route::post('/transactions/sync-offline', [TransactionController::class, 'syncOffline'])->middleware(['permission:transactions-access', 'active_shift'])->name('transactions.sync-offline');
     Route::post('/transactions/{transaction}/requeue-receipt', [TransactionController::class, 'requeueReceipt'])->middleware(['permission:transactions-access', 'outlet_access'])->name('transactions.requeue-receipt');
-    Route::get('/transactions/{invoice}/print', [TransactionController::class, 'print'])->middleware('permission:transactions-access')->name('transactions.print');
-    Route::get('/transactions/history-feed', [TransactionController::class, 'historyFeed'])->middleware('permission:transactions-access')->name('transactions.history-feed');
-    Route::get('/transactions/history', [TransactionController::class, 'history'])->middleware('permission:transactions-access')->name('transactions.history');
-    Route::get('/kitchen', [KitchenDisplayController::class, 'index'])->middleware('permission:dashboard-access')->name('kitchen.index');
-    Route::get('/kitchen/{stationSlug}', [KitchenDisplayController::class, 'show'])->middleware('permission:dashboard-access')->name('kitchen.show');
-    Route::get('/kitchen/{stationSlug}/feed', [KitchenDisplayController::class, 'feed'])->middleware('permission:dashboard-access')->name('kitchen.feed');
-    Route::post('/kitchen/tickets/{kitchenTicket}/dispatch', [KitchenDisplayController::class, 'dispatch'])->middleware(['permission:dashboard-access', 'outlet_access'])->name('kitchen.tickets.dispatch');
-    Route::post('/kitchen/tickets/{kitchenTicket}/queue-dispatch', [KitchenDisplayController::class, 'queueDispatch'])->middleware(['permission:dashboard-access', 'outlet_access'])->name('kitchen.tickets.queue-dispatch');
-    Route::post('/kitchen/tickets/{kitchenTicket}/fail-dispatch', [KitchenDisplayController::class, 'failDispatch'])->middleware(['permission:dashboard-access', 'outlet_access'])->name('kitchen.tickets.fail-dispatch');
-    Route::post('/kitchen/tickets/{kitchenTicket}/acknowledge', [KitchenDisplayController::class, 'acknowledge'])->middleware(['permission:dashboard-access', 'outlet_access'])->name('kitchen.tickets.acknowledge');
-    Route::post('/kitchen/tickets/{kitchenTicket}/complete', [KitchenDisplayController::class, 'complete'])->middleware(['permission:dashboard-access', 'outlet_access'])->name('kitchen.tickets.complete');
-    Route::post('/kitchen/tickets/{kitchenTicket}/deliver', [KitchenDisplayController::class, 'deliver'])->middleware(['permission:dashboard-access', 'outlet_access'])->name('kitchen.tickets.deliver');
+    Route::get('/transactions/{invoice}/print', [TransactionController::class, 'print'])->middleware('permission:transactions-history-access')->name('transactions.print');
+    Route::get('/transactions/history-feed', [TransactionController::class, 'historyFeed'])->middleware('permission:transactions-history-access')->name('transactions.history-feed');
+    Route::get('/transactions/history', [TransactionController::class, 'history'])->middleware('permission:transactions-history-access')->name('transactions.history');
+    Route::get('/kitchen', [KitchenDisplayController::class, 'index'])->middleware('permission:kitchen-access')->name('kitchen.index');
+    Route::get('/kitchen/{stationSlug}', [KitchenDisplayController::class, 'show'])->middleware('permission:kitchen-access')->name('kitchen.show');
+    Route::get('/kitchen/{stationSlug}/feed', [KitchenDisplayController::class, 'feed'])->middleware('permission:kitchen-access')->name('kitchen.feed');
+    Route::post('/kitchen/tickets/{kitchenTicket}/dispatch', [KitchenDisplayController::class, 'dispatch'])->middleware(['permission:kitchen-access', 'outlet_access'])->name('kitchen.tickets.dispatch');
+    Route::post('/kitchen/tickets/{kitchenTicket}/queue-dispatch', [KitchenDisplayController::class, 'queueDispatch'])->middleware(['permission:kitchen-access', 'outlet_access'])->name('kitchen.tickets.queue-dispatch');
+    Route::post('/kitchen/tickets/{kitchenTicket}/fail-dispatch', [KitchenDisplayController::class, 'failDispatch'])->middleware(['permission:kitchen-access', 'outlet_access'])->name('kitchen.tickets.fail-dispatch');
+    Route::post('/kitchen/tickets/{kitchenTicket}/acknowledge', [KitchenDisplayController::class, 'acknowledge'])->middleware(['permission:kitchen-access', 'outlet_access'])->name('kitchen.tickets.acknowledge');
+    Route::post('/kitchen/tickets/{kitchenTicket}/complete', [KitchenDisplayController::class, 'complete'])->middleware(['permission:kitchen-access', 'outlet_access'])->name('kitchen.tickets.complete');
+    Route::post('/kitchen/tickets/{kitchenTicket}/deliver', [KitchenDisplayController::class, 'deliver'])->middleware(['permission:kitchen-access', 'outlet_access'])->name('kitchen.tickets.deliver');
     Route::post('/transactions/{transaction}/share-campaign', [CrmCampaignController::class, 'shareTransaction'])->middleware(['permission:crm-campaigns-create', 'outlet_access'])->name('transactions.share-campaign');
     Route::get('/transactions/history/{transaction}/sales-return/create', [SalesReturnController::class, 'create'])->middleware(['permission:sales-returns-create', 'outlet_access'])->name('sales-returns.create');
     Route::post('/transactions/history/{transaction}/sales-return', [SalesReturnController::class, 'store'])->middleware(['permission:sales-returns-create', 'outlet_access'])->name('sales-returns.store');
@@ -359,9 +359,9 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
     Route::post('/payables/{payable}/pay', [\App\Http\Controllers\Apps\PayableController::class, 'pay'])->middleware(['permission:payables-pay', 'outlet_access'])->name('payables.pay');
 
     // pdf documents
-    Route::get('/documents/transactions/{invoice}/pdf/invoice', [\App\Http\Controllers\DocumentController::class, 'invoice'])->middleware('permission:transactions-access')->name('pdf.transactions.invoice');
-    Route::get('/documents/transactions/{invoice}/pdf/receipt/{size?}', [\App\Http\Controllers\DocumentController::class, 'receipt'])->middleware('permission:transactions-access')->name('pdf.transactions.receipt');
-    Route::get('/documents/transactions/{invoice}/pdf/shipping', [\App\Http\Controllers\DocumentController::class, 'shipping'])->middleware('permission:transactions-access')->name('pdf.transactions.shipping');
+    Route::get('/documents/transactions/{invoice}/pdf/invoice', [\App\Http\Controllers\DocumentController::class, 'invoice'])->middleware('permission:transactions-history-access')->name('pdf.transactions.invoice');
+    Route::get('/documents/transactions/{invoice}/pdf/receipt/{size?}', [\App\Http\Controllers\DocumentController::class, 'receipt'])->middleware('permission:transactions-history-access')->name('pdf.transactions.receipt');
+    Route::get('/documents/transactions/{invoice}/pdf/shipping', [\App\Http\Controllers\DocumentController::class, 'shipping'])->middleware('permission:transactions-history-access')->name('pdf.transactions.shipping');
     Route::get('/documents/products/menu-book/pdf', [\App\Http\Controllers\DocumentController::class, 'menuBook'])->middleware('permission:products-access')->name('pdf.products.menu-book');
     Route::get('/documents/receivables/{receivable}/pdf', [\App\Http\Controllers\DocumentController::class, 'receivable'])->middleware(['permission:receivables-access', 'outlet_access'])->name('pdf.receivables.show');
     Route::get('/documents/payables/{payable}/pdf', [\App\Http\Controllers\DocumentController::class, 'payable'])->middleware(['permission:payables-access', 'outlet_access'])->name('pdf.payables.show');
@@ -370,24 +370,24 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
     Route::put('/settings/payments', [PaymentSettingController::class, 'update'])->middleware(['permission:payment-settings-update', 'step_up'])->name('settings.payments.update');
 
     // settings target penjualan
-    Route::get('/settings/target', [\App\Http\Controllers\Apps\SettingController::class, 'target'])->middleware('permission:dashboard-access')->name('settings.target');
-    Route::post('/settings/target', [\App\Http\Controllers\Apps\SettingController::class, 'updateTarget'])->middleware('permission:dashboard-access')->name('settings.target.update');
-    Route::get('/settings/store', [\App\Http\Controllers\Apps\SettingController::class, 'storeProfile'])->middleware('permission:dashboard-access')->name('settings.store');
-    Route::post('/settings/store', [\App\Http\Controllers\Apps\SettingController::class, 'updateStoreProfile'])->middleware('permission:dashboard-access')->name('settings.store.update');
-    Route::get('/settings/printer', [\App\Http\Controllers\Apps\PrinterSettingController::class, 'index'])->middleware(['permission:dashboard-access', 'outlet_access'])->name('settings.printer');
-    Route::get('/settings/kitchen-devices', [KitchenSettingsController::class, 'index'])->middleware(['permission:dashboard-access', 'outlet_access'])->name('settings.kitchen-devices.index');
-    Route::post('/settings/kitchen-operations', [KitchenSettingsController::class, 'updateOperational'])->middleware(['permission:dashboard-access', 'outlet_access'])->name('settings.kitchen-operations.update');
-    Route::get('/settings/kitchen-stations/{station}/access-sheet', [KitchenSettingsController::class, 'accessSheet'])->middleware(['permission:dashboard-access', 'outlet_access'])->name('settings.kitchen-stations.access-sheet');
-    Route::post('/settings/kitchen-stations', [KitchenSettingsController::class, 'storeStation'])->middleware(['permission:dashboard-access', 'step_up', 'outlet_access'])->name('settings.kitchen-stations.store');
-    Route::put('/settings/kitchen-stations/{station}', [KitchenSettingsController::class, 'updateStation'])->middleware(['permission:dashboard-access', 'step_up', 'outlet_access'])->name('settings.kitchen-stations.update');
-    Route::patch('/settings/kitchen-stations/{station}/processing-mode', [KitchenSettingsController::class, 'updateStationProcessingMode'])->middleware(['permission:dashboard-access', 'outlet_access'])->name('settings.kitchen-stations.processing-mode.update');
-    Route::post('/settings/kitchen-stations/{station}/devices', [KitchenSettingsController::class, 'storeDevice'])->middleware(['permission:dashboard-access', 'step_up', 'outlet_access'])->name('settings.kitchen-devices.store');
-    Route::put('/settings/kitchen-devices/{device}', [KitchenSettingsController::class, 'updateDevice'])->middleware(['permission:dashboard-access', 'step_up', 'outlet_access'])->name('settings.kitchen-devices.update');
-    Route::patch('/settings/kitchen-devices/{device}/toggle', [KitchenSettingsController::class, 'toggleDevice'])->middleware(['permission:dashboard-access', 'step_up', 'outlet_access'])->name('settings.kitchen-devices.toggle');
-    Route::post('/settings/kitchen-devices/{device}/test', [KitchenSettingsController::class, 'testDevice'])->middleware(['permission:dashboard-access', 'step_up', 'outlet_access'])->name('settings.kitchen-devices.test');
-    Route::post('/settings/kitchen-devices/{device}/health-check', [KitchenSettingsController::class, 'healthCheckDevice'])->middleware(['permission:dashboard-access', 'step_up', 'outlet_access'])->name('settings.kitchen-devices.health-check');
-    Route::get('/settings/loyalty', [\App\Http\Controllers\Apps\SettingController::class, 'loyalty'])->middleware('permission:dashboard-access')->name('settings.loyalty');
-    Route::post('/settings/loyalty', [\App\Http\Controllers\Apps\SettingController::class, 'updateLoyalty'])->middleware('permission:dashboard-access')->name('settings.loyalty.update');
+    Route::get('/settings/target', [\App\Http\Controllers\Apps\SettingController::class, 'target'])->middleware('permission:business-settings-access')->name('settings.target');
+    Route::post('/settings/target', [\App\Http\Controllers\Apps\SettingController::class, 'updateTarget'])->middleware('permission:business-settings-update')->name('settings.target.update');
+    Route::get('/settings/store', [\App\Http\Controllers\Apps\SettingController::class, 'storeProfile'])->middleware('permission:business-settings-access')->name('settings.store');
+    Route::post('/settings/store', [\App\Http\Controllers\Apps\SettingController::class, 'updateStoreProfile'])->middleware('permission:business-settings-update')->name('settings.store.update');
+    Route::get('/settings/printer', [\App\Http\Controllers\Apps\PrinterSettingController::class, 'index'])->middleware(['permission:business-settings-access', 'outlet_access'])->name('settings.printer');
+    Route::get('/settings/kitchen-devices', [KitchenSettingsController::class, 'index'])->middleware(['permission:kitchen-manage', 'outlet_access'])->name('settings.kitchen-devices.index');
+    Route::post('/settings/kitchen-operations', [KitchenSettingsController::class, 'updateOperational'])->middleware(['permission:kitchen-manage', 'outlet_access'])->name('settings.kitchen-operations.update');
+    Route::get('/settings/kitchen-stations/{station}/access-sheet', [KitchenSettingsController::class, 'accessSheet'])->middleware(['permission:kitchen-manage', 'outlet_access'])->name('settings.kitchen-stations.access-sheet');
+    Route::post('/settings/kitchen-stations', [KitchenSettingsController::class, 'storeStation'])->middleware(['permission:kitchen-manage', 'step_up', 'outlet_access'])->name('settings.kitchen-stations.store');
+    Route::put('/settings/kitchen-stations/{station}', [KitchenSettingsController::class, 'updateStation'])->middleware(['permission:kitchen-manage', 'step_up', 'outlet_access'])->name('settings.kitchen-stations.update');
+    Route::patch('/settings/kitchen-stations/{station}/processing-mode', [KitchenSettingsController::class, 'updateStationProcessingMode'])->middleware(['permission:kitchen-manage', 'outlet_access'])->name('settings.kitchen-stations.processing-mode.update');
+    Route::post('/settings/kitchen-stations/{station}/devices', [KitchenSettingsController::class, 'storeDevice'])->middleware(['permission:kitchen-manage', 'step_up', 'outlet_access'])->name('settings.kitchen-devices.store');
+    Route::put('/settings/kitchen-devices/{device}', [KitchenSettingsController::class, 'updateDevice'])->middleware(['permission:kitchen-manage', 'step_up', 'outlet_access'])->name('settings.kitchen-devices.update');
+    Route::patch('/settings/kitchen-devices/{device}/toggle', [KitchenSettingsController::class, 'toggleDevice'])->middleware(['permission:kitchen-manage', 'step_up', 'outlet_access'])->name('settings.kitchen-devices.toggle');
+    Route::post('/settings/kitchen-devices/{device}/test', [KitchenSettingsController::class, 'testDevice'])->middleware(['permission:kitchen-manage', 'step_up', 'outlet_access'])->name('settings.kitchen-devices.test');
+    Route::post('/settings/kitchen-devices/{device}/health-check', [KitchenSettingsController::class, 'healthCheckDevice'])->middleware(['permission:kitchen-manage', 'step_up', 'outlet_access'])->name('settings.kitchen-devices.health-check');
+    Route::get('/settings/loyalty', [\App\Http\Controllers\Apps\SettingController::class, 'loyalty'])->middleware('permission:business-settings-access')->name('settings.loyalty');
+    Route::post('/settings/loyalty', [\App\Http\Controllers\Apps\SettingController::class, 'updateLoyalty'])->middleware('permission:business-settings-update')->name('settings.loyalty.update');
 
     // settings bank accounts
     Route::get('/settings/bank-accounts', [\App\Http\Controllers\Apps\BankAccountController::class, 'index'])->middleware('permission:payment-settings-access')->name('settings.bank-accounts.index');
@@ -401,10 +401,10 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
 
     // confirm payment for bank transfer
     Route::patch('/transactions/{transaction}/confirm-payment', [TransactionController::class, 'confirmPayment'])->middleware(['permission:transactions-confirm-payment', 'step_up', 'outlet_access'])->name('transactions.confirm-payment');
-    Route::get('/waiter-board', [WaiterBoardController::class, 'index'])->middleware(['permission:waiter-board-access', 'outlet_access'])->name('waiter-board.index');
-    Route::post('/waiter-board/{allocation}/assign', [WaiterBoardController::class, 'assign'])->middleware(['permission:waiter-board-access', 'outlet_access'])->name('waiter-board.assign');
-    Route::post('/waiter-board/{allocation}/pick-up', [WaiterBoardController::class, 'pickUp'])->middleware(['permission:waiter-board-access', 'outlet_access'])->name('waiter-board.pick-up');
-    Route::post('/waiter-board/{allocation}/deliver', [WaiterBoardController::class, 'deliver'])->middleware(['permission:waiter-board-access', 'outlet_access'])->name('waiter-board.deliver');
+    Route::get('/waiter-board', [WaiterBoardController::class, 'index'])->middleware('permission:waiter-board-access')->name('waiter-board.index');
+    Route::post('/waiter-board/{allocation}/assign', [WaiterBoardController::class, 'assign'])->middleware('permission:waiter-board-access')->name('waiter-board.assign');
+    Route::post('/waiter-board/{allocation}/pick-up', [WaiterBoardController::class, 'pickUp'])->middleware('permission:waiter-board-access')->name('waiter-board.pick-up');
+    Route::post('/waiter-board/{allocation}/deliver', [WaiterBoardController::class, 'deliver'])->middleware('permission:waiter-board-access')->name('waiter-board.deliver');
 
     // reports
     Route::get('/reports/sales', [SalesReportController::class, 'index'])->middleware('permission:reports-access')->name('reports.sales.index');

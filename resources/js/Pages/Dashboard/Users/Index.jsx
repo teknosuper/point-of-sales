@@ -24,6 +24,7 @@ import Checkbox from "@/Components/Dashboard/Checkbox";
 import Pagination from "@/Components/Dashboard/Pagination";
 import { useAuthorization } from "@/Utils/authorization";
 import { roleLabel } from "@/Utils/rolePresentation";
+import { classifyUserAccess } from "@/Utils/rbacHelpers";
 import Swal from "sweetalert2";
 
 function presetMeta(template) {
@@ -39,7 +40,7 @@ function presetMeta(template) {
         return { group: "Tim Operasional", order: 2, badge: "Operasional" };
     }
 
-    if (["tenant-operational", "tenant-promo"].includes(template.key)) {
+    if (["tenant-operational", "tenant-delivery", "tenant-promo", "tenant-owner"].includes(template.key)) {
         return { group: "Tenant", order: 3, badge: "Tenant" };
     }
 
@@ -52,29 +53,19 @@ function primaryOutlet(user) {
 }
 
 function summarizeUser(user) {
-    const roleNames = (user.roles || []).map((role) => role.name);
-    const hasTenantPromo = roleNames.includes("pricing-rules-access");
-    const hasOwnerPricing = roleNames.includes("products-access");
-    const isKitchen = user.preferred_workspace === "kitchen";
     const mainOutlet = primaryOutlet(user);
-    const kindLabel = roleNames.includes("cashier")
-        ? "Kasir"
-        : roleNames.includes("waiter")
-          ? "Waiter"
-          : isKitchen
-            ? hasTenantPromo
-                ? "Tenant Promo"
-                : "Tenant Operasional"
-            : hasOwnerPricing
-              ? "Admin Pricing"
-              : "Admin / Umum";
+    const classification = classifyUserAccess({
+        roles: user.roles || [],
+        outlets: user.outlets || [],
+        preferredWorkspace: user.preferred_workspace || "standard",
+        waiterServiceScope: user.waiter_service_scope || "outlet_all",
+    });
 
     return {
-        hasTenantPromo,
-        hasOwnerPricing,
-        isKitchen,
-        kindLabel,
+        isKitchen: classification.isKitchenWorkspace,
+        kindLabel: classification.kindLabel,
         mainOutlet,
+        extraOutletCount: Math.max(0, (user.outlets || []).length - (mainOutlet ? 1 : 0)),
     };
 }
 
@@ -131,22 +122,29 @@ function UserRow({ user, isSelected, onSelect, onDelete, canUpdate, canDelete })
                         : "Belum ada role aktif"}
                 </p>
                 <div className="mt-3 flex flex-wrap gap-1.5">
-                    {user.outlets?.length ? (
-                        user.outlets.map((outlet) => (
-                            <span
-                                key={outlet.id}
-                                className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full bg-primary-100 dark:bg-primary-900/50 text-primary-700 dark:text-primary-300"
-                            >
+                    {summary.mainOutlet ? (
+                        <>
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full bg-primary-100 dark:bg-primary-900/50 text-primary-700 dark:text-primary-300">
                                 <IconBuildingStore size={12} />
-                                {outlet.code}
+                                {summary.mainOutlet.code}
                             </span>
-                        ))
+                            {summary.extraOutletCount > 0 ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                                    +{summary.extraOutletCount} outlet lain
+                                </span>
+                            ) : null}
+                        </>
                     ) : (
                         <span className="text-xs text-slate-400 dark:text-slate-500">
                             Belum ada outlet
                         </span>
                     )}
                 </div>
+                {summary.mainOutlet ? (
+                    <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                        Outlet utama: {summary.mainOutlet.code ? `${summary.mainOutlet.code} - ` : ""}{summary.mainOutlet.name}
+                    </p>
+                ) : null}
                 <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
                     Workspace default: {summary.isKitchen ? "Layar Dapur" : "Dashboard Umum"}
                 </p>

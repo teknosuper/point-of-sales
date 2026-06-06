@@ -342,7 +342,7 @@ class CashierSettlementController extends Controller
 
     private function canApprove(?User $user): bool
     {
-        return (bool) ($user?->isSuperAdmin() || $user?->can('reports-access') || $user?->can('cashier-shifts-force-close'));
+        return (bool) ($user?->isSuperAdmin() || $user?->can('cashier-settlements-approve'));
     }
 
     private function resolveVisibleSettlement(Request $request, CashierSettlementRequest $cashierSettlement): CashierSettlementRequest

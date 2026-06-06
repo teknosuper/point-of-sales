@@ -5,10 +5,20 @@ namespace App\Models;
 use App\Models\Concerns\BelongsToOutlet;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Str;
 
 class DiningTable extends Model
 {
     use BelongsToOutlet, HasFactory;
+
+    protected static function booted(): void
+    {
+        static::creating(function (DiningTable $table) {
+            if (! filled($table->qr_token)) {
+                $table->qr_token = (string) Str::uuid();
+            }
+        });
+    }
 
     protected $fillable = [
         'outlet_id',

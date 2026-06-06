@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Cart;
 use App\Models\Customer;
+use App\Models\Outlet;
 use App\Models\PricingRule;
 use App\Models\PricingRuleBuyGetItem;
 use App\Models\PricingRuleQtyBreak;
@@ -26,6 +27,7 @@ class PricingService
         $cacheBucket = (int) floor($at->getTimestamp() / 30);
         $cacheVersion = $this->pricingCacheService->activeRulesVersion();
         $cacheKey = 'pricing-rules:active:v'.$cacheVersion.':'.$cacheBucket.':'.($outletId ?: 'global');
+        $scopedOutletIds = $this->resolveScopedOutletRuleIds($outletId);
 
         return Cache::remember(
             $cacheKey,
@@ -41,11 +43,11 @@ class PricingService
                 ])
                 ->where('is_active', true)
                 ->when(
-                    $outletId,
-                    fn ($query) => $query->where(function ($builder) use ($outletId) {
+                    $scopedOutletIds !== null,
+                    fn ($query) => $query->where(function ($builder) use ($scopedOutletIds) {
                         $builder
                             ->whereNull('outlet_id')
-                            ->orWhere('outlet_id', $outletId);
+                            ->orWhereIn('outlet_id', $scopedOutletIds);
                     })
                 )
                 ->where(function ($query) use ($at) {
@@ -60,6 +62,35 @@ class PricingService
                 ->filter(fn (PricingRule $rule) => $this->matchesRecurringSchedule($rule, $at))
                 ->values()
         );
+    }
+
+    private function resolveScopedOutletRuleIds(?int $outletId): ?array
+    {
+        if (! $outletId) {
+            return null;
+        }
+
+        $activeOutlet = Outlet::query()->find($outletId);
+
+        if (! $activeOutlet) {
+            return [$outletId];
+        }
+
+        if ((string) $activeOutlet->outlet_type === 'tenant') {
+            return [$outletId];
+        }
+
+        $tenantOutletIds = Outlet::query()
+            ->where('outlet_type', 'tenant')
+            ->where('is_active', true)
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+
+        return array_values(array_unique([
+            (int) $outletId,
+            ...$tenantOutletIds,
+        ]));
     }
 
     public function previewCart(iterable $carts, ?Customer $customer = null, ?CarbonInterface $at = null, ?int $outletId = null): array

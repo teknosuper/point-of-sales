@@ -31,6 +31,7 @@ class WorkspaceSalesController extends Controller
         $outlet = $this->outletResolver->resolve($request, $request->user());
         abort_if(! $outlet, 404, 'Outlet aktif tidak ditemukan.');
         $isKitchenWorkspace = $user?->isKitchenWorkspace() ?? false;
+        $isTenantOutlet = (string) ($outlet->outlet_type ?? '') === 'tenant';
 
         $filters = [
             'q' => trim((string) $request->input('q', '')),
@@ -51,8 +52,17 @@ class WorkspaceSalesController extends Controller
             $filters['per_page'] = 15;
         }
 
-        if ($isKitchenWorkspace) {
-            return $this->renderKitchenWorkspace($request, $user, $outlet->id, $outlet->name, $outlet->code, $filters, $allowedPerPage);
+        if ($isKitchenWorkspace || $isTenantOutlet) {
+            return $this->renderKitchenWorkspace(
+                $request,
+                $user,
+                $outlet->id,
+                $outlet->name,
+                $outlet->code,
+                $filters,
+                $allowedPerPage,
+                $isTenantOutlet ? collect([(int) $outlet->id]) : null
+            );
         }
 
         $baseQuery = $this->applyFilters(
@@ -396,14 +406,16 @@ class WorkspaceSalesController extends Controller
         string $outletName,
         ?string $outletCode,
         array $filters,
-        array $allowedPerPage
+        array $allowedPerPage,
+        ?Collection $forcedTenantOutletIds = null
     ): Response {
-        $tenantOutletIds = $this->resolveKitchenTenantOutletIds($user, $outletId);
+        $tenantOutletIds = $forcedTenantOutletIds ?: $this->resolveKitchenTenantOutletIds($user, $outletId);
+        $allocationOutletId = $forcedTenantOutletIds ? 0 : $outletId;
 
         $allocationBaseQuery = $this->applyKitchenAllocationFilters(
             TransactionTenantAllocation::query()
                 ->with(['transaction.customer:id,name', 'transaction.cashier:id,name'])
-                ->where('outlet_id', $outletId)
+                ->when($allocationOutletId > 0, fn (Builder $query) => $query->where('outlet_id', $allocationOutletId))
                 ->where('waiter_status', 'delivered')
                 ->whereNotNull('delivered_at')
                 ->when(
@@ -452,7 +464,7 @@ class WorkspaceSalesController extends Controller
             });
 
         $todayAllocations = TransactionTenantAllocation::query()
-            ->where('outlet_id', $outletId)
+            ->when($allocationOutletId > 0, fn (Builder $query) => $query->where('outlet_id', $allocationOutletId))
             ->where('waiter_status', 'delivered')
             ->whereNotNull('delivered_at')
             ->when(
@@ -468,7 +480,7 @@ class WorkspaceSalesController extends Controller
         $todayNonCashCount = max(0, $todayOrders - $todayCashCount);
 
         $yesterdayAllocations = TransactionTenantAllocation::query()
-            ->where('outlet_id', $outletId)
+            ->when($allocationOutletId > 0, fn (Builder $query) => $query->where('outlet_id', $allocationOutletId))
             ->where('waiter_status', 'delivered')
             ->whereNotNull('delivered_at')
             ->when(
@@ -482,7 +494,7 @@ class WorkspaceSalesController extends Controller
         $yesterdayOrders = (clone $yesterdayAllocations)->count();
 
         $monthAllocations = TransactionTenantAllocation::query()
-            ->where('outlet_id', $outletId)
+            ->when($allocationOutletId > 0, fn (Builder $query) => $query->where('outlet_id', $allocationOutletId))
             ->where('waiter_status', 'delivered')
             ->whereNotNull('delivered_at')
             ->when(
@@ -496,14 +508,14 @@ class WorkspaceSalesController extends Controller
         $monthBaseTotal = $this->sumBaseValueFromAllocationQuery(clone $monthAllocations);
         $monthOrders = (clone $monthAllocations)->count();
 
-        $paymentBreakdown = $this->buildTenantPaymentBreakdown($outletId, $tenantOutletIds, $filters);
+        $paymentBreakdown = $this->buildTenantPaymentBreakdown($allocationOutletId, $tenantOutletIds, $filters);
         $topProducts = $this->buildTenantTopProducts($filteredAllocationIds);
-        $trend = $this->buildTenantTrend($outletId, $tenantOutletIds, $filters);
-        $hourlyTrend = $this->buildTenantHourlyTrend($outletId, $tenantOutletIds);
+        $trend = $this->buildTenantTrend($allocationOutletId, $tenantOutletIds, $filters);
+        $hourlyTrend = $this->buildTenantHourlyTrend($allocationOutletId, $tenantOutletIds);
         $productPerformance = $this->buildTenantProductPerformance($user, $outletId, $tenantOutletIds, $filteredAllocationIds);
 
         $cashiers = TransactionTenantAllocation::query()
-            ->where('outlet_id', $outletId)
+            ->when($allocationOutletId > 0, fn (Builder $query) => $query->where('outlet_id', $allocationOutletId))
             ->where('waiter_status', 'delivered')
             ->whereNotNull('delivered_at')
             ->when(
@@ -583,7 +595,8 @@ class WorkspaceSalesController extends Controller
         $user = $request->user();
         $outlet = $this->outletResolver->resolve($request, $user);
         abort_if(! $outlet, 404, 'Outlet aktif tidak ditemukan.');
-        abort_unless($user?->isKitchenWorkspace(), 403, 'Halaman detail ini khusus workspace tenant / kitchen.');
+        $isTenantOutlet = (string) ($outlet->outlet_type ?? '') === 'tenant';
+        abort_unless($user?->isKitchenWorkspace() || $isTenantOutlet, 403, 'Halaman detail ini khusus workspace tenant / kitchen.');
 
         $filters = [
             'q' => trim((string) $request->input('q', '')),
@@ -599,9 +612,12 @@ class WorkspaceSalesController extends Controller
 
         $this->applyQuickRange($filters);
 
-        $tenantOutletIds = $this->resolveKitchenTenantOutletIds($user, $outlet->id);
+        $tenantOutletIds = $isTenantOutlet
+            ? collect([(int) $outlet->id])
+            : $this->resolveKitchenTenantOutletIds($user, $outlet->id);
+        $allocationOutletId = $isTenantOutlet ? 0 : $outlet->id;
         $allocationQuery = TransactionTenantAllocation::query()
-            ->where('outlet_id', $outlet->id)
+            ->when($allocationOutletId > 0, fn (Builder $query) => $query->where('outlet_id', $allocationOutletId))
             ->where('waiter_status', 'delivered')
             ->whereNotNull('delivered_at')
             ->when(
@@ -1051,7 +1067,7 @@ class WorkspaceSalesController extends Controller
         return $this->applyKitchenAllocationFilters(
             TransactionTenantAllocation::query()
                 ->join('transaction_tenant_allocation_items', 'transaction_tenant_allocation_items.transaction_tenant_allocation_id', '=', 'transaction_tenant_allocations.id')
-                ->where('transaction_tenant_allocations.outlet_id', $outletId)
+                ->when($outletId > 0, fn (Builder $query) => $query->where('transaction_tenant_allocations.outlet_id', $outletId))
                 ->where('transaction_tenant_allocations.waiter_status', 'delivered')
                 ->whereNotNull('transaction_tenant_allocations.delivered_at')
                 ->when(
@@ -1079,7 +1095,7 @@ class WorkspaceSalesController extends Controller
     {
         return TransactionTenantAllocation::query()
             ->join('transaction_tenant_allocation_items', 'transaction_tenant_allocation_items.transaction_tenant_allocation_id', '=', 'transaction_tenant_allocations.id')
-            ->where('transaction_tenant_allocations.outlet_id', $outletId)
+            ->when($outletId > 0, fn (Builder $query) => $query->where('transaction_tenant_allocations.outlet_id', $outletId))
             ->where('transaction_tenant_allocations.waiter_status', 'delivered')
             ->whereNotNull('transaction_tenant_allocations.delivered_at')
             ->when(
@@ -1107,7 +1123,7 @@ class WorkspaceSalesController extends Controller
             TransactionTenantAllocation::query()
                 ->join('transactions', 'transactions.id', '=', 'transaction_tenant_allocations.transaction_id')
                 ->join('transaction_tenant_allocation_items', 'transaction_tenant_allocation_items.transaction_tenant_allocation_id', '=', 'transaction_tenant_allocations.id')
-                ->where('transaction_tenant_allocations.outlet_id', $outletId)
+                ->when($outletId > 0, fn (Builder $query) => $query->where('transaction_tenant_allocations.outlet_id', $outletId))
                 ->where('transaction_tenant_allocations.waiter_status', 'delivered')
                 ->whereNotNull('transaction_tenant_allocations.delivered_at')
                 ->when(

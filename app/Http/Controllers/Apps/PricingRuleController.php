@@ -16,7 +16,9 @@ use App\Services\LoyaltyService;
 use App\Services\OutletResolver;
 use App\Services\PricingService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 
 class PricingRuleController extends Controller
@@ -33,7 +35,7 @@ class PricingRuleController extends Controller
         $user = $request->user();
         $activeOutlet = $this->outletResolver->resolve($request, $user);
         $activeOutletId = $activeOutlet?->id;
-        $isKitchenWorkspace = $user?->isKitchenWorkspace() ?? false;
+        $isTenantWorkspace = (string) ($activeOutlet?->outlet_type ?? '') === 'tenant' || ($user?->isKitchenWorkspace() ?? false);
 
         $filters = [
             'search' => $request->input('search'),
@@ -46,11 +48,29 @@ class PricingRuleController extends Controller
             ->with(['product:id,title', 'category:id,name', 'creator:id,name', 'qtyBreaks', 'bundleItems', 'buyGetItems', 'outlet:id,name,code,outlet_type'])
             ->when(
                 $activeOutletId,
-                fn ($query) => $query->where(function ($builder) use ($activeOutletId) {
-                    $builder
-                        ->whereNull('outlet_id')
-                        ->orWhere('outlet_id', $activeOutletId);
-                })
+                fn ($query) => $isTenantWorkspace
+                    ? $query->where(function ($builder) use ($activeOutletId) {
+                        $builder
+                            ->where('outlet_id', $activeOutletId)
+                            ->orWhere(function ($legacyBuilder) use ($activeOutletId) {
+                                $legacyBuilder
+                                    ->whereNull('outlet_id')
+                                    ->where(function ($scopedBuilder) use ($activeOutletId) {
+                                        $scopedBuilder
+                                            ->whereHas('product', fn ($productQuery) => $productQuery->where('tenant_outlet_id', $activeOutletId))
+                                            ->orWhere(function ($categoryBuilder) use ($activeOutletId) {
+                                                $categoryBuilder
+                                                    ->where('target_type', PricingRule::TARGET_CATEGORY)
+                                                    ->whereHas('category.products', fn ($productQuery) => $productQuery->where('tenant_outlet_id', $activeOutletId));
+                                            });
+                                    });
+                            });
+                    })
+                    : $query->where(function ($builder) use ($activeOutletId) {
+                        $builder
+                            ->whereNull('outlet_id')
+                            ->orWhere('outlet_id', $activeOutletId);
+                    })
             )
             ->when($filters['search'], function ($query, $search) {
                 $query->where('name', 'like', '%'.$search.'%');
@@ -114,11 +134,29 @@ class PricingRuleController extends Controller
         $summaryBase = PricingRule::query()
             ->when(
                 $activeOutletId,
-                fn ($query) => $query->where(function ($builder) use ($activeOutletId) {
-                    $builder
-                        ->whereNull('outlet_id')
-                        ->orWhere('outlet_id', $activeOutletId);
-                })
+                fn ($query) => $isTenantWorkspace
+                    ? $query->where(function ($builder) use ($activeOutletId) {
+                        $builder
+                            ->where('outlet_id', $activeOutletId)
+                            ->orWhere(function ($legacyBuilder) use ($activeOutletId) {
+                                $legacyBuilder
+                                    ->whereNull('outlet_id')
+                                    ->where(function ($scopedBuilder) use ($activeOutletId) {
+                                        $scopedBuilder
+                                            ->whereHas('product', fn ($productQuery) => $productQuery->where('tenant_outlet_id', $activeOutletId))
+                                            ->orWhere(function ($categoryBuilder) use ($activeOutletId) {
+                                                $categoryBuilder
+                                                    ->where('target_type', PricingRule::TARGET_CATEGORY)
+                                                    ->whereHas('category.products', fn ($productQuery) => $productQuery->where('tenant_outlet_id', $activeOutletId));
+                                            });
+                                    });
+                            });
+                    })
+                    : $query->where(function ($builder) use ($activeOutletId) {
+                        $builder
+                            ->whereNull('outlet_id')
+                            ->orWhere('outlet_id', $activeOutletId);
+                    })
             )
             ->get();
 
@@ -126,15 +164,16 @@ class PricingRuleController extends Controller
             'rules' => $rules,
             'filters' => $filters,
             'workspace' => [
-                'is_kitchen' => $isKitchenWorkspace,
-                'mode_label' => $isKitchenWorkspace ? 'Promo Tenant' : 'Promo Outlet Owner',
+                'is_kitchen' => $user?->isKitchenWorkspace() ?? false,
+                'is_tenant_workspace' => $isTenantWorkspace,
+                'mode_label' => $isTenantWorkspace ? 'Promo Tenant' : 'Promo Outlet Owner',
                 'active_outlet' => $activeOutlet ? [
                     'id' => $activeOutlet->id,
                     'name' => $activeOutlet->name,
                     'code' => $activeOutlet->code,
                     'outlet_type' => $activeOutlet->outlet_type,
                 ] : null,
-                'default_price_basis' => $isKitchenWorkspace
+                'default_price_basis' => $isTenantWorkspace
                     ? PricingRule::PRICE_BASIS_BUY_PRICE
                     : PricingRule::PRICE_BASIS_SELL_PRICE,
             ],
@@ -291,17 +330,27 @@ class PricingRuleController extends Controller
         $user = $request->user();
         $activeOutlet = $this->outletResolver->resolve($request, $user);
         $activeOutletId = $activeOutlet?->id;
-        $isKitchenWorkspace = $user?->isKitchenWorkspace() ?? false;
+        $isTenantWorkspace = (string) ($activeOutlet?->outlet_type ?? '') === 'tenant' || ($user?->isKitchenWorkspace() ?? false);
+
+        $productsQuery = Product::query()
+            ->when(
+                $isTenantWorkspace && $activeOutletId,
+                fn ($query) => $query->where('tenant_outlet_id', $activeOutletId)
+            )
+            ->orderBy('title');
+
+        $products = $productsQuery->get(['id', 'title', 'buy_price', 'sell_price', 'category_id', 'tenant_outlet_id']);
+        $visibleCategoryIds = $products->pluck('category_id')->filter()->unique()->values();
 
         return [
-            'products' => Product::query()
+            'products' => $products,
+            'categories' => Category::query()
                 ->when(
-                    $isKitchenWorkspace && $activeOutletId,
-                    fn ($query) => $query->where('tenant_outlet_id', $activeOutletId)
+                    $isTenantWorkspace,
+                    fn ($query) => $query->whereIn('id', $visibleCategoryIds)
                 )
-                ->orderBy('title')
-                ->get(['id', 'title', 'buy_price', 'sell_price', 'category_id', 'tenant_outlet_id']),
-            'categories' => Category::orderBy('name')->get(['id', 'name']),
+                ->orderBy('name')
+                ->get(['id', 'name']),
             'tierOptions' => $this->loyaltyService->tierOptions(),
             'priceBasisOptions' => [
                 ['value' => PricingRule::PRICE_BASIS_SELL_PRICE, 'label' => 'Harga Jual'],
@@ -314,9 +363,10 @@ class PricingRuleController extends Controller
                     'code' => $activeOutlet->code,
                     'outlet_type' => $activeOutlet->outlet_type,
                 ] : null,
-                'is_kitchen' => $isKitchenWorkspace,
-                'mode_label' => $isKitchenWorkspace ? 'Promo Tenant' : 'Promo Outlet Owner',
-                'forced_price_basis' => $isKitchenWorkspace
+                'is_kitchen' => $user?->isKitchenWorkspace() ?? false,
+                'is_tenant_workspace' => $isTenantWorkspace,
+                'mode_label' => $isTenantWorkspace ? 'Promo Tenant' : 'Promo Outlet Owner',
+                'forced_price_basis' => $isTenantWorkspace
                     ? PricingRule::PRICE_BASIS_BUY_PRICE
                     : null,
             ],
@@ -331,6 +381,9 @@ class PricingRuleController extends Controller
 
     private function validateRule(Request $request): array
     {
+        $activeOutlet = $this->outletResolver->resolve($request, $request->user());
+        $activeOutletId = $activeOutlet?->id;
+        $isTenantWorkspace = (string) ($activeOutlet?->outlet_type ?? '') === 'tenant' || ($request->user()?->isKitchenWorkspace() ?? false);
         $kind = (string) $request->input('kind');
         $discountTypeRules = match ($kind) {
             PricingRule::KIND_BUNDLE_PRICE,
@@ -526,9 +579,19 @@ class PricingRuleController extends Controller
             $validated['discount_value'] = 0;
         }
 
-        $validated['price_basis'] = ($request->user()?->isKitchenWorkspace() ?? false)
+        $validated['price_basis'] = $isTenantWorkspace
             ? PricingRule::PRICE_BASIS_BUY_PRICE
             : ($validated['price_basis'] ?? PricingRule::PRICE_BASIS_SELL_PRICE);
+
+        if ($isTenantWorkspace && $activeOutletId) {
+            $this->assertTenantScopedProductsAndCategory(
+                $activeOutletId,
+                $validated['product_id'] ?? null,
+                $validated['category_id'] ?? null,
+                collect($validated['bundle_items'] ?? [])->pluck('product_id'),
+                collect($validated['buy_get_items'] ?? [])->pluck('product_id')
+            );
+        }
 
         return [
             'rule' => collect($validated)
@@ -611,14 +674,75 @@ class PricingRuleController extends Controller
 
     private function assertRuleVisibleForWorkspace(Request $request, PricingRule $pricingRule): void
     {
-        $activeOutletId = $this->outletResolver->resolve($request, $request->user())?->id;
+        $activeOutlet = $this->outletResolver->resolve($request, $request->user());
+        $activeOutletId = $activeOutlet?->id;
+        $isTenantWorkspace = (string) ($activeOutlet?->outlet_type ?? '') === 'tenant' || ($request->user()?->isKitchenWorkspace() ?? false);
 
         if (! $activeOutletId) {
             return;
         }
 
+        if ($isTenantWorkspace && (int) ($pricingRule->outlet_id ?? 0) !== (int) $activeOutletId) {
+            $legacyVisible = $pricingRule->outlet_id === null && (
+                ((int) ($pricingRule->product?->tenant_outlet_id ?? 0) === (int) $activeOutletId)
+                || (
+                    $pricingRule->target_type === PricingRule::TARGET_CATEGORY
+                    && $pricingRule->category
+                    && $pricingRule->category->products()->where('tenant_outlet_id', $activeOutletId)->exists()
+                )
+            );
+
+            if (! $legacyVisible) {
+                abort(404);
+            }
+        }
+
         if ($pricingRule->outlet_id !== null && (int) $pricingRule->outlet_id !== (int) $activeOutletId) {
             abort(404);
+        }
+    }
+
+    private function assertTenantScopedProductsAndCategory(
+        int $activeOutletId,
+        ?int $productId,
+        ?int $categoryId,
+        Collection $bundleProductIds,
+        Collection $buyGetProductIds
+    ): void {
+        $requestedProductIds = collect([$productId])
+            ->merge($bundleProductIds)
+            ->merge($buyGetProductIds)
+            ->filter()
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values();
+
+        if ($requestedProductIds->isNotEmpty()) {
+            $visibleProductIds = Product::query()
+                ->where('tenant_outlet_id', $activeOutletId)
+                ->whereIn('id', $requestedProductIds)
+                ->pluck('id')
+                ->map(fn ($id) => (int) $id)
+                ->values();
+
+            if ($visibleProductIds->count() !== $requestedProductIds->count()) {
+                throw ValidationException::withMessages([
+                    'product_id' => 'Produk promo harus berasal dari tenant aktif.',
+                ]);
+            }
+        }
+
+        if ($categoryId) {
+            $categoryExists = Product::query()
+                ->where('tenant_outlet_id', $activeOutletId)
+                ->where('category_id', $categoryId)
+                ->exists();
+
+            if (! $categoryExists) {
+                throw ValidationException::withMessages([
+                    'category_id' => 'Kategori promo harus berasal dari produk tenant aktif.',
+                ]);
+            }
         }
     }
 }

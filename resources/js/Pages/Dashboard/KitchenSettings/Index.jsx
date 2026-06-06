@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Head, Link, router, useForm, usePage } from "@inertiajs/react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
+import Modal from "@/Components/Dashboard/Modal";
 import toast from "react-hot-toast";
+import { IconInfoCircle } from "@/Utils/icons";
 
 const defaultStation = {
     outlet_id: "",
@@ -54,6 +56,7 @@ export default function Index({ stations = [], filters = {}, outlets = [], outle
     const isKitchenWorkspace = auth?.user?.preferred_workspace === "kitchen";
     const [selectedOutlet, setSelectedOutlet] = useState(filters?.outlet_id || "");
     const [issuesOnly, setIssuesOnly] = useState(false);
+    const [showHelpModal, setShowHelpModal] = useState(false);
     const [editingStation, setEditingStation] = useState(null);
     const [editingDevice, setEditingDevice] = useState(null);
     const stationForm = useForm(defaultStation);
@@ -248,14 +251,24 @@ export default function Index({ stations = [], filters = {}, outlets = [], outle
             <Head title="Operasional Dapur & Printer" />
 
             <div className="space-y-6">
-                <div>
-                    <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
-                        Operasional Dapur & Printer
-                    </h1>
-                    <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                        Kelola operasional dapur di dalam outlet: stasiun dapur, layar antrean, dan printer thermal per stasiun.
-                    </p>
-                </div>
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                            <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
+                                Operasional Dapur & Printer
+                            </h1>
+                            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                Kelola operasional dapur di dalam outlet: stasiun dapur, layar antrean, dan printer thermal per stasiun.
+                            </p>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setShowHelpModal(true)}
+                            className="inline-flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm font-medium text-blue-700 transition hover:bg-blue-100 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-200 dark:hover:bg-blue-950/40"
+                        >
+                            <IconInfoCircle size={16} />
+                            Bantuan
+                        </button>
+                    </div>
 
                 <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
                     <div className="mb-4">
@@ -1080,6 +1093,78 @@ export default function Index({ stations = [], filters = {}, outlets = [], outle
                     )}
                 </div>
             </div>
+
+            <Modal
+                show={showHelpModal}
+                onClose={() => setShowHelpModal(false)}
+                title="Bantuan Operasional Dapur & Printer"
+                maxWidth="2xl"
+            >
+                <div className="space-y-5 text-sm text-slate-600 dark:text-slate-300">
+                    <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 dark:border-blue-900/40 dark:bg-blue-950/20">
+                        <p className="font-semibold text-slate-900 dark:text-white">
+                            Fungsi Halaman Operasional Dapur & Printer
+                        </p>
+                        <p className="mt-2">
+                            Halaman ini digunakan untuk mengelola stasiun dapur (station), perangkat layar (screen), dan printer thermal yang digunakan dapur untuk menerima dan mencetak pesanan dari transaksi POS.
+                        </p>
+                        <p className="mt-2">
+                            Setiap stasiun bisa memiliki beberapa perangkat: layar antrean, printer thermal, atau tablet. Stasiun ini nanti akan dihubungkan ke produk melalui mapping station di halaman Produk.
+                        </p>
+                    </div>
+
+                    <div>
+                        <p className="font-semibold text-slate-900 dark:text-white">
+                            Komponen Utama
+                        </p>
+                        <ul className="mt-2 list-disc space-y-1 pl-5">
+                            <li><strong>Stasiun (Station)</strong>: area dapur seperti Minuman, Ayam, Salad. Setiap stasiun punya layar/printer sendiri.</li>
+                            <li><strong>Perangkat (Device)</strong>: layar, printer thermal, atau tablet yang terhubung ke stasiun. Bisa lebih dari satu per stasiun.</li>
+                            <li><strong>Print Profile</strong>: cara cetak — Browser Manual, RawBT Android, QZ Tray, atau Local Bridge.</li>
+                            <li><strong>Dispatch Mode</strong>: manual (petugas klik cetak) atau auto (otomatis masuk antrean cetak).</li>
+                        </ul>
+                    </div>
+
+                    <div>
+                        <p className="font-semibold text-slate-900 dark:text-white">
+                            Cara Setup
+                        </p>
+                        <ol className="mt-2 list-decimal space-y-2 pl-5">
+                            <li><strong>Atur operasional outlet</strong>: status buka/tutup, jam operasional, catatan harian.</li>
+                            <li><strong>Buat stasiun dapur</strong>: isi nama, kode, tipe (kitchen/bar/service), display mode (screen/printer).</li>
+                            <li><strong>Tambah device</strong>: pilih tipe device (screen/printer/tablet), connection driver, endpoint, print profile, paper width, template style.</li>
+                            <li><strong>Salin link station</strong>: gunakan tombol "Salin Link Station" untuk memberikan URL ke perangkat dapur.</li>
+                            <li><strong>Test device</strong>: klik "Test Device" untuk memastikan printer/layar berfungsi.</li>
+                            <li><strong>Health check</strong>: periksa status device secara berkala.</li>
+                        </ol>
+                    </div>
+
+                    <div>
+                        <p className="font-semibold text-slate-900 dark:text-white">
+                            Print Profile
+                        </p>
+                        <ul className="mt-2 list-disc space-y-1 pl-5">
+                            <li><strong>Browser Manual</strong>: cetak lewat dialog print browser biasa. Paling sederhana.</li>
+                            <li><strong>RawBT Android</strong>: browser Android meneruskan print ke aplikasi RawBT dan printer thermal Bluetooth.</li>
+                            <li><strong>QZ Tray</strong>: browser desktop meneruskan print langsung ke QZ Tray yang terinstall di PC/mini PC.</li>
+                            <li><strong>Local Bridge</strong>: Laravel queue dan printer agent lokal yang mengeksekusi cetak.</li>
+                        </ul>
+                    </div>
+
+                    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/40 dark:bg-amber-950/20">
+                        <p className="font-semibold text-slate-900 dark:text-white">
+                            Catatan Penting
+                        </p>
+                        <ul className="mt-2 list-disc space-y-1 pl-5">
+                            <li>Halaman ini bukan untuk membuat tenant atau outlet — gunakan menu <strong>Outlet & Tenant</strong> untuk itu.</li>
+                            <li>Produk harus dipetakan ke station dapur di halaman <strong>Produk</strong> agar tiket kitchen terpecah otomatis.</li>
+                            <li>Gunakan filter outlet untuk melihat dan mengelola stasiun per outlet.</li>
+                            <li>Mode "Hanya Device Bermasalah" berguna untuk cepat menemukan perangkat yang perlu perbaikan.</li>
+                            <li>Setiap device bisa punya fallback device — jika device utama gagal, print akan dialihkan ke fallback.</li>
+                        </ul>
+                    </div>
+                </div>
+            </Modal>
         </>
     );
 }

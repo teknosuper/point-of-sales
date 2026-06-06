@@ -33,7 +33,7 @@ function presetMeta(template) {
         return { group: "Tim Operasional", order: 2, badge: "Operasional" };
     }
 
-    if (["tenant-operational", "tenant-promo"].includes(template.key)) {
+    if (["tenant-operational", "tenant-delivery", "tenant-promo", "tenant-owner"].includes(template.key)) {
         return { group: "Tenant", order: 3, badge: "Tenant" };
     }
 

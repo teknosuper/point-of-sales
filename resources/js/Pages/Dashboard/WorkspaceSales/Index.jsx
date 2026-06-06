@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Head, Link, router, usePage } from "@inertiajs/react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import KitchenLayout from "@/Layouts/KitchenLayout";
+import Modal from "@/Components/Dashboard/Modal";
 import Pagination from "@/Components/Dashboard/Pagination";
 import Chart from "chart.js/auto";
 import {
@@ -12,6 +13,7 @@ import {
     IconFilter,
     IconChevronDown,
     IconChevronUp,
+    IconInfoCircle,
     IconReceipt2,
     IconSearch,
     IconShoppingBag,
@@ -91,6 +93,7 @@ export default function WorkspaceSalesIndex({
     const unsoldHint = productPerformance?.unsold_products?.[0] ?? null;
     const slowMoverHint = productPerformance?.slow_movers?.[0] ?? null;
     const [showFilters, setShowFilters] = useState(false);
+    const [showHelpModal, setShowHelpModal] = useState(false);
     const [filterData, setFilterData] = useState({
         ...defaultFilters,
         q: filters?.q ?? "",
@@ -362,8 +365,18 @@ export default function WorkspaceSalesIndex({
                             Lihat ringkasan {primaryContextLabel} untuk {outletLabel}.
                         </p>
                     </div>
-                    <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
-                        Filter aktif: {activeFilterCount}
+                    <div className="flex items-center gap-2">
+                        <button
+                            type="button"
+                            onClick={() => setShowHelpModal(true)}
+                            className="inline-flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm font-medium text-blue-700 transition hover:bg-blue-100 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-200 dark:hover:bg-blue-950/40"
+                        >
+                            <IconInfoCircle size={16} />
+                            Bantuan
+                        </button>
+                        <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+                            Filter aktif: {activeFilterCount}
+                        </div>
                     </div>
                 </div>
 
@@ -1092,6 +1105,100 @@ export default function WorkspaceSalesIndex({
                     ) : null}
                 </div>
             </div>
+
+            <Modal
+                show={showHelpModal}
+                onClose={() => setShowHelpModal(false)}
+                title="Bantuan Statistik Penjualan"
+                maxWidth="2xl"
+            >
+                <div className="space-y-5 text-sm text-slate-600 dark:text-slate-300">
+                    <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 dark:border-blue-900/40 dark:bg-blue-950/20">
+                        <p className="font-semibold text-slate-900 dark:text-white">
+                            Fungsi Halaman Statistik Penjualan
+                        </p>
+                        <p className="mt-2">
+                            Halaman ini menampilkan ringkasan penjualan tenant atau outlet Anda dalam bentuk dashboard visual. Data yang ditampilkan berasal dari transaksi yang sudah selesai (delivered/diantar).
+                        </p>
+                        <p className="mt-2">
+                            Untuk outlet owner, halaman ini menampilkan penjualan operasional lengkap dengan profit kotor, promo tenant, dan komposisi pembayaran. Untuk tenant/dapur, fokus pada penjualan murni tenant tanpa markup owner.
+                        </p>
+                    </div>
+
+                    <div>
+                        <p className="font-semibold text-slate-900 dark:text-white">
+                            Kartu Ringkasan
+                        </p>
+                        <ul className="mt-2 list-disc space-y-1 pl-5">
+                            <li><strong>Hari Ini</strong>: total penjualan dan jumlah transaksi hari ini.</li>
+                            <li><strong>Kemarin</strong>: perbandingan dengan hari sebelumnya.</li>
+                            <li><strong>Bulan Ini</strong>: akumulasi penjualan sepanjang bulan berjalan.</li>
+                            <li><strong>Sesuai Filter</strong>: total yang sesuai dengan filter tanggal, metode bayar, dan status yang sedang aktif.</li>
+                            <li>Untuk outlet owner: tambahan <strong>Promo Tenant</strong>, <strong>Sebelum Promo</strong>, dan <strong>Setelah Promo</strong>.</li>
+                        </ul>
+                    </div>
+
+                    <div>
+                        <p className="font-semibold text-slate-900 dark:text-white">
+                            Grafik & Analisis
+                        </p>
+                        <ul className="mt-2 list-disc space-y-1 pl-5">
+                            <li><strong>Tren Penjualan</strong>: grafik garis pergerakan penjualan dari waktu ke waktu beserta jumlah transaksi.</li>
+                            <li><strong>Metode Pembayaran</strong>: diagram batang komposisi pembayaran (tunai, transfer, QRIS, dll).</li>
+                            <li><strong>Jam Ramai</strong>: pola transaksi per jam untuk mengetahui peak hour operasional.</li>
+                            <li><strong>Produk Terlaris</strong>: daftar produk dengan penjualan tertinggi pada periode aktif.</li>
+                            <li><strong>Tren Promo Tenant</strong> (outlet owner): nilai promo tenant per hari.</li>
+                        </ul>
+                    </div>
+
+                    <div>
+                        <p className="font-semibold text-slate-900 dark:text-white">
+                            Insight Cepat (Tenant/Kitchen)
+                        </p>
+                        <ul className="mt-2 list-disc space-y-1 pl-5">
+                            <li><strong>Pertahankan</strong>: produk best seller yang jadi pendorong utama omzet.</li>
+                            <li><strong>Evaluasi</strong>: produk yang masih terjual rendah, pertimbangkan bundling atau display.</li>
+                            <li><strong>Perlu Aksi</strong>: produk yang belum terjual sama sekali, cek harga atau stok.</li>
+                        </ul>
+                    </div>
+
+                    <div>
+                        <p className="font-semibold text-slate-900 dark:text-white">
+                            Cara Menggunakan Filter
+                        </p>
+                        <ol className="mt-2 list-decimal space-y-2 pl-5">
+                            <li>Gunakan tombol <strong>Hari Ini / Kemarin / 7 Hari / 30 Hari / Bulan Ini</strong> untuk filter cepat.</li>
+                            <li>Klik <strong>Buka filter</strong> untuk filter lanjutan: tanggal spesifik, metode bayar, status bayar, jenis pesanan, dan kasir.</li>
+                            <li>Gunakan <strong>Rows</strong> untuk mengatur jumlah transaksi yang tampil per halaman.</li>
+                            <li>Pencarian teks bisa mencari invoice, nama pelanggan, nama kasir, atau metode bayar.</li>
+                        </ol>
+                    </div>
+
+                    <div>
+                        <p className="font-semibold text-slate-900 dark:text-white">
+                            Breakdown Report
+                        </p>
+                        <ul className="mt-2 list-disc space-y-1 pl-5">
+                            <li><strong>Breakdown Harian</strong>: lihat detail penjualan per hari, rata-rata order, dan tunai vs non tunai.</li>
+                            <li><strong>Breakdown Per Jam</strong>: lihat jam paling ramai dan nilai penjualan di tiap slot waktu.</li>
+                            <li><strong>Breakdown Produk</strong>: lihat best seller, kurang laku, tidak laku, dan kontribusi omzet per produk.</li>
+                        </ul>
+                    </div>
+
+                    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/40 dark:bg-amber-950/20">
+                        <p className="font-semibold text-slate-900 dark:text-white">
+                            Catatan Penting
+                        </p>
+                        <ul className="mt-2 list-disc space-y-1 pl-5">
+                            <li>Data hanya menampilkan transaksi yang sudah <strong>selesai diantar/diambil</strong> pelanggan.</li>
+                            <li>Untuk tenant, angka yang ditampilkan adalah <strong>penjualan murni tenant</strong> tanpa markup owner.</li>
+                            <li>Pembayaran tunai = kasir menerima uang cash. Non tunai = transfer, QRIS, atau digital.</li>
+                            <li>Profit kotor = selisih harga jual dan harga beli (hanya tampil di mode outlet owner).</li>
+                            <li>Refresh halaman untuk mendapatkan data terbaru setelah transaksi baru selesai.</li>
+                        </ul>
+                    </div>
+                </div>
+            </Modal>
         </>
     );
 }

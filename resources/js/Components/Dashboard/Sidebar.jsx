@@ -1,6 +1,6 @@
 import React from "react";
-import { usePage } from "@inertiajs/react";
-import { IconLayoutGrid } from "@/Utils/icons";
+import { Link, usePage } from "@inertiajs/react";
+import { IconLayoutGrid, IconLock, IconLogout } from "@/Utils/icons";
 import LinkItem from "@/Components/Dashboard/LinkItem";
 import LinkItemDropdown from "@/Components/Dashboard/LinkItemDropdown";
 import OutletSwitcher from "@/Components/Dashboard/OutletSwitcher";
@@ -161,14 +161,46 @@ export default function Sidebar({ sidebarOpen, hideWhenCollapsed = false }) {
                 })}
             </nav>
 
-            {/* Version/Footer */}
-            {sidebarOpen && (
-                <div className="p-4 border-t border-slate-100 dark:border-slate-800">
-                    <p className="text-[10px] text-slate-400 dark:text-slate-600 text-center">
-                        POINZA v2.0
-                    </p>
+            <div className="border-t border-slate-100 dark:border-slate-800">
+                <div className={sidebarOpen ? "px-3 py-3" : "py-3"}>
+                    <LinkItem
+                        title="Ganti Password"
+                        href={route("account.password.edit")}
+                        icon={<IconLock size={20} strokeWidth={1.5} />}
+                        access={true}
+                        active={false}
+                        sidebarOpen={sidebarOpen}
+                    />
+                    {sidebarOpen ? (
+                        <Link
+                            href={route("logout")}
+                            method="post"
+                            as="button"
+                            className="mt-1 flex w-full items-center gap-3 px-4 py-2.5 text-sm font-medium text-rose-600 transition-all duration-200 hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-950/30"
+                        >
+                            <IconLogout size={20} strokeWidth={1.5} />
+                            <span className="truncate">Logout</span>
+                        </Link>
+                    ) : (
+                        <Link
+                            href={route("logout")}
+                            method="post"
+                            as="button"
+                            className="flex w-full justify-center py-3 text-rose-600 transition-all duration-200 hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-950/30"
+                            title="Logout"
+                        >
+                            <IconLogout size={20} strokeWidth={1.5} />
+                        </Link>
+                    )}
                 </div>
-            )}
+                {sidebarOpen && (
+                    <div className="px-4 pb-4">
+                        <p className="text-[10px] text-slate-400 dark:text-slate-600 text-center">
+                            POINZA v2.0
+                        </p>
+                    </div>
+                )}
+            </div>
         </div>
     );
 }

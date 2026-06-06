@@ -15,9 +15,12 @@ use App\Models\Profit;
 use App\Models\Setting;
 use App\Models\Transaction;
 use App\Models\TransactionDetail;
+use App\Models\TransactionTenantAllocation;
+use App\Models\TransactionTenantAllocationItem;
 use App\Services\CashierShiftService;
 use App\Services\OutletResolver;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
@@ -43,7 +46,13 @@ class DashboardController extends Controller
             return redirect()->route('kitchen.index');
         }
 
-        $outletId = $this->outletResolver->resolve(request(), request()->user())?->id;
+        $activeOutlet = $this->outletResolver->resolve(request(), request()->user());
+        $outletId = $activeOutlet?->id;
+
+        if ((string) ($activeOutlet?->outlet_type ?? '') === 'tenant') {
+            return $this->renderTenantDashboard($activeOutlet);
+        }
+
         $totalCategories = Category::count();
         $totalProducts = $outletId
             ? Product::whereHas('outletStocks', fn ($query) => $query->where('outlet_id', $outletId))->count()
@@ -352,6 +361,222 @@ class DashboardController extends Controller
             'activeShifts' => $activeShifts,
             'onboardingChecklist' => $onboardingChecklist,
             'onboardingSummary' => $onboardingSummary,
+            'workspace' => [
+                'is_tenant_dashboard' => false,
+                'active_outlet' => $activeOutlet ? [
+                    'id' => $activeOutlet->id,
+                    'name' => $activeOutlet->name,
+                    'code' => $activeOutlet->code,
+                    'outlet_type' => $activeOutlet->outlet_type,
+                ] : null,
+            ],
         ]);
+    }
+
+    private function renderTenantDashboard(Outlet $tenantOutlet): \Inertia\Response
+    {
+        $tenantOutletId = (int) $tenantOutlet->id;
+        $allocationQuery = TransactionTenantAllocation::query()
+            ->with(['transaction.cashier:id,name', 'transaction.customer:id,name'])
+            ->where('tenant_outlet_id', $tenantOutletId);
+
+        $allocationIds = (clone $allocationQuery)->pluck('id');
+        $transactionIds = (clone $allocationQuery)->pluck('transaction_id')->filter()->unique();
+
+        $totalCategories = Product::query()
+            ->where('tenant_outlet_id', $tenantOutletId)
+            ->whereNotNull('category_id')
+            ->distinct('category_id')
+            ->count('category_id');
+        $totalProducts = Product::query()->where('tenant_outlet_id', $tenantOutletId)->count();
+        $totalTransactions = (clone $allocationQuery)->count();
+        $totalCustomers = (clone $allocationQuery)
+            ->whereHas('transaction', fn (Builder $query) => $query->whereNotNull('customer_id'))
+            ->distinct('transaction_id')
+            ->count('transaction_id');
+        $totalRevenue = (int) ((clone $allocationQuery)->sum('grand_total') ?? 0);
+        $totalCost = $this->sumTenantAllocationCost($allocationIds);
+        $totalProfit = max(0, $totalRevenue - $totalCost);
+        $averageOrder = $totalTransactions > 0 ? (int) round($totalRevenue / $totalTransactions) : 0;
+
+        $todayQuery = (clone $allocationQuery)->whereHas('transaction', fn (Builder $query) => $query->whereDate('created_at', Carbon::today()));
+        $todayTransactions = (clone $todayQuery)->count();
+        $todaySales = (int) ((clone $todayQuery)->sum('grand_total') ?? 0);
+        $todayProfit = max(0, $todaySales - $this->sumTenantAllocationCost((clone $todayQuery)->pluck('id')));
+        $walkInTransactions = (clone $allocationQuery)
+            ->whereHas('transaction', fn (Builder $query) => $query->whereNull('customer_id'))
+            ->count();
+        $memberTransactions = max(0, $totalTransactions - $walkInTransactions);
+
+        $monthlyTarget = Setting::get('monthly_sales_target', 0, $tenantOutletId);
+        $monthlyProfitTarget = Setting::get('monthly_profit_target', 0, $tenantOutletId);
+        $currentMonthQuery = (clone $allocationQuery)
+            ->whereHas('transaction', function (Builder $query) {
+                $query->whereMonth('created_at', Carbon::now()->month)
+                    ->whereYear('created_at', Carbon::now()->year);
+            });
+        $currentMonthSales = (int) ((clone $currentMonthQuery)->sum('grand_total') ?? 0);
+        $currentMonthProfit = max(0, $currentMonthSales - $this->sumTenantAllocationCost((clone $currentMonthQuery)->pluck('id')));
+
+        $revenueTrend = TransactionTenantAllocation::query()
+            ->join('transactions', 'transactions.id', '=', 'transaction_tenant_allocations.transaction_id')
+            ->where('transaction_tenant_allocations.tenant_outlet_id', $tenantOutletId)
+            ->selectRaw('DATE(transactions.created_at) as date, COALESCE(SUM(transaction_tenant_allocations.grand_total), 0) as total')
+            ->groupBy('date')
+            ->orderBy('date', 'desc')
+            ->take(12)
+            ->get()
+            ->map(fn ($row) => [
+                'date' => $row->date,
+                'label' => Carbon::parse($row->date)->format('d M'),
+                'total' => (int) $row->total,
+            ])
+            ->reverse()
+            ->values();
+
+        $topProducts = TransactionTenantAllocationItem::query()
+            ->select('product_id', DB::raw('SUM(qty) as qty'), DB::raw('SUM(line_total) as total'))
+            ->with('product:id,title,sku')
+            ->whereIn('transaction_tenant_allocation_id', $allocationIds)
+            ->groupBy('product_id')
+            ->orderByDesc('qty')
+            ->take(3)
+            ->get()
+            ->map(fn ($detail) => [
+                'name' => $detail->product?->title ?? 'Produk terhapus',
+                'sku' => $detail->product?->sku ?? '-',
+                'qty' => (int) $detail->qty,
+                'total' => (int) $detail->total,
+            ]);
+
+        $lowStockProducts = ProductOutletStock::query()
+            ->with('product:id,title,image')
+            ->where('outlet_id', $tenantOutletId)
+            ->where('stock', '<', 10)
+            ->orderBy('stock', 'asc')
+            ->take(5)
+            ->get()
+            ->map(fn ($stock) => [
+                'name' => $stock->product?->title ?? 'Produk',
+                'stock' => (int) $stock->stock,
+                'image' => $stock->product?->image,
+            ]);
+
+        $thirtyDaysAgo = Carbon::now()->subDays(30);
+        $recentlySoldProductIds = TransactionTenantAllocation::query()
+            ->where('transaction_tenant_allocations.tenant_outlet_id', $tenantOutletId)
+            ->whereHas('transaction', fn (Builder $query) => $query->where('created_at', '>=', $thirtyDaysAgo))
+            ->join('transaction_tenant_allocation_items', 'transaction_tenant_allocation_items.transaction_tenant_allocation_id', '=', 'transaction_tenant_allocations.id')
+            ->distinct()
+            ->pluck('transaction_tenant_allocation_items.product_id');
+
+        $slowMovingProducts = Product::query()
+            ->where('tenant_outlet_id', $tenantOutletId)
+            ->whereNotIn('id', $recentlySoldProductIds)
+            ->whereHas('outletStocks', fn (Builder $query) => $query->where('outlet_id', $tenantOutletId)->where('stock', '>', 0))
+            ->take(5)
+            ->get()
+            ->map(fn ($product) => [
+                'name' => $product->title,
+                'stock' => (int) ($product->outletStocks()->where('outlet_id', $tenantOutletId)->value('stock') ?? 0),
+                'image' => $product->image,
+            ]);
+
+        $recentTransactions = TransactionTenantAllocation::query()
+            ->with('transaction.cashier:id,name', 'transaction.customer:id,name')
+            ->where('tenant_outlet_id', $tenantOutletId)
+            ->latest('created_at')
+            ->take(5)
+            ->get()
+            ->map(function (TransactionTenantAllocation $allocation) {
+                return [
+                    'invoice' => $allocation->transaction?->invoice ?? $allocation->allocation_number,
+                    'date' => optional($allocation->transaction?->created_at)->format('d M Y'),
+                    'customer' => $allocation->transaction?->customer?->name ?? '-',
+                    'cashier' => $allocation->transaction?->cashier?->name ?? '-',
+                    'total' => (int) ($allocation->grand_total ?? 0),
+                ];
+            });
+
+        $topCustomers = TransactionTenantAllocation::query()
+            ->join('transactions', 'transactions.id', '=', 'transaction_tenant_allocations.transaction_id')
+            ->leftJoin('customers', 'transactions.customer_id', '=', 'customers.id')
+            ->where('transaction_tenant_allocations.tenant_outlet_id', $tenantOutletId)
+            ->whereNotNull('transactions.customer_id')
+            ->selectRaw('transactions.customer_id, MAX(customers.name) as customer_name, COUNT(*) as orders, COALESCE(SUM(transaction_tenant_allocations.grand_total), 0) as total')
+            ->groupBy('transactions.customer_id')
+            ->orderByDesc('total')
+            ->take(5)
+            ->get()
+            ->map(fn ($row) => [
+                'name' => $row->customer_name ?? 'Pelanggan',
+                'orders' => (int) $row->orders,
+                'total' => (int) $row->total,
+            ]);
+
+        $topLocations = TransactionTenantAllocation::query()
+            ->join('transactions', 'transactions.id', '=', 'transaction_tenant_allocations.transaction_id')
+            ->join('customers', 'transactions.customer_id', '=', 'customers.id')
+            ->where('transaction_tenant_allocations.tenant_outlet_id', $tenantOutletId)
+            ->select('customers.village_name', DB::raw('COUNT(*) as orders'))
+            ->whereNotNull('customers.village_name')
+            ->groupBy('customers.village_name')
+            ->orderByDesc('orders')
+            ->take(5)
+            ->get()
+            ->map(fn ($row) => [
+                'name' => $row->village_name ?? 'Lainnya',
+                'orders' => (int) $row->orders,
+            ]);
+
+        return Inertia::render('Dashboard/Index', [
+            'totalCategories' => $totalCategories,
+            'totalProducts' => $totalProducts,
+            'totalTransactions' => $totalTransactions,
+            'totalCustomers' => $totalCustomers,
+            'revenueTrend' => $revenueTrend,
+            'totalRevenue' => $totalRevenue,
+            'totalProfit' => $totalProfit,
+            'averageOrder' => $averageOrder,
+            'todayTransactions' => (int) $todayTransactions,
+            'walkInTransactions' => (int) $walkInTransactions,
+            'memberTransactions' => (int) $memberTransactions,
+            'todaySales' => $todaySales,
+            'todayProfit' => $todayProfit,
+            'monthlyTarget' => (int) $monthlyTarget,
+            'monthlyProfitTarget' => (int) $monthlyProfitTarget,
+            'currentMonthSales' => $currentMonthSales,
+            'currentMonthProfit' => $currentMonthProfit,
+            'topProducts' => $topProducts,
+            'lowStockProducts' => $lowStockProducts,
+            'slowMovingProducts' => $slowMovingProducts,
+            'recentTransactions' => $recentTransactions,
+            'topCustomers' => $topCustomers,
+            'topLocations' => $topLocations,
+            'activeShifts' => [],
+            'onboardingChecklist' => [],
+            'onboardingSummary' => ['total' => 0, 'completed' => 0],
+            'workspace' => [
+                'is_tenant_dashboard' => true,
+                'active_outlet' => [
+                    'id' => $tenantOutlet->id,
+                    'name' => $tenantOutlet->name,
+                    'code' => $tenantOutlet->code,
+                    'outlet_type' => $tenantOutlet->outlet_type,
+                ],
+            ],
+        ]);
+    }
+
+    private function sumTenantAllocationCost($allocationIds): int
+    {
+        if (blank($allocationIds) || collect($allocationIds)->isEmpty()) {
+            return 0;
+        }
+
+        return (int) (TransactionTenantAllocationItem::query()
+            ->whereIn('transaction_tenant_allocation_id', collect($allocationIds))
+            ->selectRaw('COALESCE(SUM(base_unit_price * qty), 0) as total_cost')
+            ->value('total_cost') ?? 0);
     }
 }

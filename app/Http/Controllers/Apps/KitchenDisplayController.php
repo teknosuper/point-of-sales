@@ -6,12 +6,15 @@ use App\Http\Controllers\Controller;
 use App\Models\KitchenStation;
 use App\Models\KitchenStationDevice;
 use App\Models\KitchenTicket;
+use App\Models\Outlet;
+use App\Models\ProductKitchenStationMapping;
 use App\Models\TransactionTenantAllocation;
 use App\Services\OutletResolver;
 use App\Services\PrintJobService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Inertia\Inertia;
 
 class KitchenDisplayController extends Controller
@@ -27,16 +30,7 @@ class KitchenDisplayController extends Controller
         abort_if(! $outlet, 404, 'Outlet aktif tidak ditemukan.');
         $kioskMode = $request->boolean('kiosk');
         $filters = $this->filtersPayload($request);
-
-        $stations = KitchenStation::query()
-            ->with(['devices' => fn ($query) => $query->where('is_active', true)->orderByDesc('is_primary')->orderBy('name')])
-            ->where('outlet_id', $outlet->id)
-            ->where('is_active', true)
-            ->orderBy('sort_order')
-            ->orderBy('name')
-            ->get();
-
-        $stations = $this->filterStationsForKitchenUser($request, $stations);
+        $stations = $this->visibleStations($request, $outlet);
 
         $activeStation = $stations->first();
         $this->autoAcknowledgePendingTickets($activeStation, $request->user()?->id);
@@ -97,15 +91,7 @@ class KitchenDisplayController extends Controller
         abort_if(! $outlet, 404);
         $kioskMode = $request->boolean('kiosk');
         $filters = $this->filtersPayload($request);
-
-        $stations = KitchenStation::query()
-            ->with(['devices' => fn ($query) => $query->where('is_active', true)->orderByDesc('is_primary')->orderBy('name')])
-            ->where('outlet_id', $outlet->id)
-            ->where('is_active', true)
-            ->orderBy('sort_order')
-            ->orderBy('name')
-            ->get();
-        $stations = $this->filterStationsForKitchenUser($request, $stations);
+        $stations = $this->visibleStations($request, $outlet);
         $kitchenStation = $stations->firstWhere('slug', $stationSlug);
         abort_if(! $kitchenStation, 404);
         $this->autoAcknowledgePendingTickets($kitchenStation, $request->user()?->id);
@@ -134,13 +120,8 @@ class KitchenDisplayController extends Controller
         $outlet = $this->outletResolver->resolve($request, $request->user());
         abort_if(! $outlet, 404);
         $filters = $this->filtersPayload($request);
-
-        $station = KitchenStation::query()
-            ->with(['devices' => fn ($query) => $query->where('is_active', true)->orderByDesc('is_primary')->orderBy('name')])
-            ->where('outlet_id', $outlet->id)
-            ->where('slug', $stationSlug)
-            ->where('is_active', true)
-            ->firstOrFail();
+        $station = $this->visibleStations($request, $outlet)->firstWhere('slug', $stationSlug);
+        abort_if(! $station, 404);
 
         $preferredStationId = $request->user()?->preferred_kitchen_station_id;
         abort_if(
@@ -376,7 +357,14 @@ class KitchenDisplayController extends Controller
     private function ensureKitchenAccess(Request $request, KitchenTicket $kitchenTicket): void
     {
         $outlet = $this->outletResolver->resolve($request, $request->user());
-        abort_if(! $outlet || (int) $kitchenTicket->outlet_id !== (int) $outlet->id, 404);
+        abort_if(! $outlet, 404);
+
+        $visibleStationIds = $this->visibleStations($request, $outlet)
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+
+        abort_if(! in_array((int) $kitchenTicket->kitchen_station_id, $visibleStationIds, true), 404);
 
         $preferredStationId = $request->user()?->preferred_kitchen_station_id;
         abort_if(
@@ -399,6 +387,40 @@ class KitchenDisplayController extends Controller
         return $stations
             ->where('id', (int) $preferredStationId)
             ->values();
+    }
+
+    private function visibleStations(Request $request, Outlet $outlet): Collection
+    {
+        $query = KitchenStation::query()
+            ->with(['devices' => fn ($builder) => $builder
+                ->where('is_active', true)
+                ->orderByDesc('is_primary')
+                ->orderBy('name')])
+            ->where('is_active', true)
+            ->orderBy('sort_order')
+            ->orderBy('name');
+
+        if (($outlet->outlet_type ?? 'main') === 'tenant') {
+            $mappedStationIds = ProductKitchenStationMapping::query()
+                ->join('products', 'products.id', '=', 'product_kitchen_station_mappings.product_id')
+                ->where('product_kitchen_station_mappings.is_active', true)
+                ->where('products.tenant_outlet_id', $outlet->id)
+                ->whereNotNull('product_kitchen_station_mappings.kitchen_station_id')
+                ->distinct()
+                ->pluck('product_kitchen_station_mappings.kitchen_station_id');
+
+            $stations = $query
+                ->whereIn('id', $mappedStationIds)
+                ->get();
+
+            return $this->filterStationsForKitchenUser($request, $stations);
+        }
+
+        $stations = $query
+            ->where('outlet_id', $outlet->id)
+            ->get();
+
+        return $this->filterStationsForKitchenUser($request, $stations);
     }
 
     private function stationPayload(KitchenStation $station): array

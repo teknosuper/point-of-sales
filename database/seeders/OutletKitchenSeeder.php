@@ -2,7 +2,6 @@
 
 namespace Database\Seeders;
 
-use App\Models\KitchenStation;
 use App\Models\Outlet;
 use App\Models\User;
 use Illuminate\Database\Seeder;
@@ -32,34 +31,6 @@ class OutletKitchenSeeder extends Seeder
                 'sort_order' => 0,
             ]
         );
-
-        $stations = [
-            ['name' => 'Minuman', 'slug' => 'minuman', 'code' => 'ST-MINUMAN', 'sort_order' => 10],
-            ['name' => 'Mie', 'slug' => 'mie', 'code' => 'ST-MIE', 'sort_order' => 20],
-            ['name' => 'Ayam', 'slug' => 'ayam', 'code' => 'ST-AYAM', 'sort_order' => 30],
-            ['name' => 'Ramen', 'slug' => 'ramen', 'code' => 'ST-RAMEN', 'sort_order' => 40],
-            ['name' => 'Steak', 'slug' => 'steak', 'code' => 'ST-STEAK', 'sort_order' => 50],
-            ['name' => 'Es Duren', 'slug' => 'es-duren', 'code' => 'ST-ESDUREN', 'sort_order' => 60],
-            ['name' => 'Sate', 'slug' => 'sate', 'code' => 'ST-SATE', 'sort_order' => 70],
-            ['name' => 'Salad', 'slug' => 'salad', 'code' => 'ST-SALAD', 'sort_order' => 80],
-        ];
-
-        foreach ($stations as $station) {
-            KitchenStation::query()->updateOrCreate(
-                [
-                    'outlet_id' => $outlet->id,
-                    'slug' => $station['slug'],
-                ],
-                [
-                    'name' => $station['name'],
-                    'code' => $station['code'],
-                    'station_type' => 'kitchen',
-                    'display_mode' => 'screen',
-                    'is_active' => true,
-                    'sort_order' => $station['sort_order'],
-                ]
-            );
-        }
 
         User::query()->select('id')->each(function (User $user) use ($outlet) {
             $user->outlets()->syncWithoutDetaching([

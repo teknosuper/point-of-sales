@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use Spatie\Permission\Models\Role;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -46,11 +47,24 @@ class UserRequest extends FormRequest
     public function withValidator($validator): void
     {
         $validator->after(function ($validator) {
-            $selectedRoles = collect($this->input('selectedRoles', []))
+            $selectedRoleNames = collect($this->input('selectedRoles', []))
                 ->filter()
                 ->values();
 
-            if (! $selectedRoles->contains('waiter')) {
+            if ($selectedRoleNames->isEmpty()) {
+                return;
+            }
+
+            $selectedRoles = Role::query()
+                ->with('permissions:id,name')
+                ->whereIn('name', $selectedRoleNames->all())
+                ->get();
+
+            $hasDeliveryAccess = $selectedRoles
+                ->flatMap(fn (Role $role) => $role->permissions->pluck('name'))
+                ->contains('waiter-board-access');
+
+            if (! $hasDeliveryAccess) {
                 return;
             }
 

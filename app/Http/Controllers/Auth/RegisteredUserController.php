@@ -50,12 +50,10 @@ class RegisteredUserController extends Controller
             'password' => Hash::make($request->password),
         ]);
 
-        // Assign default role to new user
-        // Try 'cashier' first, if not exists try 'user', otherwise no role
-        if (Role::where('name', 'cashier')->exists()) {
-            $user->assignRole('cashier');
-        } elseif (Role::where('name', 'user')->exists()) {
-            $user->assignRole('user');
+        $defaultRole = trim((string) config('security.auth.registration_default_role', ''));
+
+        if ($defaultRole !== '' && Role::where('name', $defaultRole)->exists()) {
+            $user->assignRole($defaultRole);
         }
 
         event(new Registered($user));

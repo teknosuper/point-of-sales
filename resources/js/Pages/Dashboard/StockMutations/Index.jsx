@@ -3,6 +3,7 @@ import DashboardLayout from "@/Layouts/DashboardLayout";
 import { Head, router, usePage } from "@inertiajs/react";
 import Table from "@/Components/Dashboard/Table";
 import Pagination from "@/Components/Dashboard/Pagination";
+import Modal from "@/Components/Dashboard/Modal";
 import {
     IconAdjustments,
     IconArrowBigDown,
@@ -10,6 +11,7 @@ import {
     IconChevronDown,
     IconChevronUp,
     IconHistory,
+    IconInfoCircle,
     IconPackages,
 } from "@/Utils/icons";
 
@@ -25,6 +27,7 @@ export default function Index({ stockMutations, products, filters, summary = {} 
     const { activeOutlet } = usePage().props;
     const isTenantMode = activeOutlet?.outlet_type === "tenant";
     const [showFilters, setShowFilters] = useState(false);
+    const [showHelpModal, setShowHelpModal] = useState(false);
     const updateFilter = (key, value) => {
         router.get(
             route("stock-mutations.index"),
@@ -43,15 +46,25 @@ export default function Index({ stockMutations, products, filters, summary = {} 
         <>
             <Head title="Mutasi Stok" />
 
-            <div className="mb-6">
-                <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
-                    Mutasi Stok
-                </h1>
-                <p className="text-sm text-slate-500 dark:text-slate-400">
-                    {isTenantMode
-                        ? "Cek perubahan stok produk tenant pada outlet aktif."
-                        : "Cek perubahan stok masuk, keluar, dan penyesuaian."}
-                </p>
+            <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
+                <div>
+                    <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
+                        Mutasi Stok
+                    </h1>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">
+                        {isTenantMode
+                            ? "Cek perubahan stok produk tenant pada outlet aktif."
+                            : "Cek perubahan stok masuk, keluar, dan penyesuaian."}
+                    </p>
+                </div>
+                <button
+                    type="button"
+                    onClick={() => setShowHelpModal(true)}
+                    className="inline-flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm font-medium text-blue-700 transition hover:bg-blue-100 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-200 dark:hover:bg-blue-950/40"
+                >
+                    <IconInfoCircle size={16} />
+                    Bantuan
+                </button>
             </div>
 
             {isTenantMode ? (
@@ -269,6 +282,76 @@ export default function Index({ stockMutations, products, filters, summary = {} 
             {stockMutations.last_page > 1 && (
                 <Pagination links={stockMutations.links} />
             )}
+
+            <Modal
+                show={showHelpModal}
+                onClose={() => setShowHelpModal(false)}
+                title="Bantuan Mutasi Stok"
+                maxWidth="2xl"
+            >
+                <div className="space-y-5 text-sm text-slate-600 dark:text-slate-300">
+                    <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 dark:border-blue-900/40 dark:bg-blue-950/20">
+                        <p className="font-semibold text-slate-900 dark:text-white">
+                            Fungsi Mutasi Stok
+                        </p>
+                        <p className="mt-2">
+                            Mutasi stok mencatat setiap perubahan jumlah stok suatu produk. Setiap kali stok bertambah, berkurang, atau disesuaikan, sistem akan membuat catatan mutasi otomatis.
+                        </p>
+                        <p className="mt-2">
+                            Halaman ini membantu melacak riwayat lengkap pergerakan stok: kapan, siapa, berapa banyak, dan dari transaksi atau referensi apa.
+                        </p>
+                    </div>
+
+                    <div>
+                        <p className="font-semibold text-slate-900 dark:text-white">
+                            Kapan Dipakai
+                        </p>
+                        <ul className="mt-2 list-disc space-y-1 pl-5">
+                            <li>Saat ingin tahu kenapa stok suatu produk berubah.</li>
+                            <li>Untuk audit trail atau investigasi selisih stok.</li>
+                            <li>Memeriksa apakah stok keluar sesuai transaksi penjualan.</li>
+                            <li>Memastikan stok masuk dari purchase order atau retur supplier tercatat benar.</li>
+                            <li>Mengecek hasil penyesuaian stok dari stock opname atau adjustment manual.</li>
+                        </ul>
+                    </div>
+
+                    <div>
+                        <p className="font-semibold text-slate-900 dark:text-white">
+                            Tipe Mutasi
+                        </p>
+                        <ul className="mt-2 list-disc space-y-1 pl-5">
+                            <li><strong>In</strong> (Inbound): stok bertambah. Biasanya dari pembelian, retur penjualan, atau transfer stok masuk.</li>
+                            <li><strong>Out</strong> (Outbound): stok berkurang. Biasanya dari penjualan, retur supplier, atau transfer stok keluar.</li>
+                            <li><strong>Adjustment</strong>: stok disesuaikan secara manual atau otomatis, misalnya hasil stock opname atau koreksi stok.</li>
+                        </ul>
+                    </div>
+
+                    <div>
+                        <p className="font-semibold text-slate-900 dark:text-white">
+                            Cara Menggunakan
+                        </p>
+                        <ol className="mt-2 list-decimal space-y-2 pl-5">
+                            <li>Buka filter untuk mempersempit pencarian berdasarkan produk, tipe mutasi, atau rentang tanggal.</li>
+                            <li>Lihat <strong>Qty</strong> untuk jumlah perubahan stok pada setiap baris mutasi.</li>
+                            <li>Perhatikan kolom <strong>Before / After</strong> untuk melihat stok sebelum dan sesudah mutasi terjadi.</li>
+                            <li>Gunakan kolom <strong>Referensi</strong> untuk mengetahui sumber mutasi, misalnya dari transaksi penjualan, purchase order, atau stock opname.</li>
+                            <li>Pantau kartu stok dengan filter produk spesifik untuk melihat perjalanan stok satu produk dari waktu ke waktu.</li>
+                        </ol>
+                    </div>
+
+                    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/40 dark:bg-amber-950/20">
+                        <p className="font-semibold text-slate-900 dark:text-white">
+                            Catatan Penting
+                        </p>
+                        <ul className="mt-2 list-disc space-y-1 pl-5">
+                            <li>Mutasi stok bersifat <strong>read-only</strong>. Catatan tidak bisa diubah atau dihapus manual.</li>
+                            <li>Jika ada kesalahan stok, lakukan adjustment baru, jangan ubah data mutasi lama.</li>
+                            <li>Stok saat ini di kartu stok adalah hasil akumulasi seluruh mutasi yang pernah terjadi pada produk tersebut.</li>
+                            <li>Jika outlet aktif adalah tenant, mutasi yang tampil hanya milik tenant tersebut.</li>
+                        </ul>
+                    </div>
+                </div>
+            </Modal>
         </>
     );
 }

@@ -91,7 +91,9 @@ const Sales = ({
     cashiers,
     customers,
     tenantOutlets = [],
+    workspace = {},
 }) => {
+    const isTenantWorkspace = Boolean(workspace?.is_tenant_workspace);
     const [settlementModal, setSettlementModal] = useState({
         open: false,
         allocation: null,
@@ -329,9 +331,9 @@ const Sales = ({
         {
             title: "Total Profit",
             value: formatCurrency(safeSummary.profit_total),
-            description: `Rata-rata ${formatCurrency(
-                safeSummary.average_order
-            )}`,
+            description: isTenantWorkspace
+                ? `Selisih harga beli outlet vs HPP tenant`
+                : `Rata-rata ${formatCurrency(safeSummary.average_order)}`,
             icon: <IconCoin />,
         },
         {
@@ -343,7 +345,9 @@ const Sales = ({
         {
             title: "Diskon Diberikan",
             value: formatCurrency(safeSummary.discount_total),
-            description: `Tenant ${formatCurrency(safeSummary.tenant_discount_total)} • Owner ${formatCurrency(safeSummary.owner_discount_total)}`,
+            description: isTenantWorkspace
+                ? `Diskon tenant ${formatCurrency(safeSummary.tenant_discount_total)}`
+                : `Tenant ${formatCurrency(safeSummary.tenant_discount_total)} • Owner ${formatCurrency(safeSummary.owner_discount_total)}`,
             icon: <IconDiscount2 />,
         },
         {
@@ -372,7 +376,9 @@ const Sales = ({
                             Laporan Penjualan
                         </h1>
                         <p className="text-sm text-slate-500 dark:text-slate-400">
-                            Cek hasil penjualan, target, dan settlement tenant.
+                            {isTenantWorkspace
+                                ? "Cek omzet tenant, diskon tenant, HPP tenant, dan profit tenant aktif."
+                                : "Cek hasil penjualan, target, dan settlement tenant."}
                         </p>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
@@ -844,34 +850,36 @@ const Sales = ({
                                     placeholder="Semua pelanggan / umum"
                                     searchable
                                 />
-                                <div>
-                                    <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                        Tenant
-                                    </label>
-                                    <select
-                                        value={filterData.tenant_outlet_id}
-                                        onChange={(e) =>
-                                            handleChange(
-                                                "tenant_outlet_id",
-                                                e.target.value
-                                            )
-                                        }
-                                        className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-slate-800 transition-all focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
-                                    >
-                                        <option value="">Semua tenant</option>
-                                        {tenantOutlets.map((tenant) => (
-                                            <option
-                                                key={tenant.id}
-                                                value={tenant.id}
-                                            >
-                                                {tenant.name}
-                                                {tenant.code
-                                                    ? ` (${tenant.code})`
-                                                    : ""}
-                                            </option>
-                                        ))}
-                                    </select>
-                                </div>
+                                {!isTenantWorkspace ? (
+                                    <div>
+                                        <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                            Tenant
+                                        </label>
+                                        <select
+                                            value={filterData.tenant_outlet_id}
+                                            onChange={(e) =>
+                                                handleChange(
+                                                    "tenant_outlet_id",
+                                                    e.target.value
+                                                )
+                                            }
+                                            className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-slate-800 transition-all focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                                        >
+                                            <option value="">Semua tenant</option>
+                                            {tenantOutlets.map((tenant) => (
+                                                <option
+                                                    key={tenant.id}
+                                                    value={tenant.id}
+                                                >
+                                                    {tenant.name}
+                                                    {tenant.code
+                                                        ? ` (${tenant.code})`
+                                                        : ""}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                ) : null}
                                 <div>
                                     <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
                                         Status Settlement
@@ -992,14 +1000,9 @@ const Sales = ({
                                                         )}
                                                     </div>
                                                     <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
-                                                        Tenant cut{" "}
+                                                        Diskon{" "}
                                                         {formatCurrency(
                                                             trx.tenant_discount_total ??
-                                                                0
-                                                        )}{" "}
-                                                        • Owner cut{" "}
-                                                        {formatCurrency(
-                                                            trx.owner_discount_total ??
                                                                 0
                                                         )}
                                                     </div>
@@ -1011,17 +1014,26 @@ const Sales = ({
                                                         )}
                                                     </div>
                                                     <div className="mt-1 text-xs font-medium text-slate-500 dark:text-slate-400">
-                                                        Tenant net{" "}
+                                                        Harga beli outlet{" "}
                                                         {formatCurrency(
                                                             trx.tenant_net_total ?? 0
                                                         )}
                                                     </div>
-                                                    <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
-                                                        Owner net{" "}
-                                                        {formatCurrency(
-                                                            trx.owner_net_total ?? 0
-                                                        )}
-                                                    </div>
+                                                    {isTenantWorkspace ? (
+                                                        <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                                                            HPP tenant{" "}
+                                                            {formatCurrency(
+                                                                trx.base_cost_total ?? 0
+                                                            )}
+                                                        </div>
+                                                    ) : (
+                                                        <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                                                            Owner net{" "}
+                                                            {formatCurrency(
+                                                                trx.owner_net_total ?? 0
+                                                            )}
+                                                        </div>
+                                                    )}
                                                 </td>
                                             </tr>
                                             {Array.isArray(trx.detail_items) && trx.detail_items.length > 0 ? (
@@ -1051,12 +1063,18 @@ const Sales = ({
                                                                             <div>Line total {formatCurrency(item.line_total ?? 0)}</div>
                                                                         </div>
                                                                         <div className="text-slate-600 dark:text-slate-300">
-                                                                            <div>Tenant cut {formatCurrency(item.tenant_discount_total ?? 0)}</div>
-                                                                            <div>Tenant net {formatCurrency(item.tenant_net_total ?? 0)}</div>
+                                                                            <div>Diskon {formatCurrency(item.tenant_discount_total ?? 0)}</div>
+                                                                            <div>Harga beli outlet {formatCurrency(item.tenant_net_total ?? 0)}</div>
                                                                         </div>
                                                                         <div className="text-slate-600 dark:text-slate-300">
-                                                                            <div>Owner cut {formatCurrency(item.owner_discount_total ?? 0)}</div>
-                                                                            <div>Owner net {formatCurrency(item.owner_net_total ?? 0)}</div>
+                                                                            {isTenantWorkspace ? (
+                                                                                <div>HPP tenant {formatCurrency(item.base_cost_total ?? 0)}</div>
+                                                                            ) : (
+                                                                                <>
+                                                                                    <div>Owner cut {formatCurrency(item.owner_discount_total ?? 0)}</div>
+                                                                                    <div>Owner net {formatCurrency(item.owner_net_total ?? 0)}</div>
+                                                                                </>
+                                                                            )}
                                                                         </div>
                                                                     </div>
                                                                 ))}

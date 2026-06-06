@@ -153,7 +153,7 @@ class OperationsGuideController extends Controller
                     ['label' => 'Setup PWA', 'href' => $optionalRoute('dashboard-access', 'guides.pwa-setup')],
                     ['label' => 'Dashboard', 'href' => $optionalRoute('dashboard-access', 'dashboard')],
                     ['label' => 'POS Kasir', 'href' => $optionalRoute('transactions-access', 'transactions.index')],
-                    ['label' => 'Riwayat Transaksi', 'href' => $optionalRoute('transactions-access', 'transactions.history')],
+                    ['label' => 'Riwayat Transaksi', 'href' => $optionalRoute('transactions-history-access', 'transactions.history')],
                     ['label' => 'Shift Kasir', 'href' => $optionalRoute('cashier-shifts-access', 'cashier-shifts.index')],
                     ['label' => 'Pesanan QR Meja', 'href' => $optionalRoute('table-orders-access', 'table-orders.index')],
                 ]
@@ -165,8 +165,7 @@ class OperationsGuideController extends Controller
                 [
                     ['label' => 'Setup PWA', 'href' => $optionalRoute('dashboard-access', 'guides.pwa-setup')],
                     ['label' => 'Dashboard', 'href' => $optionalRoute('dashboard-access', 'dashboard')],
-                    ['label' => 'Kitchen Queue', 'href' => $optionalRoute('dashboard-access', 'kitchen.index')],
-                    ['label' => 'POS Kasir', 'href' => $optionalRoute('transactions-access', 'transactions.index')],
+                    ['label' => 'Kitchen Queue', 'href' => $optionalRoute('kitchen-access', 'kitchen.index')],
                 ]
             ),
             $buildProfile(

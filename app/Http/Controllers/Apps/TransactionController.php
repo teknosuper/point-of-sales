@@ -2069,13 +2069,16 @@ class TransactionController extends Controller
         $query = Transaction::query()
             ->with([
                 'cashier:id,name',
+                'waiter:id,name',
                 'customer:id,name,no_telp',
+                'diningTable:id,name,code',
+                'bankAccount:id,bank_name,account_number',
                 'tenantAllocations.tenantOutlet:id,name,code',
             ])
             ->when($includeDetails, fn (Builder $builder) => $builder->with([
                 'details' => fn ($detailQuery) => $detailQuery
                     ->select($detailColumns)
-                    ->with('product:id,title'),
+                    ->with('product:id,title', 'modifiers'),
             ]))
             ->when($this->resolveActiveOutlet($request), fn (Builder $builder, $outlet) => $builder->where('outlet_id', $outlet->id))
             ->when(! $request->user()->isSuperAdmin(), fn (Builder $builder) => $builder->where('cashier_id', $request->user()->id))
@@ -2090,14 +2093,19 @@ class TransactionController extends Controller
 
     private function transformTransactionHistoryModalItem(Transaction $transaction): array
     {
+        $storePayload = $this->resolveActiveOutlet()?->profilePayload() ?? [];
+
         return [
             'id' => $transaction->id,
             'invoice' => $transaction->invoice,
             'created_at' => optional($transaction->created_at)->toISOString(),
             'created_at_label' => optional($transaction->created_at)->format('d M Y H:i'),
+            'order_type' => $transaction->order_type,
             'payment_method' => $transaction->payment_method,
             'payment_status' => $transaction->payment_status,
             'grand_total' => (int) $transaction->grand_total,
+            'cash' => (int) ($transaction->cash ?? 0),
+            'change' => (int) ($transaction->change ?? 0),
             'total_items' => (int) ($transaction->total_items ?? 0),
             'total_discount' => (int) ($transaction->total_promo_discount ?? 0)
                 + (int) ($transaction->discount ?? 0)
@@ -2111,6 +2119,11 @@ class TransactionController extends Controller
                 'id' => $transaction->customer->id,
                 'name' => $transaction->customer->name,
                 'phone' => $transaction->customer->no_telp,
+            ] : null,
+            'table' => $transaction->diningTable ? [
+                'id' => $transaction->diningTable->id,
+                'name' => $transaction->diningTable->name,
+                'code' => $transaction->diningTable->code,
             ] : null,
             'tenant_allocations' => $transaction->tenantAllocations->map(fn ($allocation) => [
                 'id' => $allocation->id,
@@ -2137,6 +2150,7 @@ class TransactionController extends Controller
                     'promo_reward_label' => $detail->promo_reward_label,
                 ])->values()
                 : [],
+            'receiptLayout' => $this->receiptLayoutService->build($transaction, $storePayload, '58mm'),
         ];
     }
 

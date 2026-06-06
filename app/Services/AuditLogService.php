@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
+use Spatie\Permission\Models\Permission;
 
 class AuditLogService
 {
@@ -128,8 +129,30 @@ class AuditLogService
 
     public function permissionNames($permissions): array
     {
-        return collect($permissions)
-            ->map(fn ($permission) => is_string($permission) ? $permission : $permission->name)
+        $items = collect($permissions);
+        $permissionIds = $items
+            ->filter(fn ($permission) => is_int($permission) || ctype_digit((string) $permission))
+            ->map(fn ($permission) => (int) $permission)
+            ->values();
+
+        $permissionNamesById = $permissionIds->isNotEmpty()
+            ? Permission::query()
+                ->whereIn('id', $permissionIds->all())
+                ->pluck('name', 'id')
+            : collect();
+
+        return $items
+            ->map(function ($permission) use ($permissionNamesById) {
+                if (is_string($permission) && ! ctype_digit($permission)) {
+                    return $permission;
+                }
+
+                if (is_int($permission) || ctype_digit((string) $permission)) {
+                    return $permissionNamesById->get((int) $permission);
+                }
+
+                return $permission->name ?? null;
+            })
             ->filter()
             ->values()
             ->all();

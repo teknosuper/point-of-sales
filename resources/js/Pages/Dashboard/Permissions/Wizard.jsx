@@ -21,7 +21,11 @@ import Checkbox from "@/Components/Dashboard/Checkbox";
 import Input from "@/Components/Dashboard/Input";
 import toast from "react-hot-toast";
 
-function hasAllPermissions(role, requiredPermissions = []) {
+function hasAllPermissions(role, requiredPermissions = [], allowSuperAdmin = false) {
+    if (role.name === "super-admin" && !allowSuperAdmin) {
+        return false;
+    }
+
     const names = new Set(role.permission_names || []);
     return requiredPermissions.every((permission) => names.has(permission));
 }
@@ -43,11 +47,40 @@ function templateMeta(template) {
         return { group: "Tim Operasional", order: 2, badge: "Operasional" };
     }
 
-    if (["tenant-operational", "tenant-promo"].includes(template.key)) {
+    if (["tenant-operational", "tenant-delivery", "tenant-promo", "tenant-owner"].includes(template.key)) {
         return { group: "Tenant", order: 3, badge: "Tenant" };
     }
 
     return { group: "Admin Modul", order: 4, badge: "Modul" };
+}
+
+function rankMatchingRoles(template, roles = [], requiredPermissions = []) {
+    return [...roles].sort((left, right) => {
+        const leftIsSuggested = left.name === template?.suggested_role_name;
+        const rightIsSuggested = right.name === template?.suggested_role_name;
+
+        if (leftIsSuggested !== rightIsSuggested) {
+            return leftIsSuggested ? -1 : 1;
+        }
+
+        const leftIsSuperAdmin = left.name === "super-admin";
+        const rightIsSuperAdmin = right.name === "super-admin";
+
+        if (leftIsSuperAdmin !== rightIsSuperAdmin) {
+            return leftIsSuperAdmin ? 1 : -1;
+        }
+
+        const leftPermissionCount = (left.permission_names || []).length;
+        const rightPermissionCount = (right.permission_names || []).length;
+        const leftExtra = Math.max(0, leftPermissionCount - requiredPermissions.length);
+        const rightExtra = Math.max(0, rightPermissionCount - requiredPermissions.length);
+
+        if (leftExtra !== rightExtra) {
+            return leftExtra - rightExtra;
+        }
+
+        return left.name.localeCompare(right.name, "id-ID");
+    });
 }
 
 export default function PermissionWizard() {
@@ -86,8 +119,16 @@ export default function PermissionWizard() {
     }, [activeTemplate, permissions]);
     const matchingRoles = useMemo(() => {
         if (!activeTemplate) return [];
-        return roles.filter((role) =>
-            hasAllPermissions(role, requiredPermissionNames)
+        return rankMatchingRoles(
+            activeTemplate,
+            roles.filter((role) =>
+                hasAllPermissions(
+                    role,
+                    requiredPermissionNames,
+                    Boolean(activeTemplate.use_all_permissions)
+                )
+            ),
+            requiredPermissionNames
         );
     }, [activeTemplate, requiredPermissionNames, roles]);
 
@@ -112,7 +153,7 @@ export default function PermissionWizard() {
         waiter_tenant_outlet_ids: [],
     });
 
-    const isWaiterTemplate = activeTemplate?.key === "waiter-basic";
+    const isWaiterTemplate = ["waiter-basic", "tenant-delivery"].includes(activeTemplate?.key);
     const selectedRole =
         roles.find((role) => role.name === selectedRoleName) || null;
     const availableKitchenStations = kitchenStations.filter((station) =>

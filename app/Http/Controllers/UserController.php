@@ -42,7 +42,7 @@ class UserController extends Controller
         // get all users data
         $users = User::query()
             ->with([
-                'roles',
+                'roles.permissions:id,name',
                 'outlets' => fn ($query) => $query->select('outlets.id', 'name', 'code', 'outlet_type'),
                 'waiterTenantOutlets' => fn ($query) => $query->select('outlets.id', 'name', 'code'),
             ])
@@ -57,7 +57,7 @@ class UserController extends Controller
             ->when($filters['workspace'] !== '', fn ($query) => $query->where('preferred_workspace', $filters['workspace']))
             ->when($filters['outlet_type'] !== '', fn ($query) => $query->whereHas('outlets', fn ($outletQuery) => $outletQuery->where('outlet_type', $filters['outlet_type'])))
             ->when($filters['outlet_id'] !== '', fn ($query) => $query->whereHas('outlets', fn ($outletQuery) => $outletQuery->where('outlets.id', (int) $filters['outlet_id'])))
-            ->select('id', 'name', 'avatar', 'email', 'preferred_workspace')
+            ->select('id', 'name', 'avatar', 'email', 'preferred_workspace', 'waiter_service_scope')
             ->orderBy('name')
             ->paginate($filters['per_page'])
             ->withQueryString();
@@ -159,7 +159,7 @@ class UserController extends Controller
             'preferred_kitchen_station_id' => $request->input('preferred_workspace') === 'kitchen'
                 ? ($request->input('preferred_kitchen_station_id') ?: null)
                 : null,
-            'waiter_service_scope' => in_array('waiter', $request->input('selectedRoles', []), true)
+            'waiter_service_scope' => $this->selectedRolesGrantPermission($request->input('selectedRoles', []), 'waiter-board-access')
                 ? $request->input('waiter_service_scope', 'outlet_all')
                 : 'outlet_all',
         ]);
@@ -277,7 +277,7 @@ class UserController extends Controller
             'preferred_kitchen_station_id' => $request->input('preferred_workspace') === 'kitchen'
                 ? ($request->input('preferred_kitchen_station_id') ?: null)
                 : null,
-            'waiter_service_scope' => in_array('waiter', $request->input('selectedRoles', []), true)
+            'waiter_service_scope' => $this->selectedRolesGrantPermission($request->input('selectedRoles', []), 'waiter-board-access')
                 ? $request->input('waiter_service_scope', 'outlet_all')
                 : 'outlet_all',
         ]);
@@ -431,7 +431,7 @@ class UserController extends Controller
         string $scope = 'outlet_all',
         array $tenantOutletIds = []
     ): void {
-        if (! in_array('waiter', $selectedRoles, true) || $scope !== 'tenant_only') {
+        if (! $this->selectedRolesGrantPermission($selectedRoles, 'waiter-board-access') || $scope !== 'tenant_only') {
             $user->waiterTenantOutlets()->sync([]);
 
             return;
@@ -448,5 +448,22 @@ class UserController extends Controller
             ->all();
 
         $user->waiterTenantOutlets()->sync($syncIds);
+    }
+
+    private function selectedRolesGrantPermission(array $selectedRoles, string $permissionName): bool
+    {
+        $roleNames = collect($selectedRoles)
+            ->filter()
+            ->map(fn ($role) => (string) $role)
+            ->values();
+
+        if ($roleNames->isEmpty()) {
+            return false;
+        }
+
+        return Role::query()
+            ->whereIn('name', $roleNames->all())
+            ->whereHas('permissions', fn ($query) => $query->where('name', $permissionName))
+            ->exists();
     }
 }

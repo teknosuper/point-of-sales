@@ -30,7 +30,7 @@ class FoodcourtTenantAllocationService
         $groupedDetails = $details->groupBy(fn (TransactionDetail $detail) => (int) ($detail->tenant_outlet_id ?? $detail->outlet_id));
         $tenantOutletIds = $groupedDetails->keys()->map(fn ($id) => (int) $id)->values()->all();
         $subtotals = $groupedDetails->map(fn (Collection $tenantDetails) => (int) $tenantDetails->sum(
-            fn (TransactionDetail $detail) => (int) ($detail->tenant_net_total ?? $detail->price)
+            fn (TransactionDetail $detail) => $this->tenantLineTotal($detail)
         ));
         $voucherShares = $this->allocateAcrossTenants($subtotals, (int) ($transaction->customer_voucher_discount ?? 0));
         $afterVoucher = $subtotals->map(fn (int $subtotal, int|string $tenantOutletId) => max(0, $subtotal - (int) $voucherShares->get($tenantOutletId, 0)));
@@ -49,7 +49,7 @@ class FoodcourtTenantAllocationService
             $tenantDetails = $tenantDetails->values();
             $tenantOutletId = (int) $tenantOutletId;
             $subtotal = (int) $subtotals->get($tenantOutletId, 0);
-            $promoDiscountTotal = (int) $tenantDetails->sum(fn (TransactionDetail $detail) => (int) ($detail->tenant_discount_total ?? $detail->discount_total));
+            $promoDiscountTotal = (int) $tenantDetails->sum(fn (TransactionDetail $detail) => $this->tenantDiscountTotal($detail));
             $voucherDiscountTotal = (int) $voucherShares->get($tenantOutletId, 0);
             $loyaltyDiscountTotal = (int) $loyaltyShares->get($tenantOutletId, 0);
             $manualDiscountTotal = (int) $manualShares->get($tenantOutletId, 0);
@@ -94,10 +94,10 @@ class FoodcourtTenantAllocationService
                     'product_id' => $detail->product_id,
                     'kitchen_station_id' => $detail->kitchen_station_id,
                     'qty' => (int) $detail->qty,
-                    'base_unit_price' => (int) ($detail->tenant_base_unit_price ?? $detail->base_unit_price),
-                    'unit_price' => (int) max(0, round(((int) ($detail->tenant_net_total ?? $detail->price)) / max(1, (int) $detail->qty))),
-                    'line_total' => (int) ($detail->tenant_net_total ?? $detail->price),
-                    'discount_total' => (int) ($detail->tenant_discount_total ?? $detail->discount_total),
+                    'base_unit_price' => $this->tenantBaseUnitPrice($detail),
+                    'unit_price' => (int) max(0, round($this->tenantLineTotal($detail) / max(1, (int) $detail->qty))),
+                    'line_total' => $this->tenantLineTotal($detail),
+                    'discount_total' => $this->tenantDiscountTotal($detail),
                 ]);
             }
 
@@ -145,5 +145,32 @@ class FoodcourtTenantAllocationService
     private function allocationNumber(Transaction $transaction, int $tenantOutletId): string
     {
         return 'TA-'.$transaction->id.'-'.$tenantOutletId.'-'.Str::upper(Str::random(4));
+    }
+
+    private function tenantLineTotal(TransactionDetail $detail): int
+    {
+        $tenantNetTotal = (int) ($detail->tenant_net_total ?? 0);
+
+        return $tenantNetTotal > 0
+            ? $tenantNetTotal
+            : (int) ($detail->price ?? 0);
+    }
+
+    private function tenantBaseUnitPrice(TransactionDetail $detail): int
+    {
+        $tenantBaseUnitPrice = (int) ($detail->tenant_base_unit_price ?? 0);
+
+        return $tenantBaseUnitPrice > 0
+            ? $tenantBaseUnitPrice
+            : (int) ($detail->base_unit_price ?? 0);
+    }
+
+    private function tenantDiscountTotal(TransactionDetail $detail): int
+    {
+        $tenantDiscountTotal = (int) ($detail->tenant_discount_total ?? 0);
+
+        return $tenantDiscountTotal > 0
+            ? $tenantDiscountTotal
+            : (int) ($detail->discount_total ?? 0);
     }
 }

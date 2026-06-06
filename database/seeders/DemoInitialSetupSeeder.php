@@ -250,8 +250,10 @@ class DemoInitialSetupSeeder extends Seeder
                 ],
                 [
                     'code' => $row['code'],
+                    'qr_token' => (string) Str::uuid(),
                     'capacity' => $row['capacity'],
                     'status' => 'active',
+                    'self_order_enabled' => true,
                     'sort_order' => $row['sort_order'],
                     'notes' => 'Meja demo untuk transaksi dine in.',
                 ]
@@ -314,98 +316,104 @@ class DemoInitialSetupSeeder extends Seeder
 
     private function seedDemoUsers(Outlet $mainOutlet, Collection $stations, Collection $tenantOutlets): Collection
     {
-        $kitchenRole = Role::firstOrCreate(['name' => 'kitchen-operator']);
-        $dashboardPermission = Permission::query()->where('name', 'dashboard-access')->first();
-        if ($dashboardPermission) {
-            $kitchenRole->syncPermissions([$dashboardPermission]);
-        }
-
-        $cashierRole = Role::query()->where('name', 'cashier')->first();
-        $adminRole = Role::query()->whereIn('name', ['super-admin', 'admin'])->first();
         $workspaceColumnsReady = $this->supportsKitchenWorkspaceColumns();
+        $tenantSpecs = collect([
+            ['slug' => 'dapur-minuman', 'station_slug' => 'minuman', 'name' => 'Dapur Minuman', 'handle' => 'minuman'],
+            ['slug' => 'dapur-mie', 'station_slug' => 'mie', 'name' => 'Dapur Mie', 'handle' => 'mie'],
+            ['slug' => 'dapur-ayam', 'station_slug' => 'ayam', 'name' => 'Dapur Ayam', 'handle' => 'ayam'],
+            ['slug' => 'dapur-ramen', 'station_slug' => 'ramen', 'name' => 'Dapur Ramen', 'handle' => 'ramen'],
+            ['slug' => 'dapur-steak', 'station_slug' => 'steak', 'name' => 'Dapur Steak', 'handle' => 'steak'],
+            ['slug' => 'dapur-durian', 'station_slug' => 'durian', 'name' => 'Dapur Durian', 'handle' => 'durian'],
+            ['slug' => 'dapur-nasgor', 'station_slug' => 'nasgor', 'name' => 'Dapur Nasgor', 'handle' => 'nasgor'],
+            ['slug' => 'dapur-buah', 'station_slug' => 'buah', 'name' => 'Dapur Buah', 'handle' => 'buah'],
+        ]);
 
         $users = collect([
             [
-                'email' => 'admin.demo@gmail.com',
-                'name' => 'Admin Demo Program',
+                'email' => 'admin.outlet@gmail.com',
+                'name' => 'Admin Outlet Demo',
                 'workspace' => 'standard',
                 'station' => null,
-                'roles' => $adminRole ? [$adminRole->name] : [],
+                'roles' => ['admin-owner-outlet'],
                 'primary_outlet' => $mainOutlet->id,
+                'outlet_ids' => [$mainOutlet->id],
             ],
             [
-                'email' => 'supervisor.demo@gmail.com',
-                'name' => 'Supervisor Outlet Demo',
+                'email' => 'owner.outlet@gmail.com',
+                'name' => 'Outlet Owner Demo',
                 'workspace' => 'standard',
                 'station' => null,
-                'roles' => $adminRole ? [$adminRole->name] : [],
+                'roles' => ['outlet-owner'],
                 'primary_outlet' => $mainOutlet->id,
+                'outlet_ids' => [$mainOutlet->id],
             ],
             [
                 'email' => 'cashier.foodcourt@gmail.com',
                 'name' => 'Kasir Foodcourt Demo',
                 'workspace' => 'standard',
                 'station' => null,
-                'roles' => $cashierRole ? [$cashierRole->name] : [],
+                'roles' => ['cashier'],
                 'primary_outlet' => $mainOutlet->id,
+                'outlet_ids' => [$mainOutlet->id],
             ],
             [
-                'email' => 'cashier.retail@gmail.com',
-                'name' => 'Kasir Retail Demo',
-                'workspace' => 'standard',
-                'station' => null,
-                'roles' => $cashierRole ? [$cashierRole->name] : [],
-                'primary_outlet' => $mainOutlet->id,
-            ],
-            [
-                'email' => 'cashier.dua.demo@gmail.com',
-                'name' => 'Kasir Dua Demo',
-                'workspace' => 'standard',
-                'station' => null,
-                'roles' => $cashierRole ? [$cashierRole->name] : [],
-                'primary_outlet' => $mainOutlet->id,
-            ],
-            [
-                'email' => 'waiter.satu.demo@gmail.com',
-                'name' => 'Waiter Satu Demo',
+                'email' => 'waiter.outlet@gmail.com',
+                'name' => 'Petugas Antar Outlet Demo',
                 'workspace' => 'standard',
                 'station' => null,
                 'roles' => ['waiter'],
                 'primary_outlet' => $mainOutlet->id,
+                'outlet_ids' => [$mainOutlet->id],
                 'waiter_service_scope' => 'outlet_all',
                 'waiter_tenant_slugs' => [],
             ],
-            [
-                'email' => 'waiter.dua.demo@gmail.com',
-                'name' => 'Waiter Dua Demo',
-                'workspace' => 'standard',
-                'station' => null,
-                'roles' => ['waiter'],
-                'primary_outlet' => $mainOutlet->id,
-                'waiter_service_scope' => 'tenant_only',
-                'waiter_tenant_slugs' => ['dapur-minuman', 'dapur-buah', 'dapur-durian'],
-            ],
-        ])
-            ->merge(
-                collect([
-                    'minuman' => 'Dapur Minuman',
-                    'mie' => 'Dapur Mie',
-                    'ayam' => 'Dapur Ayam',
-                    'ramen' => 'Dapur Ramen',
-                    'steak' => 'Dapur Steak',
-                    'durian' => 'Dapur Durian',
-                    'nasgor' => 'Dapur Nasgor',
-                    'buah' => 'Dapur Buah',
-                ])->map(fn (string $name, string $slug) => [
-                    'email' => 'kitchen.'.$slug.'@gmail.com',
-                    'name' => $name.' Demo',
-                    'workspace' => 'kitchen',
-                    'station' => $stations->get($slug)?->id,
-                    'roles' => [$kitchenRole->name],
-                    'primary_outlet' => $mainOutlet->id,
-                ])
-            )
-            ->map(function (array $row) use ($workspaceColumnsReady, $tenantOutlets) {
+        ])->merge(
+            $tenantSpecs->flatMap(function (array $tenant) use ($tenantOutlets, $stations, $mainOutlet) {
+                $tenantOutletId = $tenantOutlets->get($tenant['slug'])?->id;
+                $stationId = $stations->get($tenant['station_slug'])?->id;
+
+                return [
+                    [
+                        'email' => 'owner.'.$tenant['handle'].'@gmail.com',
+                        'name' => 'Owner '.$tenant['name'],
+                        'workspace' => 'standard',
+                        'station' => null,
+                        'roles' => ['tenant-owner'],
+                        'primary_outlet' => $tenantOutletId,
+                        'outlet_ids' => [$tenantOutletId],
+                    ],
+                    [
+                        'email' => 'ops.'.$tenant['handle'].'@gmail.com',
+                        'name' => 'Operasional '.$tenant['name'],
+                        'workspace' => 'standard',
+                        'station' => null,
+                        'roles' => ['tenant-operasional'],
+                        'primary_outlet' => $tenantOutletId,
+                        'outlet_ids' => [$tenantOutletId],
+                    ],
+                    [
+                        'email' => 'antar.'.$tenant['handle'].'@gmail.com',
+                        'name' => 'Petugas Antar '.$tenant['name'],
+                        'workspace' => 'standard',
+                        'station' => null,
+                        'roles' => ['tenant-petugas-antar'],
+                        'primary_outlet' => $tenantOutletId,
+                        'outlet_ids' => [$tenantOutletId],
+                        'waiter_service_scope' => 'tenant_only',
+                        'waiter_tenant_slugs' => [$tenant['slug']],
+                    ],
+                    [
+                        'email' => 'kitchen.'.$tenant['handle'].'@gmail.com',
+                        'name' => 'Layar '.$tenant['name'],
+                        'workspace' => 'kitchen',
+                        'station' => $stationId,
+                        'roles' => ['kitchen-operator'],
+                        'primary_outlet' => $mainOutlet->id,
+                        'outlet_ids' => array_values(array_filter([$mainOutlet->id, $tenantOutletId])),
+                    ],
+                ];
+            })
+        )->map(function (array $row) use ($workspaceColumnsReady, $tenantOutlets) {
             $attributes = [
                 'name' => $row['name'],
                 'password' => Hash::make('password'),
@@ -429,16 +437,17 @@ class DemoInitialSetupSeeder extends Seeder
                 $user->syncRoles($row['roles']);
             }
 
-            if ($row['workspace'] === 'kitchen') {
-                $dashboardPermission = Permission::query()->where('name', 'dashboard-access')->first();
-                if ($dashboardPermission) {
-                    $user->givePermissionTo($dashboardPermission);
-                }
-            }
+            $syncOutlets = collect($row['outlet_ids'] ?? [$row['primary_outlet']])
+                ->filter()
+                ->unique()
+                ->mapWithKeys(fn ($outletId) => [
+                    $outletId => ['is_primary' => (int) $outletId === (int) $row['primary_outlet']],
+                ])
+                ->all();
 
-            $user->outlets()->syncWithoutDetaching([
-                $row['primary_outlet'] => ['is_primary' => true],
-            ]);
+            if ($syncOutlets !== []) {
+                $user->outlets()->sync($syncOutlets);
+            }
 
             if (Schema::hasTable('user_waiter_tenant_outlet')) {
                 $tenantIds = collect($row['waiter_tenant_slugs'] ?? [])
@@ -534,12 +543,9 @@ class DemoInitialSetupSeeder extends Seeder
             'Roti & Kue',
         ])->get()->keyBy('name');
 
-        $rows = collect([
-            ['barcode' => 'FC-MIN-001', 'title' => 'Es Teh Tarik', 'description' => 'Minuman creamy favorit untuk testing dapur minuman.', 'category' => 'Minuman', 'tenant_slug' => 'dapur-minuman', 'station_slug' => 'minuman', 'buy_price' => 7000, 'sell_price' => 16000, 'stock' => 90, 'modifier_options' => [['name' => 'Boba', 'price' => 4000], ['name' => 'Grass jelly', 'price' => 3000], ['name' => 'Extra susu', 'price' => 3000]]],
-            ['barcode' => 'FC-MIN-002', 'title' => 'Kopi Susu Aren', 'description' => 'Kopi susu aren untuk simulasi antrian beverage.', 'category' => 'Minuman', 'tenant_slug' => 'dapur-minuman', 'station_slug' => 'minuman', 'buy_price' => 8000, 'sell_price' => 18000, 'stock' => 80, 'modifier_options' => [['name' => 'Extra espresso', 'price' => 5000], ['name' => 'Oat milk', 'price' => 6000], ['name' => 'Whipped cream', 'price' => 4000]]],
-            ['barcode' => 'FC-MIN-003', 'title' => 'Matcha Latte', 'description' => 'Matcha latte premium untuk demo topping minuman.', 'category' => 'Minuman', 'tenant_slug' => 'dapur-minuman', 'station_slug' => 'minuman', 'buy_price' => 10000, 'sell_price' => 22000, 'stock' => 70, 'modifier_options' => [['name' => 'Cheese foam', 'price' => 5000], ['name' => 'Boba', 'price' => 4000], ['name' => 'Extra matcha', 'price' => 5000]]],
-            ['barcode' => 'FC-MIN-004', 'title' => 'Chocolate Hazelnut', 'description' => 'Minuman coklat pekat untuk testing custom extra.', 'category' => 'Minuman', 'tenant_slug' => 'dapur-minuman', 'station_slug' => 'minuman', 'buy_price' => 9000, 'sell_price' => 20000, 'stock' => 65, 'modifier_options' => [['name' => 'Marshmallow', 'price' => 3000], ['name' => 'Ice cream vanilla', 'price' => 5000], ['name' => 'Extra sauce coklat', 'price' => 3000]]],
-
+        $rows = collect(array_merge(
+            $this->minumanMenuRows(),
+            [
             ['barcode' => 'FC-MIE-001', 'title' => 'Mie Goreng Jawa', 'description' => 'Mie goreng gurih khas untuk dapur mie.', 'category' => 'Makanan Berat', 'tenant_slug' => 'dapur-mie', 'station_slug' => 'mie', 'buy_price' => 13000, 'sell_price' => 22000, 'stock' => 60, 'modifier_options' => [['name' => 'Telur dadar', 'price' => 5000], ['name' => 'Bakso', 'price' => 6000], ['name' => 'Pangsit goreng', 'price' => 4000]]],
             ['barcode' => 'FC-MIE-002', 'title' => 'Mie Nyemek Spesial', 'description' => 'Mie nyemek pedas manis untuk antrian dapur mie.', 'category' => 'Makanan Berat', 'tenant_slug' => 'dapur-mie', 'station_slug' => 'mie', 'buy_price' => 15000, 'sell_price' => 25000, 'stock' => 55, 'modifier_options' => [['name' => 'Kornet', 'price' => 7000], ['name' => 'Keju', 'price' => 5000], ['name' => 'Sosis', 'price' => 6000]]],
             ['barcode' => 'FC-MIE-003', 'title' => 'Mie Godog Kampung', 'description' => 'Mie kuah gurih lengkap untuk skenario kitchen ticket.', 'category' => 'Makanan Berat', 'tenant_slug' => 'dapur-mie', 'station_slug' => 'mie', 'buy_price' => 14000, 'sell_price' => 23000, 'stock' => 58, 'modifier_options' => [['name' => 'Telur ceplok', 'price' => 5000], ['name' => 'Ayam suwir', 'price' => 7000], ['name' => 'Sambal ijo', 'price' => 2000]]],
@@ -574,11 +580,15 @@ class DemoInitialSetupSeeder extends Seeder
             ['barcode' => 'FC-BUH-002', 'title' => 'Jus Alpukat', 'description' => 'Jus alpukat kental untuk dapur buah.', 'category' => 'Minuman', 'tenant_slug' => 'dapur-buah', 'station_slug' => 'buah', 'buy_price' => 10000, 'sell_price' => 17000, 'stock' => 64, 'modifier_options' => [['name' => 'Extra espresso', 'price' => 5000], ['name' => 'Coklat sauce', 'price' => 3000], ['name' => 'Ice cream vanilla', 'price' => 5000]]],
             ['barcode' => 'FC-BUH-003', 'title' => 'Sop Buah', 'description' => 'Sop buah segar untuk order family.', 'category' => 'Minuman', 'tenant_slug' => 'dapur-buah', 'station_slug' => 'buah', 'buy_price' => 13000, 'sell_price' => 20000, 'stock' => 66, 'modifier_options' => [['name' => 'Nata de coco', 'price' => 3000], ['name' => 'Melon extra', 'price' => 3000], ['name' => 'Susu kental manis', 'price' => 2000]]],
             ['barcode' => 'FC-BUH-004', 'title' => 'Fruit Yogurt Bowl', 'description' => 'Yogurt bowl buah untuk testing dessert outlet.', 'category' => 'Makanan Ringan', 'tenant_slug' => 'dapur-buah', 'station_slug' => 'buah', 'buy_price' => 14000, 'sell_price' => 22000, 'stock' => 48, 'modifier_options' => [['name' => 'Madu', 'price' => 3000], ['name' => 'Granola', 'price' => 5000], ['name' => 'Kiwi extra', 'price' => 4000]]],
-        ]);
+        ]));
 
-        $products = $rows->map(function (array $row) use ($categories, $tenantOutlets) {
+        $products = $rows->values()->map(function (array $row, int $index) use ($categories, $tenantOutlets) {
             $category = $categories->get($row['category']);
             $tenant = $tenantOutlets->get($row['tenant_slug']);
+            $buyPrice = (int) $row['buy_price'];
+            $tenantHppPrice = max(0, $buyPrice - 2000);
+            $ownerMarkup = (int) ($row['owner_markup'] ?? ($index % 4 === 3 ? 3000 : 2000));
+            $sellPrice = $buyPrice + $ownerMarkup;
 
             $product = Product::query()->updateOrCreate(
                 ['barcode' => $row['barcode']],
@@ -587,8 +597,9 @@ class DemoInitialSetupSeeder extends Seeder
                     'image' => 'default.jpg',
                     'title' => $row['title'],
                     'description' => $row['description'],
-                    'buy_price' => $row['buy_price'],
-                    'sell_price' => $row['sell_price'],
+                    'tenant_hpp_price' => $tenantHppPrice,
+                    'buy_price' => $buyPrice,
+                    'sell_price' => $sellPrice,
                     'tenant_outlet_id' => $tenant?->id,
                     'supports_modifiers' => true,
                     'stock' => $row['stock'],
@@ -614,6 +625,159 @@ class DemoInitialSetupSeeder extends Seeder
         });
 
         return $products->keyBy('barcode');
+    }
+
+    private function minumanMenuRows(): array
+    {
+        $sections = [
+            [
+                'group' => 'Coffee Latte',
+                'prefix' => 'coffee-latte',
+                'modifiers' => [
+                    ['name' => 'Extra espresso', 'price' => 5000],
+                    ['name' => 'Oat milk', 'price' => 6000],
+                    ['name' => 'Whipped cream', 'price' => 4000],
+                ],
+                'items' => [
+                    ['name' => 'Mouro Coffee (Ice)', 'buy' => 21000, 'sell' => 23000],
+                    ['name' => 'Mouro Butterscotch (Ice)', 'buy' => 21000, 'sell' => 23000],
+                    ['name' => 'Mouro Caramel Macchiato (Ice)', 'buy' => 21000, 'sell' => 23000],
+                    ['name' => 'Mouro Aren (Ice)', 'buy' => 17000, 'sell' => 19000],
+                    ['name' => 'Mouro Latte (Ice)', 'buy' => 17000, 'sell' => 19000],
+                    ['name' => 'Mouro Vanilla (Ice)', 'buy' => 17000, 'sell' => 19000],
+                    ['name' => 'Mouro Hazelnut (Ice)', 'buy' => 18000, 'sell' => 20000],
+                    ['name' => 'Mouro Pandan (Ice)', 'buy' => 18000, 'sell' => 20000],
+                ],
+            ],
+            [
+                'group' => 'Black Coffee',
+                'prefix' => 'black-coffee',
+                'modifiers' => [
+                    ['name' => 'Extra shot', 'price' => 4000],
+                    ['name' => 'Palm sugar', 'price' => 2000],
+                    ['name' => 'Oat milk', 'price' => 6000],
+                ],
+                'items' => [
+                    ['name' => 'Espresso (Hot)', 'buy' => 8000, 'sell' => 10000],
+                    ['name' => 'Americano (Ice)', 'buy' => 12000, 'sell' => 14000],
+                    ['name' => 'Long Black (Ice)', 'buy' => 14000, 'sell' => 16000],
+                    ['name' => 'Tubruk (Hot)', 'buy' => 10000, 'sell' => 12000],
+                    ['name' => 'Vietnam Drip (Hot/Ice)', 'buy' => 14000, 'sell' => 16000],
+                ],
+            ],
+            [
+                'group' => 'Frutycano',
+                'prefix' => 'frutycano',
+                'modifiers' => [
+                    ['name' => 'Extra soda', 'price' => 3000],
+                    ['name' => 'Lemon slice', 'price' => 2000],
+                    ['name' => 'Peach syrup', 'price' => 3000],
+                ],
+                'items' => [
+                    ['name' => 'Berrycano (Ice)', 'buy' => 18000, 'sell' => 20000],
+                    ['name' => 'Limepresso (Ice)', 'buy' => 18000, 'sell' => 20000],
+                    ['name' => 'Triple Peach Americano (Ice)', 'buy' => 21000, 'sell' => 23000],
+                    ['name' => 'Sparkling Lecicano (Ice)', 'buy' => 18000, 'sell' => 20000],
+                ],
+            ],
+            [
+                'group' => 'Milk Factory',
+                'prefix' => 'milk-factory',
+                'modifiers' => [
+                    ['name' => 'Boba', 'price' => 4000],
+                    ['name' => 'Ice cream vanilla', 'price' => 5000],
+                    ['name' => 'Cheese foam', 'price' => 5000],
+                ],
+                'items' => [
+                    ['name' => 'Chocolate (Ice)', 'buy' => 18000, 'sell' => 20000],
+                    ['name' => 'Dark Choco (Ice)', 'buy' => 15000, 'sell' => 17000],
+                    ['name' => 'Oreo Creamy Latte (Ice)', 'buy' => 18000, 'sell' => 20000],
+                    ['name' => 'Milosaurus (Ice)', 'buy' => 18000, 'sell' => 20000],
+                    ['name' => 'Red Velvet (Ice)', 'buy' => 16000, 'sell' => 18000],
+                    ['name' => 'White Blue Ocean (Ice)', 'buy' => 15000, 'sell' => 17000],
+                ],
+            ],
+            [
+                'group' => 'Matcha Base',
+                'prefix' => 'matcha-base',
+                'modifiers' => [
+                    ['name' => 'Extra matcha', 'price' => 5000],
+                    ['name' => 'Ice cream vanilla', 'price' => 5000],
+                    ['name' => 'Cheese foam', 'price' => 5000],
+                ],
+                'items' => [
+                    ['name' => 'Matcha Latte (Ice)', 'buy' => 17000, 'sell' => 19000],
+                    ['name' => 'Matcha Ice Cream Vanilla (Ice)', 'buy' => 21000, 'sell' => 23000],
+                    ['name' => 'Matcha Cream Cheese (Ice)', 'buy' => 21000, 'sell' => 23000],
+                    ['name' => 'Strawberry Matcha (Ice)', 'buy' => 21000, 'sell' => 23000],
+                    ['name' => 'Matcha Pistachio (Ice)', 'buy' => 21000, 'sell' => 23000],
+                    ['name' => 'Coconut Matcha (Ice)', 'buy' => 20000, 'sell' => 22000],
+                ],
+            ],
+            [
+                'group' => 'Taro',
+                'prefix' => 'taro',
+                'modifiers' => [
+                    ['name' => 'Boba', 'price' => 4000],
+                    ['name' => 'Cheese foam', 'price' => 5000],
+                    ['name' => 'Ice cream vanilla', 'price' => 5000],
+                ],
+                'items' => [
+                    ['name' => 'Taro Latte (Ice)', 'buy' => 17000, 'sell' => 19000],
+                    ['name' => 'Taro Cream Cheese (Ice)', 'buy' => 17000, 'sell' => 19000],
+                    ['name' => 'Taro Ice Cream Vanilla (Ice)', 'buy' => 18000, 'sell' => 20000],
+                ],
+            ],
+            [
+                'group' => 'Other',
+                'prefix' => 'other',
+                'modifiers' => [
+                    ['name' => 'Lemon slice', 'price' => 2000],
+                    ['name' => 'Grass jelly', 'price' => 3000],
+                    ['name' => 'Extra syrup', 'price' => 2000],
+                ],
+                'items' => [
+                    ['name' => 'Es Teh (Hot/Ice)', 'buy' => 4000, 'sell' => 6000],
+                    ['name' => 'Es Jeruk (Hot/Ice)', 'buy' => 6000, 'sell' => 8000],
+                    ['name' => 'Lemon Tea (Hot/Ice)', 'buy' => 6000, 'sell' => 8000],
+                    ['name' => 'Green Tea (Ice)', 'buy' => 10000, 'sell' => 12000],
+                    ['name' => 'Thai Tea (Ice)', 'buy' => 10000, 'sell' => 12000],
+                    ['name' => 'Lemonade (Ice)', 'buy' => 10000, 'sell' => 12000],
+                    ['name' => 'Pink Lava (Ice)', 'buy' => 10000, 'sell' => 12000],
+                    ['name' => 'Orange Sparkling (Ice)', 'buy' => 10000, 'sell' => 12000],
+                    ['name' => 'Blue Sparkling (Ice)', 'buy' => 10000, 'sell' => 12000],
+                    ['name' => 'Red Sparkling (Ice)', 'buy' => 10000, 'sell' => 12000],
+                    ['name' => 'Air Mineral', 'buy' => 4000, 'sell' => 6000],
+                ],
+            ],
+        ];
+
+        $rows = [];
+        $counter = 1;
+
+        foreach ($sections as $section) {
+            foreach ($section['items'] as $item) {
+                $rows[] = [
+                    'barcode' => sprintf('FC-MIN-%03d', $counter),
+                    'title' => $item['name'],
+                    'description' => sprintf(
+                        'Menu %s untuk tenant minuman foodcourt demo.',
+                        $section['group']
+                    ),
+                    'category' => 'Minuman',
+                    'tenant_slug' => 'dapur-minuman',
+                    'station_slug' => 'minuman',
+                    'buy_price' => $item['buy'],
+                    'owner_markup' => max(0, $item['sell'] - $item['buy']),
+                    'stock' => max(24, 96 - ($counter % 6) * 7),
+                    'modifier_options' => $section['modifiers'],
+                ];
+
+                $counter++;
+            }
+        }
+
+        return $rows;
     }
 
     private function seedProductOutletStocks(Outlet $mainOutlet, Collection $demoProducts): void
@@ -673,6 +837,8 @@ class DemoInitialSetupSeeder extends Seeder
             return collect();
         }
 
+        $waiter = $users->get('waiter.outlet@gmail.com');
+
         $shift = CashierShift::query()->firstOrCreate(
             [
                 'user_id' => $cashier->id,
@@ -697,7 +863,7 @@ class DemoInitialSetupSeeder extends Seeder
                 'customer_id' => null,
                 'order_type' => 'dine_in',
                 'table_id' => $diningTables->get('A3')?->id,
-                'waiter_id' => $users->get('waiter.satu.demo@gmail.com')?->id,
+                'waiter_id' => $waiter?->id,
                 'cash' => 100000,
                 'change' => 5000,
                 'discount' => 0,
@@ -755,7 +921,7 @@ class DemoInitialSetupSeeder extends Seeder
             'cashierShift',
         ]));
 
-        $retailCashier = $users->get('cashier.retail@gmail.com') ?? $cashier;
+        $retailCashier = $cashier;
         $retailShift = CashierShift::query()->firstOrCreate(
             [
                 'user_id' => $retailCashier->id,
@@ -800,7 +966,7 @@ class DemoInitialSetupSeeder extends Seeder
                 'customer_id' => $customers->get('081200000103')?->id,
                 'order_type' => 'dine_in',
                 'table_id' => $diningTables->get('VIP1')?->id,
-                'waiter_id' => $users->get('waiter.dua.demo@gmail.com')?->id,
+                'waiter_id' => $waiter?->id,
                 'cash' => 0,
                 'change' => 0,
                 'discount' => 0,

@@ -86,6 +86,9 @@ class AuthenticatedSessionController extends Controller
         } else {
             $routePriority = [
             'transactions-access' => 'transactions.index',
+            'transactions-history-access' => 'transactions.history',
+            'waiter-board-access' => 'waiter-board.index',
+            'kitchen-access' => 'kitchen.index',
             'receivables-access' => 'receivables.index',
             'payables-access' => 'payables.index',
             'customers-access' => 'customers.index',

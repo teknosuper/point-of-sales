@@ -3,6 +3,7 @@
 return [
     'auth' => [
         'public_registration' => env('AUTH_PUBLIC_REGISTRATION', false),
+        'registration_default_role' => env('AUTH_REGISTRATION_DEFAULT_ROLE', ''),
         'register_throttle' => env('AUTH_REGISTER_THROTTLE', '3,10'),
         'forgot_password_throttle' => env('AUTH_FORGOT_PASSWORD_THROTTLE', '5,10'),
     ],

@@ -156,7 +156,7 @@ class User extends Authenticatable
 
     public function isWaiter(): bool
     {
-        return $this->hasRole('waiter');
+        return $this->can('waiter-board-access');
     }
 
     public function servesAllTenantOutlets(): bool

@@ -137,7 +137,8 @@ class PermissionController extends Controller
             'transactions' => $query->where(function ($builder) {
                 $builder
                     ->where('name', 'like', 'transactions-%')
-                    ->orWhere('name', 'like', 'dining-tables-%');
+                    ->orWhere('name', 'like', 'dining-tables-%')
+                    ->orWhere('name', 'like', 'cashier-settlements-%');
             }),
             'finance' => $query->where(function ($builder) {
                 $builder
@@ -150,7 +151,11 @@ class PermissionController extends Controller
                     ->where('name', 'like', 'reports-%')
                     ->orWhere('name', 'like', 'profits-%');
             }),
-            'settings' => $query->where('name', 'like', 'payment-settings-%'),
+            'settings' => $query->where(function ($builder) {
+                $builder
+                    ->where('name', 'like', 'payment-settings-%')
+                    ->orWhere('name', 'like', 'business-settings-%');
+            }),
             'inventory' => $query->where(function ($builder) {
                 $builder
                     ->where('name', 'like', 'stock-opnames-%')
@@ -167,7 +172,8 @@ class PermissionController extends Controller
             }),
             'kitchen' => $query->where(function ($builder) {
                 $builder
-                    ->where('name', 'waiter-board-access')
+                    ->where('name', 'like', 'kitchen-%')
+                    ->orWhere('name', 'waiter-board-access')
                     ->orWhere('name', 'table-orders-access')
                     ->orWhere('name', 'table-orders-approve');
             }),
@@ -190,13 +196,15 @@ class PermissionController extends Controller
             str_starts_with($name, 'customer-segments-'),
             str_starts_with($name, 'crm-') => 'customers',
             str_starts_with($name, 'transactions-'),
-            str_starts_with($name, 'dining-tables-') => 'transactions',
+            str_starts_with($name, 'dining-tables-'),
+            str_starts_with($name, 'cashier-settlements-') => 'transactions',
             str_starts_with($name, 'receivables-'),
             str_starts_with($name, 'payables-'),
             str_starts_with($name, 'suppliers-') => 'finance',
             str_starts_with($name, 'reports-'),
             str_starts_with($name, 'profits-') => 'reports',
-            str_starts_with($name, 'payment-settings-') => 'settings',
+            str_starts_with($name, 'payment-settings-'),
+            str_starts_with($name, 'business-settings-') => 'settings',
             str_starts_with($name, 'stock-opnames-'),
             str_starts_with($name, 'stock-mutations-') => 'inventory',
             str_starts_with($name, 'sales-returns-') => 'returns',
@@ -206,6 +214,7 @@ class PermissionController extends Controller
             str_starts_with($name, 'goods-receivings-'),
             str_starts_with($name, 'supplier-returns-') => 'purchasing',
             $name === 'dashboard-access' => 'dashboard',
+            str_starts_with($name, 'kitchen-'),
             $name === 'waiter-board-access',
             str_starts_with($name, 'table-orders-') => 'kitchen',
             default => 'other',

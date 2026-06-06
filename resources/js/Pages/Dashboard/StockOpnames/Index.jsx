@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import { Head, Link, router } from "@inertiajs/react";
 import Button from "@/Components/Dashboard/Button";
+import Modal from "@/Components/Dashboard/Modal";
 import Table from "@/Components/Dashboard/Table";
 import Pagination from "@/Components/Dashboard/Pagination";
 import { useAuthorization } from "@/Utils/authorization";
@@ -11,6 +12,7 @@ import {
     IconChevronUp,
     IconClipboardCheck,
     IconEye,
+    IconInfoCircle,
     IconSearch,
 } from "@/Utils/icons";
 
@@ -27,6 +29,7 @@ export default function Index({ stockOpnames, filters }) {
     const { can } = useAuthorization();
     const canCreateStockOpnames = can("stock-opnames-create");
     const [showFilters, setShowFilters] = useState(false);
+    const [showHelpModal, setShowHelpModal] = useState(false);
 
     const handleFilterChange = (key, value) => {
         router.get(
@@ -56,6 +59,14 @@ export default function Index({ stockOpnames, filters }) {
                     </p>
                 </div>
                 <div className="flex gap-2">
+                    <button
+                        type="button"
+                        onClick={() => setShowHelpModal(true)}
+                        className="inline-flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm font-medium text-blue-700 transition hover:bg-blue-100 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-200 dark:hover:bg-blue-950/40"
+                    >
+                        <IconInfoCircle size={16} />
+                        Bantuan
+                    </button>
                     <button
                         type="button"
                         onClick={() => setShowFilters((value) => !value)}
@@ -206,6 +217,75 @@ export default function Index({ stockOpnames, filters }) {
             {stockOpnames.last_page > 1 && (
                 <Pagination links={stockOpnames.links} />
             )}
+
+            <Modal
+                show={showHelpModal}
+                onClose={() => setShowHelpModal(false)}
+                title="Bantuan Stock Opname"
+                maxWidth="2xl"
+            >
+                <div className="space-y-5 text-sm text-slate-600 dark:text-slate-300">
+                    <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 dark:border-blue-900/40 dark:bg-blue-950/20">
+                        <p className="font-semibold text-slate-900 dark:text-white">
+                            Fungsi Stock Opname
+                        </p>
+                        <p className="mt-2">
+                            Stock opname dipakai untuk mencocokkan stok fisik yang benar-benar ada di rak, etalase, gudang, atau dapur dengan stok yang tercatat di sistem.
+                        </p>
+                        <p className="mt-2">
+                            Hasilnya membantu menemukan selisih stok, barang hilang, salah input, atau barang yang belum tercatat keluar masuknya.
+                        </p>
+                    </div>
+
+                    <div>
+                        <p className="font-semibold text-slate-900 dark:text-white">
+                            Kapan Dipakai
+                        </p>
+                        <ul className="mt-2 list-disc space-y-1 pl-5">
+                            <li>Saat audit stok harian, mingguan, atau bulanan.</li>
+                            <li>Sebelum tutup buku stok atau evaluasi barang selisih.</li>
+                            <li>Setelah ada dugaan stok tidak cocok antara sistem dan fisik.</li>
+                            <li>Sesudah pergantian shift, pergantian PIC, atau penataan gudang besar.</li>
+                        </ul>
+                    </div>
+
+                    <div>
+                        <p className="font-semibold text-slate-900 dark:text-white">
+                            Cara Menggunakan
+                        </p>
+                        <ol className="mt-2 list-decimal space-y-2 pl-5">
+                            <li>Klik <strong>Buat Sesi</strong> untuk membuat sesi stock opname baru.</li>
+                            <li>Isi catatan jika perlu, misalnya area yang dicek atau nama petugas audit.</li>
+                            <li>Tambahkan produk yang ingin dihitung ke dalam sesi.</li>
+                            <li>Masukkan jumlah stok fisik yang benar-benar ditemukan di lapangan.</li>
+                            <li>Bandingkan stok sistem dengan stok fisik pada setiap item.</li>
+                            <li>Setelah semua item selesai dicek, lakukan <strong>finalize</strong> agar hasil opname dikunci dan bisa dipakai sebagai dasar penyesuaian.</li>
+                        </ol>
+                    </div>
+
+                    <div>
+                        <p className="font-semibold text-slate-900 dark:text-white">
+                            Penjelasan Status
+                        </p>
+                        <ul className="mt-2 list-disc space-y-1 pl-5">
+                            <li><strong>Draft</strong>: sesi masih bisa ditambah atau diubah.</li>
+                            <li><strong>Finalized</strong>: sesi sudah diselesaikan dan tidak seharusnya diubah lagi.</li>
+                        </ul>
+                    </div>
+
+                    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/40 dark:bg-amber-950/20">
+                        <p className="font-semibold text-slate-900 dark:text-white">
+                            Catatan Penting
+                        </p>
+                        <ul className="mt-2 list-disc space-y-1 pl-5">
+                            <li>Lakukan hitung fisik dengan teliti sebelum finalize.</li>
+                            <li>Jangan finalize jika masih ada item yang belum dicek.</li>
+                            <li>Gunakan catatan sesi untuk menjelaskan alasan selisih jika ditemukan masalah.</li>
+                            <li>Jika outlet aktif adalah tenant, halaman ini hanya fokus ke stok tenant aktif tersebut.</li>
+                        </ul>
+                    </div>
+                </div>
+            </Modal>
         </>
     );
 }

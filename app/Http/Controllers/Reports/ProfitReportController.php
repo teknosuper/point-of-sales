@@ -30,18 +30,23 @@ class ProfitReportController extends Controller
     {
         $activeOutlet = $this->outletResolver->resolve($request, $request->user());
         $outletId = $activeOutlet?->id;
+        $isTenantOutlet = (string) ($activeOutlet?->outlet_type ?? '') === 'tenant';
         $filters = [
             'start_date' => $request->input('start_date'),
             'end_date' => $request->input('end_date'),
             'invoice' => $request->input('invoice'),
             'cashier_id' => $request->input('cashier_id'),
             'customer_id' => $request->input('customer_id'),
-            'tenant_outlet_id' => $request->input('tenant_outlet_id'),
+            'tenant_outlet_id' => $isTenantOutlet ? $outletId : $request->input('tenant_outlet_id'),
             'item_keyword' => $request->input('item_keyword'),
             'pricing_rule_kind' => $request->input('pricing_rule_kind'),
-            'outlet_id' => $outletId,
+            'outlet_id' => $isTenantOutlet ? null : $outletId,
         ];
         $filters = $this->applyDefaultDatePreset($filters);
+
+        if ($isTenantOutlet) {
+            return $this->renderTenantProfitReport($filters, $outletId);
+        }
 
         $baseQuery = $this->applyFilters(
             Transaction::query()
@@ -97,6 +102,125 @@ class ProfitReportController extends Controller
                 ->when($outletId, fn ($query) => $query->where('id', '!=', $outletId))
                 ->get(['id', 'name', 'code'])
                 ->values(),
+            'workspace' => [
+                'is_tenant_workspace' => $isTenantOutlet,
+                'active_outlet' => $activeOutlet ? [
+                    'id' => $activeOutlet->id,
+                    'name' => $activeOutlet->name,
+                    'code' => $activeOutlet->code,
+                    'outlet_type' => $activeOutlet->outlet_type,
+                ] : null,
+            ],
+        ]);
+    }
+
+    protected function renderTenantProfitReport(array $filters, int $tenantOutletId)
+    {
+        $baseQuery = TransactionTenantAllocation::query()
+            ->with([
+                'transaction.customer:id,name',
+                'transaction.cashier:id,name',
+                'items.product:id,title,tenant_hpp_price,buy_price',
+                'tenantOutlet:id,name,code,commission_rate_percent',
+            ])
+            ->select('transaction_tenant_allocations.*')
+            ->selectSub(
+                TransactionTenantAllocationItem::query()
+                    ->selectRaw('COALESCE(SUM(base_unit_price * qty), 0)')
+                    ->whereColumn('transaction_tenant_allocation_id', 'transaction_tenant_allocations.id'),
+                'cost_total'
+            )
+            ->withSum('items as total_items', 'qty');
+
+        $baseQuery = $this->applyTenantAllocationFilters($baseQuery, $filters)->orderByDesc('created_at');
+
+        $metricAllocations = $this->appendTenantProfitMetrics((clone $baseQuery)->get());
+        $transactions = $this->appendTenantProfitMetrics(
+            (clone $baseQuery)->paginate(10)->withQueryString()
+        )->through(fn (TransactionTenantAllocation $allocation) => $this->transformTenantProfitAllocationRow($allocation));
+
+        $summary = [
+            'profit_total' => (int) $metricAllocations->sum('profit_total'),
+            'revenue_total' => (int) $metricAllocations->sum('grand_total'),
+            'orders_count' => (int) $metricAllocations->count(),
+            'items_sold' => (int) $metricAllocations->sum('total_items'),
+            'walk_in_count' => (int) $metricAllocations->filter(fn ($allocation) => blank($allocation->transaction?->customer_id))->count(),
+            'average_profit' => $metricAllocations->count() > 0
+                ? (int) round($metricAllocations->sum('profit_total') / $metricAllocations->count())
+                : 0,
+            'margin' => $metricAllocations->sum('grand_total') > 0
+                ? round(($metricAllocations->sum('profit_total') / $metricAllocations->sum('grand_total')) * 100, 2)
+                : 0,
+            'best_invoice' => $metricAllocations->sortByDesc('profit_total')->first()?->transaction?->invoice,
+            'best_profit' => (int) ($metricAllocations->sortByDesc('profit_total')->first()?->profit_total ?? 0),
+            'base_cost_total' => (int) $metricAllocations->sum('cost_total'),
+            'markup_total' => (int) $metricAllocations->sum('profit_total'),
+            'tenant_revenue_total' => (int) $metricAllocations->sum('grand_total'),
+            'tenant_discount_total' => (int) $metricAllocations->sum('promo_discount_total')
+                + (int) $metricAllocations->sum('voucher_discount_total')
+                + (int) $metricAllocations->sum('loyalty_discount_total')
+                + (int) $metricAllocations->sum('manual_discount_total'),
+            'owner_discount_total' => 0,
+            'owner_direct_revenue_total' => 0,
+            'owner_direct_markup_total' => 0,
+            'tenant_markup_total' => (int) $metricAllocations->sum('profit_total'),
+            'tenant_profit_total' => (int) $metricAllocations->sum('profit_total'),
+        ];
+        $summary['registered_customer_count'] = max(0, $summary['orders_count'] - $summary['walk_in_count']);
+
+        $targets = $this->targetSummary($summary, $tenantOutletId, $filters);
+        $itemBreakdown = $this->itemBreakdownPaginator($filters, true);
+        $tenantOutlet = $metricAllocations->first()?->tenantOutlet;
+
+        return Inertia::render('Dashboard/Reports/Profit', [
+            'transactions' => $transactions,
+            'itemBreakdown' => $itemBreakdown,
+            'summary' => $summary,
+            'targets' => $targets,
+            'cashierSummary' => $this->tenantCashierSummary($metricAllocations),
+            'dailyProfitTrend' => $this->tenantDailyProfitTrend($metricAllocations),
+            'tenantBreakdown' => $tenantOutlet ? collect([[
+                'tenant_outlet_id' => $tenantOutlet->id,
+                'tenant_outlet' => [
+                    'id' => $tenantOutlet->id,
+                    'name' => $tenantOutlet->name,
+                    'code' => $tenantOutlet->code,
+                ],
+                'orders_count' => $summary['orders_count'],
+                'items_sold' => $summary['items_sold'],
+                'pre_promo_subtotal' => (int) $metricAllocations->sum('pre_promo_subtotal'),
+                'subtotal_total' => (int) $metricAllocations->sum('subtotal'),
+                'discount_total' => $summary['tenant_discount_total'],
+                'after_promo_total' => $summary['revenue_total'],
+                'cost_total' => $summary['base_cost_total'],
+                'profit_total' => $summary['profit_total'],
+                'margin' => $summary['margin'],
+            ]]) : collect(),
+            'ownerMarkupBreakdown' => collect(),
+            'filters' => $filters,
+            'cashiers' => User::select('id', 'name')->orderBy('name')->get(),
+            'customers' => Customer::select('id', 'name')->orderBy('name')->get(),
+            'pricingRuleKinds' => [
+                ['id' => 'standard_discount', 'name' => 'Standard Discount'],
+                ['id' => 'qty_break', 'name' => 'Qty Break'],
+                ['id' => 'bundle_price', 'name' => 'Bundle Price'],
+                ['id' => 'buy_x_get_y', 'name' => 'Buy X Get Y'],
+            ],
+            'tenantOutlets' => Outlet::query()
+                ->active()
+                ->ordered()
+                ->where('id', $tenantOutletId)
+                ->get(['id', 'name', 'code'])
+                ->values(),
+            'workspace' => [
+                'is_tenant_workspace' => true,
+                'active_outlet' => [
+                    'id' => $tenantOutletId,
+                    'name' => $tenantOutlet?->name,
+                    'code' => $tenantOutlet?->code,
+                    'outlet_type' => $tenantOutlet?->outlet_type,
+                ],
+            ],
         ]);
     }
 
@@ -160,19 +284,20 @@ class ProfitReportController extends Controller
     public function exportItems(Request $request)
     {
         $activeOutlet = $this->outletResolver->resolve($request, $request->user());
+        $isTenantOutlet = (string) ($activeOutlet?->outlet_type ?? '') === 'tenant';
         $filters = [
             'start_date' => $request->input('start_date'),
             'end_date' => $request->input('end_date'),
             'invoice' => $request->input('invoice'),
             'cashier_id' => $request->input('cashier_id'),
             'customer_id' => $request->input('customer_id'),
-            'tenant_outlet_id' => $request->input('tenant_outlet_id'),
+            'tenant_outlet_id' => $isTenantOutlet ? $activeOutlet?->id : $request->input('tenant_outlet_id'),
             'item_keyword' => $request->input('item_keyword'),
             'pricing_rule_kind' => $request->input('pricing_rule_kind'),
-            'outlet_id' => $activeOutlet?->id,
+            'outlet_id' => $isTenantOutlet ? null : $activeOutlet?->id,
         ];
 
-        $rows = $this->itemBreakdownQuery($filters)
+        $rows = $this->itemBreakdownQuery($filters, $isTenantOutlet)
             ->orderByDesc('gross_profit_total')
             ->get();
 
@@ -800,9 +925,9 @@ class ProfitReportController extends Controller
         ];
     }
 
-    protected function itemBreakdownPaginator(array $filters)
+    protected function itemBreakdownPaginator(array $filters, bool $tenantWorkspace = false)
     {
-        return $this->itemBreakdownQuery($filters)
+        return $this->itemBreakdownQuery($filters, $tenantWorkspace)
             ->orderByDesc('gross_profit_total')
             ->paginate(15, ['*'], 'item_page')
             ->withQueryString()
@@ -817,20 +942,22 @@ class ProfitReportController extends Controller
                 'base_cost_total' => (int) ($row->base_cost_total ?? 0),
                 'gross_profit_total' => (int) ($row->gross_profit_total ?? 0),
                 'tenant_discount_total' => (int) ($row->tenant_discount_total ?? 0),
-                'owner_discount_total' => (int) ($row->owner_discount_total ?? 0),
+                'owner_discount_total' => $tenantWorkspace ? 0 : (int) ($row->owner_discount_total ?? 0),
                 'tenant_net_total' => (int) ($row->tenant_net_total ?? 0),
-                'owner_net_total' => (int) ($row->owner_net_total ?? 0),
+                'owner_net_total' => $tenantWorkspace ? 0 : (int) ($row->owner_net_total ?? 0),
                 'promo_lines_count' => (int) ($row->promo_lines_count ?? 0),
             ]);
     }
 
-    protected function itemBreakdownQuery(array $filters)
+    protected function itemBreakdownQuery(array $filters, bool $tenantWorkspace = false)
     {
         $hasBaseUnitPrice = Schema::hasColumn('transaction_details', 'base_unit_price');
         $hasTenantOutletId = Schema::hasColumn('transaction_details', 'tenant_outlet_id');
-        $baseExpression = $hasBaseUnitPrice
-            ? 'COALESCE(transaction_details.base_unit_price, 0) * COALESCE(transaction_details.qty, 0)'
-            : 'COALESCE(transaction_details.price, 0)';
+        $baseExpression = $tenantWorkspace
+            ? 'COALESCE(products.tenant_hpp_price, transaction_details.base_unit_price, 0) * COALESCE(transaction_details.qty, 0)'
+            : ($hasBaseUnitPrice
+                ? 'COALESCE(transaction_details.base_unit_price, 0) * COALESCE(transaction_details.qty, 0)'
+                : 'COALESCE(transaction_details.price, 0)');
 
         return $this->applyItemFilters(
             TransactionDetail::query()
@@ -893,5 +1020,148 @@ class ProfitReportController extends Controller
             })
             ->when($filters['start_date'] ?? null, fn ($q, $start) => $q->whereDate('transactions.created_at', '>=', $start))
             ->when($filters['end_date'] ?? null, fn ($q, $end) => $q->whereDate('transactions.created_at', '<=', $end));
+    }
+
+    protected function applyTenantAllocationFilters($query, array $filters)
+    {
+        return $query
+            ->when($filters['invoice'] ?? null, fn ($q, $invoice) => $q->whereHas('transaction', fn ($tx) => $tx->where('invoice', 'like', '%'.$invoice.'%')))
+            ->when($filters['cashier_id'] ?? null, fn ($q, $cashierId) => $q->where('cashier_id', $cashierId))
+            ->when($filters['tenant_outlet_id'] ?? null, fn ($q, $tenantOutletId) => $q->where('tenant_outlet_id', $tenantOutletId))
+            ->when($filters['customer_id'] ?? null, function ($q, $customer) {
+                return match ((string) $customer) {
+                    'walk_in' => $q->whereHas('transaction', fn ($tx) => $tx->whereNull('customer_id')),
+                    default => $q->whereHas('transaction', fn ($tx) => $tx->where('customer_id', $customer)),
+                };
+            })
+            ->when($filters['start_date'] ?? null, fn ($q, $start) => $q->whereHas('transaction', fn ($tx) => $tx->whereDate('created_at', '>=', $start)))
+            ->when($filters['end_date'] ?? null, fn ($q, $end) => $q->whereHas('transaction', fn ($tx) => $tx->whereDate('created_at', '<=', $end)));
+    }
+
+    protected function appendTenantProfitMetrics($allocations)
+    {
+        if ($allocations instanceof \Illuminate\Contracts\Pagination\LengthAwarePaginator) {
+            $allocations->setCollection($this->appendTenantProfitMetrics($allocations->getCollection()));
+
+            return $allocations;
+        }
+
+        return $allocations->map(function (TransactionTenantAllocation $allocation) {
+            $revenueTotal = (int) ($allocation->grand_total ?? 0);
+            $costTotal = (int) $allocation->items->sum(function (TransactionTenantAllocationItem $item) {
+                $tenantHppPrice = (int) ($item->product?->tenant_hpp_price ?? $item->base_unit_price ?? 0);
+
+                return $tenantHppPrice * (int) ($item->qty ?? 0);
+            });
+            $profitTotal = $revenueTotal - $costTotal;
+            $discountTotal = (int) ($allocation->promo_discount_total ?? 0)
+                + (int) ($allocation->voucher_discount_total ?? 0)
+                + (int) ($allocation->loyalty_discount_total ?? 0)
+                + (int) ($allocation->manual_discount_total ?? 0);
+
+            $allocation->setAttribute('profit_total', $profitTotal);
+            $allocation->setAttribute('pre_promo_subtotal', (int) ($allocation->subtotal ?? 0) + (int) ($allocation->promo_discount_total ?? 0));
+            $allocation->setAttribute('discount_total', $discountTotal);
+
+            return $allocation;
+        });
+    }
+
+    protected function transformTenantProfitAllocationRow(TransactionTenantAllocation $allocation): array
+    {
+        $transaction = $allocation->transaction;
+
+        return [
+            'id' => $allocation->id,
+            'invoice' => $transaction?->invoice ?? $allocation->allocation_number,
+            'created_at' => optional($transaction?->created_at)?->format('Y-m-d H:i:s'),
+            'customer' => $transaction?->customer ? ['name' => $transaction->customer->name] : null,
+            'cashier' => $transaction?->cashier ? ['name' => $transaction->cashier->name] : null,
+            'grand_total' => (int) ($allocation->grand_total ?? 0),
+            'pre_promo_subtotal' => (int) ($allocation->pre_promo_subtotal ?? 0),
+            'base_cost_total' => (int) ($allocation->cost_total ?? 0),
+            'markup_total' => (int) ($allocation->profit_total ?? 0),
+            'tenant_revenue_total' => (int) ($allocation->grand_total ?? 0),
+            'tenant_discount_total' => (int) ($allocation->discount_total ?? 0),
+            'tenant_net_total' => (int) ($allocation->grand_total ?? 0),
+            'owner_discount_total' => 0,
+            'owner_net_total' => 0,
+            'total_profit' => (int) ($allocation->profit_total ?? 0),
+            'detail_items' => $allocation->items->map(function (TransactionTenantAllocationItem $item) {
+                $prePromoTotal = (int) ($item->line_total ?? 0) + (int) ($item->discount_total ?? 0);
+
+                return [
+                    'id' => $item->id,
+                    'product_name' => $item->product?->title ?? 'Produk',
+                    'qty' => (int) ($item->qty ?? 0),
+                    'line_total' => (int) ($item->line_total ?? 0),
+                    'base_cost_total' => (int) ($item->product?->tenant_hpp_price ?? $item->base_unit_price ?? 0) * (int) ($item->qty ?? 0),
+                    'pre_promo_total' => $prePromoTotal,
+                    'tenant_discount_total' => (int) ($item->discount_total ?? 0),
+                    'owner_discount_total' => 0,
+                    'tenant_net_total' => (int) ($item->line_total ?? 0),
+                    'owner_net_total' => 0,
+                    'pricing_rule_name' => null,
+                    'pricing_rule_kind' => null,
+                ];
+            })->values()->all(),
+        ];
+    }
+
+    protected function tenantCashierSummary(Collection $allocations): array
+    {
+        return $allocations
+            ->groupBy(fn (TransactionTenantAllocation $allocation) => (int) ($allocation->transaction?->cashier_id ?? 0))
+            ->filter(fn (Collection $rows, int $cashierId) => $cashierId > 0)
+            ->map(function (Collection $rows, int $cashierId) {
+                $cashierName = $rows->first()?->transaction?->cashier?->name;
+                $ordersCount = $rows->count();
+                $walkInCount = $rows->filter(fn ($allocation) => blank($allocation->transaction?->customer_id))->count();
+                $revenueTotal = (int) $rows->sum('grand_total');
+                $profitTotal = (int) $rows->sum('profit_total');
+
+                return [
+                    'cashier_id' => $cashierId,
+                    'cashier_name' => $cashierName,
+                    'orders_count' => $ordersCount,
+                    'walk_in_count' => $walkInCount,
+                    'registered_customer_count' => max(0, $ordersCount - $walkInCount),
+                    'revenue_total' => $revenueTotal,
+                    'profit_total' => $profitTotal,
+                    'walk_in_share' => $ordersCount > 0 ? round(($walkInCount / $ordersCount) * 100, 2) : 0,
+                    'average_profit' => $ordersCount > 0 ? (int) round($profitTotal / $ordersCount) : 0,
+                ];
+            })
+            ->sortByDesc('profit_total')
+            ->values()
+            ->all();
+    }
+
+    protected function tenantDailyProfitTrend(Collection $allocations): Collection
+    {
+        return $allocations
+            ->groupBy(fn (TransactionTenantAllocation $allocation) => optional($allocation->transaction?->created_at)?->format('Y-m-d'))
+            ->filter(fn (Collection $rows, ?string $day) => filled($day))
+            ->map(function (Collection $rows, string $day) {
+                $revenueTotal = (int) $rows->sum('grand_total');
+                $baseCostTotal = (int) $rows->sum('cost_total');
+
+                return [
+                    'day' => $day,
+                    'label' => Carbon::parse($day)->format('d M Y'),
+                    'orders_count' => (int) $rows->count(),
+                    'revenue_total' => $revenueTotal,
+                    'profit_total' => (int) $rows->sum('profit_total'),
+                    'base_cost_total' => $baseCostTotal,
+                    'markup_total' => max(0, $revenueTotal - $baseCostTotal),
+                    'discount_total' => (int) $rows->sum('discount_total'),
+                    'owner_direct_revenue_total' => 0,
+                    'owner_direct_markup_total' => 0,
+                    'tenant_after_promo_total' => $revenueTotal,
+                    'tenant_discount_total' => (int) $rows->sum('discount_total'),
+                ];
+            })
+            ->sortBy('day')
+            ->values();
     }
 }

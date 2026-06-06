@@ -51,7 +51,10 @@ const permissionLabels = {
     "crm-campaigns-delete": "Hapus Kampanye CRM",
     "crm-reminders-access": "Lihat Pengingat CRM",
     "transactions-access": "Akses POS dan Transaksi",
+    "transactions-history-access": "Lihat Riwayat Transaksi",
     "transactions-confirm-payment": "Konfirmasi Pembayaran",
+    "kitchen-access": "Akses Layar Dapur",
+    "kitchen-manage": "Kelola Pengaturan Dapur",
     "waiter-board-access": "Akses Papan Petugas Antar",
     "table-orders-access": "Lihat Pesanan QR Meja",
     "table-orders-approve": "Approve Pembayaran QR Meja",
@@ -64,6 +67,8 @@ const permissionLabels = {
     "profits-access": "Lihat Laba",
     "payment-settings-access": "Lihat Pengaturan Pembayaran",
     "payment-settings-update": "Ubah Pengaturan Pembayaran",
+    "business-settings-access": "Lihat Pengaturan Bisnis",
+    "business-settings-update": "Ubah Pengaturan Bisnis",
     "stock-opnames-access": "Lihat Stock Opname",
     "stock-opnames-create": "Buat atau Ubah Stock Opname",
     "stock-opnames-finalize": "Selesaikan Stock Opname",
@@ -130,10 +135,10 @@ export function permissionGroup(name = "") {
         name.startsWith("crm-")
     ) return "customers";
     if (name.startsWith("transactions-")) return "transactions";
-    if (name === "waiter-board-access") return "kitchen";
+    if (name.startsWith("business-settings-") || name.startsWith("payment-settings-")) return "settings";
+    if (name === "waiter-board-access" || name.startsWith("kitchen-") || name.startsWith("table-orders-")) return "kitchen";
     if (name.startsWith("receivables-") || name.startsWith("payables-") || name.startsWith("suppliers-")) return "finance";
     if (name.startsWith("reports-") || name.startsWith("profits-")) return "reports";
-    if (name.startsWith("payment-settings-")) return "settings";
     if (name.startsWith("stock-opnames-") || name.startsWith("stock-mutations-")) return "inventory";
     if (name.startsWith("sales-returns-")) return "returns";
     if (name.startsWith("cashier-shifts-")) return "shifts";

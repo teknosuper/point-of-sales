@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import { Head, Link, router, usePage } from "@inertiajs/react";
 import Button from "@/Components/Dashboard/Button";
+import Modal from "@/Components/Dashboard/Modal";
 import {
     IconAdjustmentsHorizontal,
     IconBarcode,
@@ -9,6 +10,7 @@ import {
     IconChevronDown,
     IconChevronUp,
     IconDatabaseOff,
+    IconInfoCircle,
     IconLayoutGrid,
     IconList,
     IconPackage,
@@ -326,6 +328,7 @@ export default function Index({
     const [viewMode, setViewMode] = useState("grid");
     const [showFilters, setShowFilters] = useState(false);
     const [showSetupGuide, setShowSetupGuide] = useState(false);
+    const [showHelpModal, setShowHelpModal] = useState(false);
     const [showBarcodeModal, setShowBarcodeModal] = useState(false);
     const [singleProductBarcode, setSingleProductBarcode] = useState(null);
     const [selectedProducts, setSelectedProducts] = useState([]);
@@ -371,6 +374,7 @@ export default function Index({
     const canCreateProducts = can("products-create");
     const canEditProducts = can("products-edit");
     const canDeleteProducts = can("products-delete");
+    const canUpdateProductStock = can("products-stock-update");
     const canManagePricing = can("products-pricing-update");
     const isKitchenWorkspace =
         workspace?.is_kitchen === true || auth?.user?.preferred_workspace === "kitchen";
@@ -379,7 +383,7 @@ export default function Index({
     const canManageCatalog = canCreateProducts && !isTenantWorkspace && !isKitchenWorkspace;
     const canEditCatalog = canEditProducts && !isTenantWorkspace && !isKitchenWorkspace;
     const canDeleteCatalog = canDeleteProducts && !isTenantWorkspace && !isKitchenWorkspace;
-    const canUpdateDailyStock = canEditProducts && Boolean(activeOutlet?.id);
+    const canUpdateDailyStock = canUpdateProductStock && Boolean(activeOutlet?.id);
     const showCostAsPrimary = isKitchenWorkspace || isTenantWorkspace || !canManagePricing;
     const categories = meta?.categories ?? [];
     const tenantOutlets = meta?.tenantOutlets ?? [];
@@ -691,6 +695,15 @@ export default function Index({
                     </div>
 
                     <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+                        <button
+                            type="button"
+                            onClick={() => setShowHelpModal(true)}
+                            className="inline-flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm font-medium text-blue-700 transition hover:bg-blue-100 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-200 dark:hover:bg-blue-950/40"
+                        >
+                            <IconInfoCircle size={16} />
+                            Bantuan
+                        </button>
+
                         {!isKitchenWorkspace && !isTenantWorkspace ? (
                             <button
                                 onClick={handlePrintAllBarcodes}
@@ -1702,6 +1715,90 @@ export default function Index({
                     </div>
                 ) : null}
             </div>
+
+            <Modal
+                show={showHelpModal}
+                onClose={() => setShowHelpModal(false)}
+                title="Bantuan Produk"
+                maxWidth="2xl"
+            >
+                <div className="space-y-5 text-sm text-slate-600 dark:text-slate-300">
+                    <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 dark:border-blue-900/40 dark:bg-blue-950/20">
+                        <p className="font-semibold text-slate-900 dark:text-white">
+                            Fungsi Halaman Produk
+                        </p>
+                        <p className="mt-2">
+                            Halaman ini adalah pusat pengelolaan katalog produk. Di sini Anda bisa menambah, mengedit, menghapus, dan mengelola stok serta mapping produk ke tenant foodcourt dan station dapur.
+                        </p>
+                        <p className="mt-2">
+                            Produk yang sudah lengkap mapping-nya akan siap digunakan di transaksi POS, kitchen dispatch, dan settlement tenant foodcourt.
+                        </p>
+                    </div>
+
+                    <div>
+                        <p className="font-semibold text-slate-900 dark:text-white">
+                            Fitur Utama
+                        </p>
+                        <ul className="mt-2 list-disc space-y-1 pl-5">
+                            <li><strong>Tambah Produk</strong>: buat produk baru lengkap dengan barcode, SKU, harga beli, harga jual, dan gambar.</li>
+                            <li><strong>Edit Produk</strong>: ubah detail produk, stok, atau mapping tenant/kitchen.</li>
+                            <li><strong>Hapus Produk</strong>: hapus produk yang sudah tidak digunakan.</li>
+                            <li><strong>Cetak Barcode</strong>: cetak label barcode untuk satu produk, produk terpilih, atau semua produk.</li>
+                            <li><strong>Buku Menu</strong>: lihat dan cetak buku menu untuk pelanggan.</li>
+                            <li><strong>Bulk Mapping</strong>: assign tenant outlet dan station dapur ke banyak produk sekaligus.</li>
+                        </ul>
+                    </div>
+
+                    <div>
+                        <p className="font-semibold text-slate-900 dark:text-white">
+                            Mapping Tenant & Dapur
+                        </p>
+                        <ul className="mt-2 list-disc space-y-1 pl-5">
+                            <li><strong>Tenant Outlet</strong>: tentukan produk milik tenant mana. Produk tanpa tenant akan tampil sebagai <em>Global</em>.</li>
+                            <li><strong>Station Dapur</strong>: tentukan ke station dapur mana produk diarahkan saat transaksi dine-in. Produk tanpa station tidak akan muncul di layar kitchen.</li>
+                            <li>Gunakan filter <strong>Status Mapping</strong> untuk cepat menemukan produk yang belum lengkap mapping-nya.</li>
+                        </ul>
+                    </div>
+
+                    <div>
+                        <p className="font-semibold text-slate-900 dark:text-white">
+                            Cara Menggunakan
+                        </p>
+                        <ol className="mt-2 list-decimal space-y-2 pl-5">
+                            <li>Gunakan <strong>Pencarian Cepat</strong> di bagian atas untuk mencari produk berdasarkan nama, barcode, SKU, atau deskripsi.</li>
+                            <li>Klik <strong>Filter</strong> untuk pencarian lanjutan dengan kategori, tenant, status stok, status mapping, dan urutan.</li>
+                            <li>Pilih tampilan <strong>Grid</strong> atau <strong>List</strong> sesuai preferensi Anda.</li>
+                            <li>Gunakan <strong>Buku Menu</strong> untuk mencetak katalog produk yang rapi untuk pelanggan.</li>
+                            <li>Manfaatkan <strong>Bulk Mapping</strong> dengan memilih beberapa produk lalu assign tenant dan station dapur sekaligus.</li>
+                            <li>Panel <strong>Setup</strong> di bagian atas memberi ringkasan status mapping dan link cepat ke wizard setup.</li>
+                        </ol>
+                    </div>
+
+                    <div>
+                        <p className="font-semibold text-slate-900 dark:text-white">
+                            Update Stok Harian
+                        </p>
+                        <ul className="mt-2 list-disc space-y-1 pl-5">
+                            <li>Tombol <strong>Update Stok Hari Ini</strong> muncul pada setiap produk di tampilan grid.</li>
+                            <li>Gunakan untuk menyesuaikan stok outlet aktif tanpa masuk ke form edit produk lengkap.</li>
+                            <li>Perubahan stok akan tercatat sebagai mutasi dan bisa dilacak di halaman Mutasi Stok.</li>
+                        </ul>
+                    </div>
+
+                    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/40 dark:bg-amber-950/20">
+                        <p className="font-semibold text-slate-900 dark:text-white">
+                            Catatan Penting
+                        </p>
+                        <ul className="mt-2 list-disc space-y-1 pl-5">
+                            <li>Produk tanpa tenant mapping tidak akan muncul di settlement foodcourt.</li>
+                            <li>Produk tanpa kitchen station mapping tidak akan muncul di layar dapur saat transaksi dine-in.</li>
+                            <li>Jika bekerja sebagai tenant atau dapur, Anda hanya melihat produk milik sendiri.</li>
+                            <li>Gunakan Barcode Print Modal untuk mencetak label barcode dalam jumlah banyak.</li>
+                            <li>Stok outlet saat ini ditampilkan di setiap kartu produk dan di kolom tabel list view.</li>
+                        </ul>
+                    </div>
+                </div>
+            </Modal>
         </>
     );
 }

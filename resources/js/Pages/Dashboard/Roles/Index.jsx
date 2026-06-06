@@ -12,6 +12,7 @@ import {
     permissionGroupLabel,
 } from "@/Utils/permissionPresentation";
 import { roleDescription, roleLabel } from "@/Utils/rolePresentation";
+import { hasAnyPermissionName } from "@/Utils/rbacHelpers";
 import {
     IconAdjustmentsHorizontal,
     IconBolt,
@@ -35,28 +36,26 @@ import {
 function summarizeRole(role) {
     const permissions = (role.permissions || []).map(decoratePermission);
     const groups = [...new Set(permissions.map((permission) => permission.group_label))];
-    const hasTenantPromo = permissions.some((permission) =>
-        permission.name.startsWith("pricing-rules-")
-    );
-    const hasOwnerPricing = permissions.some(
-        (permission) => permission.name === "products-pricing-update"
-    );
-    const isSystemRole = ["super-admin", "cashier", "waiter", "kitchen-operator"].includes(role.name);
-    const kindLabel = role.name === "kitchen-operator"
-        ? "Tenant Operasional"
-        : hasTenantPromo
-          ? "Tenant Promo"
-          : hasOwnerPricing
-            ? "Owner Pricing"
-            : isSystemRole
-              ? "Role Sistem"
-              : "Role Admin";
+    const permissionNames = permissions.map((permission) => permission.name);
+    const kindLabel = role.name === "super-admin"
+        ? "Super Admin"
+        : hasAnyPermissionName(permissionNames, ["users-access", "roles-access", "permissions-access"])
+          ? "Admin Sistem"
+          : hasAnyPermissionName(permissionNames, ["waiter-board-access"])
+            ? "Petugas Antar"
+            : hasAnyPermissionName(permissionNames, ["kitchen-access", "kitchen-manage"])
+              ? "Operator Dapur"
+              : hasAnyPermissionName(permissionNames, ["transactions-access"])
+                ? "Kasir / Operasional"
+                : hasAnyPermissionName(permissionNames, ["business-settings-update", "payment-settings-update", "cashier-settlements-approve"])
+                  ? "Admin / Owner Outlet"
+                  : hasAnyPermissionName(permissionNames, ["pricing-rules-access", "products-pricing-update"])
+                    ? "Tenant / Pricing"
+                    : "Role Admin";
 
     return {
         permissions,
         groups,
-        hasTenantPromo,
-        hasOwnerPricing,
         kindLabel,
     };
 }
@@ -183,11 +182,11 @@ function presetMeta(template) {
         };
     }
 
-    if (["tenant-operational", "tenant-promo"].includes(template.key)) {
+    if (["tenant-operational", "tenant-delivery", "tenant-promo", "tenant-owner"].includes(template.key)) {
         return {
             group: "Tenant",
             groupOrder: 3,
-            badge: "Tenant",
+            badge: template.key === "tenant-owner" ? "Owner Tenant" : "Tenant",
             hint: "Khusus untuk tenant foodcourt dan tim tenant.",
             tone: "amber",
         };
@@ -334,16 +333,18 @@ export default function Index() {
         {
             label: "Role Sistem",
             value: roleRows.filter((role) =>
-                ["super-admin", "cashier", "waiter", "kitchen-operator"].includes(role.name)
+                ["super-admin", "cashier", "waiter", "kitchen-operator", "kasir-operasional", "petugas-antar", "operator-dapur"].includes(role.name)
             ).length,
         },
         {
-            label: "Role Tenant Promo",
-            value: roleRows.filter((role) => role.summary.hasTenantPromo).length,
+            label: "Role Tenant",
+            value: roleRows.filter((role) =>
+                ["Tenant Operasional", "Tenant Delivery", "Tenant Promo", "Tenant Owner"].includes(role.summary.kindLabel)
+            ).length,
         },
         {
             label: "Role Owner Pricing",
-            value: roleRows.filter((role) => role.summary.hasOwnerPricing).length,
+            value: roleRows.filter((role) => role.summary.hasOwnerPricing && role.summary.kindLabel !== "Tenant Owner").length,
         },
     ];
     const activeFilterCount = useMemo(
@@ -606,15 +607,18 @@ export default function Index() {
                     {showGuide ? <IconChevronUp size={18} /> : <IconChevronDown size={18} />}
                 </button>
                 {showGuide ? (
-                    <div className="mt-4 grid gap-3 lg:grid-cols-3">
+                    <div className="mt-4 grid gap-3 lg:grid-cols-4">
                         <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-100">
                             Role tenant operasional: produk, outlet, dan kontrol buka tutup operasional.
+                        </div>
+                        <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900 dark:border-sky-900/40 dark:bg-sky-950/20 dark:text-sky-100">
+                            Role tenant delivery: petugas yang fokus mengambil pesanan siap antar dan mengantarkannya ke meja atau pelanggan.
                         </div>
                         <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-100">
                             Role tenant promo: akses buat dan ubah promo tenant.
                         </div>
                         <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100">
-                            Role owner pricing: hanya untuk admin yang boleh ubah harga utama.
+                            Role tenant owner: paket lengkap untuk owner tenant yang mengelola operasional, promo, stok, dan pengantaran tenant.
                         </div>
                     </div>
                 ) : null}
