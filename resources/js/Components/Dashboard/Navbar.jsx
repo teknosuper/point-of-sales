@@ -113,6 +113,22 @@ export default function Navbar({
                 <PWADropdown />
 
                 {/* QR Orders Notification */}
+                
+                {/* Shift Badge (POS only) */}
+                {activeCashierShift && (
+                    <Link
+                        href={route("cashier-shifts.show", activeCashierShift.id)}
+                        className="hidden lg:flex items-center gap-1.5 rounded-lg bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-950/60"
+                        title="Shift Aktif"
+                    >
+                        <IconWallet size={14} />
+                        <span>
+                            {new Intl.NumberFormat("id-ID").format(
+                                activeCashierShift.expected_cash || 0
+                            )}
+                        </span>
+                    </Link>
+                )}
                 <QRNotification />
 
                 {/* Notifications */}

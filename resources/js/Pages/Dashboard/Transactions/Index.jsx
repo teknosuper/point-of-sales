@@ -8214,6 +8214,18 @@ export default function Index({
                     </div>
                 </div>
             )}
+            
+            {/* Floating Close Shift Button */}
+            {activeCashierShift && (
+                <Link
+                    href={route("cashier-shifts.show", activeCashierShift.id)}
+                    className="fixed bottom-6 right-6 z-40 flex items-center gap-2 rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-emerald-600 hover:shadow-xl"
+                    title="Tutup Shift"
+                >
+                    <IconWallet size={20} strokeWidth={2} />
+                    <span className="hidden sm:inline">Tutup Shift</span>
+                </Link>
+            )}
         </>
     );
 }

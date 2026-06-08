@@ -115,8 +115,12 @@ export default function AuthDropdown({ auth, isMobile }) {
                     </Transition>
                 </Menu>
             ) : (
-                <div ref={dropdownRef}>
-                    <div className="flex items-center">
+                <div ref={dropdownRef} className="relative">
+                    <button
+                        type="button"
+                        onClick={() => setIsToggle(!isToggle)}
+                        className="flex items-center rounded-full touch-manipulation"
+                    >
                         {avatarUrl ? (
                             <img
                                 src={avatarUrl}
@@ -134,7 +138,21 @@ export default function AuthDropdown({ auth, isMobile }) {
                                 {userInitial}
                             </div>
                         )}
-                    </div>
+                    </button>
+                    
+                    {isToggle && (
+                        <div className="absolute rounded-lg w-48 border mt-2 py-2 right-0 z-[100] bg-white dark:bg-gray-950 dark:border-gray-900">
+                            <div className="flex flex-col gap-1.5 divide-y divide-gray-100 dark:divide-gray-900">
+                                <button
+                                    onClick={logout}
+                                    className="px-3 py-1.5 text-sm flex items-center gap-2 text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200 w-full text-left"
+                                >
+                                    <IconLogout strokeWidth={"1.5"} size={"20"} />
+                                    Logout
+                                </button>
+                            </div>
+                        </div>
+                    )}
                 </div>
             )}
         </>
