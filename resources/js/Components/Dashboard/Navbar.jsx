@@ -1,12 +1,24 @@
 import React, { useEffect, useState } from "react";
-import { usePage } from "@inertiajs/react";
-import { IconMenu2, IconMoon, IconSun } from "@/Utils/icons";
+import { usePage, Link } from "@inertiajs/react";
+import { IconMenu2, IconHistory, IconWallet, IconQrcode } from "@/Utils/icons";
 import AuthDropdown from "@/Components/Dashboard/AuthDropdown";
 import Menu from "@/Utils/Menu";
 import Notification from "@/Components/Dashboard/Notification";
+import QRNotification from "@/Components/Dashboard/QRNotification";
 import OutletSwitcher from "@/Components/Dashboard/OutletSwitcher";
+import PWADropdown from "@/Components/Dashboard/PWADropdown";
 
-export default function Navbar({ toggleSidebar, themeSwitcher, darkMode }) {
+export default function Navbar({ 
+    toggleSidebar, 
+    themeSwitcher, 
+    darkMode, 
+    showHistoryButton = false,
+    showTimeDate = false,
+    currentTime = null,
+    formatTime = null,
+    formatDate = null,
+    activeCashierShift = null
+}) {
     const { auth, activeOutlet, availableOutlets, storeProfile } = usePage().props;
     const menuNavigation = Menu();
 
@@ -86,22 +98,22 @@ export default function Navbar({ toggleSidebar, themeSwitcher, darkMode }) {
                     />
                 </div>
 
-                {/* Theme Toggle */}
-                <button
-                    onClick={themeSwitcher}
-                    className="p-2.5 rounded-xl text-slate-500 hover:text-slate-700 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-800 transition-colors"
-                    title={darkMode ? "Light Mode" : "Dark Mode"}
-                >
-                    {darkMode ? (
-                        <IconSun
-                            size={20}
-                            strokeWidth={1.5}
-                            className="text-amber-500"
-                        />
-                    ) : (
-                        <IconMoon size={20} strokeWidth={1.5} />
-                    )}
-                </button>
+                {/* History Button (POS only) */}
+                {showHistoryButton && (
+                    <button
+                        onClick={() => window.dispatchEvent(new CustomEvent("pos:open-history"))}
+                        className="p-2.5 rounded-xl text-slate-500 hover:text-slate-700 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-800 transition-colors"
+                        title="Riwayat Transaksi"
+                    >
+                        <IconHistory size={20} strokeWidth={1.5} />
+                    </button>
+                )}
+
+                {/* PWA Dropdown */}
+                <PWADropdown />
+
+                {/* QR Orders Notification */}
+                <QRNotification />
 
                 {/* Notifications */}
                 <Notification />

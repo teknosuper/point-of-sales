@@ -13,6 +13,8 @@ Dokumentasi ini ditujukan untuk developer yang ingin setup, memahami alur modul,
 
 - `docs/architecture-overview.md`
 - `docs/system-map.md`
+- `docs/codex-coding-standard.md`
+- `docs/codex-prompts.md`
 - `docs/feature-completeness-checklist.md`
 - `docs/feature-index.md`
 - `planning/laravel-revamp-progress.md`
@@ -54,6 +56,8 @@ Dokumentasi ini ditujukan untuk developer yang ingin setup, memahami alur modul,
 - Jika baru pertama kali menjalankan repo, mulai dari `docs/getting-started.md`
 - Jika ingin memahami struktur aplikasi, baca `docs/architecture-overview.md`
 - Jika ingin memahami boundary modul, milestone engineering, dan coding standard repo, baca `docs/system-map.md`
+- Jika ingin menjaga kerja Codex tetap hemat token dan konsisten, baca `docs/codex-coding-standard.md`
+- Jika ingin prompt siap pakai untuk sesi Codex, baca `docs/codex-prompts.md`
 - Jika ingin tahu status fitur yang sudah lengkap, masih parsial, atau belum selesai, baca `docs/feature-completeness-checklist.md`
 - Jika ingin melanjutkan revamp Laravel multi outlet + kitchen, baca `planning/laravel-revamp-progress.md`
 - Jika ingin bekerja pada modul tertentu, buka `docs/feature-index.md` lalu masuk ke dokumen fitur terkait

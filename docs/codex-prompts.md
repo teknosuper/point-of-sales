@@ -1,6 +1,8 @@
 # Codex Prompts
 
-Prompt ringkas untuk membantu Codex cepat memahami repo ini, tetap akurat, dan hemat token.
+Kembali ke indeks dokumentasi: `docs/README.md`
+
+Prompt ringkas untuk membantu Codex cepat memahami repo ini, tetap akurat, hemat token, dan konsisten dengan `docs/codex-coding-standard.md`.
 
 ## Master Prompt
 
@@ -134,3 +136,4 @@ Gunakan konteks minimum, prioritaskan kode aktif, baca route -> controller -> se
 - Pakai `Session Starter` jika ingin versi paling hemat token.
 - Tambahkan satu prompt spesifik task: `Bugfix`, `Fitur Baru`, `Frontend`, `Backend`, `Report`, atau `Review`.
 - Jika task menyentuh outlet, stok, loyalty, kitchen, atau tenant, tambahkan `Prompt Area Transisi`.
+- Gunakan `docs/codex-coding-standard.md` sebagai aturan operasional; dokumen ini fokus pada template prompt siap pakai.

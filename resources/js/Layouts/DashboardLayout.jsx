@@ -17,7 +17,8 @@ export default function AppLayout({ children }) {
         if (typeof window === "undefined") return false;
         const stored = localStorage.getItem("sidebarOpen");
         if (stored !== null) return stored === "true";
-        return window.innerWidth >= 768;
+        // Default collapsed for cleaner look
+        return false;
     };
 
     const [sidebarOpen, setSidebarOpen] = useState(getInitialSidebarState);
