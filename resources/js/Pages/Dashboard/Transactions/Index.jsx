@@ -1365,6 +1365,12 @@ export default function Index({
         setIsCustomerInfoModalOpen(false);
     }, [draftCustomer, draftOrderType, draftSelectedTableId]);
     const openPaymentInfoTab = useCallback(() => {
+        // Validasi keranjang kosong
+        if (localCarts.length === 0) {
+            toast.error("Keranjang masih kosong. Tambahkan produk terlebih dahulu.");
+            setMobileView("products");
+            return;
+        }
         if (!isCustomerInfoConfirmed || !customerInfoReady) {
             toast.error(
                 "Atur info pelanggan terlebih dahulu sebelum lanjut ke pembayaran."
@@ -1378,6 +1384,7 @@ export default function Index({
         customerInfoReady,
         isCustomerInfoConfirmed,
         openCustomerInfoModal,
+        localCarts,
     ]);
 
     const playCartTabSound = useCallback(() => {
@@ -3871,6 +3878,7 @@ export default function Index({
                 resetTransactionForm();
                 toast.success("Transaksi tunai disimpan offline");
                 playPaymentSuccessSound();
+                setMobileView("products");
             } finally {
                 setIsSubmitting(false);
             }
@@ -3897,6 +3905,7 @@ export default function Index({
             resetTransactionForm();
             toast.success("Transaksi berhasil! Struk masuk antrian cetak.");
             playPaymentSuccessSound();
+            setMobileView("products");
         } catch (error) {
             if (error?.code === "ECONNABORTED" || error?.message?.includes("timeout")) {
                 toast.error("Koneksi timeout. Cek koneksi internet dan coba lagi.");
