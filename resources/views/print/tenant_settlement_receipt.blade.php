@@ -222,7 +222,7 @@
         </div>
     </div>
     <div class="footer">
-        Bukti ini dicetak dari sistem POINZA sebagai konfirmasi payout settlement tenant. Nilai revenue tenant sudah memperhitungkan pricing rules.
+        Bukti ini dicetak dari sistem GTC KASIR sebagai konfirmasi payout settlement tenant. Nilai revenue tenant sudah memperhitungkan pricing rules.
     </div>
 </div>
 </body>

@@ -135,7 +135,7 @@ const trustStrip = [
 const switchingReasons = [
     {
         title: "Kurangi ketergantungan pada catatan manual",
-        desc: "Saat stok, shift, dan piutang masih dicatat terpisah, masalah akan muncul di belakang layar. POINZA merapikannya.",
+        desc: "Saat stok, shift, dan piutang masih dicatat terpisah, masalah akan muncul di belakang layar. GTC KASIR merapikannya.",
     },
     {
         title: "Berhenti memakai POS yang hanya kuat di kasir",
@@ -167,7 +167,7 @@ export default function Welcome({ canLogin = true, canRegister = false }) {
 
     return (
         <>
-            <Head title="POINZA" />
+            <Head title="GTC KASIR" />
 
             <div className="min-h-screen bg-[#f5f7fb] text-slate-900">
                 <div className="absolute inset-x-0 top-0 -z-10 h-[540px] bg-[radial-gradient(circle_at_top_left,_rgba(14,165,233,0.18),_transparent_40%),radial-gradient(circle_at_top_right,_rgba(245,158,11,0.14),_transparent_34%),linear-gradient(180deg,_#ffffff,_#f5f7fb)]" />
@@ -180,7 +180,7 @@ export default function Welcome({ canLogin = true, canRegister = false }) {
                             </div>
                             <div>
                                 <p className="text-base font-black tracking-[0.18em] text-slate-900 sm:text-lg">
-                                    POINZA
+                                    GTC KASIR
                                 </p>
                                 <p className="text-[11px] uppercase tracking-[0.24em] text-slate-500">
                                     Smart Commerce OS
@@ -273,7 +273,7 @@ export default function Welcome({ canLogin = true, canRegister = false }) {
                                 </h1>
 
                                 <p className="mt-4 max-w-2xl text-sm leading-6 text-slate-600 sm:mt-7 sm:text-lg sm:leading-8">
-                                    POINZA membantu bisnis menjalankan transaksi lebih cepat, operasional lebih rapi, dan kontrol harian yang lebih jelas dalam satu workspace.
+                                    GTC KASIR membantu bisnis menjalankan transaksi lebih cepat, operasional lebih rapi, dan kontrol harian yang lebih jelas dalam satu workspace.
                                 </p>
 
                                 <div className="mt-6 flex flex-col gap-3 sm:mt-9 sm:flex-row sm:gap-4">
@@ -290,7 +290,7 @@ export default function Welcome({ canLogin = true, canRegister = false }) {
                                         href="#why-switch"
                                         className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-6 py-3.5 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 sm:w-auto sm:px-7 sm:py-4 sm:text-base"
                                     >
-                                        Alasan memilih POINZA
+                                        Alasan memilih GTC KASIR
                                     </a>
                                 </div>
 
@@ -327,14 +327,14 @@ export default function Welcome({ canLogin = true, canRegister = false }) {
                                 <div className="absolute -left-8 top-10 hidden h-40 w-40 animate-float-slow rounded-full bg-sky-200/50 blur-3xl sm:block" />
                                 <div className="absolute bottom-3 right-0 hidden h-36 w-36 animate-float-delayed rounded-full bg-amber-200/60 blur-3xl sm:block" />
                                 <div className="absolute right-4 top-4 hidden rounded-full border border-slate-200 bg-white/90 px-4 py-2 text-xs font-semibold text-slate-700 shadow-lg shadow-slate-900/10 transition duration-300 hover:-translate-y-0.5 sm:block lg:right-8 lg:top-6">
-                                    Outlet aktif: Poinza Flagship
+                                    Outlet aktif: GTC KASIR Flagship
                                 </div>
 
                                 <div className="relative overflow-hidden rounded-[28px] border border-slate-200/80 bg-white shadow-[0_32px_90px_-34px_rgba(15,23,42,0.3)] transition duration-300 hover:-translate-y-1 hover:shadow-[0_40px_100px_-36px_rgba(15,23,42,0.34)] sm:rounded-[34px]">
                                     <div className="flex flex-col gap-3 border-b border-slate-200 bg-slate-50/90 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-4">
                                         <div>
                                             <p className="text-xs font-bold uppercase tracking-[0.24em] text-slate-500">
-                                                Poinza Workspace
+                                                GTC KASIR Workspace
                                             </p>
                                             <p className="mt-1 text-base font-bold text-slate-900 sm:text-lg">
                                                 Commerce, cashier, and outlet control
@@ -583,7 +583,7 @@ export default function Welcome({ canLogin = true, canRegister = false }) {
                                     Lebih dari sekadar kasir digital.
                                 </h2>
                                 <p className="mt-4 text-lg leading-8 text-slate-600">
-                                    POINZA menyatukan transaksi, stok, dapur, pelanggan, dan laporan agar operasional tetap konsisten dari kasir sampai owner.
+                                    GTC KASIR menyatukan transaksi, stok, dapur, pelanggan, dan laporan agar operasional tetap konsisten dari kasir sampai owner.
                                 </p>
                             </div>
 
@@ -785,7 +785,7 @@ export default function Welcome({ canLogin = true, canRegister = false }) {
                                             Next Step
                                         </p>
                                         <h2 className="mt-4 max-w-3xl text-3xl font-black leading-tight tracking-[-0.03em] sm:text-4xl lg:text-[2.85rem]">
-                                            Jika Anda mencari sistem kasir yang lebih rapi, lebih cepat, dan siap untuk operasional harian, POINZA dibuat ke arah itu.
+                                            Jika Anda mencari sistem kasir yang lebih rapi, lebih cepat, dan siap untuk operasional harian, GTC KASIR dibuat ke arah itu.
                                         </h2>
                                         <p className="mt-5 max-w-2xl text-base leading-8 text-slate-300">
                                             Masuk ke dashboard untuk mulai dari transaksi, outlet, pelanggan, kitchen flow, atau laporan dalam satu workspace kerja.
@@ -822,7 +822,7 @@ export default function Welcome({ canLogin = true, canRegister = false }) {
                                 </div>
                                 <div>
                                     <p className="text-sm font-black tracking-[0.18em] text-slate-900">
-                                        POINZA
+                                        GTC KASIR
                                     </p>
                                     <p className="text-xs text-slate-500">
                                         POS modern untuk transaksi, operasional, dan kontrol outlet.
@@ -843,7 +843,7 @@ export default function Welcome({ canLogin = true, canRegister = false }) {
                             </div>
 
                             <p className="text-sm text-slate-500">
-                                © {new Date().getFullYear()} POINZA. Dibuat untuk operasional toko yang lebih rapi.
+                                © {new Date().getFullYear()} GTC KASIR. Dibuat untuk operasional toko yang lebih rapi.
                             </p>
                         </div>
                     </footer>

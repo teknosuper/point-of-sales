@@ -24,7 +24,7 @@ export default function PWAUpdateControl({ compact = false }) {
                 if (hasWaitingUpdate && !hasAnnouncedWaitingUpdateRef.current) {
                     hasAnnouncedWaitingUpdateRef.current = true;
                     toast(
-                        "Versi baru POINZA tersedia. Tekan update untuk memuat versi terbaru.",
+                        "Versi baru GTC KASIR tersedia. Tekan update untuk memuat versi terbaru.",
                         {
                             duration: 5000,
                             icon: "⬆️",

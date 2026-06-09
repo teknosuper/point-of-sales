@@ -219,7 +219,7 @@
     </div>
 
     <div class="footer">
-        Bukti ini dicetak dari sistem POINZA sebagai konfirmasi approval setoran kasir atau pencairan dana tenant.
+        Bukti ini dicetak dari sistem GTC KASIR sebagai konfirmasi approval setoran kasir atau pencairan dana tenant.
     </div>
 </div>
 </body>

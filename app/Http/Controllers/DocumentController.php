@@ -46,7 +46,7 @@ class DocumentController extends Controller
         }
 
         return [
-            'name' => $profile['name'] ?? 'POINZA',
+            'name' => $profile['name'] ?? 'GTC KASIR',
             'logo' => $logo,
             'logo_data' => $logoData,
             'address' => $profile['address'] ?? '',

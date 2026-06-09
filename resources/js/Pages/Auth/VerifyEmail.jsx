@@ -40,7 +40,7 @@ export default function VerifyEmail({ status, botGuard }) {
                                     />
                                 </div>
                                 <span className="text-2xl font-bold text-slate-900 dark:text-white">
-                                    POINZA
+                                    GTC KASIR
                                 </span>
                             </Link>
 

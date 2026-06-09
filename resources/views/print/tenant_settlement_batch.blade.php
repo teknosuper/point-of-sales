@@ -30,7 +30,7 @@
     $formatMoney = fn ($value) => 'Rp '.number_format((int) $value, 0, ',', '.');
 @endphp
 <div class="header">
-    <small>POINZA • Rekap Settlement Tenant</small>
+    <small>GTC KASIR • Rekap Settlement Tenant</small>
     <h1>Batch Settlement</h1>
     <div class="muted">
         Dicetak {{ now()->format('d/m/Y H:i') }}

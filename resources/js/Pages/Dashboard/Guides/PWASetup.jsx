@@ -485,7 +485,7 @@ export default function PWASetup({
                         <h2 className="mt-2 text-xl font-bold text-slate-900 dark:text-white">
                             {isInstalled || isStandalone
                                 ? "Aplikasi sudah terpasang"
-                                : "Pasang POINZA ke perangkat ini"}
+                                : "Pasang GTC KASIR ke perangkat ini"}
                         </h2>
                         <p className="mt-2 max-w-2xl text-sm text-slate-500 dark:text-slate-400">
                             {installHelpText}
@@ -626,7 +626,7 @@ export default function PWASetup({
                                 Install aplikasi belum otomatis berarti siap offline penuh.
                             </h2>
                             <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
-                                Setelah POINZA terpasang, jalankan setup offline shell untuk memanaskan route penting sesuai peran perangkat. Ini membantu perangkat kasir, dapur, atau supervisor membuka halaman inti yang sudah dipilih saat koneksi sempat tersedia.
+                                Setelah GTC KASIR terpasang, jalankan setup offline shell untuk memanaskan route penting sesuai peran perangkat. Ini membantu perangkat kasir, dapur, atau supervisor membuka halaman inti yang sudah dipilih saat koneksi sempat tersedia.
                             </p>
                         </div>
                         <div className="rounded-2xl bg-white px-4 py-3 text-sm text-slate-600 shadow-sm dark:bg-slate-900 dark:text-slate-300">

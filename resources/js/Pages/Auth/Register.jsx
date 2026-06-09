@@ -47,10 +47,10 @@ export default function Register({ botGuard }) {
                             <IconShoppingCart size={48} />
                         </div>
                         <h2 className="text-3xl font-bold mb-4">
-                            Bergabung dengan POINZA
+                            Bergabung dengan GTC KASIR
                         </h2>
                         <p className="text-lg opacity-90">
-                            Mulai kelola bisnis Anda dengan POINZA yang
+                            Mulai kelola bisnis Anda dengan GTC KASIR yang
                             modern, cepat, dan mudah digunakan.
                         </p>
                         <div className="mt-8 space-y-3">
@@ -90,14 +90,14 @@ export default function Register({ botGuard }) {
                                     />
                                 </div>
                                 <span className="text-2xl font-bold text-slate-900 dark:text-white">
-                                    POINZA
+                                    GTC KASIR
                                 </span>
                             </Link>
                             <h1 className="text-3xl font-bold text-slate-900 dark:text-white">
                                 Buat Akun Baru
                             </h1>
                             <p className="mt-2 text-slate-600 dark:text-slate-400">
-                                Buat akun baru untuk mulai menggunakan POINZA
+                                Buat akun baru untuk mulai menggunakan GTC KASIR
                             </p>
                         </div>
 

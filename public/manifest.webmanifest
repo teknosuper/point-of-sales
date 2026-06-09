@@ -1,6 +1,6 @@
 {
-  "name": "POINZA POS",
-  "short_name": "POINZA",
+  "name": "GTC KASIR",
+  "short_name": "GTC KASIR",
   "description": "Point of sale, kitchen queue, dan operasional outlet berbasis web yang bisa di-install.",
   "start_url": "/login",
   "scope": "/",
@@ -11,15 +11,15 @@
   "categories": ["business", "productivity", "finance"],
   "icons": [
     {
-      "src": "/pwa-icon.svg",
+      "src": "/media/gtclogo.png",
       "sizes": "any",
-      "type": "image/svg+xml",
+      "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/pwa-icon-maskable.svg",
+      "src": "/media/gtclogo.png",
       "sizes": "any",
-      "type": "image/svg+xml",
+      "type": "image/png",
       "purpose": "maskable"
     }
   ],

@@ -208,7 +208,7 @@ export default function Sidebar({ sidebarOpen, hideWhenCollapsed = false }) {
                 {sidebarOpen && (
                     <div className="px-4 pb-4">
                         <p className="text-[10px] text-slate-400 dark:text-slate-600 text-center">
-                            POINZA v2.0
+                            GTC KASIR v2.0
                         </p>
                     </div>
                 )}

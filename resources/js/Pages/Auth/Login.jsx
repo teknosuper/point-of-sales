@@ -170,7 +170,7 @@ export default function Login({
                                     />
                                 </div>
                                 <span className="text-2xl font-bold text-slate-900 dark:text-white">
-                                    POINZA
+                                    GTC KASIR
                                 </span>
                             </div>
                             <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-primary-200 bg-primary-50 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-primary-700 dark:border-primary-900/40 dark:bg-primary-950/30 dark:text-primary-200">
@@ -179,7 +179,7 @@ export default function Login({
                             <h1 className="text-3xl font-bold text-slate-900 dark:text-white sm:text-[2rem]">
                                 {isKitchenMode
                                     ? "Masuk ke Layar Dapur"
-                                    : "Masuk ke POINZA"}
+                                    : "Masuk ke GTC KASIR"}
                             </h1>
                             <p className="mt-2 text-slate-600 dark:text-slate-400">
                                 {isKitchenMode

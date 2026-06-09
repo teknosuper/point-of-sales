@@ -949,7 +949,7 @@ export default function Index({ stations = [], filters = {}, outlets = [], outle
                                             ) : null}
                                             {device.device_type === "printer" ? (
                                                 <div className="mt-2 rounded-lg border border-dashed border-slate-300 bg-white px-3 py-2 font-mono text-[11px] leading-5 text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
-                                                    POINZA
+                                                    GTC KASIR
                                                     <br />
                                                     {device.meta?.template_style || "standard"} •{" "}
                                                     {device.meta?.paper_width || "80mm"}

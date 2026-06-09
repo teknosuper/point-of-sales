@@ -38,7 +38,7 @@ export default function ForgotPassword({ status, botGuard }) {
                                     <IconShoppingCart size={24} className="text-white" />
                                 </div>
                                 <span className="text-2xl font-bold text-slate-900 dark:text-white">
-                                    POINZA
+                                    GTC KASIR
                                 </span>
                             </Link>
                             <h1 className="text-3xl font-bold text-slate-900 dark:text-white">

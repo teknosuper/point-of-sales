@@ -69,7 +69,7 @@ class OutletResolver
             'id' => null,
             'code' => null,
             'slug' => null,
-            'name' => 'POINZA',
+            'name' => 'GTC KASIR',
             'logo' => null,
             'address' => '',
             'phone' => '',

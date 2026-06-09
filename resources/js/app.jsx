@@ -8,7 +8,7 @@ import { ThemeSwitcherProvider } from './Context/ThemeSwitcherContext';
 import GlobalLoadingIndicator from './Components/GlobalLoadingIndicator';
 import PWAInstallPrompt from './Components/PWAInstallPrompt';
 import PWAStartupSplash from './Components/PWAStartupSplash';
-const appName = import.meta.env.VITE_APP_NAME || 'POINZA';
+const appName = import.meta.env.VITE_APP_NAME || 'GTC KASIR';
 
 createInertiaApp({
     title: (title) => `${title} - ${appName}`,

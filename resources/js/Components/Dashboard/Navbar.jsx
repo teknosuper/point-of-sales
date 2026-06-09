@@ -75,7 +75,7 @@ export default function Navbar({
                         </span>
                     </div>
                     <span className="text-lg font-bold text-slate-800 dark:text-white">
-                        {storeProfile?.name || "POINZA"}
+                        {storeProfile?.name || "GTC KASIR"}
                     </span>
                 </div>
 

@@ -65,7 +65,7 @@ export default function PWAStartupSplash() {
                     <IconShoppingCart size={42} strokeWidth={1.8} />
                 </div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.34em] text-primary-600 dark:text-primary-300">
-                    POINZA
+                    GTC KASIR
                 </p>
                 <h1 className="mt-3 text-3xl font-black tracking-[-0.04em] text-slate-950 dark:text-white">
                     Menyiapkan workspace

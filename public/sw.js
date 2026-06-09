@@ -2,6 +2,7 @@ const STATIC_CACHE = "poinza-static-v2";
 const RUNTIME_CACHE = "poinza-runtime-v2";
 const APP_SHELL = [
   "/manifest.webmanifest",
+  "/media/gtclogo.png",
   "/pwa-icon.svg",
   "/pwa-icon-maskable.svg",
   "/apple-touch-icon.svg",

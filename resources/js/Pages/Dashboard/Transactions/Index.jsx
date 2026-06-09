@@ -3220,7 +3220,7 @@ export default function Index({
                 <body>
                     <div class="receipt">
                         <div style="text-align:center;font-weight:bold;margin-bottom:8px;">
-                            ${storeProfile?.name || "POINZA"}
+                            ${storeProfile?.name || "GTC KASIR"}
                         </div>
                         <div>No: ${invoiceNumber}</div>
                         <div>Tgl: ${createdAt ? new Date(createdAt).toLocaleString("id-ID") : "-"}</div>
@@ -3506,7 +3506,7 @@ export default function Index({
             grand_total: Number(payable),
             created_at: new Date().toISOString(),
             outlet_id: activeOutlet?.id ?? null,
-            outlet_name: activeOutlet?.name || storeProfile?.name || "POINZA",
+            outlet_name: activeOutlet?.name || storeProfile?.name || "GTC KASIR",
             cashier_name: auth?.user?.name || "Kasir",
             details: normalizedItems,
         };
@@ -7839,7 +7839,7 @@ export default function Index({
                                 <ThermalReceipt58mm
                                     transaction={selectedHistoryTransaction}
                                     layout={selectedHistoryTransaction.receiptLayout}
-                                    storeName={storeProfile?.name || "POINZA"}
+                                    storeName={storeProfile?.name || "GTC KASIR"}
                                     storePhone={storeProfile?.phone || ""}
                                     storeEmail={storeProfile?.email || ""}
                                     storeWebsite={storeProfile?.website || ""}

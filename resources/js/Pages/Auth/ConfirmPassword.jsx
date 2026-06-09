@@ -48,7 +48,7 @@ export default function ConfirmPassword({ challenge = null }) {
                                     <IconShoppingCart size={24} className="text-white" />
                                 </div>
                                 <span className="text-2xl font-bold text-slate-900 dark:text-white">
-                                    POINZA
+                                    GTC KASIR
                                 </span>
                             </Link>
                             <div className="w-14 h-14 rounded-2xl bg-primary-100 dark:bg-primary-950/50 flex items-center justify-center mb-5">
