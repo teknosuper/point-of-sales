@@ -11,6 +11,7 @@ import toast from "react-hot-toast";
 import Swal from "sweetalert2";
 import POSLayout from "@/Layouts/POSLayout";
 import ProductGrid from "@/Components/POS/ProductGrid";
+import ModifierOptionsModal from "@/Components/POS/ModifierOptionsModal";
 import CartPanel from "@/Components/POS/CartPanel";
 import PaymentPanel from "@/Components/POS/PaymentPanel";
 import CustomerSelect from "@/Components/POS/CustomerSelect";
@@ -23,6 +24,7 @@ import useBarcodeScanner from "@/Hooks/useBarcodeScanner";
 import { getProductImageUrl } from "@/Utils/imageUrl";
 import {
     buildLocalPricingPreview,
+    buildCartPromoState,
     buildPricingItemsByCartId,
     formatRuleItems,
     hasPromoApplied,
@@ -286,6 +288,8 @@ export default function Index({
     const [shiftNotesInput, setShiftNotesInput] = useState("");
     const [tableOrderApprovalTarget, setTableOrderApprovalTarget] = useState(null);
     const [tableOrderCashInput, setTableOrderCashInput] = useState("");
+    const [tableOrderPaymentMethod, setTableOrderPaymentMethod] =
+        useState("cash");
     const [isApprovingTableOrder, setIsApprovingTableOrder] = useState(false);
     const [tableOrderCancelTarget, setTableOrderCancelTarget] = useState(null);
     const [tableOrderCancelReason, setTableOrderCancelReason] = useState("");
@@ -1025,6 +1029,15 @@ export default function Index({
 
         return Math.max(0, tableOrderCashAmount - targetTotal);
     }, [tableOrderApprovalTarget, tableOrderCashAmount]);
+    useEffect(() => {
+        if (!tableOrderApprovalTarget || tableOrderPaymentMethod !== "qris") {
+            return;
+        }
+
+        setTableOrderCashInput(
+            String(Number(tableOrderApprovalTarget.grand_total || 0))
+        );
+    }, [tableOrderApprovalTarget, tableOrderPaymentMethod]);
     const selectedHistoryTransaction = useMemo(() => {
         if (!historyTransactions.length) {
             return null;
@@ -1550,6 +1563,7 @@ export default function Index({
     const openTableOrderApproval = (order) => {
         setTableOrderApprovalTarget(order);
         setTableOrderCashInput(String(order?.grand_total || 0));
+        setTableOrderPaymentMethod("cash");
     };
 
     const closeTableOrderApproval = () => {
@@ -1559,6 +1573,7 @@ export default function Index({
 
         setTableOrderApprovalTarget(null);
         setTableOrderCashInput("");
+        setTableOrderPaymentMethod("cash");
 
         if (window.location.search.includes("open_table_order=")) {
             const currentUrl = new URL(window.location.href);
@@ -1573,14 +1588,70 @@ export default function Index({
         }
     };
 
-    const submitTableOrderApproval = () => {
+    const confirmQrisPayment = () =>
+        Swal.fire({
+            title: "Konfirmasi Pembayaran QRIS",
+            html: "Pastikan pembayaran QRIS manual sudah berhasil diterima.<br/>Lanjutkan hanya jika dana sudah benar-benar masuk.",
+            icon: "question",
+            showCancelButton: true,
+            confirmButtonText: "Sudah Dibayar",
+            cancelButtonText: "Periksa Lagi",
+            confirmButtonColor: "#16a34a",
+            cancelButtonColor: "#64748b",
+            reverseButtons: true,
+        });
+
+    const confirmCashPayment = ({ total, paid }) =>
+        Swal.fire({
+            title: "Periksa Pembayaran Tunai",
+            html: `
+                <div style="text-align:left;display:grid;gap:8px;">
+                    <div style="display:flex;justify-content:space-between;gap:12px;"><span>Total</span><strong>${formatPrice(total)}</strong></div>
+                    <div style="display:flex;justify-content:space-between;gap:12px;"><span>Dibayar</span><strong>${formatPrice(paid)}</strong></div>
+                    <div style="display:flex;justify-content:space-between;gap:12px;"><span>Kembalian</span><strong>${formatPrice(Math.max(paid - total, 0))}</strong></div>
+                </div>
+                <p style="margin-top:16px;">Pastikan uang diterima dan kembalian sudah sesuai sebelum transaksi disimpan.</p>
+            `,
+            icon: "warning",
+            showCancelButton: true,
+            confirmButtonText: "Sudah Sesuai",
+            cancelButtonText: "Cek Lagi",
+            confirmButtonColor: "#16a34a",
+            cancelButtonColor: "#64748b",
+            reverseButtons: true,
+        });
+
+    const submitTableOrderApproval = async () => {
         if (!tableOrderApprovalTarget?.id) {
             return;
         }
 
         if (tableOrderCashAmount < Number(tableOrderApprovalTarget.grand_total || 0)) {
-            toast.error("Nominal tunai kurang dari total order.");
+            toast.error(
+                tableOrderPaymentMethod === "cash"
+                    ? "Nominal tunai kurang dari total order."
+                    : "Nominal pembayaran kurang dari total order."
+            );
             return;
+        }
+
+        if (tableOrderPaymentMethod === "qris") {
+            const result = await confirmQrisPayment();
+
+            if (!result.isConfirmed) {
+                return;
+            }
+        }
+
+        if (tableOrderPaymentMethod === "cash") {
+            const result = await confirmCashPayment({
+                total: Number(tableOrderApprovalTarget.grand_total || 0),
+                paid: tableOrderCashAmount,
+            });
+
+            if (!result.isConfirmed) {
+                return;
+            }
         }
 
         setIsApprovingTableOrder(true);
@@ -1589,6 +1660,7 @@ export default function Index({
             route("table-orders.approve", tableOrderApprovalTarget.id),
             {
                 cash: tableOrderCashAmount,
+                payment_method: tableOrderPaymentMethod,
                 redirect_to: "transactions",
             },
             {
@@ -3804,17 +3876,7 @@ export default function Index({
         }
 
         if (paymentMethod === "qris" && !payLater) {
-            const result = await Swal.fire({
-                title: "Konfirmasi Pembayaran QRIS",
-                html: "Pastikan pembayaran QRIS manual sudah berhasil diterima.<br/>Lanjutkan hanya jika dana sudah benar-benar masuk.",
-                icon: "question",
-                showCancelButton: true,
-                confirmButtonText: "Sudah Dibayar",
-                cancelButtonText: "Periksa Lagi",
-                confirmButtonColor: "#16a34a",
-                cancelButtonColor: "#64748b",
-                reverseButtons: true,
-            });
+            const result = await confirmQrisPayment();
 
             if (!result.isConfirmed) {
                 return;
@@ -3822,23 +3884,9 @@ export default function Index({
         }
 
         if (paymentMethod === "cash" && !payLater) {
-            const result = await Swal.fire({
-                title: "Periksa Pembayaran Tunai",
-                html: `
-                    <div style="text-align:left;display:grid;gap:8px;">
-                        <div style="display:flex;justify-content:space-between;gap:12px;"><span>Total</span><strong>${formatPrice(payable)}</strong></div>
-                        <div style="display:flex;justify-content:space-between;gap:12px;"><span>Dibayar</span><strong>${formatPrice(cash)}</strong></div>
-                        <div style="display:flex;justify-content:space-between;gap:12px;"><span>Kembalian</span><strong>${formatPrice(Math.max(cash - payable, 0))}</strong></div>
-                    </div>
-                    <p style="margin-top:16px;">Pastikan uang diterima dan kembalian sudah sesuai sebelum transaksi disimpan.</p>
-                `,
-                icon: "warning",
-                showCancelButton: true,
-                confirmButtonText: "Sudah Sesuai",
-                cancelButtonText: "Cek Lagi",
-                confirmButtonColor: "#16a34a",
-                cancelButtonColor: "#64748b",
-                reverseButtons: true,
+            const result = await confirmCashPayment({
+                total: payable,
+                paid: cash,
             });
 
             if (!result.isConfirmed) {
@@ -4357,13 +4405,29 @@ export default function Index({
                                 {localCarts.length > 0 ? (
                                     <div className="space-y-2 pr-1">
                                         {localCarts.map((item) => {
+                                            const fallbackProduct =
+                                                productsById[
+                                                    Number(item.product_id || 0)
+                                                ] || item.product;
                                             const pricingItem =
                                                 pricingItemsByCartId[item.id];
-                                            const resolvedLine =
-                                                resolveCartPricingLine(
-                                                    item,
-                                                    pricingItem
-                                                );
+                                            const promoState =
+                                                buildCartPromoState({
+                                                    cartItem: item,
+                                                    pricingItem,
+                                                    fallbackProduct,
+                                                    formatPrice,
+                                                });
+                                            const {
+                                                resolvedLine,
+                                                pricingRule,
+                                                previewRule,
+                                                promoSummary,
+                                                isCrossProductBuyGet,
+                                                latentPromoPreview,
+                                                buyGetBreakdown,
+                                                modifierTotal,
+                                            } = promoState;
                                             const baseLineTotal =
                                                 resolvedLine.baseLineTotal;
                                             const effectiveLineTotal =
@@ -4372,78 +4436,6 @@ export default function Index({
                                                 resolvedLine.effectiveUnitPrice;
                                             const baseUnitPrice =
                                                 resolvedLine.baseUnitPrice;
-                                            const pricingRule =
-                                                pricingItem?.pricing_rule;
-                                            const fallbackProduct =
-                                                productsById[
-                                                    Number(item.product_id || 0)
-                                                ] || item.product;
-                                            const fallbackRule =
-                                                fallbackProduct?.pricing_badge
-                                                    ?.pricing_rule || null;
-                                            const previewRule =
-                                                pricingRule || fallbackRule;
-                                            const promoSummary =
-                                                promoBadgeSummary(
-                                                    previewRule,
-                                                    pricingItem?.pricing_group_label
-                                                );
-                                            const isCrossProductBuyGet =
-                                                previewRule?.kind ===
-                                                    "buy_x_get_y" &&
-                                                Array.isArray(
-                                                    previewRule?.get_items
-                                                ) &&
-                                                previewRule.get_items.some(
-                                                    (rewardItem) =>
-                                                        Number(
-                                                            rewardItem.product_id ||
-                                                                0
-                                                        ) !==
-                                                        Number(
-                                                            item.product_id || 0
-                                                        )
-                                                );
-                                            const latentPromoPreview =
-                                                !pricingRule && previewRule
-                                                    ? promoBenefitPreview({
-                                                          rule: previewRule,
-                                                          quantity: Number(
-                                                              item.qty || 1
-                                                          ),
-                                                          baseUnitPrice,
-                                                          effectiveUnitPrice:
-                                                              baseUnitPrice,
-                                                          productId:
-                                                              item.product_id,
-                                                          formatPrice,
-                                                      })
-                                                    : null;
-                                            const buyGetBreakdown =
-                                                resolveBuyGetBreakdown({
-                                                    rule: previewRule,
-                                                    ruleKind:
-                                                        pricingItem?.pricing_rule
-                                                            ?.kind || null,
-                                                    quantity: Number(
-                                                        item.qty || 1
-                                                    ),
-                                                    baseUnitPrice,
-                                                    discountTotal:
-                                                        resolvedLine.discountTotal,
-                                                    productId:
-                                                        item.product_id,
-                                                });
-                                            const modifierTotal = (
-                                                item.modifiers || []
-                                            ).reduce(
-                                                (sum, modifier) =>
-                                                    sum +
-                                                    Number(
-                                                        modifier.total_price || 0
-                                                    ),
-                                                0
-                                            );
 
                                             return (
                                                 <div
@@ -6174,55 +6166,133 @@ export default function Index({
 
                             <div>
                                 <label className="mb-2 block text-xs font-medium text-slate-600 dark:text-slate-400">
-                                    Jumlah Bayar Tunai
+                                    Metode Pembayaran
+                                </label>
+                                <div className="grid grid-cols-2 gap-2">
+                                    {[
+                                        {
+                                            value: "cash",
+                                            label: "Tunai",
+                                            description:
+                                                "Pembayaran tunai langsung di kasir.",
+                                        },
+                                        {
+                                            value: "qris",
+                                            label: "QRIS",
+                                            description:
+                                                "Konfirmasi setelah pembayaran QRIS diterima.",
+                                        },
+                                    ].map((option) => (
+                                        <button
+                                            key={option.value}
+                                            type="button"
+                                            onClick={() => {
+                                                setTableOrderPaymentMethod(option.value);
+                                                setTableOrderCashInput(
+                                                    String(
+                                                        tableOrderApprovalTarget.grand_total || 0
+                                                    )
+                                                );
+                                            }}
+                                            className={`rounded-2xl border px-4 py-3 text-left transition ${
+                                                tableOrderPaymentMethod === option.value
+                                                    ? "border-primary-500 bg-primary-50 text-primary-700 dark:bg-primary-950/30 dark:text-primary-200"
+                                                    : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"
+                                            }`}
+                                        >
+                                            <p className="text-sm font-semibold">
+                                                {option.label}
+                                            </p>
+                                            <p className="mt-1 text-xs opacity-80">
+                                                {option.description}
+                                            </p>
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {tableOrderPaymentMethod === "qris" &&
+                            qrisPaymentImageUrl ? (
+                                <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950/40">
+                                    <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                                        QRIS Pembayaran
+                                    </p>
+                                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                        Tunjukkan QRIS ini ke pelanggan, lalu lanjutkan hanya setelah pembayaran benar-benar diterima.
+                                    </p>
+                                    <div className="mt-4 flex justify-center">
+                                        <img
+                                            src={qrisPaymentImageUrl}
+                                            alt="QRIS pembayaran"
+                                            className="h-52 w-52 rounded-2xl border border-slate-200 object-contain p-3 dark:border-slate-700"
+                                        />
+                                    </div>
+                                </div>
+                            ) : null}
+
+                            <div>
+                                <label className="mb-2 block text-xs font-medium text-slate-600 dark:text-slate-400">
+                                    {tableOrderPaymentMethod === "cash"
+                                        ? "Jumlah Bayar Tunai"
+                                        : "Nominal Pembayaran"}
                                 </label>
                                 <input
                                     type="text"
                                     inputMode="numeric"
                                     value={tableOrderCashInput}
                                     onChange={(event) =>
-                                        setTableOrderCashInput(
-                                            event.target.value.replace(/[^\d]/g, "")
-                                        )
+                                        tableOrderPaymentMethod === "cash"
+                                            ? setTableOrderCashInput(
+                                                  event.target.value.replace(
+                                                      /[^\d]/g,
+                                                      ""
+                                                  )
+                                              )
+                                            : undefined
                                     }
                                     placeholder="0"
+                                    readOnly={tableOrderPaymentMethod !== "cash"}
                                     className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-base font-semibold text-slate-800 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"
                                 />
                             </div>
 
-                            <div className="grid grid-cols-3 gap-2">
-                                {[
-                                    Number(tableOrderApprovalTarget.grand_total || 0),
-                                    Math.ceil(Number(tableOrderApprovalTarget.grand_total || 0) / 10000) * 10000,
-                                    Math.ceil(Number(tableOrderApprovalTarget.grand_total || 0) / 50000) * 50000,
-                                ]
-                                    .filter((value, index, array) => value > 0 && array.indexOf(value) === index)
-                                    .map((amount) => (
-                                        <button
-                                            key={amount}
-                                            type="button"
-                                            onClick={() => setTableOrderCashInput(String(amount))}
-                                            className={`rounded-xl px-3 py-2 text-xs font-semibold transition ${
-                                                tableOrderCashAmount === amount
-                                                    ? "bg-primary-500 text-white"
-                                                    : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"
-                                            }`}
-                                        >
-                                            {formatPrice(amount)}
-                                        </button>
-                                    ))}
-                            </div>
+                            {tableOrderPaymentMethod === "cash" ? (
+                                <>
+                                    <div className="grid grid-cols-3 gap-2">
+                                        {[
+                                            Number(tableOrderApprovalTarget.grand_total || 0),
+                                            Math.ceil(Number(tableOrderApprovalTarget.grand_total || 0) / 10000) * 10000,
+                                            Math.ceil(Number(tableOrderApprovalTarget.grand_total || 0) / 50000) * 50000,
+                                        ]
+                                            .filter((value, index, array) => value > 0 && array.indexOf(value) === index)
+                                            .map((amount) => (
+                                                <button
+                                                    key={amount}
+                                                    type="button"
+                                                    onClick={() => setTableOrderCashInput(String(amount))}
+                                                    className={`rounded-xl px-3 py-2 text-xs font-semibold transition ${
+                                                        tableOrderCashAmount === amount
+                                                            ? "bg-primary-500 text-white"
+                                                            : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"
+                                                    }`}
+                                                >
+                                                    {formatPrice(amount)}
+                                                </button>
+                                            ))}
+                                    </div>
 
-                            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900/40 dark:bg-emerald-950/20">
-                                <div className="flex items-center justify-between text-sm">
-                                    <span className="text-emerald-700 dark:text-emerald-300">
-                                        Kembalian
-                                    </span>
-                                    <span className="font-bold text-emerald-700 dark:text-emerald-300">
-                                        {formatPrice(tableOrderChangeAmount)}
-                                    </span>
-                                </div>
-                            </div>
+                                    <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900/40 dark:bg-emerald-950/20">
+                                        <div className="flex items-center justify-between text-sm">
+                                            <span className="text-emerald-700 dark:text-emerald-300">
+                                                Kembalian
+                                            </span>
+                                            <span className="font-bold text-emerald-700 dark:text-emerald-300">
+                                                {formatPrice(tableOrderChangeAmount)}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </>
+                            ) : null}
                             </div>
                         </div>
 
@@ -6315,408 +6385,25 @@ export default function Index({
                 </div>
             )}
 
-            {modifierModalProduct && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                    <div
-                        className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm"
-                        onClick={closeModifierModal}
-                    />
-                    <div className="relative flex max-h-[90vh] w-full max-w-md flex-col overflow-hidden rounded-3xl bg-white shadow-2xl dark:bg-slate-900">
-                        <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4 dark:border-slate-800">
-                            <div>
-                                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary-500">
-                                    Opsi Tambahan
-                                </p>
-                                <h3 className="mt-1 text-lg font-bold text-slate-900 dark:text-white">
-                                    {modifierModalProduct.title}
-                                </h3>
-                                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                                    {modifierModalCartTargetId
-                                        ? "Pilih topping / extra untuk item yang sudah ada di keranjang."
-                                        : "Pilih topping / extra sebelum item dimasukkan ke keranjang."}
-                                </p>
-                            </div>
-                            <button
-                                type="button"
-                                onClick={closeModifierModal}
-                                disabled={isModifierModalSubmitting}
-                                className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 text-slate-500 hover:bg-slate-200 disabled:opacity-50 dark:bg-slate-800 dark:text-slate-300"
-                            >
-                                <IconX size={18} />
-                            </button>
-                        </div>
-
-                        <div className="min-h-0 flex-1 overflow-y-auto">
-                            {/* Pricing Badge / Promo Banner */}
-                            {modifierModalProduct.pricing_badge && (
-                                <div className={`mx-5 mt-4 rounded-2xl border px-4 py-3 ${
-                                    modifierModalPromoBenefit.status === "active"
-                                        ? "border-emerald-200 bg-emerald-50 dark:border-emerald-900/40 dark:bg-emerald-950/20"
-                                        : modifierModalPromoBenefit.status === "pending"
-                                        ? "border-amber-200 bg-amber-50 dark:border-amber-900/40 dark:bg-amber-950/20"
-                                        : "border-sky-200 bg-sky-50 dark:border-sky-900/40 dark:bg-sky-950/20"
-                                }`}>
-                                    <div className="flex items-start gap-3">
-                                        <div className={`shrink-0 rounded-lg px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-white ${
-                                            modifierModalPromoBenefit.status === "active"
-                                                ? "bg-emerald-500"
-                                                : modifierModalPromoBenefit.status === "pending"
-                                                ? "bg-amber-500"
-                                                : "bg-sky-500"
-                                        }`}>
-                                            {modifierModalPromo.badge || "Promo"}
-                                        </div>
-                                        <div className="min-w-0">
-                                            <p className="text-sm font-semibold text-rose-800 dark:text-rose-200">
-                                                {modifierModalPromo.title || PROMO_TOTAL_LABEL}
-                                            </p>
-                                            {modifierModalPromo.detail && (
-                                                <p className="mt-0.5 text-xs text-rose-600 dark:text-rose-300">
-                                                    {modifierModalPromo.detail}
-                                                </p>
-                                            )}
-                                            {!modifierModalCartTargetId &&
-                                                modifierModalPromo.minimumQuantity >
-                                                    1 &&
-                                                modifierModalPromo.quantity <
-                                                    modifierModalPromo.minimumQuantity && (
-                                                    <p className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-300">
-                                                        Promo aktif mulai qty{" "}
-                                                        {
-                                                            modifierModalPromo.minimumQuantity
-                                                        }
-                                                        .
-                                                    </p>
-                                                )}
-                                            {modifierModalPromo.baseUnitPrice > 0 && (
-                                                <div className="mt-1 flex items-center gap-2 text-xs">
-                                                    {modifierModalPromo.promoEligible &&
-                                                    modifierModalPromo.effectiveUnitPrice <
-                                                        modifierModalPromo.baseUnitPrice ? (
-                                                        <>
-                                                            <span className="text-rose-500 line-through">
-                                                                {formatPrice(
-                                                                    modifierModalPromo.baseUnitPrice
-                                                                )}
-                                                            </span>
-                                                            <span className="font-bold text-rose-700 dark:text-rose-200">
-                                                                {formatPrice(
-                                                                    modifierModalPromo.effectiveUnitPrice
-                                                                )}
-                                                            </span>
-                                                        </>
-                                                    ) : (
-                                                        <span className="font-bold text-rose-700 dark:text-rose-200">
-                                                            {formatPrice(
-                                                                modifierModalPromo.baseUnitPrice
-                                                            )}
-                                                        </span>
-                                                    )}
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                    <div
-                                        className={`mt-3 rounded-2xl px-3 py-3 text-sm ${
-                                            modifierModalPromoBenefit.status ===
-                                            "active"
-                                                ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300"
-                                                : modifierModalPromoBenefit.status ===
-                                                    "pending"
-                                                  ? "bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300"
-                                                  : "bg-white/70 text-rose-700 dark:bg-slate-900/50 dark:text-rose-200"
-                                        }`}
-                                    >
-                                        <p className="font-semibold">
-                                            {
-                                                modifierModalPromoBenefit.headline
-                                            }
-                                        </p>
-                                        {modifierModalPromoBenefit.detail ? (
-                                            <p className="mt-1 text-xs opacity-90">
-                                                {
-                                                    modifierModalPromoBenefit.detail
-                                                }
-                                            </p>
-                                        ) : null}
-                                    </div>
-                                    <button
-                                        type="button"
-                                        onClick={() =>
-                                            setIsModifierPromoDetailOpen(
-                                                (current) => !current
-                                            )
-                                        }
-                                        className="mt-3 inline-flex items-center gap-2 rounded-xl border border-rose-200 bg-white px-3 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-100 dark:border-rose-900/40 dark:bg-slate-900 dark:text-rose-200 dark:hover:bg-slate-800"
-                                    >
-                                        {isModifierPromoDetailOpen
-                                            ? "Sembunyikan benefit"
-                                            : "Lihat benefit promo"}
-                                        {isModifierPromoDetailOpen ? (
-                                            <IconChevronUp size={14} />
-                                        ) : (
-                                            <IconChevronDown size={14} />
-                                        )}
-                                    </button>
-                                    {isModifierPromoDetailOpen && (
-                                        <div className="mt-3 rounded-2xl border border-rose-200/70 bg-white/80 px-4 py-3 text-xs text-rose-700 dark:border-rose-900/30 dark:bg-slate-900/60 dark:text-rose-200">
-                                            <div className="grid gap-2">
-                                            <div className="flex items-center justify-between gap-3">
-                                                <span>Rule</span>
-                                                <strong className="text-right">
-                                                    {modifierModalPromo.title ||
-                                                        "Promo"}
-                                                </strong>
-                                            </div>
-                                            {modifierModalProduct?.pricing_badge
-                                                ?.pricing_rule?.kind ===
-                                                "buy_x_get_y" && (
-                                                <>
-                                                    <div className="flex items-start justify-between gap-3">
-                                                        <span>Syarat beli</span>
-                                                        <strong className="text-right">
-                                                            {formatRuleItems(
-                                                                modifierModalProduct
-                                                                    ?.pricing_badge
-                                                                    ?.pricing_rule
-                                                                    ?.buy_items ||
-                                                                    []
-                                                            ) || "-"}
-                                                        </strong>
-                                                    </div>
-                                                    <div className="flex items-start justify-between gap-3">
-                                                        <span>Bonus</span>
-                                                        <strong className="text-right">
-                                                            {formatRuleItems(
-                                                                modifierModalProduct
-                                                                    ?.pricing_badge
-                                                                    ?.pricing_rule
-                                                                    ?.get_items ||
-                                                                    []
-                                                            ) || "-"}
-                                                        </strong>
-                                                    </div>
-                                                    {modifierModalProduct
-                                                        ?.pricing_badge
-                                                        ?.pricing_rule
-                                                        ?.get_items?.some(
-                                                            (rewardItem) =>
-                                                                Number(
-                                                                    rewardItem.product_id ||
-                                                                        0
-                                                                ) !==
-                                                                Number(
-                                                                    modifierModalProduct?.id ||
-                                                                        0
-                                                                )
-                                                        ) ? (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() =>
-                                                                handleAddRewardProducts(
-                                                                    modifierModalProduct
-                                                                        ?.pricing_badge
-                                                                        ?.pricing_rule
-                                                                )
-                                                            }
-                                                            className="mt-2 inline-flex items-center justify-center rounded-xl border border-primary-200 bg-primary-50 px-3 py-2 text-xs font-semibold text-primary-700 hover:bg-primary-100 dark:border-primary-900/40 dark:bg-primary-950/30 dark:text-primary-300 dark:hover:bg-primary-950/50"
-                                                        >
-                                                            Tambah item bonus ke keranjang
-                                                        </button>
-                                                    ) : null}
-                                                </>
-                                            )}
-                                            <div className="flex items-center justify-between gap-3">
-                                                <span>Qty dipilih</span>
-                                                <strong>
-                                                    {modifierModalQuantity}
-                                                </strong>
-                                                </div>
-                                                <div className="flex items-center justify-between gap-3">
-                                                    <span>Estimasi subtotal</span>
-                                                    <strong>
-                                                        {formatPrice(
-                                                            modifierModalPromoBenefit.lineTotal
-                                                        )}
-                                                    </strong>
-                                                </div>
-                                                {modifierModalPromoBenefit.savings >
-                                                0 ? (
-                                                    <div className="flex items-center justify-between gap-3">
-                                                        <span>Estimasi hemat</span>
-                                                        <strong>
-                                                            {formatPrice(
-                                                                modifierModalPromoBenefit.savings
-                                                            )}
-                                                        </strong>
-                                                    </div>
-                                                ) : null}
-                                                {modifierModalPromo.detail ? (
-                                                    <p className="pt-1 leading-5 text-rose-600 dark:text-rose-300">
-                                                        {
-                                                            modifierModalPromo.detail
-                                                        }
-                                                    </p>
-                                                ) : null}
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-
-                            {!modifierModalCartTargetId && (
-                                <div className="mx-5 mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/30">
-                                    <div className="flex items-center justify-between gap-3">
-                                        <div>
-                                            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                                                Quantity
-                                            </p>
-                                            <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-                                                Tentukan jumlah item sebelum dimasukkan ke keranjang.
-                                            </p>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <button
-                                                type="button"
-                                                onClick={() =>
-                                                    setModifierModalQuantity((current) =>
-                                                        Math.max(1, current - 1)
-                                                    )
-                                                }
-                                                className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
-                                            >
-                                                -
-                                            </button>
-                                            <div className="min-w-[56px] rounded-xl bg-white px-3 py-2 text-center text-sm font-bold text-slate-900 dark:bg-slate-900 dark:text-white">
-                                                {modifierModalQuantity}
-                                            </div>
-                                            <button
-                                                type="button"
-                                                onClick={() =>
-                                                    setModifierModalQuantity((current) =>
-                                                        current + 1
-                                                    )
-                                                }
-                                                className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
-                                            >
-                                                +
-                                            </button>
-                                        </div>
-                                    </div>
-                                    <div className="mt-3 flex items-center justify-between text-sm">
-                                        <span className="text-slate-500 dark:text-slate-400">
-                                            Estimasi subtotal item
-                                        </span>
-                                        <div className="text-right">
-                                            {modifierModalPromo.promoEligible &&
-                                            modifierModalPromoBenefit.lineTotal <
-                                                modifierModalPromo.baseLineTotal ? (
-                                                <p className="text-xs text-slate-400 line-through">
-                                                    {formatPrice(
-                                                        modifierModalPromo.baseLineTotal
-                                                    )}
-                                                </p>
-                                            ) : null}
-                                            <p className="font-semibold text-primary-600 dark:text-primary-400">
-                                                {formatPrice(
-                                                    modifierModalPromoBenefit.lineTotal
-                                                )}
-                                            </p>
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-
-                            <div className="space-y-3 px-5 py-4">
-                                {(modifierModalProduct.modifier_options || []).map(
-                                    (option) => {
-                                        const active =
-                                            selectedModifierOptionIds.includes(
-                                                option.id
-                                            );
-
-                                        return (
-                                            <button
-                                                key={option.id}
-                                                type="button"
-                                                onClick={() =>
-                                                    handleToggleModifierOption(
-                                                        option.id
-                                                    )
-                                                }
-                                                className={`flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left transition ${
-                                                    active
-                                                        ? "border-primary-500 bg-primary-50 dark:border-primary-400 dark:bg-primary-950/30"
-                                                        : "border-slate-200 bg-white hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-slate-600"
-                                                }`}
-                                            >
-                                                <div>
-                                                    <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
-                                                        {option.name}
-                                                    </p>
-                                                    <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                                                        Tambahan {formatPrice(option.price)}
-                                                    </p>
-                                                </div>
-                                                <div
-                                                    className={`h-5 w-5 rounded-md border ${
-                                                        active
-                                                            ? "border-primary-500 bg-primary-500"
-                                                            : "border-slate-300 dark:border-slate-600"
-                                                    }`}
-                                                />
-                                            </button>
-                                        );
-                                    }
-                                )}
-                            </div>
-                        </div>
-
-                        <div className="border-t border-slate-200 bg-slate-50 px-5 py-4 dark:border-slate-800 dark:bg-slate-950/40">
-                            <div className="mb-3 flex items-center justify-between text-sm">
-                                <span className="text-slate-500 dark:text-slate-400">
-                                    Total tambahan
-                                </span>
-                                <span className="font-semibold text-primary-600 dark:text-primary-400">
-                                    {formatPrice(
-                                        modifierModalSelectedModifierTotal *
-                                            Math.max(
-                                                1,
-                                                modifierModalCartTargetId
-                                                    ? 1
-                                                    : modifierModalQuantity
-                                            )
-                                    )}
-                                </span>
-                            </div>
-                            <div className="grid grid-cols-2 gap-3">
-                                <button
-                                    type="button"
-                                    onClick={() => submitModifierModal(false)}
-                                    disabled={isModifierModalSubmitting}
-                                    className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
-                                >
-                                    {modifierModalCartTargetId
-                                        ? "Tutup"
-                                        : "Tanpa topping"}
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => submitModifierModal(true)}
-                                    disabled={isModifierModalSubmitting}
-                                    className="rounded-2xl bg-primary-500 px-4 py-3 text-sm font-semibold text-white hover:bg-primary-600 disabled:opacity-50"
-                                >
-                                    {isModifierModalSubmitting
-                                        ? "Menyimpan..."
-                                        : modifierModalCartTargetId
-                                        ? "Simpan topping"
-                                        : "Tambah ke keranjang"}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
+            <ModifierOptionsModal
+                product={modifierModalProduct}
+                cartTargetId={modifierModalCartTargetId}
+                quantity={modifierModalQuantity}
+                onQuantityChange={setModifierModalQuantity}
+                selectedModifierOptionIds={selectedModifierOptionIds}
+                onToggleModifierOption={handleToggleModifierOption}
+                selectedModifierTotal={modifierModalSelectedModifierTotal}
+                promo={modifierModalPromo}
+                promoBenefit={modifierModalPromoBenefit}
+                isPromoDetailOpen={isModifierPromoDetailOpen}
+                onTogglePromoDetail={() =>
+                    setIsModifierPromoDetailOpen((current) => !current)
+                }
+                onAddRewardProducts={handleAddRewardProducts}
+                onClose={closeModifierModal}
+                onSubmit={submitModifierModal}
+                isSubmitting={isModifierModalSubmitting}
+            />
 
             {isCustomerInfoModalOpen && (
                 <div className="fixed inset-0 z-[72] flex items-end justify-center p-0 sm:items-center sm:p-4">

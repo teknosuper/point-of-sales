@@ -99,13 +99,15 @@ class TableOrderController extends Controller
 
         $validated = $request->validate([
             'cash' => ['required', 'integer', 'min:0'],
+            'payment_method' => ['required', 'string', 'in:cash,qris'],
             'redirect_to' => ['nullable', 'string', 'in:print,list,transactions'],
         ]);
 
-        $transaction = $this->tableOrderService->approveCashPayment(
+        $transaction = $this->tableOrderService->approvePayment(
             $tableOrder,
             $request->user(),
-            (int) $validated['cash']
+            (int) $validated['cash'],
+            (string) $validated['payment_method']
         );
 
         $redirectTo = $validated['redirect_to'] ?? 'print';

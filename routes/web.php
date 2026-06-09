@@ -54,6 +54,10 @@ Route::get('/', function () {
     return redirect()->route('login');
 });
 
+Route::get('/daftarmenu', [\App\Http\Controllers\PublicMenuController::class, 'index'])->name('public.menu');
+Route::post('/daftarmenu/products', [\App\Http\Controllers\PublicMenuController::class, 'products'])->name('public.menu.products');
+Route::post('/daftarmenu/promos', [\App\Http\Controllers\PublicMenuController::class, 'promos'])->name('public.menu.promos');
+
 Route::get('/kitchen-entry/{stationSlug}', [KitchenDisplayController::class, 'entry'])
     ->name('kitchen.entry');
 
@@ -72,6 +76,8 @@ Route::post('/order/table/{qrToken}/register-identity', [PublicTableOrderControl
     ->name('table-order.register-identity');
 Route::post('/order/table/{qrToken}/logout', [PublicTableOrderController::class, 'logout'])
     ->name('table-order.logout');
+Route::post('/order/table/{qrToken}/preview', [PublicTableOrderController::class, 'preview'])
+    ->name('table-order.preview');
 Route::post('/order/table/{qrToken}', [PublicTableOrderController::class, 'store'])
     ->name('table-order.store');
 Route::get('/order/status/{accessToken}', [PublicTableOrderController::class, 'status'])
@@ -108,6 +114,7 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
     Route::post('/notifications/low-stock/read-all', [NotificationController::class, 'markAllLowStockRead'])->name('notifications.stock.readAll');
     Route::post('/notifications/read', [NotificationController::class, 'markRead'])->name('notifications.read');
     Route::post('/notifications/read-all', [NotificationController::class, 'markAllRead'])->name('notifications.readAll');
+    Route::get('/notifications/snapshot', [NotificationController::class, 'snapshot'])->name('notifications.snapshot');
     Route::get('/regions/regencies', [\App\Http\Controllers\RegionController::class, 'regencies'])->name('regions.regencies');
     Route::get('/regions/districts', [\App\Http\Controllers\RegionController::class, 'districts'])->name('regions.districts');
     Route::get('/regions/villages', [\App\Http\Controllers\RegionController::class, 'villages'])->name('regions.villages');

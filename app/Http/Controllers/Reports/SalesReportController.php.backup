@@ -14,7 +14,6 @@ use App\Models\TransactionTenantAllocationItem;
 use App\Models\User;
 use Carbon\Carbon;
 use App\Services\OutletResolver;
-use App\Services\SalesAnalyticsService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Schema;
@@ -23,8 +22,7 @@ use Inertia\Inertia;
 class SalesReportController extends Controller
 {
     public function __construct(
-        private readonly OutletResolver $outletResolver,
-        private readonly SalesAnalyticsService $analyticsService
+        private readonly OutletResolver $outletResolver
     ) {}
 
     /**
@@ -184,21 +182,10 @@ class SalesReportController extends Controller
         $dailyRecap = $this->buildAllocationDailyRecap($tenantMetricAllocations);
         $targets = $this->targetSummary($summary, $outletId, $filters);
 
-        // Build enhanced analytics using service
-        $analytics = [
-            'hourly_breakdown' => $this->analyticsService->buildHourlyBreakdown($aggregateQuery),
-            'daily_breakdown' => $this->analyticsService->buildDailyBreakdown($aggregateQuery),
-            'top_products' => $this->analyticsService->buildTopProducts($transactionIds, 10),
-            'slow_moving_products' => $this->analyticsService->buildSlowMovingProducts($transactionIds, 10),
-            'category_breakdown' => $this->analyticsService->buildCategoryBreakdown($transactionIds),
-            'payment_method_breakdown' => $this->analyticsService->buildPaymentMethodBreakdown($aggregateQuery),
-        ];
-
         return Inertia::render('Dashboard/Reports/Sales', [
             'transactions' => $transactions,
             'summary' => $summary,
             'targets' => $targets,
-            'analytics' => $analytics,
             'tenantSettlement' => [
                 'summary' => [
                     'allocation_count' => (int) $tenantSummary['allocation_count'],
@@ -320,26 +307,10 @@ class SalesReportController extends Controller
 
         $targets = $this->targetSummary($summary, $tenantOutletId, $filters);
 
-        // Build analytics for tenant workspace - query from transaction (has discount column)
-        $tenantAnalyticsQuery = Transaction::query()
-            ->whereHas('tenantAllocations', fn ($q) => $q->where('tenant_outlet_id', $tenantOutletId))
-            ->when($filters['start_date'] ?? null, fn ($q, $start) => $q->whereDate('created_at', '>=', $start))
-            ->when($filters['end_date'] ?? null, fn ($q, $end) => $q->whereDate('created_at', '<=', $end));
-
-        $analytics = [
-            'hourly_breakdown' => $this->analyticsService->buildHourlyBreakdown((clone $tenantAnalyticsQuery)),
-            'daily_breakdown' => $this->analyticsService->buildDailyBreakdown((clone $tenantAnalyticsQuery)),
-            'top_products' => [],
-            'slow_moving_products' => [],
-            'category_breakdown' => [],
-            'payment_method_breakdown' => $this->analyticsService->buildPaymentMethodBreakdown((clone $tenantAnalyticsQuery)),
-        ];
-
         return Inertia::render('Dashboard/Reports/Sales', [
             'transactions' => $transactions,
             'summary' => $summary,
             'targets' => $targets,
-            'analytics' => $analytics,
             'tenantSettlement' => [
                 'summary' => $tenantSummary,
                 'top_tenants' => $topTenants,

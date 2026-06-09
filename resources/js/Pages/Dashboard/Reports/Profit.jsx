@@ -128,6 +128,41 @@ const SectionCard = ({ title, description, actions = null, children }) => (
     </div>
 );
 
+const StatementTable = ({ rows = [] }) => (
+    <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
+        <table className="w-full">
+            <thead className="bg-slate-50 dark:bg-slate-800/60">
+                <tr>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        Keterangan
+                    </th>
+                    <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        Nilai
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        Catatan
+                    </th>
+                </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {rows.map((row) => (
+                    <tr key={row.label} className={row.emphasis ? "bg-slate-50/70 dark:bg-slate-800/30" : ""}>
+                        <td className="px-4 py-3 text-sm font-medium text-slate-900 dark:text-white">
+                            {row.label}
+                        </td>
+                        <td className={`px-4 py-3 text-right text-sm font-semibold ${row.valueClassName || "text-slate-900 dark:text-white"}`}>
+                            {row.value}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-slate-500 dark:text-slate-400">
+                            {row.note}
+                        </td>
+                    </tr>
+                ))}
+            </tbody>
+        </table>
+    </div>
+);
+
 const toneBadge = (value) =>
     value >= 25
         ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300"
@@ -436,9 +471,9 @@ const ProfitReport = ({
 
     const cards = [
         {
-            title: "Profit Bersih",
+            title: "Laba Bersih",
             value: formatCurrency(summary?.profit_total ?? 0),
-            description: "Akumulasi profit dari transaksi terfilter",
+            description: "Akumulasi laba dari transaksi terfilter",
             icon: <IconCoin />,
             tone: "emerald",
         },
@@ -450,11 +485,11 @@ const ProfitReport = ({
             tone: "blue",
         },
         {
-            title: isTenantWorkspace ? "HPP Tenant" : "Biaya Dasar",
+            title: isTenantWorkspace ? "HPP Tenant" : "Biaya Pokok",
             value: formatCurrency(summary?.base_cost_total ?? 0),
             description: isTenantWorkspace
                 ? "Akumulasi HPP tenant"
-                : "Akumulasi base cost / harga dasar",
+                : "Akumulasi biaya pokok / harga dasar",
             icon: <IconBuildingWarehouse />,
             tone: "slate",
         },
@@ -468,7 +503,7 @@ const ProfitReport = ({
             tone: "amber",
         },
         {
-            title: "Profit Tenant",
+            title: "Laba Tenant",
             value: formatCurrency(summary?.tenant_profit_total ?? 0),
             description: `Diskon tenant ${formatCurrency(summary?.tenant_discount_total ?? 0)}`,
             icon: <IconUsers />,
@@ -493,20 +528,67 @@ const ProfitReport = ({
         });
     }
 
+    const statementRows = useMemo(() => {
+        const rows = [
+            {
+                label: "Omzet / Pendapatan",
+                value: formatCurrency(summary?.revenue_total ?? 0),
+                note: "Total penjualan setelah diskon pada filter aktif.",
+            },
+            {
+                label: isTenantWorkspace ? "Harga Pokok Penjualan" : "Biaya Pokok Penjualan",
+                value: formatCurrency(summary?.base_cost_total ?? 0),
+                note: isTenantWorkspace
+                    ? "Akumulasi HPP tenant dari item yang terjual."
+                    : "Akumulasi biaya dasar item yang terjual.",
+            },
+            {
+                label: isTenantWorkspace ? "Margin Tenant" : "Margin Kotor",
+                value: formatCurrency(summary?.markup_total ?? 0),
+                note: isTenantWorkspace
+                    ? "Selisih harga jual tenant terhadap HPP tenant."
+                    : "Selisih omzet terhadap biaya pokok sebelum rincian pembagian lain.",
+            },
+            {
+                label: "Diskon Tenant",
+                value: formatCurrency(summary?.tenant_discount_total ?? 0),
+                note: "Porsi diskon yang mengurangi sisi tenant.",
+            },
+        ];
+
+        if (!isTenantWorkspace) {
+            rows.push({
+                label: "Diskon Owner",
+                value: formatCurrency(summary?.owner_discount_total ?? 0),
+                note: "Porsi diskon yang mengurangi sisi owner.",
+            });
+        }
+
+        rows.push({
+            label: "Laba Bersih",
+            value: formatCurrency(summary?.profit_total ?? 0),
+            note: `${formatNumber(summary?.orders_count ?? 0)} transaksi • margin ${summary?.margin ?? 0}%`,
+            emphasis: true,
+            valueClassName: "text-emerald-600 dark:text-emerald-400",
+        });
+
+        return rows;
+    }, [isTenantWorkspace, summary]);
+
     return (
         <>
-            <Head title="Laporan Keuntungan" />
+            <Head title="Laporan Laba" />
 
             <div className="space-y-6">
                 <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
                     <div>
                         <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
-                            Laporan Keuntungan
+                            Laporan Laba
                         </h1>
                         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                             {isTenantWorkspace
-                                ? "Cek profit, omzet, biaya dasar, dan diskon untuk tenant aktif."
-                                : "Cek profit, omzet, dan pembagian tenant-owner."}
+                                ? "Cek laba, omzet, biaya dasar, dan diskon untuk tenant aktif."
+                                : "Cek laba, omzet, dan pembagian tenant-owner."}
                         </p>
                     </div>
                     <button
@@ -528,6 +610,13 @@ const ProfitReport = ({
                         <SummaryCard key={card.title} {...card} />
                     ))}
                 </div>
+
+                <SectionCard
+                    title="Ringkasan Laporan"
+                    description="Disusun seperti ringkasan laporan akuntansi agar alur baca omzet, biaya, diskon, dan laba lebih jelas."
+                >
+                    <StatementTable rows={statementRows} />
+                </SectionCard>
 
                 <SectionCard
                     title="Pencapaian Target"
@@ -581,7 +670,7 @@ const ProfitReport = ({
                             <div className="flex items-center justify-between gap-3">
                                 <div>
                                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                                        Target Profit
+                                        Target Laba
                                     </p>
                                     <p className="mt-1 text-xl font-bold text-slate-900 dark:text-white">
                                         {formatCurrency(targets?.profit_actual ?? 0)}
@@ -624,7 +713,7 @@ const ProfitReport = ({
 
                 {showFilters && (
                     <SectionCard
-                        title="Filter Profit Report"
+                        title="Filter Laporan Laba"
                         description={
                             isTenantWorkspace
                                 ? "Gunakan rentang waktu, invoice, kasir, customer, atau item untuk menyempitkan analisis tenant aktif."
@@ -756,15 +845,15 @@ const ProfitReport = ({
                 )}
 
                 <SectionCard
-                    title="Laporan Profit per Item"
-                    description="Ringkasan profit per produk dengan filter lanjutan, pagination, dan export CSV sesuai filter aktif."
+                    title="Laporan Laba per Item"
+                    description="Ringkasan laba per produk dengan filter lanjutan, pagination, dan ekspor CSV sesuai filter aktif."
                     actions={
                         <a
                             href={`${route("reports.profits.items.export")}${exportItemQuery ? `?${exportItemQuery}` : ""}`}
                             className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
                         >
                             <IconSearch size={16} />
-                            Export Item CSV
+                            Ekspor CSV Item
                         </a>
                     }
                 >
@@ -775,25 +864,25 @@ const ProfitReport = ({
                                     <thead>
                                         <tr className="border-b border-slate-100 dark:border-slate-800">
                                             <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500">
-                                                Item
+                                                Produk
                                             </th>
                                             <th className="px-4 py-3 text-center text-xs font-semibold uppercase text-slate-500">
-                                                Order
+                                                Transaksi
                                             </th>
                                             <th className="px-4 py-3 text-center text-xs font-semibold uppercase text-slate-500">
-                                                Qty
+                                                Kuantitas
                                             </th>
                                             <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500">
                                                 Omzet
                                             </th>
                                             <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500">
-                                                Base Cost
+                                                Biaya Pokok
                                             </th>
                                             <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500">
-                                                Gross Profit
+                                                Laba Kotor
                                             </th>
                                             <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500">
-                                                Split Promo
+                                                Pembagian Diskon
                                             </th>
                                         </tr>
                                     </thead>
@@ -809,8 +898,8 @@ const ProfitReport = ({
                                                             ? `Tenant ${item.tenant_outlet_name || workspace?.active_outlet?.name || "-"}`
                                                             : item.tenant_outlet_name
                                                             ? `Tenant ${item.tenant_outlet_name}`
-                                                            : "Owner direct"}{" "}
-                                                        • Promo lines {formatNumber(item.promo_lines_count)}
+                                                            : "Penjualan langsung owner"}{" "}
+                                                        • Baris promo {formatNumber(item.promo_lines_count)}
                                                     </p>
                                                 </td>
                                                 <td className="px-4 py-4 text-center text-sm text-slate-700 dark:text-slate-300">
@@ -829,7 +918,7 @@ const ProfitReport = ({
                                                     <div>{formatCurrency(item.gross_profit_total)}</div>
                                                     {!isTenantWorkspace ? (
                                                         <div className="text-[11px] font-normal text-slate-500 dark:text-slate-400">
-                                                            Owner net {formatCurrency(item.owner_net_total)}
+                                                            Bersih owner {formatCurrency(item.owner_net_total)}
                                                         </div>
                                                     ) : null}
                                                 </td>
@@ -860,11 +949,11 @@ const ProfitReport = ({
 
                 <div className="grid gap-6 xl:grid-cols-[1.6fr,1fr]">
                     <SectionCard
-                        title="Profit Harian"
+                        title="Laba Harian"
                         description={
                             isTenantWorkspace
-                                ? "Klik salah satu hari untuk melihat snapshot omzet tenant, cost, profit, dan diskon pada hari itu."
-                                : "Klik salah satu hari untuk melihat snapshot omzet, cost, markup, tenant, dan diskon pada hari itu."
+                                ? "Klik salah satu hari untuk melihat snapshot omzet tenant, biaya pokok, laba, dan diskon pada hari itu."
+                                : "Klik salah satu hari untuk melihat snapshot omzet, biaya pokok, markup, tenant, dan diskon pada hari itu."
                         }
                     >
                         {dailyProfitTrend.length > 0 ? (
@@ -877,13 +966,13 @@ const ProfitReport = ({
                                                     Hari
                                                 </th>
                                                 <th className="px-4 py-3 text-center text-xs font-semibold uppercase text-slate-500">
-                                                    Order
+                                                    Transaksi
                                                 </th>
                                                 <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500">
                                                     Omzet
                                                 </th>
                                                 <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500">
-                                                    Profit
+                                                    Laba
                                                 </th>
                                                 <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500">
                                                     Markup
@@ -931,7 +1020,7 @@ const ProfitReport = ({
                                     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                                         <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/30">
                                             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                                                Profit Hari Terpilih
+                                                    Laba Hari Terpilih
                                             </p>
                                             <p className="mt-2 text-xl font-bold text-slate-900 dark:text-white">
                                                 {formatCurrency(activeDaySummary.profit_total)}
@@ -942,7 +1031,7 @@ const ProfitReport = ({
                                         </div>
                                         <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/30">
                                             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                                                {isTenantWorkspace ? "Margin Tenant" : "Markup Owner Direct"}
+                                                {isTenantWorkspace ? "Margin Tenant" : "Markup Penjualan Langsung Owner"}
                                             </p>
                                             <p className="mt-2 text-xl font-bold text-slate-900 dark:text-white">
                                                 {formatCurrency(
@@ -953,8 +1042,8 @@ const ProfitReport = ({
                                             </p>
                                             <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                                                 {isTenantWorkspace
-                                                    ? `Base cost ${formatCurrency(activeDaySummary.base_cost_total)}`
-                                                    : `Revenue owner ${formatCurrency(activeDaySummary.owner_direct_revenue_total)}`}
+                                                    ? `Biaya pokok ${formatCurrency(activeDaySummary.base_cost_total)}`
+                                                    : `Pendapatan owner ${formatCurrency(activeDaySummary.owner_direct_revenue_total)}`}
                                             </p>
                                         </div>
                                         <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/30">
@@ -973,17 +1062,17 @@ const ProfitReport = ({
                             </div>
                         ) : (
                             <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-950/30 dark:text-slate-400">
-                                Belum ada data profit harian untuk rentang filter ini.
+                                Belum ada data laba harian untuk rentang filter ini.
                             </div>
                         )}
                     </SectionCard>
 
                     <SectionCard
-                        title={isTenantWorkspace ? "Ringkasan Tenant Aktif" : "Breakdown Tenant"}
+                    title={isTenantWorkspace ? "Ringkasan Tenant Aktif" : "Rincian Tenant"}
                         description={
                             isTenantWorkspace
-                                ? "Ringkasan omzet, diskon, dan profit untuk tenant aktif."
-                                : "Lihat tenant mana yang paling besar omzet, diskon, dan profitnya. Klik tenant untuk fokus ke ringkasannya."
+                                ? "Ringkasan omzet, diskon, dan laba untuk tenant aktif."
+                                : "Lihat tenant mana yang paling besar omzet, diskon, dan labanya. Klik tenant untuk fokus ke ringkasannya."
                         }
                     >
                         {tenantBreakdown.length > 0 ? (
@@ -1008,7 +1097,7 @@ const ProfitReport = ({
                                                     {tenant.tenant_outlet?.name || `Tenant ${tenant.tenant_outlet_id}`}
                                                 </p>
                                                 <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                                    {tenant.orders_count} order • {tenant.items_sold} item
+                                                    {tenant.orders_count} transaksi • {tenant.items_sold} item
                                                 </p>
                                             </div>
                                             <span
@@ -1038,7 +1127,7 @@ const ProfitReport = ({
                                             </div>
                                             <div>
                                                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                                                    Profit
+                                                    Laba
                                                 </p>
                                                 <p className="font-semibold text-emerald-600 dark:text-emerald-400">
                                                     {formatCurrency(tenant.profit_total)}
@@ -1075,7 +1164,7 @@ const ProfitReport = ({
                                             </div>
                                             <div>
                                                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                                                    Cost Total
+                                                    Biaya Pokok
                                                 </p>
                                                 <p className="font-semibold text-slate-900 dark:text-white">
                                                     {formatCurrency(activeTenantSummary.cost_total)}
@@ -1083,7 +1172,7 @@ const ProfitReport = ({
                                             </div>
                                             <div>
                                                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                                                    Profit
+                                                    Laba
                                                 </p>
                                                 <p className="font-semibold text-emerald-600 dark:text-emerald-400">
                                                     {formatCurrency(activeTenantSummary.profit_total)}
@@ -1095,7 +1184,7 @@ const ProfitReport = ({
                             </div>
                         ) : (
                             <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-950/30 dark:text-slate-400">
-                                Belum ada breakdown tenant pada filter ini.
+                            Belum ada rincian tenant pada filter ini.
                             </div>
                         )}
                     </SectionCard>
@@ -1104,7 +1193,7 @@ const ProfitReport = ({
                 {!isTenantWorkspace ? (
                 <SectionCard
                     title="Markup Owner Outlet"
-                    description="Menunjukkan sumber markup owner berdasarkan item owner direct dan item tenant yang ikut dijual di outlet aktif."
+                    description="Menunjukkan sumber markup owner berdasarkan item penjualan langsung owner dan item tenant yang ikut dijual di outlet aktif."
                     actions={
                         <div className="rounded-2xl bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:bg-slate-950/30 dark:text-slate-400">
                             Markup total {formatCurrency(summary?.markup_total ?? 0)}
@@ -1123,10 +1212,10 @@ const ProfitReport = ({
                                             Item
                                         </th>
                                         <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500">
-                                            Revenue
+                                            Pendapatan
                                         </th>
                                         <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500">
-                                            Base Cost
+                                            Biaya Pokok
                                         </th>
                                         <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500">
                                             Markup
@@ -1146,7 +1235,7 @@ const ProfitReport = ({
                                                     </p>
                                                     <p className="text-xs text-slate-500 dark:text-slate-400">
                                                         {item.kind === "owner_direct"
-                                                            ? "Produk owner direct"
+                                                            ? "Produk penjualan langsung owner"
                                                             : "Produk tenant di outlet ini"}
                                                     </p>
                                                 </div>
@@ -1187,8 +1276,8 @@ const ProfitReport = ({
 
                 {cashierSummary.length > 0 && (
                     <SectionCard
-                        title="Ringkasan Profit per Kasir"
-                        description="Melihat kontribusi kasir terhadap omzet, profit, dan komposisi walk-in vs customer terdaftar."
+                        title="Ringkasan Laba per Kasir"
+                        description="Melihat kontribusi kasir terhadap omzet, laba, dan komposisi walk-in vs customer terdaftar."
                     >
                         <div className="overflow-x-auto">
                             <table className="w-full">
@@ -1198,7 +1287,7 @@ const ProfitReport = ({
                                             Kasir
                                         </th>
                                         <th className="px-4 py-3 text-center text-xs font-semibold uppercase text-slate-500">
-                                            Order
+                                            Transaksi
                                         </th>
                                         <th className="px-4 py-3 text-center text-xs font-semibold uppercase text-slate-500">
                                             Walk-in
@@ -1207,10 +1296,10 @@ const ProfitReport = ({
                                             Omzet
                                         </th>
                                         <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500">
-                                            Profit
+                                            Laba
                                         </th>
                                         <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500">
-                                            Avg Profit
+                                            Rata-rata Laba
                                         </th>
                                     </tr>
                                 </thead>
@@ -1222,7 +1311,7 @@ const ProfitReport = ({
                                                     {item.cashier_name || "-"}
                                                 </p>
                                                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                                                    Walk-in share {item.walk_in_share}%
+                                                    Porsi walk-in {item.walk_in_share}%
                                                 </p>
                                             </td>
                                             <td className="px-4 py-4 text-center text-sm text-slate-700 dark:text-slate-300">
@@ -1249,11 +1338,11 @@ const ProfitReport = ({
                 )}
 
                 <SectionCard
-                    title="Transaksi Profit Detail"
+                    title="Detail Transaksi Laba"
                     description={
                         isTenantWorkspace
-                            ? "Digunakan untuk audit invoice tenant: omzet tenant, base cost, diskon, dan profit yang tercatat."
-                            : "Digunakan untuk audit invoice per invoice: omzet, base cost, markup owner, revenue tenant, dan profit yang tercatat."
+                            ? "Digunakan untuk audit invoice tenant: omzet tenant, biaya pokok, diskon, dan laba yang tercatat."
+                            : "Digunakan untuk audit per invoice: omzet, biaya pokok, markup owner, pendapatan tenant, dan laba yang tercatat."
                     }
                 >
                     {rows.length > 0 ? (
@@ -1272,16 +1361,16 @@ const ProfitReport = ({
                                                 Omzet
                                             </th>
                                             <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500">
-                                                Base Cost
+                                                Biaya Pokok
                                             </th>
                                             <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500">
                                                 Markup
                                             </th>
                                             <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500">
-                                                Tenant Revenue
+                                                Pendapatan Tenant
                                             </th>
                                             <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500">
-                                                Profit
+                                                Laba
                                             </th>
                                         </tr>
                                     </thead>
@@ -1331,10 +1420,10 @@ const ProfitReport = ({
                                                         {!isTenantWorkspace ? (
                                                             <>
                                                                 <div className="text-[11px] font-normal text-slate-500 dark:text-slate-400">
-                                                                    Owner cut {formatCurrency(trx.owner_discount_total ?? 0)}
+                                                                    Diskon owner {formatCurrency(trx.owner_discount_total ?? 0)}
                                                                 </div>
                                                                 <div className="text-[11px] font-normal text-slate-500 dark:text-slate-400">
-                                                                    Owner net {formatCurrency(trx.owner_net_total ?? 0)}
+                                                                    Bersih owner {formatCurrency(trx.owner_net_total ?? 0)}
                                                                 </div>
                                                             </>
                                                         ) : (
@@ -1376,7 +1465,7 @@ const ProfitReport = ({
                                                                             </div>
                                                                             <div className="text-slate-600 dark:text-slate-300">
                                                                                 {!isTenantWorkspace ? (
-                                                                                    <div>Owner cut {formatCurrency(item.owner_discount_total ?? 0)}</div>
+                                                                                    <div>Diskon owner {formatCurrency(item.owner_discount_total ?? 0)}</div>
                                                                                 ) : null}
                                                                                 <div>Base cost {formatCurrency(item.base_cost_total ?? 0)}</div>
                                                                             </div>
@@ -1399,7 +1488,7 @@ const ProfitReport = ({
                     ) : (
                         <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-950/30 dark:text-slate-400">
                             <IconDatabaseOff size={24} className="mx-auto mb-3 opacity-60" />
-                            Tidak ada transaksi profit untuk filter ini.
+                            Tidak ada transaksi laba untuk filter ini.
                         </div>
                     )}
                 </SectionCard>

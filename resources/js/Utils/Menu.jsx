@@ -40,8 +40,9 @@ function menuItem(title, href, active, icon, permissions = []) {
 }
 
 export default function Menu() {
-    const { url } = usePage();
+    const { url, props } = usePage();
     const { canAny, isSuperAdmin } = useAuthorization();
+    const isTenantWorkspace = props?.activeOutlet?.outlet_type === "tenant";
     const canAccess = (permissions = []) =>
         permissions.length === 0 ? true : isSuperAdmin() || canAny(permissions);
 
@@ -333,13 +334,17 @@ export default function Menu() {
                     <IconChartBar size={20} strokeWidth={1.5} />,
                     ["reports-access"]
                 ),
-                menuItem(
-                    "Statistik Outlet",
-                    route("reports.outlet-analytics.index"),
-                    url.startsWith("/dashboard/reports/outlet-analytics"),
-                    <IconChartBarPopular size={20} strokeWidth={1.5} />,
-                    ["reports-access"]
-                ),
+                ...(!isTenantWorkspace
+                    ? [
+                          menuItem(
+                              "Statistik Outlet",
+                              route("reports.outlet-analytics.index"),
+                              url.startsWith("/dashboard/reports/outlet-analytics"),
+                              <IconChartBarPopular size={20} strokeWidth={1.5} />,
+                              ["reports-access"]
+                          ),
+                      ]
+                    : []),
             ],
         },
         {

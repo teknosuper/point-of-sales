@@ -272,6 +272,65 @@ export const resolveBuyGetBreakdown = ({
     };
 };
 
+export const buildCartPromoState = ({
+    cartItem,
+    pricingItem = null,
+    fallbackProduct = null,
+    formatPrice = defaultFormatPrice,
+}) => {
+    const resolvedLine = resolveCartPricingLine(cartItem, pricingItem);
+    const pricingRule = pricingItem?.pricing_rule || null;
+    const fallbackRule = fallbackProduct?.pricing_badge?.pricing_rule || null;
+    const previewRule = pricingRule || fallbackRule;
+    const promoSummary = promoBadgeSummary(
+        previewRule,
+        pricingItem?.pricing_group_label || null
+    );
+    const isCrossProductBuyGet =
+        previewRule?.kind === "buy_x_get_y" &&
+        Array.isArray(previewRule?.get_items) &&
+        previewRule.get_items.some(
+            (rewardItem) =>
+                Number(rewardItem.product_id || 0) !==
+                Number(cartItem?.product_id || 0)
+        );
+    const latentPromoPreview =
+        !pricingRule && previewRule
+            ? promoBenefitPreview({
+                  rule: previewRule,
+                  quantity: Number(cartItem?.qty || 1),
+                  baseUnitPrice: resolvedLine.baseUnitPrice,
+                  effectiveUnitPrice: resolvedLine.baseUnitPrice,
+                  productId: cartItem?.product_id,
+                  formatPrice,
+              })
+            : null;
+    const buyGetBreakdown = resolveBuyGetBreakdown({
+        rule: previewRule,
+        ruleKind: pricingRule?.kind || null,
+        quantity: Number(cartItem?.qty || 1),
+        baseUnitPrice: resolvedLine.baseUnitPrice,
+        discountTotal: resolvedLine.discountTotal,
+        productId: cartItem?.product_id,
+    });
+    const modifierTotal = (cartItem?.modifiers || []).reduce(
+        (sum, modifier) =>
+            sum + Number(modifier?.total_price ?? modifier?.price ?? 0),
+        0
+    );
+
+    return {
+        resolvedLine,
+        pricingRule,
+        previewRule,
+        promoSummary,
+        isCrossProductBuyGet,
+        latentPromoPreview,
+        buyGetBreakdown,
+        modifierTotal,
+    };
+};
+
 export const promoMetaText = (
     item,
     { compact = false, formatPrice = defaultFormatPrice } = {}

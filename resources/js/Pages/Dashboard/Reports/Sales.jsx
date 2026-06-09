@@ -6,6 +6,16 @@ import Button from "@/Components/Dashboard/Button";
 import Table from "@/Components/Dashboard/Table";
 import Pagination from "@/Components/Dashboard/Pagination";
 import {
+    HourlyBreakdownChart,
+    DailyBreakdownChart,
+    TopProductsChart,
+    CategoryBreakdownChart,
+    PaymentMethodChart,
+    SlowMovingProductsTable,
+    DetailedProductsTable,
+    ProductDetailModal,
+} from "@/Components/Dashboard/Charts/SalesAnalyticsCharts";
+import {
     IconChevronDown,
     IconChevronUp,
     IconCoin,
@@ -92,8 +102,10 @@ const Sales = ({
     customers,
     tenantOutlets = [],
     workspace = {},
+    analytics = {},
 }) => {
     const isTenantWorkspace = Boolean(workspace?.is_tenant_workspace);
+    const [productDetailModal, setProductDetailModal] = useState(null);
     const [settlementModal, setSettlementModal] = useState({
         open: false,
         allocation: null,
@@ -291,6 +303,48 @@ const Sales = ({
         filterData.tenant_outlet_id ||
         filterData.settlement_status;
 
+    // Date presets
+    const datePresets = [
+        { label: 'Hari Ini', value: 'today' },
+        { label: 'Kemarin', value: 'yesterday' },
+        { label: '7 Hari Terakhir', value: '7days' },
+        { label: '1 Bulan Terakhir', value: '1month' },
+    ];
+
+    const applyDatePreset = (preset) => {
+        const today = new Date();
+        let startDate = '';
+        let endDate = today.toISOString().split('T')[0];
+
+        switch (preset) {
+            case 'today':
+                startDate = endDate;
+                break;
+            case 'yesterday':
+                const yesterday = new Date(today);
+                yesterday.setDate(yesterday.getDate() - 1);
+                startDate = yesterday.toISOString().split('T')[0];
+                endDate = startDate;
+                break;
+            case '7days':
+                const sevenDaysAgo = new Date(today);
+                sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+                startDate = sevenDaysAgo.toISOString().split('T')[0];
+                break;
+            case '1month':
+                const oneMonthAgo = new Date(today);
+                oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+                startDate = oneMonthAgo.toISOString().split('T')[0];
+                break;
+        }
+
+        setFilterData((prev) => ({
+            ...prev,
+            start_date: startDate,
+            end_date: endDate,
+        }));
+    };
+
     const safeSummary = {
         orders_count: summary?.orders_count ?? 0,
         revenue_total: summary?.revenue_total ?? 0,
@@ -415,6 +469,180 @@ const Sales = ({
                         </a>
                     </div>
                 </div>
+
+                {/* Filters Panel - Collapsible */}
+                {showFilters && (
+                    <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">
+                        <div className="flex items-center justify-between mb-4">
+                            <div className="flex items-center gap-2">
+                                <IconCalendar size={20} className="text-slate-400" />
+                                <h3 className="text-base font-semibold text-slate-900 dark:text-white">
+                                    Filter Laporan
+                                </h3>
+                                {hasActiveFilters && (
+                                    <span className="rounded-full bg-primary-100 px-2 py-0.5 text-xs font-semibold text-primary-700 dark:bg-primary-900/50 dark:text-primary-400">
+                                        Aktif
+                                    </span>
+                                )}
+                            </div>
+                            {/* Date Presets - Quick filters */}
+                            <div className="flex items-center gap-2">
+                                {datePresets.map((preset) => (
+                                    <button
+                                        key={preset.value}
+                                        type="button"
+                                        onClick={() => applyDatePreset(preset.value)}
+                                        className="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-primary-100 dark:hover:bg-primary-900/50 hover:text-primary-700 dark:hover:text-primary-300 transition-colors"
+                                    >
+                                        {preset.label}
+                                    </button>
+                                ))}
+                                {hasActiveFilters && (
+                                    <button
+                                        type="button"
+                                        onClick={resetFilters}
+                                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                                    >
+                                        <IconX size={14} />
+                                        Reset
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+
+                        <form onSubmit={applyFilters}>
+                            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-6">
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                                        Tanggal Mulai
+                                    </label>
+                                    <input
+                                        type="date"
+                                        value={filterData.start_date}
+                                        onChange={(e) =>
+                                            handleChange(
+                                                "start_date",
+                                                e.target.value
+                                            )
+                                        }
+                                        className="w-full h-11 px-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                                        Tanggal Akhir
+                                    </label>
+                                    <input
+                                        type="date"
+                                        value={filterData.end_date}
+                                        onChange={(e) =>
+                                            handleChange(
+                                                "end_date",
+                                                e.target.value
+                                            )
+                                        }
+                                        className="w-full h-11 px-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                                        Invoice
+                                    </label>
+                                    <input
+                                        type="text"
+                                        placeholder="TRX-..."
+                                        value={filterData.invoice}
+                                        onChange={(e) =>
+                                            handleChange(
+                                                "invoice",
+                                                e.target.value
+                                            )
+                                        }
+                                        className="w-full h-11 px-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 placeholder-slate-400 focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all"
+                                    />
+                                </div>
+                                <InputSelect
+                                    label="Kasir"
+                                    data={cashiers}
+                                    selected={selectedCashier}
+                                    setSelected={handleSelectCashier}
+                                    placeholder="Semua kasir"
+                                    searchable
+                                />
+                                <InputSelect
+                                    label="Pelanggan"
+                                    data={customerOptions}
+                                    selected={selectedCustomer}
+                                    setSelected={handleSelectCustomer}
+                                    placeholder="Semua pelanggan / umum"
+                                    searchable
+                                />
+                                {!isTenantWorkspace ? (
+                                    <div>
+                                        <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                            Tenant
+                                        </label>
+                                        <select
+                                            value={filterData.tenant_outlet_id}
+                                            onChange={(e) =>
+                                                handleChange(
+                                                    "tenant_outlet_id",
+                                                    e.target.value
+                                                )
+                                            }
+                                            className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-slate-800 transition-all focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                                        >
+                                            <option value="">Semua tenant</option>
+                                            {tenantOutlets.map((tenant) => (
+                                                <option
+                                                    key={tenant.id}
+                                                    value={tenant.id}
+                                                >
+                                                    {tenant.name}
+                                                    {tenant.code
+                                                        ? ` (${tenant.code})`
+                                                        : ""}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                ) : null}
+                                <div>
+                                    <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                        Status Settlement
+                                    </label>
+                                    <select
+                                        value={filterData.settlement_status}
+                                        onChange={(e) =>
+                                            handleChange(
+                                                "settlement_status",
+                                                e.target.value
+                                            )
+                                        }
+                                        className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-slate-800 transition-all focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                                    >
+                                        <option value="">Semua status</option>
+                                        <option value="outstanding">
+                                            Outstanding
+                                        </option>
+                                        <option value="settled">
+                                            Settled
+                                        </option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div className="flex justify-end gap-2 mt-4">
+                                <button
+                                    type="submit"
+                                    className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-primary-500 hover:bg-primary-600 text-white font-medium transition-colors"
+                                >
+                                    <IconSearch size={18} />
+                                    Terapkan Filter
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                )}
 
                 {/* Summary Cards */}
                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -780,153 +1008,50 @@ const Sales = ({
                     )}
                 </div>
 
-                {/* Filters Panel */}
-                {showFilters && (
-                    <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 animate-slide-up">
-                        <form onSubmit={applyFilters}>
-                            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-6">
-                                <div>
-                                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                                        Tanggal Mulai
-                                    </label>
-                                    <input
-                                        type="date"
-                                        value={filterData.start_date}
-                                        onChange={(e) =>
-                                            handleChange(
-                                                "start_date",
-                                                e.target.value
-                                            )
-                                        }
-                                        className="w-full h-11 px-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                                        Tanggal Akhir
-                                    </label>
-                                    <input
-                                        type="date"
-                                        value={filterData.end_date}
-                                        onChange={(e) =>
-                                            handleChange(
-                                                "end_date",
-                                                e.target.value
-                                            )
-                                        }
-                                        className="w-full h-11 px-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                                        Invoice
-                                    </label>
-                                    <input
-                                        type="text"
-                                        placeholder="TRX-..."
-                                        value={filterData.invoice}
-                                        onChange={(e) =>
-                                            handleChange(
-                                                "invoice",
-                                                e.target.value
-                                            )
-                                        }
-                                        className="w-full h-11 px-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 placeholder-slate-400 focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all"
-                                    />
-                                </div>
-                                <InputSelect
-                                    label="Kasir"
-                                    data={cashiers}
-                                    selected={selectedCashier}
-                                    setSelected={handleSelectCashier}
-                                    placeholder="Semua kasir"
-                                    searchable
-                                />
-                                <InputSelect
-                                    label="Pelanggan"
-                                    data={customerOptions}
-                                    selected={selectedCustomer}
-                                    setSelected={handleSelectCustomer}
-                                    placeholder="Semua pelanggan / umum"
-                                    searchable
-                                />
-                                {!isTenantWorkspace ? (
-                                    <div>
-                                        <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                            Tenant
-                                        </label>
-                                        <select
-                                            value={filterData.tenant_outlet_id}
-                                            onChange={(e) =>
-                                                handleChange(
-                                                    "tenant_outlet_id",
-                                                    e.target.value
-                                                )
-                                            }
-                                            className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-slate-800 transition-all focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
-                                        >
-                                            <option value="">Semua tenant</option>
-                                            {tenantOutlets.map((tenant) => (
-                                                <option
-                                                    key={tenant.id}
-                                                    value={tenant.id}
-                                                >
-                                                    {tenant.name}
-                                                    {tenant.code
-                                                        ? ` (${tenant.code})`
-                                                        : ""}
-                                                </option>
-                                            ))}
-                                        </select>
-                                    </div>
-                                ) : null}
-                                <div>
-                                    <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                        Status Settlement
-                                    </label>
-                                    <select
-                                        value={filterData.settlement_status}
-                                        onChange={(e) =>
-                                            handleChange(
-                                                "settlement_status",
-                                                e.target.value
-                                            )
-                                        }
-                                        className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-slate-800 transition-all focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
-                                    >
-                                        <option value="">Semua status</option>
-                                        <option value="outstanding">
-                                            Outstanding
-                                        </option>
-                                        <option value="settled">
-                                            Settled
-                                        </option>
-                                    </select>
-                                </div>
-                            </div>
-                            <div className="flex justify-end gap-2 mt-4">
-                                {hasActiveFilters && (
-                                    <button
-                                        type="button"
-                                        onClick={resetFilters}
-                                        className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                                    >
-                                        <IconX size={18} />
-                                    </button>
-                                )}
-                                <button
-                                    type="submit"
-                                    className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-primary-500 hover:bg-primary-600 text-white font-medium transition-colors"
-                                >
-                                    <IconSearch size={18} />
-                                    Terapkan
-                                </button>
-                            </div>
-                        </form>
+                {/* Analytics Charts Section */}
+                <div className="space-y-6">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+                                Grafik Analisis Penjualan
+                            </h2>
+                            <p className="text-sm text-slate-500 dark:text-slate-400">
+                                Gambaran umum data penjualan untuk memahami pola dan tren bisnis
+                            </p>
+                        </div>
                     </div>
-                )}
+
+                    {/* Top Charts Row */}
+                    <div className="grid gap-6 lg:grid-cols-2">
+                        <DailyBreakdownChart data={analytics?.daily_breakdown || []} />
+                        <HourlyBreakdownChart data={analytics?.hourly_breakdown || []} />
+                    </div>
+
+                    {/* Products and Category Row */}
+                    <div className="grid gap-6 lg:grid-cols-3">
+                        <TopProductsChart data={analytics?.top_products || []} />
+                        <CategoryBreakdownChart data={analytics?.category_breakdown || []} />
+                        <PaymentMethodChart data={analytics?.payment_method_breakdown || []} />
+                    </div>
+
+                    {/* Detailed Products Table */}
+                    <DetailedProductsTable 
+                        data={analytics?.top_products || []} 
+                        onProductClick={setProductDetailModal} 
+                    />
+
+                    {/* Slow Moving Products */}
+                    <SlowMovingProductsTable data={analytics?.slow_moving_products || []} />
+                </div>
+
+                {/* Product Detail Modal */}
+                <ProductDetailModal 
+                    product={productDetailModal} 
+                    onClose={() => setProductDetailModal(null)} 
+                />
 
                 {/* Table */}
+                {/* Header */}
                 {rows.length > 0 ? (
                     <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
                         <div className="overflow-x-auto">

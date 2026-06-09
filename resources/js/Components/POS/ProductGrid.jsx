@@ -43,6 +43,8 @@ function ProductCard({ product, onAddToCart, isAdding, viewMode = "list" }) {
     const showBadge = Boolean(promoBadge?.label);
     const promoDetail = promoExplanation(promoBadge);
     const isListMode = viewMode === "list";
+    const secondaryLabel =
+        product.tenant_outlet?.name || product.category?.name || "-";
 
     return (
         <button
@@ -124,10 +126,10 @@ function ProductCard({ product, onAddToCart, isAdding, viewMode = "list" }) {
             >
                 <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-1">
-                        {!isListMode && product.tenant_outlet?.name && (
+                        {!isListMode && secondaryLabel !== "-" && (
                             <span className="inline-flex max-w-full items-center rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-800 dark:text-slate-300">
                                 <span className="truncate">
-                                    {product.tenant_outlet.name}
+                                    {secondaryLabel}
                                 </span>
                             </span>
                         )}
@@ -156,15 +158,9 @@ function ProductCard({ product, onAddToCart, isAdding, viewMode = "list" }) {
                     </h3>
                     <div className={`${isListMode ? "mt-0.5" : "mt-0.5"} space-y-0.5 text-[10px] text-slate-500 dark:text-slate-400`}>
                         <p className="truncate">
-                            {isListMode ? (
-                                <span className="font-medium text-slate-600 dark:text-slate-300">
-                                    {product.tenant_outlet?.name || "-"}
-                                </span>
-                            ) : (
-                                <span className="font-medium text-slate-600 dark:text-slate-300">
-                                    {product.tenant_outlet?.name || "-"}
-                                </span>
-                            )}
+                            <span className="font-medium text-slate-600 dark:text-slate-300">
+                                {secondaryLabel}
+                            </span>
                         </p>
                         <p>
                             <span className="font-medium text-slate-600 dark:text-slate-300">

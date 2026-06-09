@@ -1,0 +1,212 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\Category;
+use App\Models\Outlet;
+use App\Models\PricingRule;
+use App\Models\Product;
+use App\Models\ProductOutletStock;
+use App\Services\PricingService;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Schema;
+
+class PublicMenuController extends Controller
+{
+    public function __construct(
+        private readonly PricingService $pricingService
+    ) {}
+
+    public function index(Request $request)
+    {
+        $outlet = $this->resolveOutlet($request);
+        $outletId = $outlet?->id;
+
+        $categories = Category::query()
+            ->select('id', 'name', 'description', 'image')
+            ->orderBy('name')
+            ->get()
+            ->map(fn (Category $category) => [
+                'id' => $category->id,
+                'name' => $category->name,
+                'description' => $category->description,
+                'image' => $category->image,
+            ])
+            ->values();
+
+        $rules = $this->pricingService->getActiveRules(outletId: $outletId);
+
+        $promoSummary = [
+            'active_rules_count' => $rules->count(),
+            'rule_kinds' => $rules->pluck('kind')->unique()->values()->all(),
+            'counts_by_kind' => $rules->groupBy('kind')->map->count()->all(),
+        ];
+
+        $storeName = config('app.name', 'Toko');
+        if ($outlet) {
+            $storeName = $outlet->name ?? $storeName;
+        }
+
+        $tenants = Outlet::whereIn('id', Product::whereNotNull('tenant_outlet_id')->distinct()->pluck('tenant_outlet_id'))
+            ->orderBy('name')
+            ->get(['id', 'name']);
+
+        return inertia('Public/MenuCatalog', [
+            'categories' => $categories,
+            'promoSummary' => $promoSummary,
+            'outlet' => $outlet ? [
+                'id' => $outlet->id,
+                'name' => $outlet->name,
+                'code' => $outlet->code,
+            ] : null,
+            'store' => [
+                'name' => $storeName,
+                'logo' => null,
+            ],
+            'tenants' => $tenants,
+        ]);
+    }
+
+    public function products(Request $request)
+    {
+        $outlet = $this->resolveOutlet($request);
+        $outletId = $outlet?->id;
+
+        $query = Product::query()
+            ->with([
+                'category:id,name,description,image',
+                'tenantOutlet:id,code,slug,name',
+            ])
+            ->select([
+                'id', 'image', 'barcode', 'sku', 'title', 'description',
+                'buy_price', 'sell_price', 'stock', 'category_id',
+                'tenant_outlet_id', 'supports_modifiers', 'created_at',
+            ])
+            ->when($request->filled('search'), fn ($b) => $b->where(fn ($q) => $q
+                ->where('title', 'like', '%'.trim((string) $request->input('search')).'%')
+                ->orWhere('sku', 'like', '%'.trim((string) $request->input('search')).'%')
+                ->orWhere('barcode', 'like', '%'.trim((string) $request->input('search')).'%')
+            ))
+            ->when($request->filled('category_id'), fn ($b) => $b->where('category_id', (int) $request->input('category_id')))
+            ->when($request->filled('tenant_outlet_id'), fn ($b) => $b->where('tenant_outlet_id', (int) $request->input('tenant_outlet_id')))
+            ->orderBy('title');
+
+        if ($this->hasOutletStockTable()) {
+            $query->with(['outletStocks' => fn ($sq) => $outlet ? $sq->where('outlet_id', $outlet->id) : $sq->orderByDesc('stock')]);
+        }
+
+        if (!$request->boolean('include_out_of_stock')) {
+            if ($this->hasOutletStockTable() && $outlet) {
+                $query->whereHas('outletStocks', fn ($sq) => $sq->where('outlet_id', $outlet->id)->where('stock', '>', 0));
+            } else {
+                $query->where('stock', '>', 0);
+            }
+        }
+
+        $products = $query->get()->map(function (Product $p) use ($outlet) {
+            $p->setAttribute('stock', $this->resolveProductStock($p, $outlet?->id));
+            return $p;
+        })->values();
+
+        $pricing = $this->pricingService->previewProducts($products, outletId: $outletId);
+
+        $mapped = $products->map(function (Product $p) use ($pricing) {
+            $preview = $pricing->get($p->id);
+            $rule = $preview['pricing_rule'] ?? null;
+
+            return [
+                'id' => $p->id,
+                'title' => $p->title,
+                'description' => $p->description,
+                'image' => $p->image,
+                'barcode' => $p->barcode,
+                'sku' => $p->sku,
+                'sell_price' => (int) $p->sell_price,
+                'buy_price' => (int) $p->buy_price,
+                'stock' => (int) $p->stock,
+                'effective_price' => (int) ($preview['effective_unit_price'] ?? $p->sell_price),
+                'promo_discount_total' => (int) ($preview['line_discount_total'] ?? 0),
+                'supports_modifiers' => (bool) $p->supports_modifiers,
+                'category' => $p->category ? ['id' => $p->category->id, 'name' => $p->category->name] : null,
+                'tenant_outlet' => $p->tenantOutlet ? ['id' => $p->tenantOutlet->id, 'code' => $p->tenantOutlet->code, 'name' => $p->tenantOutlet->name] : null,
+                'pricing_badge' => $rule ? [
+                    'id' => $rule['id'],
+                    'name' => $rule['name'],
+                    'kind' => $rule['kind'],
+                    'label' => $rule['label'],
+                    'detail' => $rule['detail'] ?? null,
+                    'base_price' => (int) ($preview['base_unit_price'] ?? $p->sell_price),
+                    'promo_price' => $rule['price_context'] ?? false ? (int) ($preview['effective_unit_price'] ?? $p->sell_price) : null,
+                ] : null,
+                'created_at' => optional($p->created_at)->toISOString(),
+            ];
+        })->values();
+
+        if ($request->boolean('promo_only')) {
+            $mapped = $mapped->filter(fn (array $p) => $p['pricing_badge'] !== null)->values();
+        }
+
+        $sort = $request->string('sort')->toString();
+        $mapped = match ($sort) {
+            'price_low' => $mapped->sortBy('effective_price')->values(),
+            'price_high' => $mapped->sortByDesc('effective_price')->values(),
+            'latest' => $mapped->sortByDesc('created_at')->values(),
+            'promo_first' => $mapped->sortByDesc(fn (array $p) => $p['pricing_badge'] !== null)->values(),
+            default => $mapped->sortBy('title')->values(),
+        };
+
+        return response()->json([
+            'data' => $mapped->values()->all(),
+            'meta' => ['total' => $mapped->count(), 'has_promos' => $mapped->contains(fn (array $p) => $p['pricing_badge'] !== null)],
+        ]);
+    }
+
+    public function promos(Request $request)
+    {
+        $outlet = $this->resolveOutlet($request);
+        $rules = $this->pricingService->getActiveRules(outletId: $outlet?->id);
+
+        $payload = $rules->map(fn (PricingRule $r) => [
+            'id' => $r->id,
+            'name' => $r->name,
+            'kind' => $r->kind,
+            'discount_type' => $r->discount_type,
+            'discount_value' => $r->discount_value !== null ? (float) $r->discount_value : null,
+            'starts_at' => optional($r->starts_at)->toISOString(),
+            'ends_at' => optional($r->ends_at)->toISOString(),
+            'badge' => match ($r->kind) {
+                PricingRule::KIND_BUY_X_GET_Y => ['text' => 'Buy X Get Y', 'tone' => 'success'],
+                PricingRule::KIND_BUNDLE_PRICE => ['text' => 'Bundle', 'tone' => 'accent'],
+                PricingRule::KIND_QTY_BREAK => ['text' => 'Grosir', 'tone' => 'warning'],
+                default => ['text' => 'Promo', 'tone' => 'danger'],
+            },
+            'hero_image' => $r->product?->image,
+            'hero_product' => $r->product ? ['id' => $r->product->id, 'title' => $r->product->title, 'sell_price' => (int) $r->product->sell_price, 'image' => $r->product->image] : null,
+        ])->values();
+
+        return response()->json(['data' => $payload, 'meta' => ['total' => $payload->count()]]);
+    }
+
+    private function resolveOutlet(Request $request): ?Outlet
+    {
+        $code = $request->string('outlet_code')->toString();
+        if ($code) {
+            return Outlet::where('code', $code)->active()->first();
+        }
+        return Outlet::where('outlet_type', '!=', 'tenant')->active()->orderBy('name')->first();
+    }
+
+    private function hasOutletStockTable(): bool
+    {
+        return Schema::hasTable('product_outlet_stocks');
+    }
+
+    private function resolveProductStock(Product $product, ?int $outletId): int
+    {
+        if ($outletId && $this->hasOutletStockTable()) {
+            $stock = ProductOutletStock::where('product_id', $product->id)->where('outlet_id', $outletId)->value('stock');
+            return $stock !== null ? (int) $stock : 0;
+        }
+        return (int) ($product->stock ?? 0);
+    }
+}

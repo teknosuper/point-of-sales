@@ -429,11 +429,17 @@ class ProductController extends Controller
     public function edit(Request $request, Product $product)
     {
         $product = $this->resolveWorkspaceProduct($product, $request);
-        if ($this->isTenantOutletWorkspace($request)) {
+        if ($this->isTenantOutletWorkspace($request) && ! $this->canManageTenantProductFields($request, $product)) {
             return $this->rejectStockOnlyUpdate();
         }
         $activeOutletId = $this->outletResolver->resolve($request)?->id;
+        $canManageCatalog = (request()->user()?->can('products-create') ?? false)
+            && ! $this->isTenantOutletWorkspace($request);
         $canManageTenantDiscount = $this->canManageTenantDiscount($request, $product, $activeOutletId);
+        $canManageTenantBasicFields = $this->canManageTenantBasicFields($request, $product, $activeOutletId);
+        $canManageTenantSellPrice = $this->canManageTenantSellPrice($request, $product, $activeOutletId);
+        $canManageOutletStock = $this->canManageOutletStock($request, $product, $activeOutletId);
+        $canManageProductImage = $canManageCatalog || $canManageTenantBasicFields;
 
         // get categories
         $categories = Category::all();
@@ -447,7 +453,7 @@ class ProductController extends Controller
         $outletStocks = Outlet::active()
             ->ordered()
             ->when(
-                $request->user()?->isKitchenWorkspace() && $activeOutletId,
+                ($request->user()?->isKitchenWorkspace() || $this->isTenantOutletWorkspace($request)) && $activeOutletId,
                 fn ($query) => $query->where('id', $activeOutletId)
             )
             ->get(['id', 'name', 'code', 'outlet_type'])
@@ -477,9 +483,14 @@ class ProductController extends Controller
                 : Outlet::active()->ordered()->get(['id', 'name', 'code']),
             'outletStocks' => $outletStocks,
             'capabilities' => [
-                'can_manage_catalog' => request()->user()?->can('products-create') ?? false,
-                'can_manage_pricing' => request()->user()?->can('products-pricing-update') ?? false,
+                'can_manage_catalog' => $canManageCatalog,
+                'can_manage_pricing' => (request()->user()?->can('products-pricing-update') ?? false)
+                    && ! $this->isTenantOutletWorkspace($request),
                 'can_manage_tenant_discount' => $canManageTenantDiscount,
+                'can_manage_tenant_basic_fields' => $canManageTenantBasicFields,
+                'can_manage_tenant_sell_price' => $canManageTenantSellPrice,
+                'can_manage_outlet_stock' => $canManageOutletStock,
+                'can_manage_product_image' => $canManageProductImage,
             ],
         ]);
     }
@@ -487,10 +498,12 @@ class ProductController extends Controller
     public function updateOutletStocks(Request $request, Product $product)
     {
         $product = $this->resolveWorkspaceProduct($product, $request);
-        if ($this->isTenantOutletWorkspace($request)) {
+        $activeOutletId = $this->outletResolver->resolve($request)?->id;
+        $canManageOutletStock = $this->canManageOutletStock($request, $product, $activeOutletId);
+
+        if (! $canManageOutletStock) {
             return $this->rejectStockOnlyUpdate();
         }
-        $activeOutletId = $this->outletResolver->resolve($request)?->id;
 
         $data = $request->validate([
             'notes' => ['nullable', 'string', 'max:255'],
@@ -502,6 +515,10 @@ class ProductController extends Controller
 
         foreach ($data['outlet_stocks'] as $row) {
             $outletId = (int) $row['outlet_id'];
+
+            if ($this->isTenantOutletWorkspace($request) && $activeOutletId && $outletId !== $activeOutletId) {
+                abort(403, 'Tenant hanya dapat memperbarui stok outlet tenant aktif.');
+            }
 
             if ($request->user()?->isKitchenWorkspace() && $activeOutletId && $outletId !== $activeOutletId) {
                 abort(403, 'Akun dapur hanya dapat memperbarui stok outlet aktif.');
@@ -591,15 +608,19 @@ class ProductController extends Controller
     public function update(Request $request, Product $product)
     {
         $product = $this->resolveWorkspaceProduct($product, $request);
-        if ($this->isTenantOutletWorkspace($request)) {
+        if ($this->isTenantOutletWorkspace($request) && ! $this->canManageTenantProductFields($request, $product)) {
             return $this->rejectStockOnlyUpdate();
         }
-        $canManageCatalog = $request->user()?->can('products-create') ?? false;
+        $canManageCatalog = ($request->user()?->can('products-create') ?? false)
+            && ! $this->isTenantOutletWorkspace($request);
         $canManagePricing = $request->user()?->can('products-pricing-update') ?? false;
         $activeOutletId = $this->outletResolver->resolve($request)?->id;
         $canManageTenantDiscount = $this->canManageTenantDiscount($request, $product, $activeOutletId);
+        $canManageTenantBasicFields = $this->canManageTenantBasicFields($request, $product, $activeOutletId);
+        $canManageTenantSellPrice = $this->canManageTenantSellPrice($request, $product, $activeOutletId);
+        $canManageProductImage = $canManageCatalog || $canManageTenantBasicFields;
 
-        if (! $canManageCatalog && ! $canManagePricing && ! $canManageTenantDiscount) {
+        if (! $canManageCatalog && ! $canManagePricing && ! $canManageTenantDiscount && ! $canManageTenantBasicFields && ! $canManageTenantSellPrice) {
             return $this->rejectStockOnlyUpdate();
         }
 
@@ -609,6 +630,7 @@ class ProductController extends Controller
          * validate
          */
         $validated = $request->validate([
+            'image' => 'nullable|mimes:jpg,jpeg,png,webp|max:5120',
             'barcode' => 'required|unique:products,barcode,'.$product->id,
             'sku' => 'nullable|unique:products,sku,'.$product->id,
             'title' => 'required',
@@ -635,7 +657,9 @@ class ProductController extends Controller
         if (! $canManageCatalog) {
             $validated['barcode'] = $product->barcode;
             $validated['sku'] = $product->sku;
-            $validated['title'] = $product->title;
+            $validated['title'] = $canManageTenantBasicFields
+                ? $validated['title']
+                : $product->title;
             $validated['description'] = $product->description;
             $validated['category_id'] = $product->category_id;
             $validated['tenant_outlet_id'] = $product->tenant_outlet_id;
@@ -650,9 +674,15 @@ class ProductController extends Controller
                 ->all();
         }
 
-        if (! $canManagePricing) {
-            $validated['buy_price'] = $product->buy_price;
+        if (! $canManagePricing || ($this->isTenantOutletWorkspace($request) && ! $canManageCatalog)) {
+            $validated['buy_price'] = ($canManagePricing || $canManageTenantSellPrice)
+                ? ($validated['buy_price'] ?? $product->buy_price)
+                : $product->buy_price;
             $validated['sell_price'] = $product->sell_price;
+        }
+
+        if (! $canManageCatalog && ! $canManageTenantSellPrice) {
+            $validated['tenant_hpp_price'] = $product->tenant_hpp_price;
         }
 
         if (! $canManageTenantDiscount) {
@@ -698,7 +728,7 @@ class ProductController extends Controller
         ];
 
         // check image update
-        if ($request->file('image') && $canManageCatalog) {
+        if ($request->hasFile('image') && $canManageProductImage) {
 
             // remove old image
             Storage::disk('local')->delete('public/products/'.basename($product->image));
@@ -1035,6 +1065,71 @@ class ProductController extends Controller
         }
 
         return (int) $product->tenant_outlet_id === (int) $activeOutletId;
+    }
+
+    private function canManageTenantProductFields(Request $request, Product $product): bool
+    {
+        $activeOutletId = $this->outletResolver->resolve($request, $request->user())?->id;
+
+        return $this->canManageTenantBasicFields($request, $product, $activeOutletId)
+            || $this->canManageTenantSellPrice($request, $product, $activeOutletId);
+    }
+
+    private function canManageTenantBasicFields(Request $request, Product $product, ?int $activeOutletId): bool
+    {
+        $user = $request->user();
+
+        if (! $this->isTenantOutletWorkspace($request)) {
+            return false;
+        }
+
+        if (! $user?->can('products-edit')) {
+            return false;
+        }
+
+        if (! $activeOutletId || ! $product->tenant_outlet_id) {
+            return false;
+        }
+
+        return (int) $product->tenant_outlet_id === (int) $activeOutletId;
+    }
+
+    private function canManageTenantSellPrice(Request $request, Product $product, ?int $activeOutletId): bool
+    {
+        $user = $request->user();
+
+        if (! $this->isTenantOutletWorkspace($request)) {
+            return false;
+        }
+
+        if (! $user?->can('products-pricing-update')) {
+            return false;
+        }
+
+        if (! $activeOutletId || ! $product->tenant_outlet_id) {
+            return false;
+        }
+
+        return (int) $product->tenant_outlet_id === (int) $activeOutletId;
+    }
+
+    private function canManageOutletStock(Request $request, Product $product, ?int $activeOutletId): bool
+    {
+        $user = $request->user();
+
+        if (! $user?->can('products-stock-update')) {
+            return false;
+        }
+
+        if ($this->isTenantOutletWorkspace($request)) {
+            if (! $activeOutletId || ! $product->tenant_outlet_id) {
+                return false;
+            }
+
+            return (int) $product->tenant_outlet_id === (int) $activeOutletId;
+        }
+
+        return true;
     }
 
     private function isTenantOutletWorkspace(Request $request): bool

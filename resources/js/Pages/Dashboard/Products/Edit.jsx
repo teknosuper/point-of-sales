@@ -39,6 +39,69 @@ const previewAutoSku = (sku, barcode, title) => {
     return source || "SKU";
 };
 
+const loadImageElement = (src) =>
+    new Promise((resolve, reject) => {
+        const image = new Image();
+        image.onload = () => resolve(image);
+        image.onerror = reject;
+        image.src = src;
+    });
+
+const compressImageFile = async (
+    file,
+    {
+        maxWidth = 1600,
+        maxHeight = 1600,
+        quality = 0.82,
+        outputType = "image/webp",
+    } = {}
+) => {
+    if (!file || !["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+        return file;
+    }
+
+    const objectUrl = URL.createObjectURL(file);
+
+    try {
+        const image = await loadImageElement(objectUrl);
+        const ratio = Math.min(
+            1,
+            maxWidth / image.width || 1,
+            maxHeight / image.height || 1
+        );
+        const targetWidth = Math.max(1, Math.round(image.width * ratio));
+        const targetHeight = Math.max(1, Math.round(image.height * ratio));
+
+        const canvas = document.createElement("canvas");
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
+
+        const context = canvas.getContext("2d");
+        if (!context) {
+            return file;
+        }
+
+        context.drawImage(image, 0, 0, targetWidth, targetHeight);
+
+        const blob = await new Promise((resolve) =>
+            canvas.toBlob(resolve, outputType, quality)
+        );
+
+        if (!blob || blob.size >= file.size) {
+            return file;
+        }
+
+        const normalizedName = file.name.replace(/\.(jpe?g|png|webp)$/i, "");
+
+        return new File([blob], `${normalizedName}.webp`, {
+            type: outputType,
+            lastModified: Date.now(),
+        });
+    } finally {
+        URL.revokeObjectURL(objectUrl);
+    }
+};
+
 export default function Edit({
     categories,
     product,
@@ -51,8 +114,20 @@ export default function Edit({
     const canManagePricing = capabilities?.can_manage_pricing === true;
     const canManageTenantDiscount =
         capabilities?.can_manage_tenant_discount === true;
+    const canManageTenantBasicFields =
+        capabilities?.can_manage_tenant_basic_fields === true;
+    const canManageTenantSellPrice =
+        capabilities?.can_manage_tenant_sell_price === true;
+    const canManageOutletStock =
+        capabilities?.can_manage_outlet_stock === true;
+    const canManageProductImage =
+        capabilities?.can_manage_product_image === true;
     const canSubmitProductForm =
-        canManageCatalog || canManagePricing || canManageTenantDiscount;
+        canManageCatalog ||
+        canManagePricing ||
+        canManageTenantDiscount ||
+        canManageTenantBasicFields ||
+        canManageTenantSellPrice;
 
     const { data, setData, post, processing } = useForm({
         image: "",
@@ -120,11 +195,12 @@ export default function Edit({
         setData("category_id", value?.id || "");
     };
 
-    const handleImageChange = (e) => {
+    const handleImageChange = async (e) => {
         const file = e.target.files[0];
         if (file) {
-            setData("image", file);
-            setImagePreview(URL.createObjectURL(file));
+            const processedFile = await compressImageFile(file);
+            setData("image", processedFile);
+            setImagePreview(URL.createObjectURL(processedFile));
         }
     };
 
@@ -222,17 +298,22 @@ export default function Edit({
                                     </div>
                                 )}
                             </div>
-                            {canManageCatalog ? (
-                                <Input
-                                    type="file"
-                                    label="Ganti Gambar"
-                                    onChange={handleImageChange}
-                                    errors={errors.image}
-                                    accept="image/*"
-                                />
+                            {canManageProductImage ? (
+                                <>
+                                    <Input
+                                        type="file"
+                                        label="Ganti Gambar"
+                                        onChange={handleImageChange}
+                                        errors={errors.image}
+                                        accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+                                    />
+                                    <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                                        Validasi: hanya `JPG`, `JPEG`, `PNG`, atau `WEBP`, maksimal `5 MB`. Gambar akan dikompres otomatis sebelum diunggah jika ukuran file bisa diperkecil.
+                                    </p>
+                                </>
                             ) : (
                                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                                    Gambar produk hanya dapat diganti oleh admin atau pengelola katalog.
+                                    Gambar produk hanya dapat diganti oleh admin atau owner tenant yang memiliki akses ke produk ini.
                                 </p>
                             )}
                         </div>
@@ -243,6 +324,12 @@ export default function Edit({
                         {!canSubmitProductForm ? (
                             <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-100">
                                 Anda sedang memakai mode operasional dapur/tenant. Di halaman ini Anda hanya bisa menyesuaikan stok outlet. Harga jual, harga beli, dan data katalog produk tetap dikelola admin.
+                            </div>
+                        ) : (canManageTenantBasicFields || canManageTenantSellPrice) &&
+                          !canManageCatalog &&
+                          !canManagePricing ? (
+                            <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-100">
+                                Mode owner tenant aktif. Anda bisa mengubah nama produk, HPP tenant, dan harga jual tenant sendiri. Harga outlet tetap dikelola owner outlet. Gunakan tombol <span className="font-semibold">Sesuaikan Stok Hari Ini</span> di halaman daftar produk untuk menyesuaikan stok outlet aktif.
                             </div>
                         ) : canManageTenantDiscount && !canManageCatalog && !canManagePricing ? (
                             <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100">
@@ -356,7 +443,7 @@ export default function Edit({
                                     }
                                     errors={errors.title}
                                     placeholder="Nama produk"
-                                    disabled={!canManageCatalog}
+                                    disabled={!canManageCatalog && !canManageTenantBasicFields}
                                 />
                                 <div className="md:col-span-2">
                                     <Textarea
@@ -495,6 +582,80 @@ export default function Edit({
                                         {Math.max(
                                             0,
                                             Number(data.sell_price || 0) -
+                                                Number(data.buy_price || 0)
+                                        ).toLocaleString("id-ID")}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                        ) : canManageTenantSellPrice ? (
+                        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">
+                            <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-4 flex items-center gap-2">
+                                <IconCurrencyDollar size={18} />
+                                Harga Tenant & Outlet
+                            </h3>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <Input
+                                    type="number"
+                                    label="HPP Tenant"
+                                    value={data.tenant_hpp_price}
+                                    onChange={(e) =>
+                                        setData("tenant_hpp_price", e.target.value)
+                                    }
+                                    errors={errors.tenant_hpp_price}
+                                    placeholder="0"
+                                />
+                                <Input
+                                    type="number"
+                                    label="Harga Jual Tenant"
+                                    value={data.buy_price}
+                                    onChange={(e) =>
+                                        setData("buy_price", e.target.value)
+                                    }
+                                    errors={errors.buy_price}
+                                    placeholder="0"
+                                />
+                                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800">
+                                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                        Harga Outlet
+                                    </p>
+                                    <p className="mt-1 text-lg font-bold text-slate-900 dark:text-slate-100">
+                                        {formatCurrency(product.sell_price || 0)}
+                                    </p>
+                                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                        Nilai ini tetap dikelola owner outlet dan tidak bisa diubah dari workspace tenant.
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div className="mt-4 grid gap-4 rounded-xl border border-success-200 bg-success-50 p-4 dark:border-success-900 dark:bg-success-950/30 md:grid-cols-2">
+                                <div>
+                                    <p className="text-sm font-medium text-success-700 dark:text-success-400">
+                                        Margin Tenant per Item
+                                    </p>
+                                    <p className="mt-1 text-2xl font-bold text-success-600 dark:text-success-500">
+                                        + Rp{" "}
+                                        {Math.max(
+                                            0,
+                                            Number(data.buy_price || 0) -
+                                                Number(
+                                                    data.tenant_hpp_price ||
+                                                        product.tenant_hpp_price ||
+                                                        product.buy_price ||
+                                                        0
+                                                )
+                                        ).toLocaleString("id-ID")}
+                                    </p>
+                                </div>
+                                <div>
+                                    <p className="text-sm font-medium text-success-700 dark:text-success-400">
+                                        Markup Outlet per Item
+                                    </p>
+                                    <p className="mt-1 text-2xl font-bold text-success-600 dark:text-success-500">
+                                        + Rp{" "}
+                                        {Math.max(
+                                            0,
+                                            Number(product.sell_price || 0) -
                                                 Number(data.buy_price || 0)
                                         ).toLocaleString("id-ID")}
                                     </p>
@@ -776,10 +937,13 @@ export default function Edit({
                                 <div>
                                     <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1 flex items-center gap-2">
                                         <IconBuildingStore size={18} />
-                                        Stok per Outlet
+                                        Penyesuaian Stok Outlet
                                     </h3>
                                     <p className="text-xs text-slate-500 dark:text-slate-400">
-                                        Penyesuaian di sini akan dicatat sebagai adjustment stok outlet dan membantu admin menjaga akurasi stok multi outlet.
+                                        Penyesuaian di sini akan dicatat sebagai adjustment stok outlet. Untuk tenant, yang bisa diubah hanya stok outlet aktif miliknya sendiri.
+                                    </p>
+                                    <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
+                                        `Batas restock minimum` dipakai sebagai alarm kapan stok perlu diisi ulang.
                                     </p>
                                 </div>
                                 <div className="flex items-center gap-2">
@@ -809,7 +973,7 @@ export default function Edit({
                                                 <th className="px-4 py-3 text-left font-semibold text-slate-600 dark:text-slate-300">Outlet</th>
                                                 <th className="px-4 py-3 text-left font-semibold text-slate-600 dark:text-slate-300">Tipe</th>
                                                 <th className="px-4 py-3 text-left font-semibold text-slate-600 dark:text-slate-300">Stok Fisik</th>
-                                                <th className="px-4 py-3 text-left font-semibold text-slate-600 dark:text-slate-300">Reorder Level</th>
+                                                <th className="px-4 py-3 text-left font-semibold text-slate-600 dark:text-slate-300">Batas Restock Minimum</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
@@ -840,6 +1004,7 @@ export default function Edit({
                                                             onChange={(e) =>
                                                                 updateOutletStockRow(index, "stock", e.target.value)
                                                             }
+                                                            disabled={!canManageOutletStock}
                                                             className="w-28 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
                                                         />
                                                     </td>
@@ -851,6 +1016,7 @@ export default function Edit({
                                                             onChange={(e) =>
                                                                 updateOutletStockRow(index, "reorder_level", e.target.value)
                                                             }
+                                                            disabled={!canManageOutletStock}
                                                             className="w-28 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
                                                         />
                                                     </td>
@@ -860,25 +1026,33 @@ export default function Edit({
                                     </table>
                                 </div>
 
-                                <Textarea
-                                    label="Catatan Adjustment"
-                                    placeholder="Contoh: hasil audit stok outlet pagi"
-                                    value={stockData.notes}
-                                    onChange={(e) => setStockData("notes", e.target.value)}
-                                    rows={2}
-                                />
+                                {canManageOutletStock ? (
+                                    <>
+                                        <Textarea
+                                            label="Catatan Adjustment"
+                                            placeholder="Contoh: hasil audit stok outlet pagi"
+                                            value={stockData.notes}
+                                            onChange={(e) => setStockData("notes", e.target.value)}
+                                            rows={2}
+                                        />
 
-                                <div className="flex justify-end">
-                                    <button
-                                        type="button"
-                                        onClick={submitOutletStocks}
-                                        disabled={processingStock}
-                                        className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-primary-500 hover:bg-primary-600 text-white font-medium transition-colors disabled:opacity-50"
-                                    >
-                                        <IconDeviceFloppy size={18} />
-                                        {processingStock ? "Menyimpan Stok Outlet..." : "Simpan Stok Outlet"}
-                                    </button>
-                                </div>
+                                        <div className="flex justify-end">
+                                            <button
+                                                type="button"
+                                                onClick={submitOutletStocks}
+                                                disabled={processingStock}
+                                                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-primary-500 hover:bg-primary-600 text-white font-medium transition-colors disabled:opacity-50"
+                                            >
+                                                <IconDeviceFloppy size={18} />
+                                                {processingStock ? "Menyimpan Penyesuaian Stok..." : "Simpan Penyesuaian Stok"}
+                                            </button>
+                                        </div>
+                                    </>
+                                ) : (
+                                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
+                                        Anda tidak memiliki izin untuk mengubah stok outlet dari halaman ini.
+                                    </div>
+                                )}
                             </div>
                             ) : (
                                 <div className="mt-4 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">

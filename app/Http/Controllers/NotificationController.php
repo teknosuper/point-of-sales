@@ -3,12 +3,168 @@
 namespace App\Http\Controllers;
 
 use App\Models\NotificationRead;
+use App\Models\Payable;
 use App\Models\Product;
+use App\Models\ProductOutletStock;
 use App\Models\ProductNotificationRead;
+use App\Models\Receivable;
+use App\Models\TableOrder;
+use App\Services\OutletResolver;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Schema;
 
 class NotificationController extends Controller
 {
+    public function __construct(
+        private readonly OutletResolver $outletResolver
+    ) {}
+
+    public function snapshot(Request $request)
+    {
+        $userId = $request->user()->id;
+        $activeOutlet = $this->outletResolver->resolve($request);
+
+        if ($activeOutlet && Schema::hasTable('product_outlet_stocks')) {
+            $lowStockNotifications = ProductOutletStock::query()
+                ->with('product:id,title')
+                ->where('outlet_id', $activeOutlet->id)
+                ->where('stock', '<=', 0)
+                ->orderByDesc('updated_at')
+                ->limit(10)
+                ->get()
+                ->map(function ($stock) {
+                    return [
+                        'id' => $stock->product_id,
+                        'title' => $stock->product?->title ?? 'Produk',
+                        'stock' => (int) $stock->stock,
+                        'time' => optional($stock->updated_at)->diffForHumans(),
+                    ];
+                })
+                ->values();
+        } else {
+            $lowStockNotifications = Product::query()
+                ->where('stock', '<=', 0)
+                ->whereNotExists(function ($query) use ($userId) {
+                    $query->selectRaw('1')
+                        ->from('product_notification_reads as pr')
+                        ->whereColumn('pr.product_id', 'products.id')
+                        ->where('pr.user_id', $userId)
+                        ->whereColumn('pr.updated_at', '>=', 'products.updated_at');
+                })
+                ->orderByDesc('updated_at')
+                ->limit(10)
+                ->get(['id', 'title', 'stock', 'updated_at'])
+                ->map(function ($product) {
+                    return [
+                        'id' => $product->id,
+                        'title' => $product->title,
+                        'stock' => (int) $product->stock,
+                        'time' => optional($product->updated_at)->diffForHumans(),
+                    ];
+                })
+                ->values();
+        }
+
+        $receivableQuery = Receivable::query()
+            ->whereNot('status', 'paid')
+            ->whereNotNull('due_date');
+
+        $payableQuery = Payable::query()
+            ->whereNot('status', 'paid')
+            ->whereNotNull('due_date');
+
+        if ($activeOutlet && Schema::hasColumn('receivables', 'outlet_id')) {
+            $receivableQuery->where('outlet_id', $activeOutlet->id);
+        }
+
+        if ($activeOutlet && Schema::hasColumn('payables', 'outlet_id')) {
+            $payableQuery->where('outlet_id', $activeOutlet->id);
+        }
+
+        $receivableNotifications = $receivableQuery
+            ->when(Schema::hasTable('notification_reads'), function ($query) use ($userId) {
+                $query->whereNotExists(function ($subQuery) use ($userId) {
+                    $subQuery->selectRaw('1')
+                        ->from('notification_reads as nr')
+                        ->where('nr.user_id', $userId)
+                        ->where('nr.type', 'receivable')
+                        ->whereColumn('nr.reference_id', 'receivables.id');
+                });
+            })
+            ->whereDate('due_date', '<=', now()->addDays(3))
+            ->orderBy('due_date')
+            ->limit(5)
+            ->get(['id', 'invoice', 'due_date', 'total', 'paid', 'status'])
+            ->map(function ($item) {
+                return [
+                    'id' => $item->id,
+                    'title' => "Piutang: {$item->invoice}",
+                    'subtitle' => 'Sisa '.number_format(max(0, ($item->total ?? 0) - ($item->paid ?? 0)), 0, ',', '.'),
+                    'time' => optional($item->due_date)->diffForHumans(),
+                    'status' => $item->status,
+                    'aging_bucket' => $item->aging_bucket,
+                ];
+            })
+            ->values();
+
+        $payableNotifications = $payableQuery
+            ->when(Schema::hasTable('notification_reads'), function ($query) use ($userId) {
+                $query->whereNotExists(function ($subQuery) use ($userId) {
+                    $subQuery->selectRaw('1')
+                        ->from('notification_reads as nr')
+                        ->where('nr.user_id', $userId)
+                        ->where('nr.type', 'payable')
+                        ->whereColumn('nr.reference_id', 'payables.id');
+                });
+            })
+            ->whereDate('due_date', '<=', now()->addDays(3))
+            ->orderBy('due_date')
+            ->limit(5)
+            ->get(['id', 'document_number', 'due_date', 'total', 'paid', 'status'])
+            ->map(function ($item) {
+                return [
+                    'id' => $item->id,
+                    'title' => "Hutang: {$item->document_number}",
+                    'subtitle' => 'Sisa '.number_format(max(0, ($item->total ?? 0) - ($item->paid ?? 0)), 0, ',', '.'),
+                    'time' => optional($item->due_date)->diffForHumans(),
+                    'status' => $item->status,
+                    'aging_bucket' => $item->aging_bucket,
+                ];
+            })
+            ->values();
+
+        $pendingTableOrders = TableOrder::query()
+            ->with(['diningTable:id,name,code'])
+            ->when($activeOutlet, fn ($query) => $query->where('outlet_id', $activeOutlet->id))
+            ->where('status', 'pending_cashier_payment')
+            ->latest('created_at')
+            ->limit(6)
+            ->get()
+            ->map(fn (TableOrder $order) => [
+                'id' => $order->id,
+                'order_number' => $order->order_number,
+                'customer_name' => $order->customer_name,
+                'customer_phone' => $order->customer_phone,
+                'notes' => $order->notes,
+                'grand_total' => (int) $order->grand_total,
+                'created_at' => optional($order->created_at)->toISOString(),
+                'created_at_label' => optional($order->created_at)->format('d M Y H:i'),
+                'table' => [
+                    'name' => $order->diningTable?->name,
+                    'code' => $order->diningTable?->code,
+                ],
+            ])
+            ->values();
+
+        return response()->json([
+            'lowStockNotifications' => $lowStockNotifications,
+            'receivableNotifications' => $receivableNotifications,
+            'payableNotifications' => $payableNotifications,
+            'pendingTableOrders' => $pendingTableOrders,
+            'polled_at' => now()->toIso8601String(),
+        ]);
+    }
+
     /**
      * Mark a single low-stock notification as read for the current user.
      */

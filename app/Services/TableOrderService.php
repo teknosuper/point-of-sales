@@ -18,6 +18,8 @@ use Illuminate\Validation\ValidationException;
 
 class TableOrderService
 {
+    private ?bool $supportsTableOrderItemPromoRewardMetadata = null;
+
     public function __construct(
         private readonly CashierShiftService $cashierShiftService,
         private readonly StockMutationService $stockMutationService,
@@ -31,6 +33,66 @@ class TableOrderService
 
     public function createFromPublicMenu(DiningTable $table, Customer $customer, array $payload): TableOrder
     {
+        $preview = $this->previewPublicMenu($table, $customer, $payload);
+        $orderItems = collect($preview['items'] ?? []);
+        $subtotal = (int) ($preview['subtotal'] ?? 0);
+
+        $tableOrder = DB::transaction(function () use ($table, $customer, $payload, $orderItems, $subtotal) {
+            $order = TableOrder::create([
+                'outlet_id' => $table->outlet_id,
+                'dining_table_id' => $table->id,
+                'customer_id' => $customer->id,
+                'order_number' => $this->generateOrderNumber(),
+                'access_token' => (string) Str::uuid(),
+                'source_channel' => 'table_qr',
+                'customer_name' => (string) ($customer->name ?? ''),
+                'customer_phone' => (string) ($customer->no_telp ?? ''),
+                'customer_email' => filled($customer->email ?? null) ? (string) $customer->email : null,
+                'notes' => filled($payload['notes'] ?? null) ? (string) $payload['notes'] : null,
+                'payment_method' => 'cash',
+                'status' => 'pending_cashier_payment',
+                'subtotal' => $subtotal,
+                'grand_total' => $subtotal,
+            ]);
+
+            foreach ($orderItems as $item) {
+                $modifiers = $item['modifiers'] ?? [];
+                unset($item['cart_id']);
+                unset($item['client_key']);
+                unset($item['modifiers']);
+
+                $orderItem = $order->items()->create(
+                    $this->sanitizeTableOrderItemAttributes($item)
+                );
+
+                foreach ($modifiers as $modifier) {
+                    $orderItem->modifiers()->create($modifier);
+                }
+            }
+
+            return $order->load(['items.modifiers', 'diningTable', 'outlet']);
+        });
+
+        $this->auditLogService->log(
+            event: 'table_order.created',
+            module: 'table_orders',
+            auditable: $tableOrder,
+            description: "Self-order meja {$table->name} dibuat.",
+            after: [
+                'order_number' => $tableOrder->order_number,
+                'table' => $table->name,
+                'payment_method' => $tableOrder->payment_method,
+                'status' => $tableOrder->status,
+                'grand_total' => $tableOrder->grand_total,
+                'items_count' => $tableOrder->items->count(),
+            ]
+        );
+
+        return $tableOrder;
+    }
+
+    public function previewPublicMenu(DiningTable $table, Customer $customer, array $payload): array
+    {
         if ($table->status !== 'active' || ! $table->self_order_enabled) {
             throw ValidationException::withMessages([
                 'table' => 'Meja ini tidak menerima self-order saat ini.',
@@ -40,9 +102,17 @@ class TableOrderService
         $items = collect($payload['items'] ?? [])
             ->map(function (array $item) {
                 return [
+                    'client_key' => filled($item['client_key'] ?? null) ? (string) $item['client_key'] : null,
                     'product_id' => (int) ($item['product_id'] ?? 0),
                     'qty' => max(0, (int) ($item['qty'] ?? 0)),
                     'notes' => filled($item['notes'] ?? null) ? (string) $item['notes'] : null,
+                    'is_promo_reward' => (bool) ($item['is_promo_reward'] ?? false),
+                    'promo_reward_rule_name' => filled($item['promo_reward_rule_name'] ?? null)
+                        ? (string) $item['promo_reward_rule_name']
+                        : null,
+                    'promo_reward_label' => filled($item['promo_reward_label'] ?? null)
+                        ? (string) $item['promo_reward_label']
+                        : null,
                     'modifier_ids' => collect($item['modifiers'] ?? [])
                         ->map(fn (array $modifier) => (int) ($modifier['id'] ?? 0))
                         ->filter(fn (int $id) => $id > 0)
@@ -105,6 +175,7 @@ class TableOrderService
 
             return [
                 'cart_id' => -($index + 1),
+                'client_key' => $item['client_key'],
                 'product_id' => $product->id,
                 'tenant_outlet_id' => $product->tenant_outlet_id ?: $table->outlet_id,
                 'product_title' => $product->title,
@@ -118,6 +189,9 @@ class TableOrderService
                 'pricing_rule_kind' => null,
                 'pricing_group_key' => null,
                 'pricing_group_label' => null,
+                'is_promo_reward' => (bool) ($item['is_promo_reward'] ?? false),
+                'promo_reward_rule_name' => $item['promo_reward_rule_name'],
+                'promo_reward_label' => $item['promo_reward_label'],
                 'notes' => $item['notes'],
                 'modifiers' => $selectedModifiers->map(fn (ProductModifierOption $option) => [
                     'product_modifier_option_id' => $option->id,
@@ -136,6 +210,9 @@ class TableOrderService
                     'product_id' => (int) $item['product_id'],
                     'qty' => (int) $item['qty'],
                     'price' => (int) $item['line_total'],
+                    'is_promo_reward' => (bool) ($item['is_promo_reward'] ?? false),
+                    'promo_reward_rule_name' => $item['promo_reward_rule_name'] ?? null,
+                    'promo_reward_label' => $item['promo_reward_label'] ?? null,
                 ]);
 
                 $cart->setRelation('product', $products->get($item['product_id']));
@@ -177,63 +254,44 @@ class TableOrderService
                 'pricing_rule_price_basis' => data_get($pricingItem, 'pricing_rule.price_basis'),
                 'pricing_group_key' => $pricingItem['pricing_group_key'] ?? null,
                 'pricing_group_label' => $pricingItem['pricing_group_label'] ?? null,
+                'is_promo_reward' => (bool) ($item['is_promo_reward'] ?? false),
+                'promo_reward_rule_name' => $item['promo_reward_rule_name'] ?? null,
+                'promo_reward_label' => $item['promo_reward_label'] ?? null,
             ];
         })->values();
 
         $subtotal = (int) $orderItems->sum('line_total');
 
-        $tableOrder = DB::transaction(function () use ($table, $customer, $payload, $orderItems, $subtotal) {
-            $order = TableOrder::create([
-                'outlet_id' => $table->outlet_id,
-                'dining_table_id' => $table->id,
-                'customer_id' => $customer->id,
-                'order_number' => $this->generateOrderNumber(),
-                'access_token' => (string) Str::uuid(),
-                'source_channel' => 'table_qr',
-                'customer_name' => (string) ($customer->name ?? ''),
-                'customer_phone' => (string) ($customer->no_telp ?? ''),
-                'customer_email' => filled($customer->email ?? null) ? (string) $customer->email : null,
-                'notes' => filled($payload['notes'] ?? null) ? (string) $payload['notes'] : null,
-                'payment_method' => 'cash',
-                'status' => 'pending_cashier_payment',
-                'subtotal' => $subtotal,
-                'grand_total' => $subtotal,
-            ]);
+        $previewItems = collect($pricingPreview['items'] ?? [])
+            ->map(function (array $pricingItem) use ($orderItems) {
+                $sourceItem = $orderItems->firstWhere('cart_id', (int) ($pricingItem['cart_id'] ?? 0));
 
-            foreach ($orderItems as $item) {
-                $modifiers = $item['modifiers'] ?? [];
-                unset($item['cart_id']);
-                unset($item['modifiers']);
+                return [
+                    ...$pricingItem,
+                    'cart_id' => $sourceItem['client_key'] ?? (string) ($pricingItem['cart_id'] ?? ''),
+                    'client_key' => $sourceItem['client_key'] ?? null,
+                ];
+            })
+            ->values()
+            ->all();
 
-                $orderItem = $order->items()->create($item);
-
-                foreach ($modifiers as $modifier) {
-                    $orderItem->modifiers()->create($modifier);
-                }
-            }
-
-            return $order->load(['items.modifiers', 'diningTable', 'outlet']);
-        });
-
-        $this->auditLogService->log(
-            event: 'table_order.created',
-            module: 'table_orders',
-            auditable: $tableOrder,
-            description: "Self-order meja {$table->name} dibuat.",
-            after: [
-                'order_number' => $tableOrder->order_number,
-                'table' => $table->name,
-                'payment_method' => $tableOrder->payment_method,
-                'status' => $tableOrder->status,
-                'grand_total' => $tableOrder->grand_total,
-                'items_count' => $tableOrder->items->count(),
-            ]
-        );
-
-        return $tableOrder;
+        return [
+            'items' => $orderItems->values()->all(),
+            'subtotal' => $subtotal,
+            'grand_total' => $subtotal,
+            'pricing_preview' => [
+                ...$pricingPreview,
+                'items' => $previewItems,
+            ],
+        ];
     }
 
-    public function approveCashPayment(TableOrder $tableOrder, User $cashier, int $cashAmount): Transaction
+    public function approvePayment(
+        TableOrder $tableOrder,
+        User $cashier,
+        int $cashAmount,
+        string $paymentMethod = 'cash'
+    ): Transaction
     {
         if ($tableOrder->status !== 'pending_cashier_payment') {
             throw ValidationException::withMessages([
@@ -241,9 +299,17 @@ class TableOrderService
             ]);
         }
 
+        if (! in_array($paymentMethod, ['cash', 'qris'], true)) {
+            throw ValidationException::withMessages([
+                'payment_method' => 'Metode pembayaran QR meja tidak valid.',
+            ]);
+        }
+
         if ($cashAmount < (int) $tableOrder->grand_total) {
             throw ValidationException::withMessages([
-                'cash' => 'Nominal tunai kurang dari total order.',
+                'cash' => $paymentMethod === 'cash'
+                    ? 'Nominal tunai kurang dari total order.'
+                    : 'Nominal pembayaran kurang dari total order.',
             ]);
         }
 
@@ -254,9 +320,11 @@ class TableOrderService
             lockForUpdate: true
         );
 
-        $transaction = DB::transaction(function () use ($tableOrder, $cashier, $activeShift, $cashAmount) {
+        $transaction = DB::transaction(function () use ($tableOrder, $cashier, $activeShift, $cashAmount, $paymentMethod) {
             $invoice = $this->generateInvoiceNumber();
-            $changeAmount = max(0, $cashAmount - (int) $tableOrder->grand_total);
+            $changeAmount = $paymentMethod === 'cash'
+                ? max(0, $cashAmount - (int) $tableOrder->grand_total)
+                : 0;
 
             $transaction = Transaction::create([
                 'cashier_id' => $cashier->id,
@@ -271,7 +339,7 @@ class TableOrderService
                 'discount' => 0,
                 'shipping_cost' => 0,
                 'grand_total' => (int) $tableOrder->grand_total,
-                'payment_method' => 'cash',
+                'payment_method' => $paymentMethod,
                 'payment_status' => 'paid',
             ]);
 
@@ -307,6 +375,9 @@ class TableOrderService
                     'pricing_rule_price_basis' => $item->pricing_rule_price_basis,
                     'pricing_group_key' => $item->pricing_group_key,
                     'pricing_group_label' => $item->pricing_group_label,
+                    'is_promo_reward' => (bool) ($item->is_promo_reward ?? false),
+                    'promo_reward_rule_name' => $item->promo_reward_rule_name,
+                    'promo_reward_label' => $item->promo_reward_label,
                 ]);
 
                 foreach ($item->modifiers as $modifier) {
@@ -357,7 +428,7 @@ class TableOrderService
             event: 'table_order.cash_payment_approved',
             module: 'table_orders',
             auditable: $tableOrder->fresh(),
-            description: "Pembayaran tunai order {$tableOrder->order_number} dikonfirmasi kasir.",
+            description: "Pembayaran {$paymentMethod} order {$tableOrder->order_number} dikonfirmasi kasir.",
             before: [
                 'status' => 'pending_cashier_payment',
                 'transaction_id' => null,
@@ -366,6 +437,7 @@ class TableOrderService
                 'status' => 'paid',
                 'transaction_id' => $transaction->id,
                 'invoice' => $transaction->invoice,
+                'payment_method' => $paymentMethod,
             ],
             actor: $cashier
         );
@@ -431,5 +503,32 @@ class TableOrderService
     private function generateInvoiceNumber(): string
     {
         return 'TRX-'.Str::upper(Str::random(10));
+    }
+
+    private function sanitizeTableOrderItemAttributes(array $attributes): array
+    {
+        if ($this->supportsTableOrderItemPromoRewardMetadata()) {
+            return $attributes;
+        }
+
+        unset(
+            $attributes['is_promo_reward'],
+            $attributes['promo_reward_rule_name'],
+            $attributes['promo_reward_label'],
+        );
+
+        return $attributes;
+    }
+
+    private function supportsTableOrderItemPromoRewardMetadata(): bool
+    {
+        if ($this->supportsTableOrderItemPromoRewardMetadata !== null) {
+            return $this->supportsTableOrderItemPromoRewardMetadata;
+        }
+
+        return $this->supportsTableOrderItemPromoRewardMetadata =
+            Schema::hasColumn('table_order_items', 'is_promo_reward')
+            && Schema::hasColumn('table_order_items', 'promo_reward_rule_name')
+            && Schema::hasColumn('table_order_items', 'promo_reward_label');
     }
 }

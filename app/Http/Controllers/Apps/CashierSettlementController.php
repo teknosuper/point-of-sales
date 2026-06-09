@@ -35,6 +35,7 @@ class CashierSettlementController extends Controller
         $outlet = $this->outletResolver->resolve($request, $user);
         abort_if(! $outlet, 404, 'Outlet aktif tidak ditemukan.');
         $isKitchenWorkspace = $user?->isKitchenWorkspace() ?? false;
+        $isTenantRequestWorkspace = $this->isTenantRequestWorkspace($request);
 
         $filters = [
             'q' => trim((string) $request->input('q', '')),
@@ -110,7 +111,7 @@ class CashierSettlementController extends Controller
             ->values();
 
         $defaultRecipientId = Setting::getInt('cashier_base_settlement_recipient_user_id', 0, $outlet->id);
-        $wallet = $isKitchenWorkspace
+        $wallet = $isTenantRequestWorkspace
             ? $this->buildKitchenWalletSummary($user, $outlet->id)
             : null;
 
@@ -123,7 +124,7 @@ class CashierSettlementController extends Controller
             'recipientOptions' => $recipientOptions,
             'defaultRecipientId' => $defaultRecipientId > 0 ? $defaultRecipientId : null,
             'canApprove' => $canApprove,
-            'canCreateRequest' => $isKitchenWorkspace,
+            'canCreateRequest' => $isTenantRequestWorkspace,
             'wallet' => $wallet,
         ]);
     }
@@ -134,7 +135,8 @@ class CashierSettlementController extends Controller
         $outlet = $this->outletResolver->resolve($request, $user);
         abort_if(! $outlet, 404, 'Outlet aktif tidak ditemukan.');
         $isKitchenWorkspace = $user?->isKitchenWorkspace() ?? false;
-        abort_unless($isKitchenWorkspace, 403, 'Pengajuan hanya bisa dibuat oleh tenant / dapur. Admin hanya dapat melakukan approval.');
+        $isTenantRequestWorkspace = $this->isTenantRequestWorkspace($request);
+        abort_unless($isTenantRequestWorkspace, 403, 'Pengajuan hanya bisa dibuat oleh tenant / dapur. Admin hanya dapat melakukan approval.');
 
         $data = $request->validate([
             'cashier_shift_id' => ['nullable', 'integer', 'exists:cashier_shifts,id'],
@@ -146,7 +148,7 @@ class CashierSettlementController extends Controller
         ]);
 
         $defaultRecipientId = Setting::getInt('cashier_base_settlement_recipient_user_id', 0, $outlet->id);
-        $recipientUserId = $isKitchenWorkspace
+        $recipientUserId = $isTenantRequestWorkspace
             ? $defaultRecipientId
             : (int) ($data['recipient_user_id'] ?? 0);
         $recipientUser = $recipientUserId > 0
@@ -187,19 +189,19 @@ class CashierSettlementController extends Controller
             event: 'cashier_settlement.requested',
             module: 'cashier_settlements',
             auditable: $settlement,
-            description: $isKitchenWorkspace
+            description: $isTenantRequestWorkspace
                 ? 'Tenant / dapur membuat pengajuan penarikan dana ke owner outlet.'
                 : 'Kasir membuat pengajuan setoran ke admin.',
             after: $this->settlementAuditPayload($settlement),
             meta: [
                 'cashier_id' => $settlement->cashier_id,
                 'cashier_shift_id' => $settlement->cashier_shift_id,
-                'workspace' => $isKitchenWorkspace ? 'kitchen' : 'standard',
+                'workspace' => $isKitchenWorkspace ? 'kitchen' : 'tenant',
             ],
             actor: $user,
         );
 
-        return back()->with('success', $isKitchenWorkspace ? 'Pengajuan penarikan dana tenant berhasil dibuat.' : 'Pengajuan setoran kasir berhasil dibuat.');
+        return back()->with('success', $isTenantRequestWorkspace ? 'Pengajuan penarikan dana tenant berhasil dibuat.' : 'Pengajuan setoran kasir berhasil dibuat.');
     }
 
     public function approve(Request $request, CashierSettlementRequest $cashierSettlement): RedirectResponse
@@ -537,6 +539,10 @@ class CashierSettlementController extends Controller
 
     private function resolveKitchenTenantOutletIds(User $user, int $activeOutletId): \Illuminate\Support\Collection
     {
+        if (! $user->isKitchenWorkspace()) {
+            return collect([$activeOutletId]);
+        }
+
         $preferredStationId = (int) ($user->preferred_kitchen_station_id ?? 0);
 
         return Product::query()
@@ -562,5 +568,13 @@ class CashierSettlementController extends Controller
             ->map(fn ($id) => (int) $id)
             ->unique()
             ->values();
+    }
+
+    private function isTenantRequestWorkspace(Request $request): bool
+    {
+        $user = $request->user();
+        $activeOutlet = $this->outletResolver->resolve($request, $user);
+
+        return (bool) ($user?->isKitchenWorkspace() || (string) ($activeOutlet?->outlet_type ?? '') === 'tenant');
     }
 }

@@ -38,15 +38,85 @@ const pricingKindLabel = {
     bundle_price: "Paket Hemat",
 };
 
+const orderInstructionSteps = {
+    pending_cashier_payment: [
+        {
+            title: "1. Datangi kasir",
+            description:
+                "Sampaikan nomor order ini ke kasir agar pesanan Anda bisa ditemukan dengan cepat.",
+        },
+        {
+            title: "2. Lakukan pembayaran",
+            description:
+                "Bayar sesuai total tagihan yang tampil di halaman ini. Kasir akan memverifikasi dan mengonfirmasi pembayaran Anda.",
+        },
+        {
+            title: "3. Pesanan masuk ke dapur",
+            description:
+                "Setelah pembayaran dikonfirmasi, sistem otomatis meneruskan pesanan ke dapur sesuai item yang Anda pilih.",
+        },
+        {
+            title: "4. Tunggu status dapur diperbarui",
+            description:
+                "Halaman ini akan menampilkan progres pesanan, mulai dari diproses dapur sampai siap diambil atau diantar ke meja.",
+        },
+    ],
+    paid: [
+        {
+            title: "1. Pembayaran sudah diterima",
+            description:
+                "Kasir sudah mengonfirmasi pembayaran Anda, jadi Anda tidak perlu kembali membayar.",
+        },
+        {
+            title: "2. Dapur menyiapkan pesanan",
+            description:
+                "Pesanan diteruskan ke dapur sesuai item yang Anda pilih dan akan diproses berdasarkan antrean.",
+        },
+        {
+            title: "3. Pantau progres di halaman ini",
+            description:
+                "Periksa bagian progress dapur untuk melihat apakah pesanan masih diproses, sudah siap, atau sudah selesai.",
+        },
+        {
+            title: "4. Ambil atau tunggu pesanan diantar",
+            description:
+                "Jika status sudah siap, silakan ambil sesuai arahan outlet atau tunggu staf mengantarkan ke meja Anda.",
+        },
+    ],
+    rejected: [
+        {
+            title: "Periksa ke kasir",
+            description:
+                "Pesanan belum bisa diproses. Silakan hubungi kasir untuk memastikan status pembayaran atau ketersediaan pesanan.",
+        },
+    ],
+    cancelled: [
+        {
+            title: "Pesanan dibatalkan",
+            description:
+                "Pesanan ini sudah dibatalkan. Jika masih ingin memesan, silakan buat order baru dari menu meja.",
+        },
+    ],
+};
+
 export default function Status({ order }) {
     const { storeProfile, identity } = usePage().props;
     const [sidebarOpen, setSidebarOpen] = useState(false);
+    const [instructionModalOpen, setInstructionModalOpen] = useState(false);
     const customer = identity?.customer || null;
     const recentOrders = customer?.recent_orders || [];
     const recentTransactions = customer?.recent_transactions || [];
     const newOrderHref = order?.table?.qr_token
         ? route("table-order.show", order.table.qr_token)
         : null;
+    const instructionSteps =
+        orderInstructionSteps[order.status] || [
+            {
+                title: "Periksa status pesanan",
+                description:
+                    "Silakan lihat status terbaru di halaman ini atau hubungi kasir bila membutuhkan bantuan.",
+            },
+        ];
 
     return (
         <>
@@ -56,6 +126,13 @@ export default function Status({ order }) {
                 <div
                     className="fixed inset-0 z-[60] bg-black/40 backdrop-blur-sm"
                     onClick={() => setSidebarOpen(false)}
+                />
+            ) : null}
+
+            {instructionModalOpen ? (
+                <div
+                    className="fixed inset-0 z-[80] bg-slate-950/55 backdrop-blur-sm"
+                    onClick={() => setInstructionModalOpen(false)}
                 />
             ) : null}
 
@@ -167,6 +244,61 @@ export default function Status({ order }) {
                 </div>
             </div>
 
+            {instructionModalOpen ? (
+                <div className="fixed inset-x-4 top-1/2 z-[90] mx-auto w-full max-w-2xl -translate-y-1/2">
+                    <div className="max-h-[85vh] overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-[0_30px_90px_-42px_rgba(15,23,42,0.78)]">
+                        <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-5">
+                            <div>
+                                <h2 className="text-lg font-semibold text-slate-900">
+                                    Instruksi Pesanan
+                                </h2>
+                                <p className="mt-1 text-sm text-slate-600">
+                                    Ikuti langkah berikut agar pesanan Anda diproses dengan lancar.
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setInstructionModalOpen(false)}
+                                className="rounded-xl p-2 text-slate-500 hover:bg-slate-100"
+                                aria-label="Tutup instruksi"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6L6 18"/><path d="M6 6l12 12"/></svg>
+                            </button>
+                        </div>
+
+                        <div className="max-h-[calc(85vh-88px)] overflow-y-auto px-6 py-5">
+                            <div className="mb-4">
+                                <span className="rounded-full bg-slate-100 px-3 py-1 text-[11px] font-semibold text-slate-600">
+                                    {statusLabel[order.status] || order.status}
+                                </span>
+                            </div>
+
+                            <div className="space-y-3">
+                                {instructionSteps.map((step) => (
+                                    <div
+                                        key={step.title}
+                                        className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4"
+                                    >
+                                        <p className="text-sm font-semibold text-slate-900">
+                                            {step.title}
+                                        </p>
+                                        <p className="mt-1 text-sm leading-6 text-slate-600">
+                                            {step.description}
+                                        </p>
+                                    </div>
+                                ))}
+                            </div>
+
+                            <div className="mt-4 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">
+                                Jika ada kendala, tunjukkan nomor order{" "}
+                                <span className="font-semibold">{order.order_number}</span>{" "}
+                                ini ke kasir agar pesanan Anda bisa dibantu lebih cepat.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            ) : null}
+
             <button
                 type="button"
                 onClick={() => setSidebarOpen(true)}
@@ -188,6 +320,29 @@ export default function Status({ order }) {
                         </p>
                         <div className="mt-4 inline-flex rounded-full bg-amber-400/15 px-4 py-2 text-sm font-semibold text-amber-100 border border-amber-300/20">
                             {statusLabel[order.status] || order.status}
+                        </div>
+                        <div className="mt-4">
+                            <button
+                                type="button"
+                                onClick={() => setInstructionModalOpen(true)}
+                                className="inline-flex items-center gap-2 text-sm font-medium text-sky-100 underline underline-offset-4 transition hover:text-white"
+                            >
+                                <span>Lihat cara pembayaran & proses pesanan</span>
+                                <svg
+                                    xmlns="http://www.w3.org/2000/svg"
+                                    width="16"
+                                    height="16"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                >
+                                    <path d="M5 12h14" />
+                                    <path d="m12 5 7 7-7 7" />
+                                </svg>
+                            </button>
                         </div>
                     </div>
 
@@ -420,23 +575,30 @@ export default function Status({ order }) {
                     </div>
 
                     <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-[0_18px_60px_-34px_rgba(15,23,42,0.3)]">
-                        {order.status === "pending_cashier_payment" ? (
-                            <p className="text-sm text-slate-600">
-                                Silakan ke kasir untuk pembayaran tunai. Setelah kasir
-                                mengonfirmasi pembayaran, pesanan akan diteruskan ke dapur.
-                            </p>
-                        ) : order.status === "paid" ? (
-                            <p className="text-sm text-slate-600">
-                                Pembayaran sudah dikonfirmasi. Pesanan sedang diproses.
-                                {order.transaction?.invoice
-                                    ? ` Invoice kasir: ${order.transaction.invoice}.`
-                                    : ""}
-                            </p>
-                        ) : (
-                            <p className="text-sm text-slate-600">
-                                Status pesanan saat ini: {statusLabel[order.status] || order.status}.
-                            </p>
-                        )}
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                            <div>
+                                <h2 className="text-lg font-semibold">Butuh Panduan?</h2>
+                                <p className="mt-1 text-sm text-slate-600">
+                                    Buka instruksi pesanan untuk melihat langkah pembayaran dan proses dapur.
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setInstructionModalOpen(true)}
+                                className="inline-flex items-center justify-center text-sm font-medium text-sky-700 underline underline-offset-4 hover:text-sky-800"
+                            >
+                                Lihat instruksi pesanan
+                            </button>
+                        </div>
+
+                        {order.transaction?.invoice ? (
+                            <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                                Invoice kasir Anda:{" "}
+                                <span className="font-semibold">
+                                    {order.transaction.invoice}
+                                </span>
+                            </div>
+                        ) : null}
 
                         {newOrderHref ? (
                             <Link

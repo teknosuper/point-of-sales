@@ -91,10 +91,10 @@ class ProfitReportController extends Controller
             'cashiers' => User::select('id', 'name')->orderBy('name')->get(),
             'customers' => Customer::select('id', 'name')->orderBy('name')->get(),
             'pricingRuleKinds' => [
-                ['id' => 'standard_discount', 'name' => 'Standard Discount'],
-                ['id' => 'qty_break', 'name' => 'Qty Break'],
-                ['id' => 'bundle_price', 'name' => 'Bundle Price'],
-                ['id' => 'buy_x_get_y', 'name' => 'Buy X Get Y'],
+                ['id' => 'standard_discount', 'name' => 'Diskon Standar'],
+                ['id' => 'qty_break', 'name' => 'Diskon Bertingkat Qty'],
+                ['id' => 'bundle_price', 'name' => 'Harga Bundling'],
+                ['id' => 'buy_x_get_y', 'name' => 'Beli X Gratis Y'],
             ],
             'tenantOutlets' => Outlet::query()
                 ->active()
@@ -201,10 +201,10 @@ class ProfitReportController extends Controller
             'cashiers' => User::select('id', 'name')->orderBy('name')->get(),
             'customers' => Customer::select('id', 'name')->orderBy('name')->get(),
             'pricingRuleKinds' => [
-                ['id' => 'standard_discount', 'name' => 'Standard Discount'],
-                ['id' => 'qty_break', 'name' => 'Qty Break'],
-                ['id' => 'bundle_price', 'name' => 'Bundle Price'],
-                ['id' => 'buy_x_get_y', 'name' => 'Buy X Get Y'],
+                ['id' => 'standard_discount', 'name' => 'Diskon Standar'],
+                ['id' => 'qty_break', 'name' => 'Diskon Bertingkat Qty'],
+                ['id' => 'bundle_price', 'name' => 'Harga Bundling'],
+                ['id' => 'buy_x_get_y', 'name' => 'Beli X Gratis Y'],
             ],
             'tenantOutlets' => Outlet::query()
                 ->active()
@@ -301,23 +301,23 @@ class ProfitReportController extends Controller
             ->orderByDesc('gross_profit_total')
             ->get();
 
-        $filename = 'profit-items-'.now()->format('Ymd-His').'.csv';
+        $filename = 'laporan-laba-per-item-'.now()->format('Ymd-His').'.csv';
 
         return response()->streamDownload(function () use ($rows) {
             $handle = fopen('php://output', 'w');
             fputcsv($handle, [
-                'product_name',
-                'tenant_outlet_name',
-                'orders_count',
-                'qty_sold',
-                'revenue_total',
-                'base_cost_total',
-                'gross_profit_total',
-                'tenant_discount_total',
-                'owner_discount_total',
-                'tenant_net_total',
-                'owner_net_total',
-                'promo_lines_count',
+                'nama_produk',
+                'nama_tenant',
+                'jumlah_transaksi',
+                'qty_terjual',
+                'omzet_total',
+                'biaya_pokok_total',
+                'laba_kotor_total',
+                'diskon_tenant_total',
+                'diskon_owner_total',
+                'pendapatan_bersih_tenant',
+                'pendapatan_bersih_owner',
+                'jumlah_baris_promo',
             ]);
 
             foreach ($rows as $row) {

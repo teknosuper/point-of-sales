@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Menu, Transition } from "@headlessui/react";
+import axios from "axios";
 import {
     IconBell,
     IconDots,
@@ -11,6 +12,7 @@ import {
     IconArrowRight,
 } from "@/Utils/icons";
 import { usePage, router, Link } from "@inertiajs/react";
+import toast from "react-hot-toast";
 
 export default function Notification() {
     const {
@@ -40,9 +42,13 @@ export default function Notification() {
                 ),
         }));
 
-    const mergeData = () => [
+    const mergeData = (
+        lowStockItems = [],
+        receivableItems = [],
+        payableItems = []
+    ) => [
         ...mapItems(
-            lowStockNotifications.map((n) => ({
+            lowStockItems.map((n) => ({
                 ...n,
                 id: `stock-${n.id}`,
                 originalId: n.id,
@@ -52,7 +58,7 @@ export default function Notification() {
             }))
         ),
         ...mapItems(
-            receivableNotifications.map((n) => ({
+            receivableItems.map((n) => ({
                 ...n,
                 id: `recv-${n.id}`,
                 originalId: n.id,
@@ -60,7 +66,7 @@ export default function Notification() {
             }))
         ),
         ...mapItems(
-            payableNotifications.map((n) => ({
+            payableItems.map((n) => ({
                 ...n,
                 id: `pay-${n.id}`,
                 originalId: n.id,
@@ -69,11 +75,34 @@ export default function Notification() {
         ),
     ];
 
-    const [data, setData] = useState(mergeData());
+    const [snapshot, setSnapshot] = useState({
+        lowStockNotifications,
+        receivableNotifications,
+        payableNotifications,
+        pendingTableOrders,
+    });
+    const [data, setData] = useState(
+        mergeData(
+            lowStockNotifications,
+            receivableNotifications,
+            payableNotifications
+        )
+    );
+    const [livePendingTableOrders, setLivePendingTableOrders] = useState(
+        pendingTableOrders
+    );
 
     const [isMobile, setIsMobile] = useState(false);
     const [isOpen, setIsOpen] = useState(false);
     const notificationRef = useRef(null);
+    const previousCountsRef = useRef({
+        total:
+            lowStockNotifications.length +
+            receivableNotifications.length +
+            payableNotifications.length +
+            pendingTableOrders.length,
+        pendingTableOrders: pendingTableOrders.length,
+    });
 
     const handleClickOutside = (event) => {
         if (notificationRef.current && !notificationRef.current.contains(event.target)) {
@@ -96,10 +125,107 @@ export default function Notification() {
         };
     }, []);
 
-    // Sync when low stock changes (e.g., restocked items disappear)
     useEffect(() => {
-        setData(mergeData());
-    }, [lowStockNotifications, receivableNotifications, payableNotifications]);
+        setSnapshot({
+            lowStockNotifications,
+            receivableNotifications,
+            payableNotifications,
+            pendingTableOrders,
+        });
+        setData(
+            mergeData(
+                lowStockNotifications,
+                receivableNotifications,
+                payableNotifications
+            )
+        );
+        setLivePendingTableOrders(pendingTableOrders);
+        previousCountsRef.current = {
+            total:
+                lowStockNotifications.length +
+                receivableNotifications.length +
+                payableNotifications.length +
+                pendingTableOrders.length,
+            pendingTableOrders: pendingTableOrders.length,
+        };
+    }, [
+        lowStockNotifications,
+        receivableNotifications,
+        payableNotifications,
+        pendingTableOrders,
+    ]);
+
+    useEffect(() => {
+        let cancelled = false;
+
+        const syncNotifications = async () => {
+            try {
+                const response = await axios.get(
+                    route("notifications.snapshot")
+                );
+
+                if (cancelled) {
+                    return;
+                }
+
+                const nextSnapshot = {
+                    lowStockNotifications:
+                        response.data?.lowStockNotifications || [],
+                    receivableNotifications:
+                        response.data?.receivableNotifications || [],
+                    payableNotifications:
+                        response.data?.payableNotifications || [],
+                    pendingTableOrders: response.data?.pendingTableOrders || [],
+                };
+
+                const mergedData = mergeData(
+                    nextSnapshot.lowStockNotifications,
+                    nextSnapshot.receivableNotifications,
+                    nextSnapshot.payableNotifications
+                );
+                const nextTotal =
+                    mergedData.length + nextSnapshot.pendingTableOrders.length;
+                const previousCounts = previousCountsRef.current;
+
+                if (nextTotal > previousCounts.total) {
+                    if (
+                        nextSnapshot.pendingTableOrders.length >
+                        previousCounts.pendingTableOrders
+                    ) {
+                        toast("Ada pesanan QR meja baru menunggu pembayaran.", {
+                            icon: "🔔",
+                            duration: 3500,
+                        });
+                    } else {
+                        toast("Ada notifikasi baru.", {
+                            icon: "🔔",
+                            duration: 3000,
+                        });
+                    }
+                }
+
+                previousCountsRef.current = {
+                    total: nextTotal,
+                    pendingTableOrders: nextSnapshot.pendingTableOrders.length,
+                };
+
+                setSnapshot(nextSnapshot);
+                setData(mergedData);
+                setLivePendingTableOrders(nextSnapshot.pendingTableOrders);
+            } catch (error) {
+                // Silent fail: notifications should not break the navbar.
+                console.debug("Gagal sinkron notifikasi", error);
+            }
+        };
+
+        syncNotifications();
+        const timer = window.setInterval(syncNotifications, 10000);
+
+        return () => {
+            cancelled = true;
+            window.clearInterval(timer);
+        };
+    }, []);
 
     const handleMarkRead = (id) => {
         setData((prev) => prev.filter((item) => item.id !== id));
@@ -155,12 +281,12 @@ export default function Notification() {
         }
     };
 
-    const badgeCount = data.length + pendingTableOrders.length;
-    const hasPendingTableOrders = pendingTableOrders.length > 0;
+    const badgeCount = data.length + livePendingTableOrders.length;
+    const hasPendingTableOrders = livePendingTableOrders.length > 0;
 
     const NotificationList = () => (
         <div className="flex flex-col gap-3 items-start max-h-80 overflow-y-auto pr-1">
-            {pendingTableOrders.length > 0 && (
+            {livePendingTableOrders.length > 0 && (
                 <div className="w-full rounded-2xl border border-[#eadac3] bg-[linear-gradient(180deg,_#fffaf4_0%,_#fff4e8_100%)] p-4">
                     <div className="mb-3 flex items-start justify-between gap-3">
                         <div>
@@ -169,12 +295,12 @@ export default function Notification() {
                                 Pesanan QR Meja
                             </div>
                             <div className="mt-1 text-xs text-slate-500">
-                                {pendingTableOrders.length} order menunggu pembayaran kasir
+                                {livePendingTableOrders.length} order menunggu pembayaran kasir
                             </div>
                         </div>
                         <Link
                             href={route("transactions.index", {
-                                open_table_order: pendingTableOrders[0]?.id,
+                                open_table_order: livePendingTableOrders[0]?.id,
                             })}
                             className="inline-flex items-center gap-1 rounded-xl border border-[#e5d3bf] bg-white px-3 py-2 text-[11px] font-semibold text-[#9b4b2e]"
                         >
@@ -183,7 +309,7 @@ export default function Notification() {
                         </Link>
                     </div>
                     <div className="space-y-2">
-                        {pendingTableOrders.slice(0, 3).map((order) => (
+                        {livePendingTableOrders.slice(0, 3).map((order) => (
                             <Link
                                 key={order.id}
                                 href={route("transactions.index", {

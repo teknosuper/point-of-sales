@@ -7,13 +7,26 @@ use App\Models\Outlet;
 use App\Models\Transaction;
 use App\Models\TransactionTenantAllocation;
 use App\Models\TransactionTenantAllocationItem;
+use App\Services\OutletResolver;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 
 class OutletAnalyticsController extends Controller
 {
+    public function __construct(
+        private readonly OutletResolver $outletResolver
+    ) {}
+
     public function index(Request $request)
     {
+        $activeOutlet = $this->outletResolver->resolve($request, $request->user());
+
+        abort_if(
+            (string) ($activeOutlet?->outlet_type ?? '') === 'tenant',
+            403,
+            'Laporan statistik outlet tidak tersedia untuk workspace tenant.'
+        );
+
         $filters = [
             'start_date' => $request->input('start_date'),
             'end_date' => $request->input('end_date'),

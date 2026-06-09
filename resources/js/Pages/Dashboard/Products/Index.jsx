@@ -70,7 +70,7 @@ function OutletStockSummary({ product, activeOutletName = "Outlet aktif" }) {
     if (outletStockCount === 0) {
         return (
             <p className="text-xs text-slate-400 dark:text-slate-500">
-                Belum ada stok outlet.
+                Belum ada data stok outlet.
             </p>
         );
     }
@@ -307,7 +307,7 @@ function ProductCard({
                             onClick={() => onDailyStockUpdate?.(product)}
                             className="mt-3 inline-flex w-full items-center justify-center rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 transition hover:bg-emerald-100 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-300 dark:hover:bg-emerald-950/50"
                         >
-                            Update Stok Hari Ini
+                            Sesuaikan Stok Hari Ini
                         </button>
                     ) : null}
                 </div>
@@ -382,6 +382,7 @@ export default function Index({
         workspace?.is_tenant === true || activeOutlet?.outlet_type === "tenant";
     const canManageCatalog = canCreateProducts && !isTenantWorkspace && !isKitchenWorkspace;
     const canEditCatalog = canEditProducts && !isTenantWorkspace && !isKitchenWorkspace;
+    const canOpenTenantProductEdit = canEditProducts && isTenantWorkspace;
     const canDeleteCatalog = canDeleteProducts && !isTenantWorkspace && !isKitchenWorkspace;
     const canUpdateDailyStock = canUpdateProductStock && Boolean(activeOutlet?.id);
     const showCostAsPrimary = isKitchenWorkspace || isTenantWorkspace || !canManagePricing;
@@ -856,14 +857,14 @@ export default function Index({
                     <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-100">
                         <p className="font-semibold">Mode dapur aktif</p>
                         <p className="mt-1 text-emerald-800 dark:text-emerald-200">
-                            Halaman ini hanya menampilkan produk yang terhubung ke station dapur Anda. Gunakan aksi <span className="font-semibold">Update Stok Hari Ini</span> untuk menyesuaikan stok outlet aktif tanpa membuka form admin produk.
+                            Halaman ini hanya menampilkan produk yang terhubung ke station dapur Anda. Gunakan aksi <span className="font-semibold">Sesuaikan Stok Hari Ini</span> untuk menyesuaikan stok outlet aktif tanpa membuka form admin produk.
                         </p>
                     </div>
                 ) : isTenantWorkspace ? (
                     <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-100">
                         <p className="font-semibold">Mode tenant aktif</p>
                         <p className="mt-1 text-blue-800 dark:text-blue-200">
-                            Tenant hanya melihat produk miliknya sendiri dan di halaman ini hanya dapat memperbarui <span className="font-semibold">Stok Hari Ini</span>. Perubahan katalog, mapping, dan harga tetap dikelola outlet owner.
+                            Tenant hanya melihat produk miliknya sendiri. Owner tenant dapat mengubah <span className="font-semibold">nama produk</span>, <span className="font-semibold">HPP</span>, <span className="font-semibold">harga jual tenant</span>, dan <span className="font-semibold">stok hari ini</span>, sedangkan harga outlet, mapping, kategori, barcode, dan struktur katalog tetap dikelola outlet owner.
                         </p>
                     </div>
                 ) : (
@@ -1367,7 +1368,7 @@ export default function Index({
                                     isSelected={isProductSelected(product.id)}
                                     onToggle={toggleProductSelection}
                                     canSelect={canManageCatalog}
-                                    canUpdate={canEditCatalog}
+                                    canUpdate={canEditCatalog || canOpenTenantProductEdit}
                                     canDelete={canDeleteCatalog}
                                     canUpdateDailyStock={canUpdateDailyStock}
                                     onDailyStockUpdate={openDailyStockModal}
@@ -1561,7 +1562,7 @@ export default function Index({
                                                     >
                                                         <IconPrinter size={16} />
                                                     </button>
-                                                    {canEditCatalog ? (
+                                                    {canEditCatalog || canOpenTenantProductEdit ? (
                                                         <Button
                                                             type="edit"
                                                             icon={<IconPencilCog size={16} strokeWidth={1.5} />}

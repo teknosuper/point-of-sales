@@ -109,8 +109,9 @@ export default function Index({
 }) {
     const { auth, errors, flash } = usePage().props;
     const isKitchenWorkspace = auth?.user?.preferred_workspace === "kitchen";
+    const isTenantRequestMode = Boolean(canCreateRequest);
     const [showRequestPanel, setShowRequestPanel] = useState(
-        () => isKitchenWorkspace
+        () => isTenantRequestMode
     );
     const [showFilters, setShowFilters] = useState(false);
     const [showHelpModal, setShowHelpModal] = useState(false);
@@ -119,28 +120,28 @@ export default function Index({
         if (flash?.success) toast.success(flash.success);
         if (flash?.error) toast.error(flash.error);
     }, [flash]);
-    const requestPanelTitle = isKitchenWorkspace
+    const requestPanelTitle = isTenantRequestMode
         ? "Ajukan Penarikan Dana Tenant"
         : "Approval Penarikan Tenant";
-    const requestPanelDescription = isKitchenWorkspace
+    const requestPanelDescription = isTenantRequestMode
         ? "Pemilik tenant dapat melihat saldo hasil penjualan yang sudah selesai diantar, lalu mengajukan pencairan ke owner outlet."
         : "Admin outlet hanya meninjau, menyetujui, atau menolak pengajuan yang dibuat tenant. Admin tidak membuat pengajuan dari halaman ini.";
-    const shiftFieldLabel = isKitchenWorkspace
+    const shiftFieldLabel = isTenantRequestMode
         ? "Shift Penjualan"
         : "Shift Kasir";
-    const shiftPlaceholder = isKitchenWorkspace
+    const shiftPlaceholder = isTenantRequestMode
         ? "Pilih shift penjualan"
         : "Pilih shift";
-    const recipientFieldLabel = isKitchenWorkspace
+    const recipientFieldLabel = isTenantRequestMode
         ? "Penerima Pencairan"
         : "Tujuan Admin / Penerima";
-    const notesFieldLabel = isKitchenWorkspace
+    const notesFieldLabel = isTenantRequestMode
         ? "Catatan Pengajuan"
         : "Catatan Pengajuan";
-    const notesPlaceholder = isKitchenWorkspace
+    const notesPlaceholder = isTenantRequestMode
         ? "Contoh: mohon pencairan sebagian ke rekening tenant, sisanya cash"
         : "Opsional";
-    const submitRequestLabel = isKitchenWorkspace
+    const submitRequestLabel = isTenantRequestMode
         ? "Ajukan Penarikan Dana"
         : "Ajukan Setoran";
     const [filterData, setFilterData] = useState({
@@ -190,7 +191,7 @@ export default function Index({
     const kitchenRequestedAmount = Number(createData.requested_amount || 0);
     const kitchenAvailableBalance = Number(wallet?.available_balance ?? 0);
     const kitchenAmountExceedsBalance =
-        isKitchenWorkspace &&
+        isTenantRequestMode &&
         createData.requested_amount !== "" &&
         kitchenRequestedAmount > kitchenAvailableBalance;
 
@@ -343,16 +344,16 @@ export default function Index({
 
     return (
         <>
-            <Head title={isKitchenWorkspace ? "Penarikan Dana Tenant" : "Approval Penarikan Tenant"} />
+            <Head title={isTenantRequestMode ? "Penarikan Dana Tenant" : "Approval Penarikan Tenant"} />
 
             <div className="space-y-6">
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                     <div>
                         <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
-                            {isKitchenWorkspace ? "Penarikan Dana Tenant" : "Approval Penarikan Tenant"}
+                            {isTenantRequestMode ? "Penarikan Dana Tenant" : "Approval Penarikan Tenant"}
                         </h1>
                         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                            {isKitchenWorkspace
+                            {isTenantRequestMode
                                 ? "Ajukan pencairan dana tenant dari saldo yang tersedia."
                                 : "Tinjau pengajuan tenant lalu setujui atau tolak."}
                         </p>
@@ -392,7 +393,7 @@ export default function Index({
                     <SummaryCard title="Total Disetujui" value={formatCurrency(summary?.approved_total ?? 0)} description="Nominal sudah dibayar" icon={<IconCashBanknote size={20} />} tone="slate" />
                 </div>
 
-                {isKitchenWorkspace && wallet ? (
+                {isTenantRequestMode && wallet ? (
                     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                         <SummaryCard title="Saldo Masuk Tenant" value={formatCurrency(wallet.tenant_sales_total ?? 0)} description="Penjualan tenant setelah promo pricing rules" icon={<IconReceipt2 size={20} />} tone="emerald" />
                         <SummaryCard title="Piutang ke Owner" value={formatCurrency(wallet.receivable_total ?? 0)} description="Hak tenant yang belum dicairkan penuh" icon={<IconClockHour4 size={20} />} tone="amber" />
@@ -414,7 +415,7 @@ export default function Index({
                         </div>
                         {canCreateRequest ? (
                         <form onSubmit={submitRequest} className="space-y-4">
-                            {isKitchenWorkspace ? (
+                            {isTenantRequestMode ? (
                                 <div className="grid gap-3 md:grid-cols-2">
                                     <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-800/60">
                                         <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
@@ -465,7 +466,7 @@ export default function Index({
                                 </div>
                             )}
 
-                            {isKitchenWorkspace ? (
+                            {isTenantRequestMode ? (
                                 <div>
                                     <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
                                         Nominal Penarikan
@@ -520,7 +521,7 @@ export default function Index({
                                 </div>
                             ) : null}
 
-                            {!isKitchenWorkspace ? (
+                            {!isTenantRequestMode ? (
                                 <div>
                                     <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
                                         {recipientFieldLabel}
@@ -569,7 +570,7 @@ export default function Index({
 
                             <div>
                                 <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                    {isKitchenWorkspace ? "Lampiran Pengajuan" : "Bukti Setoran"}
+                                    {isTenantRequestMode ? "Lampiran Pengajuan" : "Bukti Setoran"}
                                 </label>
                                 <input
                                     type="file"
@@ -597,7 +598,7 @@ export default function Index({
                                 ) : null}
                             </div>
 
-                            {!isKitchenWorkspace && selectedShift ? (
+                            {!isTenantRequestMode && selectedShift ? (
                                 <div className="grid gap-3 md:grid-cols-2">
                                     <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-800/60">
                                         <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
@@ -623,7 +624,7 @@ export default function Index({
                                             {formatCurrency(selectedShift.pricing_discount_total || 0)}
                                         </p>
                                     </div>
-                                    {!isKitchenWorkspace ? (
+                                    {!isTenantRequestMode ? (
                                         <div className="rounded-2xl bg-amber-50 p-4 dark:bg-amber-950/20">
                                             <p className="text-xs font-semibold uppercase tracking-wide text-amber-500">
                                                 Markup Owner
@@ -654,7 +655,7 @@ export default function Index({
 
                             <button
                                 type="submit"
-                                disabled={isKitchenWorkspace ? kitchenRequestedAmount <= 0 || kitchenAmountExceedsBalance : !selectedShift}
+                                disabled={isTenantRequestMode ? kitchenRequestedAmount <= 0 || kitchenAmountExceedsBalance : !selectedShift}
                                 className="inline-flex items-center gap-2 rounded-2xl bg-primary-600 px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
                             >
                                 <IconFileExport size={18} />
@@ -951,7 +952,7 @@ export default function Index({
                         </div>
                     ) : (
                         <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-10 text-center text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
-                            {isKitchenWorkspace
+                            {isTenantRequestMode
                                 ? "Belum ada pengajuan penarikan dana tenant."
                                 : "Belum ada pengajuan setoran kasir."}
                         </div>
@@ -966,7 +967,7 @@ export default function Index({
                                 <div>
                                     <h2 className="text-xl font-semibold text-slate-900 dark:text-white">
                                         {approvalModal.mode === "approve"
-                                            ? (isKitchenWorkspace ? "Approve Pencairan Tenant" : "Approve Setoran Kasir")
+                                            ? (isTenantRequestMode ? "Approve Pencairan Tenant" : "Approve Setoran Kasir")
                                             : "Tolak Pengajuan"}
                                     </h2>
                                     <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
@@ -1029,7 +1030,7 @@ export default function Index({
 
                                     <div>
                                         <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                            {isKitchenWorkspace ? "Bukti Pembayaran / Approval" : "Bukti Approval"}
+                                            {isTenantRequestMode ? "Bukti Pembayaran / Approval" : "Bukti Approval"}
                                         </label>
                                         <input
                                             type="file"

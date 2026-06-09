@@ -32,6 +32,9 @@ class TableOrderItem extends Model
         'pricing_rule_price_basis',
         'pricing_group_key',
         'pricing_group_label',
+        'is_promo_reward',
+        'promo_reward_rule_name',
+        'promo_reward_label',
         'notes',
     ];
 
@@ -53,6 +56,7 @@ class TableOrderItem extends Model
         'owner_net_total' => 'integer',
         'pricing_rule_id' => 'integer',
         'pricing_rule_price_basis' => 'string',
+        'is_promo_reward' => 'boolean',
     ];
 
     public function tableOrder()

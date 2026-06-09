@@ -42,8 +42,24 @@ class PublicTableOrderController extends Controller
         $identifiedCustomer = $this->resolvedPublicCustomer(request(), $table->outlet_id);
 
         $products = Product::query()
-            ->with(['category:id,name', 'modifierOptions', 'kitchenStationMappings.kitchenStation:id,name,code'])
-            ->select('id', 'title', 'description', 'image', 'sell_price', 'stock', 'category_id', 'supports_modifiers')
+            ->with([
+                'category:id,name',
+                'modifierOptions',
+                'tenantOutlet:id,name',
+                'kitchenStationMappings.kitchenStation:id,name,code',
+            ])
+            ->select(
+                'id',
+                'title',
+                'description',
+                'image',
+                'barcode',
+                'sell_price',
+                'stock',
+                'category_id',
+                'tenant_outlet_id',
+                'supports_modifiers'
+            )
             ->orderBy('title')
             ->when(Schema::hasTable('product_outlet_stocks'), function ($query) use ($table) {
                 $query->whereHas('outletStocks', fn ($stockQuery) => $stockQuery
@@ -71,15 +87,21 @@ class PublicTableOrderController extends Controller
         );
         $products = $products->map(function (Product $product) use ($pricingBadges) {
             $pricing = $pricingBadges->get($product->id);
+            $pricingRule = $pricing['pricing_rule'] ?? null;
 
             return [
                 'id' => $product->id,
                 'title' => $product->title,
                 'description' => $product->description,
                 'image' => $product->image,
+                'barcode' => $product->barcode,
                 'sell_price' => (int) $product->sell_price,
                 'stock' => (int) $product->stock,
                 'supports_modifiers' => (bool) $product->supports_modifiers,
+                'tenant_outlet' => $product->tenantOutlet ? [
+                    'id' => $product->tenantOutlet->id,
+                    'name' => $product->tenantOutlet->name,
+                ] : null,
                 'modifier_options' => $product->modifierOptions
                     ->where('is_active', true)
                     ->map(fn ($option) => [
@@ -104,15 +126,16 @@ class PublicTableOrderController extends Controller
                     'id' => $product->category->id,
                     'name' => $product->category->name,
                 ] : null,
-                'pricing_badge' => $pricing && ! empty($pricing['pricing_rule']) ? [
-                    'label' => $pricing['pricing_rule']['label'],
-                    'detail' => $pricing['pricing_rule']['detail'] ?? null,
-                    'rule_name' => $pricing['pricing_rule']['name'] ?? null,
-                    'promo_price' => $pricing['pricing_rule']['price_context']
+                'pricing_badge' => $pricing && $pricingRule ? [
+                    'label' => $pricingRule['label'],
+                    'detail' => $pricingRule['detail'] ?? null,
+                    'rule_name' => $pricingRule['name'] ?? null,
+                    'pricing_rule' => $pricingRule,
+                    'promo_price' => $pricingRule['price_context']
                         ? $pricing['effective_unit_price']
                         : null,
                     'base_price' => $pricing['base_unit_price'],
-                    'kind' => $pricing['pricing_rule']['kind'],
+                    'kind' => $pricingRule['kind'],
                 ] : null,
             ];
         })->values();
@@ -227,19 +250,28 @@ class PublicTableOrderController extends Controller
         $customer = $this->resolvedPublicCustomer($request, $table->outlet_id);
         abort_unless($customer, 422, 'Identitas pembeli belum dipilih.');
 
-        $validated = $request->validate([
-            'notes' => ['nullable', 'string', 'max:1000'],
-            'items' => ['required', 'array', 'min:1'],
-            'items.*.product_id' => ['required', 'integer', 'exists:products,id'],
-            'items.*.qty' => ['required', 'integer', 'min:1', 'max:50'],
-            'items.*.notes' => ['nullable', 'string', 'max:500'],
-            'items.*.modifiers' => ['nullable', 'array'],
-            'items.*.modifiers.*.id' => ['required', 'integer', 'exists:product_modifier_options,id'],
-        ]);
+        $validated = $this->validatePublicOrderPayload($request);
 
         $order = $this->tableOrderService->createFromPublicMenu($table, $customer, $validated);
 
         return redirect()->route('table-order.status', $order->access_token);
+    }
+
+    public function preview(Request $request, string $qrToken)
+    {
+        $table = $this->resolveTable($qrToken);
+        $customer = $this->resolvedPublicCustomer($request, $table->outlet_id);
+        abort_unless($customer, 422, 'Identitas pembeli belum dipilih.');
+
+        $validated = $this->validatePublicOrderPayload($request);
+        $preview = $this->tableOrderService->previewPublicMenu($table, $customer, $validated);
+
+        return response()->json($preview['pricing_preview'] ?? [
+            'items' => [],
+            'summary' => [
+                'grand_total' => (int) ($preview['grand_total'] ?? 0),
+            ],
+        ]);
     }
 
     public function status(string $accessToken)
@@ -501,9 +533,30 @@ class PublicTableOrderController extends Controller
     private function productHasPromo(array $product): bool
     {
         $badge = $product['pricing_badge'] ?? null;
+        if (! empty($badge['pricing_rule'])) {
+            return true;
+        }
+
         $promoPrice = (int) ($badge['promo_price'] ?? 0);
         $basePrice = (int) ($badge['base_price'] ?? ($product['sell_price'] ?? 0));
 
         return $promoPrice > 0 && $promoPrice < $basePrice;
+    }
+
+    private function validatePublicOrderPayload(Request $request): array
+    {
+        return $request->validate([
+            'notes' => ['nullable', 'string', 'max:1000'],
+            'items' => ['required', 'array', 'min:1'],
+            'items.*.client_key' => ['nullable', 'string', 'max:120'],
+            'items.*.product_id' => ['required', 'integer', 'exists:products,id'],
+            'items.*.qty' => ['required', 'integer', 'min:1', 'max:50'],
+            'items.*.notes' => ['nullable', 'string', 'max:500'],
+            'items.*.is_promo_reward' => ['nullable', 'boolean'],
+            'items.*.promo_reward_rule_name' => ['nullable', 'string', 'max:255'],
+            'items.*.promo_reward_label' => ['nullable', 'string', 'max:255'],
+            'items.*.modifiers' => ['nullable', 'array'],
+            'items.*.modifiers.*.id' => ['required', 'integer', 'exists:product_modifier_options,id'],
+        ]);
     }
 }

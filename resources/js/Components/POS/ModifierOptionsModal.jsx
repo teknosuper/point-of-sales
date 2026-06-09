@@ -1,0 +1,366 @@
+import React from "react";
+import {
+    IconChevronDown,
+    IconChevronUp,
+    IconX,
+} from "@/Utils/icons";
+import { PROMO_TOTAL_LABEL, formatRuleItems } from "@/Utils/pricingRules";
+
+const formatPrice = (value = 0) =>
+    Number(value || 0).toLocaleString("id-ID", {
+        style: "currency",
+        currency: "IDR",
+        minimumFractionDigits: 0,
+    });
+
+export default function ModifierOptionsModal({
+    product = null,
+    cartTargetId = null,
+    quantity = 1,
+    onQuantityChange,
+    selectedModifierOptionIds = [],
+    onToggleModifierOption,
+    selectedModifierTotal = 0,
+    promo = null,
+    promoBenefit = null,
+    isPromoDetailOpen = false,
+    onTogglePromoDetail,
+    onAddRewardProducts,
+    onClose,
+    onSubmit,
+    isSubmitting = false,
+}) {
+    if (!product) {
+        return null;
+    }
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div
+                className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm"
+                onClick={onClose}
+            />
+            <div className="relative flex max-h-[90vh] w-full max-w-md flex-col overflow-hidden rounded-3xl bg-white shadow-2xl dark:bg-slate-900">
+                <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4 dark:border-slate-800">
+                    <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary-500">
+                            Opsi Tambahan
+                        </p>
+                        <h3 className="mt-1 text-lg font-bold text-slate-900 dark:text-white">
+                            {product.title}
+                        </h3>
+                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                            {cartTargetId
+                                ? "Pilih topping / extra untuk item yang sudah ada di keranjang."
+                                : "Pilih topping / extra sebelum item dimasukkan ke keranjang."}
+                        </p>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        disabled={isSubmitting}
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 text-slate-500 hover:bg-slate-200 disabled:opacity-50 dark:bg-slate-800 dark:text-slate-300"
+                    >
+                        <IconX size={18} />
+                    </button>
+                </div>
+
+                <div className="min-h-0 flex-1 overflow-y-auto">
+                    {product.pricing_badge && promo && promoBenefit ? (
+                        <div
+                            className={`mx-5 mt-4 rounded-2xl border px-4 py-3 ${
+                                promoBenefit.status === "active"
+                                    ? "border-emerald-200 bg-emerald-50 dark:border-emerald-900/40 dark:bg-emerald-950/20"
+                                    : promoBenefit.status === "pending"
+                                      ? "border-amber-200 bg-amber-50 dark:border-amber-900/40 dark:bg-amber-950/20"
+                                      : "border-sky-200 bg-sky-50 dark:border-sky-900/40 dark:bg-sky-950/20"
+                            }`}
+                        >
+                            <div className="flex items-start gap-3">
+                                <div
+                                    className={`shrink-0 rounded-lg px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-white ${
+                                        promoBenefit.status === "active"
+                                            ? "bg-emerald-500"
+                                            : promoBenefit.status === "pending"
+                                              ? "bg-amber-500"
+                                              : "bg-sky-500"
+                                    }`}
+                                >
+                                    {promo.badge || "Promo"}
+                                </div>
+                                <div className="min-w-0">
+                                    <p className="text-sm font-semibold text-rose-800 dark:text-rose-200">
+                                        {promo.title || PROMO_TOTAL_LABEL}
+                                    </p>
+                                    {promo.detail ? (
+                                        <p className="mt-0.5 text-xs text-rose-600 dark:text-rose-300">
+                                            {promo.detail}
+                                        </p>
+                                    ) : null}
+                                    {!cartTargetId &&
+                                    promo.minimumQuantity > 1 &&
+                                    promo.quantity < promo.minimumQuantity ? (
+                                        <p className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-300">
+                                            Promo aktif mulai qty {promo.minimumQuantity}.
+                                        </p>
+                                    ) : null}
+                                    {promo.baseUnitPrice > 0 ? (
+                                        <div className="mt-1 flex items-center gap-2 text-xs">
+                                            {promo.promoEligible &&
+                                            promo.effectiveUnitPrice < promo.baseUnitPrice ? (
+                                                <>
+                                                    <span className="text-rose-500 line-through">
+                                                        {formatPrice(promo.baseUnitPrice)}
+                                                    </span>
+                                                    <span className="font-bold text-rose-700 dark:text-rose-200">
+                                                        {formatPrice(promo.effectiveUnitPrice)}
+                                                    </span>
+                                                </>
+                                            ) : (
+                                                <span className="font-bold text-rose-700 dark:text-rose-200">
+                                                    {formatPrice(promo.baseUnitPrice)}
+                                                </span>
+                                            )}
+                                        </div>
+                                    ) : null}
+                                </div>
+                            </div>
+                            <div
+                                className={`mt-3 rounded-2xl px-3 py-3 text-sm ${
+                                    promoBenefit.status === "active"
+                                        ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300"
+                                        : promoBenefit.status === "pending"
+                                          ? "bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300"
+                                          : "bg-white/70 text-rose-700 dark:bg-slate-900/50 dark:text-rose-200"
+                                }`}
+                            >
+                                <p className="font-semibold">{promoBenefit.headline}</p>
+                                {promoBenefit.detail ? (
+                                    <p className="mt-1 text-xs opacity-90">
+                                        {promoBenefit.detail}
+                                    </p>
+                                ) : null}
+                            </div>
+                            <button
+                                type="button"
+                                onClick={onTogglePromoDetail}
+                                className="mt-3 inline-flex items-center gap-2 rounded-xl border border-rose-200 bg-white px-3 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-100 dark:border-rose-900/40 dark:bg-slate-900 dark:text-rose-200 dark:hover:bg-slate-800"
+                            >
+                                {isPromoDetailOpen
+                                    ? "Sembunyikan benefit"
+                                    : "Lihat benefit promo"}
+                                {isPromoDetailOpen ? (
+                                    <IconChevronUp size={14} />
+                                ) : (
+                                    <IconChevronDown size={14} />
+                                )}
+                            </button>
+                            {isPromoDetailOpen ? (
+                                <div className="mt-3 rounded-2xl border border-rose-200/70 bg-white/80 px-4 py-3 text-xs text-rose-700 dark:border-rose-900/30 dark:bg-slate-900/60 dark:text-rose-200">
+                                    <div className="grid gap-2">
+                                        <div className="flex items-center justify-between gap-3">
+                                            <span>Rule</span>
+                                            <strong className="text-right">
+                                                {promo.title || "Promo"}
+                                            </strong>
+                                        </div>
+                                        {product?.pricing_badge?.pricing_rule?.kind ===
+                                        "buy_x_get_y" ? (
+                                            <>
+                                                <div className="flex items-start justify-between gap-3">
+                                                    <span>Syarat beli</span>
+                                                    <strong className="text-right">
+                                                        {formatRuleItems(
+                                                            product?.pricing_badge?.pricing_rule
+                                                                ?.buy_items || []
+                                                        ) || "-"}
+                                                    </strong>
+                                                </div>
+                                                <div className="flex items-start justify-between gap-3">
+                                                    <span>Bonus</span>
+                                                    <strong className="text-right">
+                                                        {formatRuleItems(
+                                                            product?.pricing_badge?.pricing_rule
+                                                                ?.get_items || []
+                                                        ) || "-"}
+                                                    </strong>
+                                                </div>
+                                                {product?.pricing_badge?.pricing_rule?.get_items?.some(
+                                                    (rewardItem) =>
+                                                        Number(rewardItem.product_id || 0) !==
+                                                        Number(product?.id || 0)
+                                                ) && onAddRewardProducts ? (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() =>
+                                                            onAddRewardProducts(
+                                                                product?.pricing_badge?.pricing_rule
+                                                            )
+                                                        }
+                                                        className="mt-2 inline-flex items-center justify-center rounded-xl border border-primary-200 bg-primary-50 px-3 py-2 text-xs font-semibold text-primary-700 hover:bg-primary-100 dark:border-primary-900/40 dark:bg-primary-950/30 dark:text-primary-300 dark:hover:bg-primary-950/50"
+                                                    >
+                                                        Tambah item bonus ke keranjang
+                                                    </button>
+                                                ) : null}
+                                            </>
+                                        ) : null}
+                                        <div className="flex items-center justify-between gap-3">
+                                            <span>Qty dipilih</span>
+                                            <strong>{quantity}</strong>
+                                        </div>
+                                        <div className="flex items-center justify-between gap-3">
+                                            <span>Estimasi subtotal</span>
+                                            <strong>{formatPrice(promoBenefit.lineTotal)}</strong>
+                                        </div>
+                                        {promoBenefit.savings > 0 ? (
+                                            <div className="flex items-center justify-between gap-3">
+                                                <span>Estimasi hemat</span>
+                                                <strong>{formatPrice(promoBenefit.savings)}</strong>
+                                            </div>
+                                        ) : null}
+                                        {promo.detail ? (
+                                            <p className="pt-1 leading-5 text-rose-600 dark:text-rose-300">
+                                                {promo.detail}
+                                            </p>
+                                        ) : null}
+                                    </div>
+                                </div>
+                            ) : null}
+                        </div>
+                    ) : null}
+
+                    {!cartTargetId ? (
+                        <div className="mx-5 mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/30">
+                            <div className="flex items-center justify-between gap-3">
+                                <div>
+                                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                        Quantity
+                                    </p>
+                                    <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+                                        Tentukan jumlah item sebelum dimasukkan ke keranjang.
+                                    </p>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() =>
+                                            onQuantityChange?.(
+                                                Math.max(1, Number(quantity || 1) - 1)
+                                            )
+                                        }
+                                        className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                                    >
+                                        -
+                                    </button>
+                                    <div className="min-w-[56px] rounded-xl bg-white px-3 py-2 text-center text-sm font-bold text-slate-900 dark:bg-slate-900 dark:text-white">
+                                        {quantity}
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() =>
+                                            onQuantityChange?.(Number(quantity || 1) + 1)
+                                        }
+                                        className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                                    >
+                                        +
+                                    </button>
+                                </div>
+                            </div>
+                            {promoBenefit ? (
+                                <div className="mt-3 flex items-center justify-between text-sm">
+                                    <span className="text-slate-500 dark:text-slate-400">
+                                        Estimasi subtotal item
+                                    </span>
+                                    <div className="text-right">
+                                        {promo?.promoEligible &&
+                                        promoBenefit.lineTotal < promo.baseLineTotal ? (
+                                            <p className="text-xs text-slate-400 line-through">
+                                                {formatPrice(promo.baseLineTotal)}
+                                            </p>
+                                        ) : null}
+                                        <p className="font-semibold text-primary-600 dark:text-primary-400">
+                                            {formatPrice(promoBenefit.lineTotal)}
+                                        </p>
+                                    </div>
+                                </div>
+                            ) : null}
+                        </div>
+                    ) : null}
+
+                    <div className="space-y-3 px-5 py-4">
+                        {(product.modifier_options || []).map((option) => {
+                            const active = selectedModifierOptionIds.includes(
+                                option.id
+                            );
+
+                            return (
+                                <button
+                                    key={option.id}
+                                    type="button"
+                                    onClick={() => onToggleModifierOption?.(option.id)}
+                                    className={`flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left transition ${
+                                        active
+                                            ? "border-primary-500 bg-primary-50 dark:border-primary-400 dark:bg-primary-950/30"
+                                            : "border-slate-200 bg-white hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-slate-600"
+                                    }`}
+                                >
+                                    <div>
+                                        <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                                            {option.name}
+                                        </p>
+                                        <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                                            Tambahan {formatPrice(option.price)}
+                                        </p>
+                                    </div>
+                                    <div
+                                        className={`h-5 w-5 rounded-md border ${
+                                            active
+                                                ? "border-primary-500 bg-primary-500"
+                                                : "border-slate-300 dark:border-slate-600"
+                                        }`}
+                                    />
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+
+                <div className="border-t border-slate-200 bg-slate-50 px-5 py-4 dark:border-slate-800 dark:bg-slate-950/40">
+                    <div className="mb-3 flex items-center justify-between text-sm">
+                        <span className="text-slate-500 dark:text-slate-400">
+                            Total tambahan
+                        </span>
+                        <span className="font-semibold text-primary-600 dark:text-primary-400">
+                            {formatPrice(
+                                selectedModifierTotal *
+                                    Math.max(1, cartTargetId ? 1 : quantity)
+                            )}
+                        </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                        <button
+                            type="button"
+                            onClick={() => onSubmit?.(false)}
+                            disabled={isSubmitting}
+                            className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                        >
+                            {cartTargetId ? "Tutup" : "Tanpa topping"}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => onSubmit?.(true)}
+                            disabled={isSubmitting}
+                            className="rounded-2xl bg-primary-500 px-4 py-3 text-sm font-semibold text-white hover:bg-primary-600 disabled:opacity-50"
+                        >
+                            {isSubmitting
+                                ? "Menyimpan..."
+                                : cartTargetId
+                                  ? "Simpan topping"
+                                  : "Tambah ke keranjang"}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
