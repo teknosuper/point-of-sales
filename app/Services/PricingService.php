@@ -211,7 +211,9 @@ class PricingService
                 'owner_discount_total' => (int) ($directCandidates['owner_discount_total'] ?? 0),
                 'tenant_net_total' => max(0, (int) $components['tenant_base_total'] - (int) ($directCandidates['tenant_discount_total'] ?? 0)),
                 'owner_net_total' => max(0, (int) $components['owner_base_total'] - (int) ($directCandidates['owner_discount_total'] ?? 0)),
-                'pricing_rule' => $this->serializeRule($rule),
+                'pricing_rule' => $this->serializeRule($rule, true, [
+                    'active_break' => $directCandidates['active_break'] ?? null,
+                ]),
             ];
         }
 
@@ -249,8 +251,15 @@ class PricingService
         ];
     }
 
-    public function ruleLabel(PricingRule $rule): string
+    public function ruleLabel(PricingRule $rule, ?array $activeBreak = null): string
     {
+        if ($rule->kind === PricingRule::KIND_QTY_BREAK && $activeBreak) {
+            return 'Grosir '.$this->standardDiscountLabelForValues(
+                (string) ($activeBreak['discount_type'] ?? $rule->discount_type),
+                (float) ($activeBreak['discount_value'] ?? 0)
+            );
+        }
+
         return match ($rule->kind) {
             PricingRule::KIND_QTY_BREAK => 'Grosir '.$this->standardDiscountLabel($rule),
             PricingRule::KIND_BUNDLE_PRICE => 'Bundle Rp '.number_format((float) $rule->discount_value, 0, ',', '.'),
@@ -451,8 +460,12 @@ class PricingService
             $currentItem['owner_discount_total'] += (int) $candidate['owner_discount_total'];
             $currentItem['tenant_net_total'] = max(0, (int) $currentItem['tenant_base_total'] - (int) $currentItem['tenant_discount_total']);
             $currentItem['owner_net_total'] = max(0, (int) $currentItem['owner_base_total'] - (int) $currentItem['owner_discount_total']);
-            $currentItem['pricing_rule'] = $this->serializeRule($candidate['rule']);
-            $currentItem['applied_rules'][] = $this->serializeRule($candidate['rule']);
+            $currentItem['pricing_rule'] = $this->serializeRule($candidate['rule'], true, [
+                'active_break' => $candidate['active_break'] ?? null,
+            ]);
+            $currentItem['applied_rules'][] = $this->serializeRule($candidate['rule'], true, [
+                'active_break' => $candidate['active_break'] ?? null,
+            ]);
             $currentItem['pricing_group_key'] ??= 'rule-'.$candidate['rule']->id;
             $currentItem['pricing_group_label'] ??= $candidate['rule']->name;
             $items->put($cartId, $currentItem);
@@ -497,6 +510,11 @@ class PricingService
                 'tenant_discount_total' => $tenantDiscountTotal,
                 'owner_discount_total' => $ownerDiscountTotal,
                 'subtotal_after_promo' => $subtotalAfterPromo,
+                'voucher_discount_total' => 0,
+                'loyalty_discount_total' => 0,
+                'manual_discount_total' => 0,
+                'shipping_cost' => 0,
+                'grand_total' => $subtotalAfterPromo,
             ],
         ];
     }
@@ -543,15 +561,21 @@ class PricingService
                 $currentItem['owner_net_total'] = max(0, (int) $currentItem['owner_base_total'] - (int) $currentItem['owner_discount_total']);
                 $currentItem['pricing_group_key'] = $candidate['group_key'];
                 $currentItem['pricing_group_label'] = $candidate['group_label'];
-                $currentItem['pricing_rule'] = $this->serializeRule($candidate['rule']);
-                $currentItem['applied_rules'][] = $this->serializeRule($candidate['rule']);
+                $currentItem['pricing_rule'] = $this->serializeRule($candidate['rule'], true, [
+                    'active_break' => $candidate['active_break'] ?? null,
+                ]);
+                $currentItem['applied_rules'][] = $this->serializeRule($candidate['rule'], true, [
+                    'active_break' => $candidate['active_break'] ?? null,
+                ]);
                 $items->put($cartId, $currentItem);
             }
 
             $groups[] = [
                 'key' => $candidate['group_key'],
                 'label' => $candidate['group_label'],
-                'rule' => $this->serializeRule($candidate['rule']),
+                'rule' => $this->serializeRule($candidate['rule'], true, [
+                    'active_break' => $candidate['active_break'] ?? null,
+                ]),
                 'discount_total' => (int) $candidate['discount_total'],
                 'participants' => $candidate['participants'],
             ];
@@ -811,6 +835,11 @@ class PricingService
                 'line_discount' => $discount,
                 'tenant_discount_total' => $tenantDiscountTotal,
                 'owner_discount_total' => $ownerDiscountTotal,
+                'active_break' => [
+                    'min_qty' => (int) $break->min_qty,
+                    'discount_type' => $break->discount_type,
+                    'discount_value' => (float) $break->discount_value,
+                ],
             ];
         }
 
@@ -1001,8 +1030,9 @@ class PricingService
         return min($lineBaseTotal, max(0, $discount));
     }
 
-    private function serializeRule(PricingRule $rule, bool $includePriceContext = true): array
+    private function serializeRule(PricingRule $rule, bool $includePriceContext = true, array $context = []): array
     {
+        $activeBreak = $context['active_break'] ?? null;
         $buyItems = $rule->relationLoaded('buyGetItems')
             ? $rule->buyGetItems
             : collect();
@@ -1032,43 +1062,81 @@ class PricingService
             ->values()
             ->all();
 
+        $bundleRows = $rule->relationLoaded('bundleItems')
+            ? $rule->bundleItems
+                ->map(fn ($item) => [
+                    'product_id' => (int) $item->product_id,
+                    'product_title' => $item->product?->title ?? 'item',
+                    'quantity' => (int) $item->quantity,
+                ])
+                ->values()
+                ->all()
+            : [];
+
         return [
             'id' => $rule->id,
             'name' => $rule->name,
             'kind' => $rule->kind,
-            'label' => $this->ruleLabel($rule),
-            'detail' => $this->ruleDetail($rule),
+            'discount_type' => $rule->discount_type,
+            'discount_value' => (float) $rule->discount_value,
+            'label' => $this->ruleLabel($rule, $activeBreak),
+            'detail' => $this->ruleDetail($rule, $activeBreak),
             'minimum_quantity' => $rule->kind === PricingRule::KIND_QTY_BREAK
                 ? (int) max(1, $rule->qtyBreaks->min('min_qty') ?: 1)
                 : 1,
             'preview_quantity' => max(1, (int) ($rule->preview_quantity_multiplier ?: 1)),
             'priority' => (int) $rule->priority,
             'target_type' => $rule->target_type,
+            'product_id' => $rule->product_id ? (int) $rule->product_id : null,
+            'category_id' => $rule->category_id ? (int) $rule->category_id : null,
             'customer_scope' => $rule->customer_scope,
             'eligible_loyalty_tiers' => $rule->eligible_loyalty_tiers,
             'price_basis' => $rule->price_basis ?: PricingRule::PRICE_BASIS_SELL_PRICE,
             'price_context' => $includePriceContext,
             'buy_qty' => (int) max(1, $buyQty),
             'free_qty' => (int) max(1, $getQty),
+            'bundle_items' => $bundleRows,
+            'qty_breaks' => $rule->qtyBreaks
+                ->map(fn (PricingRuleQtyBreak $break) => [
+                    'min_qty' => (int) $break->min_qty,
+                    'discount_type' => $break->discount_type,
+                    'discount_value' => (float) $break->discount_value,
+                    'sort_order' => (int) ($break->sort_order ?? 0),
+                ])
+                ->sortBy([
+                    ['min_qty', 'asc'],
+                    ['sort_order', 'asc'],
+                ])
+                ->values()
+                ->all(),
             'buy_items' => $buyRows,
             'get_items' => $getRows,
+            'active_break' => $activeBreak,
         ];
+    }
+
+    private function standardDiscountLabelForValues(string $discountType, float $discountValue): string
+    {
+        return match ($discountType) {
+            PricingRule::TYPE_PERCENTAGE => rtrim(rtrim(number_format($discountValue, 2, '.', ''), '0'), '.').'% OFF',
+            PricingRule::TYPE_FIXED_AMOUNT => 'Hemat Rp '.number_format($discountValue, 0, ',', '.'),
+            PricingRule::TYPE_FIXED_PRICE => 'Harga Rp '.number_format($discountValue, 0, ',', '.'),
+            default => 'Promo',
+        };
     }
 
     private function standardDiscountLabel(PricingRule $rule): string
     {
-        return match ($rule->discount_type) {
-            PricingRule::TYPE_PERCENTAGE => rtrim(rtrim(number_format((float) $rule->discount_value, 2, '.', ''), '0'), '.').'% OFF',
-            PricingRule::TYPE_FIXED_AMOUNT => 'Hemat Rp '.number_format((float) $rule->discount_value, 0, ',', '.'),
-            PricingRule::TYPE_FIXED_PRICE => 'Harga Rp '.number_format((float) $rule->discount_value, 0, ',', '.'),
-            default => $rule->name,
-        };
+        return $this->standardDiscountLabelForValues(
+            (string) $rule->discount_type,
+            (float) $rule->discount_value
+        );
     }
 
-    private function ruleDetail(PricingRule $rule): string
+    private function ruleDetail(PricingRule $rule, ?array $activeBreak = null): string
     {
         return match ($rule->kind) {
-            PricingRule::KIND_QTY_BREAK => $this->qtyBreakRuleDetail($rule),
+            PricingRule::KIND_QTY_BREAK => $this->qtyBreakRuleDetail($rule, $activeBreak),
             PricingRule::KIND_BUNDLE_PRICE => $this->bundleRuleDetail($rule),
             PricingRule::KIND_BUY_X_GET_Y => $this->buyGetRuleDetail($rule),
             default => $this->standardRuleDetail($rule),
@@ -1085,8 +1153,24 @@ class PricingService
         };
     }
 
-    private function qtyBreakRuleDetail(PricingRule $rule): string
+    private function qtyBreakRuleDetail(PricingRule $rule, ?array $activeBreak = null): string
     {
+        if ($activeBreak) {
+            $discountType = (string) ($activeBreak['discount_type'] ?? '');
+            $discountValue = (float) ($activeBreak['discount_value'] ?? 0);
+            $minQty = max(1, (int) ($activeBreak['min_qty'] ?? 1));
+            $label = match ($discountType) {
+                PricingRule::TYPE_PERCENTAGE => 'diskon '.rtrim(rtrim(number_format($discountValue, 2, '.', ''), '0'), '.').'%',
+                PricingRule::TYPE_FIXED_AMOUNT => 'hemat Rp '.number_format($discountValue, 0, ',', '.'),
+                PricingRule::TYPE_FIXED_PRICE => 'harga jadi Rp '.number_format($discountValue, 0, ',', '.'),
+                default => null,
+            };
+
+            if ($label) {
+                return 'Qty '.$minQty.' aktif: '.$label.'.';
+            }
+        }
+
         $parts = $rule->qtyBreaks
             ->map(function (PricingRuleQtyBreak $break) {
                 $label = match ($break->discount_type) {

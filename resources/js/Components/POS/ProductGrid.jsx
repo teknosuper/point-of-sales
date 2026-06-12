@@ -37,8 +37,20 @@ function ProductCard({ product, onAddToCart, isAdding, viewMode = "list" }) {
     const hasStock = product.stock > 0;
     const lowStock = product.stock > 0 && product.stock <= 5;
     const promoBadge = product.pricing_badge;
-    const promoPrice = Number(promoBadge?.promo_price || 0);
     const basePrice = Number(promoBadge?.base_price || product.sell_price || 0);
+    const effectivePrice = Number(
+        product.effective_price ?? promoBadge?.promo_price ?? product.sell_price ?? 0
+    );
+    const promoPriceCandidates = [
+        Number(promoBadge?.promo_price || 0),
+        effectivePrice,
+    ].filter(
+        (value) => Number.isFinite(value) && value > 0 && value < basePrice
+    );
+    const promoPrice =
+        promoPriceCandidates.length > 0
+            ? Math.min(...promoPriceCandidates)
+            : 0;
     const showPromo = promoBadge && promoPrice > 0 && promoPrice < basePrice;
     const showBadge = Boolean(promoBadge?.label);
     const promoDetail = promoExplanation(promoBadge);

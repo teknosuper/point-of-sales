@@ -260,7 +260,7 @@ class TableOrderService
             ];
         })->values();
 
-        $subtotal = (int) $orderItems->sum('line_total');
+        $subtotal = (int) data_get($pricingPreview, 'summary.grand_total', $orderItems->sum('line_total'));
 
         $previewItems = collect($pricingPreview['items'] ?? [])
             ->map(function (array $pricingItem) use ($orderItems) {

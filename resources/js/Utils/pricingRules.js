@@ -673,6 +673,20 @@ export const shouldUseLocalPricingPreview = (
         return true;
     }
 
+    if (currentItems.length !== cartItems.length) {
+        return true;
+    }
+
+    const pricingItemsByCartId = new Map(
+        currentItems.map((item) => [String(item?.cart_id || ""), item])
+    );
+
+    if (
+        cartItems.some((item) => !pricingItemsByCartId.has(String(item?.id || "")))
+    ) {
+        return true;
+    }
+
     const rewardCartIds = cartItems
         .filter(
             (item) =>
@@ -698,7 +712,20 @@ export const shouldUseLocalPricingPreview = (
         return true;
     }
 
+    const previewItemsGrandTotal = cartItems.reduce((sum, cartItem) => {
+        const pricingItem = pricingItemsByCartId.get(String(cartItem?.id || ""));
+        if (!pricingItem) {
+            return sum;
+        }
+
+        return sum + Number(resolveCartPricingLine(cartItem, pricingItem)?.effectiveLineTotal || 0);
+    }, 0);
     const currentGrandTotal = Number(pricingPreview?.summary?.grand_total ?? 0);
+
+    if (Math.abs(previewItemsGrandTotal - currentGrandTotal) > 1) {
+        return true;
+    }
+
     const fallbackGrandTotal = Number(
         buildLocalPricingPreview(cartItems)?.summary?.grand_total ?? 0
     );
@@ -706,24 +733,113 @@ export const shouldUseLocalPricingPreview = (
     return currentGrandTotal <= 0 && fallbackGrandTotal > 0;
 };
 
-export const resolveCartPricingLine = (cartItem, pricingItem = null) => {
+export function resolveCartPricingLine(cartItem, pricingItem = null) {
     const qty = Math.max(1, Number(cartItem?.qty || 1));
     const productSellPrice = Math.max(
         0,
         Number(cartItem?.product?.sell_price || cartItem?.sell_price || 0)
     );
+    const productBuyPrice = Math.max(
+        0,
+        Number(cartItem?.product?.buy_price || cartItem?.buy_price || 0)
+    );
+    const fallbackBadge = cartItem?.product?.pricing_badge || null;
+    const fallbackRule = fallbackBadge?.pricing_rule || null;
+    const fallbackBaseUnitPrice = Math.max(
+        productSellPrice,
+        Number(fallbackBadge?.base_price ?? productSellPrice)
+    );
+    const fallbackEffectiveUnitPrice = (() => {
+        if (fallbackRule?.price_context) {
+            return Math.max(
+                0,
+                Number(
+                    fallbackBadge?.promo_price ??
+                        cartItem?.product?.effective_price ??
+                        productSellPrice
+                )
+            );
+        }
+
+        return Math.max(
+            0,
+            Number(cartItem?.product?.effective_price ?? productSellPrice)
+        );
+    })();
     const modifierTotal = (cartItem?.modifiers || []).reduce(
         (sum, modifier) => sum + Math.max(0, Number(modifier?.total_price || 0)),
         0
     );
     const isReward =
         Boolean(cartItem?.promo_reward_meta) || Boolean(cartItem?.is_promo_reward);
+    const fallbackDirectPricing = (() => {
+        if (pricingItem || isReward || !fallbackRule) {
+            return null;
+        }
+
+        const resolveLineDiscount = (discountType, discountValue, baseUnitPrice) => {
+            const lineBaseTotal = baseUnitPrice * qty;
+
+            const discount = {
+                percentage: Math.round(lineBaseTotal * (Number(discountValue || 0) / 100)),
+                fixed_amount: Math.round(Number(discountValue || 0)) * qty,
+                fixed_price: Math.max(
+                    0,
+                    lineBaseTotal - Math.round(Number(discountValue || 0)) * qty
+                ),
+            }[discountType] ?? 0;
+
+            return Math.min(lineBaseTotal, Math.max(0, discount));
+        };
+
+        const priceBasis =
+            fallbackRule?.price_basis === "buy_price"
+                ? productBuyPrice
+                : fallbackBaseUnitPrice;
+
+        if (fallbackRule?.kind === "standard_discount") {
+            const lineDiscount = resolveLineDiscount(
+                fallbackRule?.discount_type,
+                fallbackRule?.discount_value,
+                priceBasis
+            );
+
+            return {
+                lineDiscount,
+                pricingGroupLabel:
+                    fallbackRule?.name || fallbackRule?.label || null,
+            };
+        }
+
+        if (fallbackRule?.kind === "qty_break") {
+            const activeBreak = [...(fallbackRule?.qty_breaks || [])]
+                .filter((entry) => qty >= Number(entry?.min_qty || 0))
+                .sort((left, right) => Number(right?.min_qty || 0) - Number(left?.min_qty || 0))[0];
+
+            if (!activeBreak) {
+                return null;
+            }
+
+            const lineDiscount = resolveLineDiscount(
+                activeBreak?.discount_type,
+                activeBreak?.discount_value,
+                priceBasis
+            );
+
+            return {
+                lineDiscount,
+                pricingGroupLabel: fallbackRule?.name || null,
+            };
+        }
+
+        return null;
+    })();
     const baseUnitPrice = Math.max(
         0,
-        Number(pricingItem?.base_unit_price ?? productSellPrice)
+        Number(pricingItem?.base_unit_price ?? fallbackBaseUnitPrice)
     );
-    const fallbackUnitPrice = isReward ? 0 : productSellPrice;
-    const effectiveUnitPrice = Math.max(
+    const fallbackUnitPrice = isReward ? 0 : fallbackEffectiveUnitPrice;
+    const previewEffectiveUnitPrice = Math.max(
         0,
         Number(pricingItem?.effective_unit_price ?? fallbackUnitPrice)
     );
@@ -733,12 +849,30 @@ export const resolveCartPricingLine = (cartItem, pricingItem = null) => {
     );
     const effectiveLineTotal = Math.max(
         0,
-        Number(pricingItem?.line_total ?? effectiveUnitPrice * qty + modifierTotal)
+        Number(
+            pricingItem?.line_total ??
+                (fallbackDirectPricing
+                    ? Math.max(
+                          0,
+                          baseUnitPrice * qty + modifierTotal - fallbackDirectPricing.lineDiscount
+                      )
+                    : previewEffectiveUnitPrice * qty + modifierTotal)
+        )
+    );
+    const effectiveUnitPrice = Math.max(
+        0,
+        Number(
+            pricingItem?.effective_unit_price ??
+                Math.round(
+                    Math.max(0, effectiveLineTotal - modifierTotal) / Math.max(1, qty)
+                )
+        )
     );
     const discountTotal = Math.max(
         0,
         Number(
             pricingItem?.line_discount_total ??
+                fallbackDirectPricing?.lineDiscount ??
                 Math.max(0, baseLineTotal - effectiveLineTotal)
         )
     );
@@ -754,37 +888,591 @@ export const resolveCartPricingLine = (cartItem, pricingItem = null) => {
         discountTotal,
         pricingRule: pricingItem?.pricing_rule || null,
         pricingGroupKey: pricingItem?.pricing_group_key || null,
-        pricingGroupLabel: pricingItem?.pricing_group_label || null,
+        pricingGroupLabel:
+            pricingItem?.pricing_group_label ||
+            fallbackDirectPricing?.pricingGroupLabel ||
+            null,
     };
+}
+
+const localRuleMatchesCartItem = (rule, cartItem) => {
+    const targetType = rule?.target_type || "all";
+
+    if (targetType === "all") {
+        return true;
+    }
+
+    if (targetType === "product") {
+        return Number(rule?.product_id || 0) === Number(cartItem?.product_id || 0);
+    }
+
+    if (targetType === "category") {
+        return Number(rule?.category_id || 0) === Number(cartItem?.product?.category_id || 0);
+    }
+
+    return false;
+};
+
+const localRuleBasisUnitPrice = (rule, cartItem) =>
+    rule?.price_basis === "buy_price"
+        ? Math.max(0, Number(cartItem?.product?.buy_price || cartItem?.buy_price || 0))
+        : Math.max(0, Number(cartItem?.product?.sell_price || cartItem?.sell_price || 0));
+
+const localResolveLineDiscount = (
+    discountType,
+    discountValue,
+    baseUnitPrice,
+    quantity
+) => {
+    const qty = Math.max(1, Number(quantity || 1));
+    const lineBaseTotal = Math.max(0, Number(baseUnitPrice || 0)) * qty;
+
+    const discount =
+        {
+            percentage: Math.round(lineBaseTotal * (Number(discountValue || 0) / 100)),
+            fixed_amount: Math.round(Number(discountValue || 0)) * qty,
+            fixed_price: Math.max(
+                0,
+                lineBaseTotal - Math.round(Number(discountValue || 0)) * qty
+            ),
+        }[discountType] ?? 0;
+
+    return Math.min(lineBaseTotal, Math.max(0, discount));
+};
+
+const buildLocalRuleCollection = (cartItems = []) => {
+    const rulesById = new Map();
+
+    for (const cartItem of cartItems) {
+        const rule = cartItem?.product?.pricing_badge?.pricing_rule;
+        if (rule?.id && !rulesById.has(Number(rule.id))) {
+            rulesById.set(Number(rule.id), rule);
+        }
+    }
+
+    return [...rulesById.values()].sort((left, right) => {
+        const leftPriority = Number(left?.priority || 0);
+        const rightPriority = Number(right?.priority || 0);
+
+        if (leftPriority !== rightPriority) {
+            return rightPriority - leftPriority;
+        }
+
+        return Number(left?.id || 0) - Number(right?.id || 0);
+    });
 };
 
 export const buildLocalPricingPreview = (cartItems = []) => {
-    const items = (cartItems || []).map((cartItem) => {
-        const resolved = resolveCartPricingLine(cartItem, null);
+    const nextCartItems = Array.isArray(cartItems) ? [...cartItems] : [];
+    const productsById = nextCartItems.reduce((accumulator, item) => {
+        accumulator[Number(item?.product_id || 0)] = item?.product || null;
+        return accumulator;
+    }, {});
+    const normalizedCartItems = normalizeBuyGetRewardCarts(
+        nextCartItems,
+        productsById
+    );
+    const rules = buildLocalRuleCollection(normalizedCartItems);
+    const itemsMap = new Map(
+        normalizedCartItems.map((cartItem) => {
+            const qty = Math.max(1, Number(cartItem?.qty || 1));
+            const baseUnitPrice = Math.max(
+                0,
+                Number(cartItem?.product?.sell_price || cartItem?.sell_price || 0)
+            );
+            const tenantBaseUnitPrice = Math.max(
+                0,
+                Number(cartItem?.product?.buy_price || cartItem?.buy_price || 0)
+            );
+            const ownerMarkupUnitPrice = Math.max(
+                0,
+                baseUnitPrice - tenantBaseUnitPrice
+            );
+            const modifierTotal = (cartItem?.modifiers || []).reduce(
+                (sum, modifier) =>
+                    sum + Math.max(0, Number(modifier?.total_price || 0)),
+                0
+            );
+
+            return [
+                String(cartItem?.id),
+                {
+                    cart_id: cartItem?.id,
+                    product_id: cartItem?.product_id,
+                    product_title: cartItem?.product?.title || "Produk",
+                    qty,
+                    base_unit_price: baseUnitPrice,
+                    customer_base_unit_price: baseUnitPrice,
+                    tenant_base_unit_price: tenantBaseUnitPrice,
+                    owner_markup_unit_price: ownerMarkupUnitPrice,
+                    effective_unit_price: baseUnitPrice,
+                    line_base_total: baseUnitPrice * qty + modifierTotal,
+                    line_total: baseUnitPrice * qty,
+                    line_discount_total: 0,
+                    modifier_total: modifierTotal,
+                    tenant_base_total: tenantBaseUnitPrice * qty,
+                    owner_base_total: ownerMarkupUnitPrice * qty,
+                    tenant_discount_total: 0,
+                    owner_discount_total: 0,
+                    tenant_net_total: tenantBaseUnitPrice * qty,
+                    owner_net_total: ownerMarkupUnitPrice * qty,
+                    pricing_rule: null,
+                    pricing_group_key: null,
+                    pricing_group_label: null,
+                    applied_rules: [],
+                    is_promo_reward:
+                        Boolean(cartItem?.promo_reward_meta) ||
+                        Boolean(cartItem?.is_promo_reward),
+                },
+            ];
+        })
+    );
+    const remainingQuantities = Object.fromEntries(
+        normalizedCartItems.map((cartItem) => [
+            String(cartItem?.id),
+            Math.max(1, Number(cartItem?.qty || 1)),
+        ])
+    );
+    const sortedItems = normalizedCartItems.map((cartItem) => ({
+        cartId: String(cartItem?.id),
+        cartItem,
+    }));
+
+    const consumeMatchingItems = (remainingState, matcher, requiredQuantity) => {
+        let required = Math.max(1, Number(requiredQuantity || 1));
+        const matches = [];
+
+        for (const { cartId, cartItem } of sortedItems) {
+            if (required <= 0) {
+                break;
+            }
+
+            const previewItem = itemsMap.get(cartId);
+            if (!previewItem || !matcher(previewItem, cartItem)) {
+                continue;
+            }
+
+            const availableQty = Number(remainingState[cartId] || 0);
+            if (availableQty <= 0) {
+                continue;
+            }
+
+            const take = Math.min(availableQty, required);
+            matches.push({
+                cart_id: cartId,
+                quantity: take,
+                base_total: Number(previewItem.base_unit_price || 0) * take,
+                tenant_base_total:
+                    Number(previewItem.tenant_base_unit_price || 0) * take,
+                owner_base_total:
+                    Number(previewItem.owner_markup_unit_price || 0) * take,
+            });
+            remainingState[cartId] = Math.max(0, availableQty - take);
+            required -= take;
+        }
+
+        return required === 0 ? matches : null;
+    };
+
+    const participantBasisTotal = (rule, participant) =>
+        rule?.price_basis === "buy_price"
+            ? Number(participant?.tenant_base_total || 0)
+            : Number(participant?.base_total || 0);
+
+    const allocateDiscount = (participants, discountTotal, weightKey = "base_total") => {
+        const baseTotal = Math.max(
+            1,
+            participants.reduce(
+                (sum, participant) => sum + Number(participant?.[weightKey] || 0),
+                0
+            )
+        );
+
+        return participants.map((participant, index) => {
+            const remainingDiscount = Math.max(
+                0,
+                Number(discountTotal || 0) -
+                    participants
+                        .slice(0, index)
+                        .reduce(
+                            (sum, entry) => sum + Number(entry?.discount_total || 0),
+                            0
+                        )
+            );
+            const share =
+                index === participants.length - 1
+                    ? remainingDiscount
+                    : Math.min(
+                          Number(participant?.[weightKey] || 0),
+                          Math.max(
+                              0,
+                              Math.floor(
+                                  Number(discountTotal || 0) *
+                                      (Number(participant?.[weightKey] || 0) / baseTotal)
+                              )
+                          )
+                      );
+
+            return {
+                ...participant,
+                discount_total: share,
+            };
+        });
+    };
+
+    const applyCandidate = (rule, groupKey, participants, groupLabel, activeBreak = null) => {
+        for (const participant of participants) {
+            const cartId = String(participant.cart_id);
+            const previewItem = itemsMap.get(String(participant.cart_id));
+            if (!previewItem) {
+                continue;
+            }
+
+            remainingQuantities[cartId] = Math.max(
+                0,
+                Number(remainingQuantities[cartId] || 0) -
+                    Number(participant.quantity || 0)
+            );
+
+            previewItem.line_total = Math.max(
+                0,
+                Number(previewItem.line_total || 0) -
+                    Number(participant.discount_total || 0)
+            );
+            previewItem.line_discount_total += Number(
+                participant.discount_total || 0
+            );
+            previewItem.pricing_group_key = groupKey;
+            previewItem.pricing_group_label = groupLabel;
+            previewItem.pricing_rule = {
+                ...rule,
+                active_break: activeBreak,
+            };
+            previewItem.applied_rules = [
+                ...(previewItem.applied_rules || []),
+                {
+                    ...rule,
+                    active_break: activeBreak,
+                },
+            ];
+            itemsMap.set(String(participant.cart_id), previewItem);
+        }
+    };
+
+    const appliedGroups = [];
+
+    while (true) {
+        const bundleCandidates = rules
+            .filter((rule) => rule?.kind === "bundle_price")
+            .map((rule) => {
+                const bundleItems = Array.isArray(rule?.bundle_items)
+                    ? rule.bundle_items
+                    : [];
+                if (bundleItems.length === 0) {
+                    return null;
+                }
+
+                const tempRemaining = { ...remainingQuantities };
+                let participants = [];
+
+                for (const bundleItem of bundleItems) {
+                    const matched = consumeMatchingItems(
+                        tempRemaining,
+                        (previewItem) =>
+                            Number(previewItem?.product_id || 0) ===
+                            Number(bundleItem?.product_id || 0),
+                        Number(bundleItem?.quantity || 1)
+                    );
+
+                    if (!matched) {
+                        return null;
+                    }
+
+                    participants = participants.concat(
+                        matched.map((participant) => ({
+                            ...participant,
+                            basis_total: participantBasisTotal(rule, participant),
+                        }))
+                    );
+                }
+
+                const baseTotal = participants.reduce(
+                    (sum, participant) => sum + Number(participant?.basis_total || 0),
+                    0
+                );
+                const bundlePrice = Math.round(Number(rule?.discount_value || 0));
+                if (bundlePrice >= baseTotal) {
+                    return null;
+                }
+
+                const discountTotal = Math.max(0, baseTotal - bundlePrice);
+                const allocated = allocateDiscount(
+                    participants,
+                    discountTotal,
+                    "basis_total"
+                );
+
+                return {
+                    rule,
+                    participants: allocated,
+                    discountTotal,
+                    label: rule?.name || rule?.label || "Bundle",
+                };
+            })
+            .filter(Boolean)
+            .sort((left, right) => {
+                if (Number(left?.rule?.priority || 0) !== Number(right?.rule?.priority || 0)) {
+                    return Number(right?.rule?.priority || 0) - Number(left?.rule?.priority || 0);
+                }
+
+                if (Number(left?.discountTotal || 0) !== Number(right?.discountTotal || 0)) {
+                    return Number(right?.discountTotal || 0) - Number(left?.discountTotal || 0);
+                }
+
+                return Number(left?.rule?.id || 0) - Number(right?.rule?.id || 0);
+            });
+
+        const candidate = bundleCandidates[0];
+        if (!candidate) {
+            break;
+        }
+
+        const groupKey = `bundle-${candidate.rule.id}-${appliedGroups.length + 1}`;
+        applyCandidate(
+            candidate.rule,
+            groupKey,
+            candidate.participants,
+            candidate.label
+        );
+        appliedGroups.push({
+            key: groupKey,
+            label: candidate.label,
+            rule: candidate.rule,
+            discount_total: candidate.discountTotal,
+            participants: candidate.participants,
+        });
+    }
+
+    while (true) {
+        const buyGetCandidates = rules
+            .filter((rule) => rule?.kind === "buy_x_get_y")
+            .map((rule) => {
+                const buyItems = Array.isArray(rule?.buy_items) ? rule.buy_items : [];
+                const getItems = Array.isArray(rule?.get_items) ? rule.get_items : [];
+                if (buyItems.length === 0 || getItems.length === 0) {
+                    return null;
+                }
+
+                const tempRemaining = { ...remainingQuantities };
+                let participants = [];
+
+                for (const buyItem of buyItems) {
+                    const matched = consumeMatchingItems(
+                        tempRemaining,
+                        (previewItem) =>
+                            Number(previewItem?.product_id || 0) ===
+                                Number(buyItem?.product_id || 0) &&
+                            !Boolean(previewItem?.is_promo_reward),
+                        Number(buyItem?.quantity || 1)
+                    );
+
+                    if (!matched) {
+                        return null;
+                    }
+
+                    participants = participants.concat(
+                        matched.map((participant) => ({
+                            ...participant,
+                            discount_total: 0,
+                        }))
+                    );
+                }
+
+                const rewardParticipants = [];
+                for (const rewardItem of getItems) {
+                    const matched = consumeMatchingItems(
+                        tempRemaining,
+                        (previewItem) =>
+                            Number(previewItem?.product_id || 0) ===
+                                Number(rewardItem?.product_id || 0) &&
+                            Boolean(previewItem?.is_promo_reward),
+                        Number(rewardItem?.quantity || 1)
+                    );
+
+                    if (!matched) {
+                        return null;
+                    }
+
+                    for (const participant of matched) {
+                        const discountTotal = Number(participant?.base_total || 0);
+                        const discounted = {
+                            ...participant,
+                            discount_total,
+                        };
+                        rewardParticipants.push(discounted);
+                        participants.push(discounted);
+                    }
+                }
+
+                const discountTotal = rewardParticipants.reduce(
+                    (sum, participant) => sum + Number(participant?.discount_total || 0),
+                    0
+                );
+
+                if (discountTotal <= 0) {
+                    return null;
+                }
+
+                return {
+                    rule,
+                    participants,
+                    discountTotal,
+                    label: rule?.name || rule?.label || "Buy Get",
+                };
+            })
+            .filter(Boolean)
+            .sort((left, right) => {
+                if (Number(left?.rule?.priority || 0) !== Number(right?.rule?.priority || 0)) {
+                    return Number(right?.rule?.priority || 0) - Number(left?.rule?.priority || 0);
+                }
+
+                if (Number(left?.discountTotal || 0) !== Number(right?.discountTotal || 0)) {
+                    return Number(right?.discountTotal || 0) - Number(left?.discountTotal || 0);
+                }
+
+                return Number(left?.rule?.id || 0) - Number(right?.rule?.id || 0);
+            });
+
+        const candidate = buyGetCandidates[0];
+        if (!candidate) {
+            break;
+        }
+
+        const groupKey = `bxgy-${candidate.rule.id}-${appliedGroups.length + 1}`;
+        applyCandidate(
+            candidate.rule,
+            groupKey,
+            candidate.participants,
+            candidate.label
+        );
+        appliedGroups.push({
+            key: groupKey,
+            label: candidate.label,
+            rule: candidate.rule,
+            discount_total: candidate.discountTotal,
+            participants: candidate.participants,
+        });
+    }
+
+    for (const { cartId, cartItem } of sortedItems) {
+        const previewItem = itemsMap.get(cartId);
+        const remainingQty = Math.max(0, Number(remainingQuantities[cartId] || 0));
+        if (!previewItem || remainingQty <= 0) {
+            continue;
+        }
+
+        const candidateRules = rules
+            .filter(
+                (rule) =>
+                    localRuleMatchesCartItem(rule, cartItem) &&
+                    ["standard_discount", "qty_break"].includes(rule?.kind)
+            )
+            .map((rule) => {
+                if (rule?.kind === "qty_break") {
+                    const activeBreak = [...(rule?.qty_breaks || [])]
+                        .filter(
+                            (entry) => remainingQty >= Number(entry?.min_qty || 0)
+                        )
+                        .sort(
+                            (left, right) =>
+                                Number(right?.min_qty || 0) -
+                                Number(left?.min_qty || 0)
+                        )[0];
+
+                    if (!activeBreak) {
+                        return null;
+                    }
+
+                    const lineDiscount = localResolveLineDiscount(
+                        activeBreak?.discount_type,
+                        activeBreak?.discount_value,
+                        localRuleBasisUnitPrice(rule, cartItem),
+                        remainingQty
+                    );
+
+                    return {
+                        rule,
+                        lineDiscount,
+                        activeBreak,
+                    };
+                }
+
+                const lineDiscount = localResolveLineDiscount(
+                    rule?.discount_type,
+                    rule?.discount_value,
+                    localRuleBasisUnitPrice(rule, cartItem),
+                    remainingQty
+                );
+
+                return {
+                    rule,
+                    lineDiscount,
+                    activeBreak: null,
+                };
+            })
+            .filter((candidate) => Number(candidate?.lineDiscount || 0) > 0)
+            .sort((left, right) => {
+                if (Number(left?.rule?.priority || 0) !== Number(right?.rule?.priority || 0)) {
+                    return Number(right?.rule?.priority || 0) - Number(left?.rule?.priority || 0);
+                }
+
+                if (Number(left?.lineDiscount || 0) !== Number(right?.lineDiscount || 0)) {
+                    return Number(right?.lineDiscount || 0) - Number(left?.lineDiscount || 0);
+                }
+
+                return Number(left?.rule?.id || 0) - Number(right?.rule?.id || 0);
+            })[0];
+
+        if (!candidateRules) {
+            continue;
+        }
+
+        previewItem.line_total = Math.max(
+            0,
+            Number(previewItem.line_total || 0) - Number(candidateRules.lineDiscount || 0)
+        );
+        previewItem.line_discount_total += Number(candidateRules.lineDiscount || 0);
+        previewItem.pricing_group_key =
+            previewItem.pricing_group_key || `rule-${candidateRules.rule.id}`;
+        previewItem.pricing_group_label =
+            previewItem.pricing_group_label ||
+            candidateRules.rule?.name ||
+            candidateRules.rule?.label ||
+            null;
+        previewItem.pricing_rule = {
+            ...candidateRules.rule,
+            active_break: candidateRules.activeBreak,
+        };
+        previewItem.applied_rules = [
+            ...(previewItem.applied_rules || []),
+            {
+                ...candidateRules.rule,
+                active_break: candidateRules.activeBreak,
+            },
+        ];
+        itemsMap.set(cartId, previewItem);
+    }
+
+    const items = [...itemsMap.values()].map((item) => {
+        const modifierTotal = Math.max(0, Number(item.modifier_total || 0));
+        const lineTotal = Math.max(0, Number(item.line_total || 0)) + modifierTotal;
 
         return {
-            cart_id: cartItem?.id,
-            product_id: cartItem?.product_id,
-            product_title: cartItem?.product?.title || "Produk",
-            qty: resolved.qty,
-            base_unit_price: resolved.baseUnitPrice,
-            customer_base_unit_price: resolved.baseUnitPrice,
-            tenant_base_unit_price: Number(
-                cartItem?.product?.buy_price || 0
+            ...item,
+            line_total: lineTotal,
+            effective_unit_price: Math.round(
+                Math.max(0, lineTotal - modifierTotal) / Math.max(1, Number(item.qty || 1))
             ),
-            owner_markup_unit_price: Math.max(
-                0,
-                resolved.baseUnitPrice - Number(cartItem?.product?.buy_price || 0)
-            ),
-            effective_unit_price: resolved.effectiveUnitPrice,
-            line_base_total: resolved.baseLineTotal,
-            line_total: resolved.effectiveLineTotal,
-            line_discount_total: resolved.discountTotal,
-            modifier_total: resolved.modifierTotal,
-            pricing_rule: null,
-            pricing_group_key: null,
-            pricing_group_label: null,
-            is_promo_reward: resolved.isReward,
         };
     });
 
@@ -800,9 +1488,22 @@ export const buildLocalPricingPreview = (cartItems = []) => {
 
     return {
         items,
-        applied_groups: [],
-        consumed_quantities: {},
-        unmatched_items: {},
+        applied_groups: appliedGroups,
+        consumed_quantities: Object.fromEntries(
+            sortedItems.map(({ cartId, cartItem }) => [
+                cartId,
+                Math.max(
+                    0,
+                    Math.max(1, Number(cartItem?.qty || 1)) -
+                        Math.max(0, Number(remainingQuantities[cartId] || 0))
+                ),
+            ])
+        ),
+        unmatched_items: Object.fromEntries(
+            Object.entries(remainingQuantities).filter(
+                ([, qty]) => Number(qty || 0) > 0
+            )
+        ),
         summary: {
             base_subtotal: baseSubtotal,
             promo_discount_total: promoDiscountTotal,

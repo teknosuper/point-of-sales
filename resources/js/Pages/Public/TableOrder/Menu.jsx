@@ -1,26 +1,26 @@
 import ModifierOptionsModal from "@/Components/POS/ModifierOptionsModal";
+import CartLineItem from "@/Components/POS/CartLineItem";
 import ProductGrid from "@/Components/POS/ProductGrid";
-import { getProductImageUrl } from "@/Utils/imageUrl";
 import {
     buildCartPromoState,
     buildLocalPricingPreview,
     buildPricingItemsByCartId,
-    formatRuleItems,
+    hasPromoApplied,
+    normalizeBuyGetRewardCarts,
     promoBadgeSummary,
     promoBenefitPreview,
+    promoDetailText,
+    promoKindLabel,
+    promoTitleText,
+    resolveCartPricingLine,
     shouldUseLocalPricingPreview,
-    REWARD_ITEM_LABEL,
+    PROMO_TOTAL_LABEL,
 } from "@/Utils/pricingRules";
-import {
-    IconCash,
-    IconReceipt,
-    IconShoppingCart,
-    IconTrash,
-    IconX,
-} from "@/Utils/icons";
+import { IconCash, IconReceipt, IconShoppingCart, IconX } from "@/Utils/icons";
 import axios from "axios";
 import { Head, Link, useForm, usePage } from "@inertiajs/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Swal from "sweetalert2";
 import toast from "react-hot-toast";
 
 const formatPrice = (value = 0) =>
@@ -225,6 +225,8 @@ export default function Menu({
     const searchInputRef = useRef(null);
     const pricingRequestAbortRef = useRef(null);
     const pricingRequestTimerRef = useRef(null);
+    const modifierModalPricingAbortRef = useRef(null);
+    const modifierModalPricingTimerRef = useRef(null);
 
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [mobileView, setMobileView] = useState("products");
@@ -243,6 +245,8 @@ export default function Menu({
         useState(false);
     const [isModifierModalSubmitting, setIsModifierModalSubmitting] =
         useState(false);
+    const [modifierModalPricingPreview, setModifierModalPricingPreview] =
+        useState(null);
     const [recentRewardProductIds, setRecentRewardProductIds] = useState([]);
 
     const orderForm = useForm({
@@ -273,16 +277,22 @@ export default function Menu({
 
     const normalizedCarts = useMemo(
         () =>
-            cartLines.map((item) => ({
-                ...item,
-                product: productsById[Number(item.product_id)] || item.product || null,
-                modifiers: (item.modifiers || []).map((modifier) => ({
-                    ...modifier,
-                    total_price:
-                        Number(modifier.unit_price || modifier.price || 0) *
-                        Number(item.qty || 0),
+            normalizeBuyGetRewardCarts(
+                cartLines.map((item) => ({
+                    ...item,
+                    product:
+                        productsById[Number(item.product_id)] ||
+                        item.product ||
+                        null,
+                    modifiers: (item.modifiers || []).map((modifier) => ({
+                        ...modifier,
+                        total_price:
+                            Number(modifier.unit_price || modifier.price || 0) *
+                            Number(item.qty || 0),
+                    })),
                 })),
-            })),
+                productsById
+            ),
         [cartLines, productsById]
     );
     const pricingDependency = useMemo(
@@ -322,8 +332,79 @@ export default function Menu({
     const promoDiscount = Number(
         resolvedPricingPreview?.summary?.promo_discount_total ?? 0
     );
+    const subtotal = Number(
+        resolvedPricingPreview?.summary?.subtotal_after_promo ?? 0
+    );
     const payable = Number(
-        resolvedPricingPreview?.summary?.grand_total ?? baseSubtotal ?? 0
+        resolvedPricingPreview?.summary?.grand_total ?? subtotal ?? 0
+    );
+    const appliedPromoGroups = useMemo(() => {
+        const groups = resolvedPricingPreview?.applied_groups || [];
+
+        return Object.values(
+            groups.reduce((accumulator, group, index) => {
+                const label =
+                    group?.label || group?.rule?.name || `Promo ${index + 1}`;
+                const key = `${group?.rule?.id || "rule"}:${label}`;
+
+                if (!accumulator[key]) {
+                    accumulator[key] = {
+                        key,
+                        label,
+                        count: 0,
+                        discount_total: 0,
+                    };
+                }
+
+                accumulator[key].count += 1;
+                accumulator[key].discount_total += Number(
+                    group?.discount_total || 0
+                );
+
+                return accumulator;
+            }, {})
+        );
+    }, [resolvedPricingPreview]);
+    const paymentPreviewItems = useMemo(
+        () =>
+            normalizedCarts.map((item) => {
+                const fallbackProduct =
+                    productsById[Number(item.product_id || 0)] || item.product;
+                const pricingItem = pricingItemsByCartId[item.id];
+                const promoState = buildCartPromoState({
+                    cartItem: item,
+                    pricingItem,
+                    fallbackProduct,
+                    formatPrice,
+                });
+                const { resolvedLine, pricingRule } = promoState;
+
+                return {
+                    item,
+                    promoState,
+                    resolvedPromoItem: {
+                        ...item,
+                        qty: item.qty,
+                        discount_total: resolvedLine.discountTotal,
+                        base_unit_price: resolvedLine.baseUnitPrice,
+                        unit_price: resolvedLine.effectiveUnitPrice,
+                        pricing_rule_name:
+                            pricingRule?.name || item.pricing_rule_name,
+                        pricing_rule_kind:
+                            pricingRule?.kind || item.pricing_rule_kind,
+                        pricing_group_label:
+                            resolvedLine.pricingGroupLabel ||
+                            item.pricing_group_label,
+                    },
+                };
+            }),
+        [
+            buildCartPromoState,
+            formatPrice,
+            normalizedCarts,
+            pricingItemsByCartId,
+            productsById,
+        ]
     );
     const cartCount = normalizedCarts.reduce(
         (sum, item) => sum + Number(item.qty || 0),
@@ -337,23 +418,84 @@ export default function Menu({
                 .reduce((sum, option) => sum + Number(option.price || 0), 0),
         [modifierModalProduct, selectedModifierOptionIds]
     );
+    const modifierModalDraftCart = useMemo(() => {
+        if (!modifierModalProduct?.id) {
+            return null;
+        }
+
+        return {
+            id: `draft-${modifierModalProduct.id}`,
+            product_id: Number(modifierModalProduct.id),
+            qty: Math.max(1, Number(modifierModalQuantity || 1)),
+            notes: "",
+            product: modifierModalProduct,
+            modifiers: (modifierModalProduct.modifier_options || [])
+                .filter((option) => selectedModifierOptionIds.includes(option.id))
+                .map((option) => ({
+                    id: Number(option.id),
+                    name: option.name,
+                    price: Number(option.price || 0),
+                    unit_price: Number(option.price || 0),
+                    total_price:
+                        Number(option.price || 0) *
+                        Math.max(1, Number(modifierModalQuantity || 1)),
+                })),
+            promo_reward_meta: null,
+            is_promo_reward: false,
+        };
+    }, [
+        modifierModalProduct,
+        modifierModalQuantity,
+        selectedModifierOptionIds,
+    ]);
+    const modifierModalDraftPricingItem = useMemo(() => {
+        if (!modifierModalDraftCart?.id) {
+            return null;
+        }
+
+        return (
+            (modifierModalPricingPreview?.items || []).find(
+                (item) =>
+                    String(item?.cart_id) === String(modifierModalDraftCart.id)
+            ) || null
+        );
+    }, [modifierModalDraftCart, modifierModalPricingPreview]);
     const modifierModalPromo = useMemo(() => {
         const badge = modifierModalProduct?.pricing_badge;
-        const rule = badge?.pricing_rule || null;
-        const quantity = Math.max(1, Number(modifierModalQuantity || 1));
-        const baseUnitPrice = Number(
-            badge?.base_price || modifierModalProduct?.sell_price || 0
+        const fallbackRule = badge?.pricing_rule || null;
+        const resolvedLine = modifierModalDraftCart
+            ? resolveCartPricingLine(
+                  modifierModalDraftCart,
+                  modifierModalDraftPricingItem
+              )
+            : null;
+        const rule =
+            modifierModalDraftPricingItem?.pricing_rule || fallbackRule || null;
+        const quantity = Math.max(
+            1,
+            Number(modifierModalDraftCart?.qty || modifierModalQuantity || 1)
         );
-        const promoUnitPrice = Number(badge?.promo_price || 0);
+        const baseUnitPrice = Number(
+            resolvedLine?.baseUnitPrice ??
+                badge?.base_price ??
+                modifierModalProduct?.sell_price ??
+                0
+        );
+        const effectiveUnitPrice = Number(
+            resolvedLine?.effectiveUnitPrice ??
+                badge?.promo_price ??
+                baseUnitPrice
+        );
         const minimumQuantity = Math.max(
             1,
             Number(rule?.minimum_quantity || rule?.preview_quantity || 1)
         );
         const promoEligible =
             Boolean(rule) &&
-            (rule.kind !== "qty_break" || quantity >= minimumQuantity);
-        const effectiveUnitPrice =
-            promoEligible && promoUnitPrice > 0 ? promoUnitPrice : baseUnitPrice;
+            (Number(modifierModalDraftPricingItem?.line_discount_total || 0) > 0 ||
+                effectiveUnitPrice < baseUnitPrice ||
+                rule.kind !== "qty_break" ||
+                quantity >= minimumQuantity);
         const summary = promoBadgeSummary(
             rule,
             badge?.label || badge?.rule_name || null
@@ -366,21 +508,38 @@ export default function Menu({
             promoEligible,
             baseUnitPrice,
             effectiveUnitPrice,
-            baseLineTotal: baseUnitPrice * quantity,
-            effectiveLineTotal: effectiveUnitPrice * quantity,
+            baseLineTotal: Number(
+                resolvedLine?.baseLineTotal ?? baseUnitPrice * quantity
+            ),
+            effectiveLineTotal: Number(
+                resolvedLine?.effectiveLineTotal ?? effectiveUnitPrice * quantity
+            ),
         };
-    }, [modifierModalProduct, modifierModalQuantity]);
+    }, [
+        modifierModalDraftCart,
+        modifierModalDraftPricingItem,
+        modifierModalProduct,
+        modifierModalQuantity,
+    ]);
     const modifierModalPromoBenefit = useMemo(
         () =>
             promoBenefitPreview({
-                rule: modifierModalProduct?.pricing_badge?.pricing_rule || null,
+                rule:
+                    modifierModalDraftPricingItem?.pricing_rule ||
+                    modifierModalProduct?.pricing_badge?.pricing_rule ||
+                    null,
                 quantity: modifierModalQuantity,
                 baseUnitPrice: modifierModalPromo.baseUnitPrice,
                 effectiveUnitPrice: modifierModalPromo.effectiveUnitPrice,
                 productId: modifierModalProduct?.id,
                 formatPrice,
             }),
-        [modifierModalProduct, modifierModalPromo, modifierModalQuantity]
+        [
+            modifierModalDraftPricingItem,
+            modifierModalProduct,
+            modifierModalPromo,
+            modifierModalQuantity,
+        ]
     );
 
     const createCartLine = useCallback(
@@ -401,6 +560,24 @@ export default function Menu({
             promo_reward_meta: rewardPromoMeta,
             is_promo_reward: Boolean(rewardPromoMeta),
         }),
+        []
+    );
+    const buildPreviewRequestItems = useCallback(
+        (items = []) =>
+            items.map((item) => ({
+                client_key: String(item.id),
+                product_id: item.product_id,
+                qty: item.qty,
+                notes: item.notes || null,
+                is_promo_reward: Boolean(item.promo_reward_meta),
+                promo_reward_rule_name:
+                    item.promo_reward_meta?.rule_name || null,
+                promo_reward_label:
+                    item.promo_reward_meta?.reward_label || null,
+                modifiers: (item.modifiers || []).map((modifier) => ({
+                    id: modifier.id,
+                })),
+            })),
         []
     );
 
@@ -740,8 +917,92 @@ export default function Menu({
         setMobileView("payment");
     }, [normalizedCarts.length]);
 
+    const confirmSubmitOrder = useCallback(() => {
+        const itemsHtml = paymentPreviewItems
+            .map(({ item, resolvedPromoItem, promoState }) => {
+                const { resolvedLine } = promoState;
+                const promoTitle = hasPromoApplied(resolvedPromoItem)
+                    ? promoTitleText(resolvedPromoItem)
+                    : null;
+                const promoDetail = promoDetailText(resolvedPromoItem);
+
+                return `
+                    <div style="padding:12px 0;border-bottom:1px solid #e2e8f0;text-align:left;">
+                        <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;">
+                            <div style="min-width:0;flex:1;">
+                                <div style="font-weight:600;color:#0f172a;">${item.product?.title || "Produk"}</div>
+                                <div style="font-size:12px;color:#64748b;margin-top:4px;">
+                                    ${
+                                        resolvedLine.baseUnitPrice >
+                                        resolvedLine.effectiveUnitPrice
+                                            ? `<div style="text-decoration:line-through;">${formatPrice(resolvedLine.baseUnitPrice)} × ${item.qty}</div>`
+                                            : ""
+                                    }
+                                    <div>${formatPrice(resolvedLine.effectiveUnitPrice)} × ${item.qty}</div>
+                                </div>
+                                ${
+                                    promoTitle
+                                        ? `<div style="margin-top:8px;font-size:12px;font-weight:600;color:#be123c;">${promoTitle}</div>`
+                                        : ""
+                                }
+                                ${
+                                    promoDetail
+                                        ? `<div style="margin-top:4px;font-size:11px;color:#e11d48;">${promoDetail}</div>`
+                                        : ""
+                                }
+                            </div>
+                            <div style="text-align:right;white-space:nowrap;">
+                                ${
+                                    resolvedLine.baseLineTotal >
+                                    resolvedLine.effectiveLineTotal
+                                        ? `<div style="font-size:11px;color:#94a3b8;text-decoration:line-through;">${formatPrice(resolvedLine.baseLineTotal)}</div>`
+                                        : ""
+                                }
+                                <div style="font-weight:700;color:#4f46e5;">${formatPrice(resolvedLine.effectiveLineTotal)}</div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            })
+            .join("");
+
+        return Swal.fire({
+            title: "Konfirmasi Order ke Kasir",
+            html: `
+                <div style="text-align:left;display:grid;gap:14px;">
+                    <div style="font-size:13px;color:#475569;">
+                        Periksa kembali item, promo, dan total akhir sebelum order dikirim ke panel kasir.
+                    </div>
+                    <div style="max-height:280px;overflow:auto;padding:0 4px;">
+                        ${itemsHtml}
+                    </div>
+                    <div style="border-top:1px solid #e2e8f0;padding-top:12px;display:grid;gap:8px;">
+                        <div style="display:flex;justify-content:space-between;gap:12px;"><span>Subtotal Dasar</span><strong>${formatPrice(baseSubtotal)}</strong></div>
+                        <div style="display:flex;justify-content:space-between;gap:12px;"><span>${PROMO_TOTAL_LABEL}</span><strong style="color:#e11d48;">-${formatPrice(promoDiscount)}</strong></div>
+                        <div style="display:flex;justify-content:space-between;gap:12px;"><span>Subtotal Setelah Promo</span><strong>${formatPrice(subtotal)}</strong></div>
+                        <div style="display:flex;justify-content:space-between;gap:12px;font-size:16px;"><span><strong>Total</strong></span><strong style="color:#4f46e5;">${formatPrice(payable)}</strong></div>
+                    </div>
+                </div>
+            `,
+            icon: "question",
+            showCancelButton: true,
+            confirmButtonText: "Kirim ke Kasir",
+            cancelButtonText: "Periksa Lagi",
+            confirmButtonColor: "#16a34a",
+            cancelButtonColor: "#64748b",
+            reverseButtons: true,
+            width: 640,
+        });
+    }, [
+        baseSubtotal,
+        payable,
+        paymentPreviewItems,
+        promoDiscount,
+        subtotal,
+    ]);
+
     const submitOrder = useCallback(
-        (event) => {
+        async (event) => {
             event?.preventDefault?.();
 
             if (normalizedCarts.length === 0) {
@@ -750,22 +1011,14 @@ export default function Menu({
                 return;
             }
 
+            const result = await confirmSubmitOrder();
+            if (!result.isConfirmed) {
+                return;
+            }
+
             orderForm.transform((data) => ({
                 ...data,
-                items: normalizedCarts.map((item) => ({
-                    client_key: String(item.id),
-                    product_id: item.product_id,
-                    qty: item.qty,
-                    notes: item.notes || null,
-                    is_promo_reward: Boolean(item.promo_reward_meta),
-                    promo_reward_rule_name:
-                        item.promo_reward_meta?.rule_name || null,
-                    promo_reward_label:
-                        item.promo_reward_meta?.reward_label || null,
-                    modifiers: (item.modifiers || []).map((modifier) => ({
-                        id: modifier.id,
-                    })),
-                })),
+                items: buildPreviewRequestItems(normalizedCarts),
             }));
 
             orderForm.post(route("table-order.store", table.qr_token), {
@@ -781,7 +1034,14 @@ export default function Menu({
                 },
             });
         },
-        [cartStorageKey, normalizedCarts, orderForm, table.qr_token]
+        [
+            buildPreviewRequestItems,
+            cartStorageKey,
+            confirmSubmitOrder,
+            normalizedCarts,
+            orderForm,
+            table.qr_token,
+        ]
     );
 
     const submitIdentify = (event) => {
@@ -927,6 +1187,71 @@ export default function Menu({
     }, [cartLines, cartStorageKey, orderForm.data.notes]);
 
     useEffect(() => {
+        if (!modifierModalProduct || !modifierModalDraftCart) {
+            modifierModalPricingAbortRef.current?.abort?.();
+            if (modifierModalPricingTimerRef.current) {
+                window.clearTimeout(modifierModalPricingTimerRef.current);
+                modifierModalPricingTimerRef.current = null;
+            }
+            setModifierModalPricingPreview(null);
+            return;
+        }
+
+        let cancelled = false;
+        const previewItems = [...normalizedCarts, modifierModalDraftCart];
+
+        modifierModalPricingAbortRef.current?.abort?.();
+        const controller = new AbortController();
+        modifierModalPricingAbortRef.current = controller;
+
+        modifierModalPricingTimerRef.current = window.setTimeout(() => {
+            axios
+                .post(
+                    route("table-order.preview", table.qr_token),
+                    {
+                        notes: orderForm.data.notes || "",
+                        items: buildPreviewRequestItems(previewItems),
+                    },
+                    {
+                        signal: controller.signal,
+                    }
+                )
+                .then((response) => {
+                    if (!cancelled) {
+                        setModifierModalPricingPreview(
+                            response.data ?? buildLocalPricingPreview(previewItems)
+                        );
+                    }
+                })
+                .catch((error) => {
+                    if (cancelled || error?.code === "ERR_CANCELED") {
+                        return;
+                    }
+
+                    setModifierModalPricingPreview(
+                        buildLocalPricingPreview(previewItems)
+                    );
+                });
+        }, 180);
+
+        return () => {
+            cancelled = true;
+            if (modifierModalPricingTimerRef.current) {
+                window.clearTimeout(modifierModalPricingTimerRef.current);
+                modifierModalPricingTimerRef.current = null;
+            }
+            controller.abort();
+        };
+    }, [
+        buildPreviewRequestItems,
+        modifierModalDraftCart,
+        modifierModalProduct,
+        normalizedCarts,
+        orderForm.data.notes,
+        table.qr_token,
+    ]);
+
+    useEffect(() => {
         if (normalizedCarts.length === 0) {
             pricingRequestAbortRef.current?.abort?.();
             setPricingPreview(emptyPricingPreview);
@@ -947,20 +1272,7 @@ export default function Menu({
                     route("table-order.preview", table.qr_token),
                     {
                         notes: orderForm.data.notes || "",
-                        items: normalizedCarts.map((item) => ({
-                            client_key: String(item.id),
-                            product_id: item.product_id,
-                            qty: item.qty,
-                            notes: item.notes || null,
-                            is_promo_reward: Boolean(item.promo_reward_meta),
-                            promo_reward_rule_name:
-                                item.promo_reward_meta?.rule_name || null,
-                            promo_reward_label:
-                                item.promo_reward_meta?.reward_label || null,
-                            modifiers: (item.modifiers || []).map((modifier) => ({
-                                id: modifier.id,
-                            })),
-                        })),
+                        items: buildPreviewRequestItems(normalizedCarts),
                     },
                     {
                         signal: controller.signal,
@@ -993,7 +1305,13 @@ export default function Menu({
             }
             controller.abort();
         };
-    }, [normalizedCarts, orderForm.data.notes, pricingDependency, table.qr_token]);
+    }, [
+        buildPreviewRequestItems,
+        normalizedCarts,
+        orderForm.data.notes,
+        pricingDependency,
+        table.qr_token,
+    ]);
 
     return (
         <>
@@ -1335,312 +1653,29 @@ export default function Menu({
                                                 fallbackProduct,
                                                 formatPrice,
                                             });
-                                            const {
-                                                resolvedLine,
-                                                pricingRule,
-                                                previewRule,
-                                                promoSummary,
-                                                isCrossProductBuyGet,
-                                                latentPromoPreview,
-                                                buyGetBreakdown,
-                                                modifierTotal,
-                                            } = promoState;
-                                            const baseLineTotal =
-                                                resolvedLine.baseLineTotal;
-                                            const effectiveLineTotal =
-                                                resolvedLine.effectiveLineTotal;
-                                            const effectiveUnitPrice =
-                                                resolvedLine.effectiveUnitPrice;
-                                            const baseUnitPrice =
-                                                resolvedLine.baseUnitPrice;
-
                                             return (
-                                                <div
+                                                <CartLineItem
                                                     key={item.id}
-                                                    className={`group flex items-start gap-2.5 rounded-xl p-2.5 transition-all ${
-                                                        recentRewardProductIds.includes(
-                                                            Number(item.product_id || 0)
-                                                        )
-                                                            ? "bg-emerald-50 ring-2 ring-emerald-200"
-                                                            : "bg-slate-50"
-                                                    }`}
-                                                >
-                                                    <div className="mt-0.5 flex h-11 w-11 flex-shrink-0 self-start overflow-hidden rounded-lg bg-slate-200">
-                                                        {item.product?.image ? (
-                                                            <img
-                                                                src={getProductImageUrl(
-                                                                    item.product.image,
-                                                                    item.product.title
-                                                                )}
-                                                                alt={
-                                                                    item.product.title
-                                                                }
-                                                                className="h-full w-full object-cover"
-                                                                onError={(event) => {
-                                                                    event.currentTarget.onerror =
-                                                                        null;
-                                                                    event.currentTarget.src =
-                                                                        getProductImageUrl(
-                                                                            null,
-                                                                            item.product?.title ||
-                                                                                "Produk"
-                                                                        );
-                                                                }}
-                                                            />
-                                                        ) : (
-                                                            <div className="flex h-full w-full items-center justify-center">
-                                                                <IconShoppingCart
-                                                                    size={14}
-                                                                    className="text-slate-400"
-                                                                />
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                    <div className="min-w-0 flex-1">
-                                                        <p className="truncate text-sm font-medium text-slate-700">
-                                                            {item.product?.title ||
-                                                                "Produk"}
-                                                        </p>
-                                                        {item.promo_reward_meta ? (
-                                                            <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                                                                <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
-                                                                    {REWARD_ITEM_LABEL}
-                                                                </span>
-                                                                <span className="text-[11px] text-emerald-700">
-                                                                    {item
-                                                                        .promo_reward_meta
-                                                                        ?.rule_name ||
-                                                                        "Buy Get"}
-                                                                </span>
-                                                            </div>
-                                                        ) : null}
-                                                        <div className="text-xs text-slate-500">
-                                                            {pricingRule &&
-                                                                effectiveUnitPrice <
-                                                                    baseUnitPrice && (
-                                                                    <p className="text-slate-400 line-through">
-                                                                        {formatPrice(
-                                                                            baseUnitPrice
-                                                                        )}{" "}
-                                                                        × {item.qty}
-                                                                    </p>
-                                                                )}
-                                                            {buyGetBreakdown ? (
-                                                                <div className="space-y-0.5">
-                                                                    {buyGetBreakdown.payableQty >
-                                                                    0 ? (
-                                                                        <p>
-                                                                            {formatPrice(
-                                                                                buyGetBreakdown.paidUnitPrice
-                                                                            )}{" "}
-                                                                            ×{" "}
-                                                                            {
-                                                                                buyGetBreakdown.payableQty
-                                                                            }
-                                                                        </p>
-                                                                    ) : null}
-                                                                    <p className="font-medium text-emerald-600">
-                                                                        Bonus Rp 0
-                                                                        ×{" "}
-                                                                        {
-                                                                            buyGetBreakdown.bonusQty
-                                                                        }
-                                                                    </p>
-                                                                </div>
-                                                            ) : (
-                                                                <p>
-                                                                    {formatPrice(
-                                                                        effectiveUnitPrice
-                                                                    )}{" "}
-                                                                    × {item.qty}
-                                                                </p>
-                                                            )}
-                                                            {promoSummary.title && (
-                                                                <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                                                                    <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold text-rose-700">
-                                                                        {promoSummary.badge ||
-                                                                            "Promo"}
-                                                                    </span>
-                                                                    <span className="text-[11px] font-medium text-rose-600">
-                                                                        {promoSummary.title}
-                                                                    </span>
-                                                                </div>
-                                                            )}
-                                                            {promoSummary.detail && (
-                                                                <p className="mt-1 text-[11px] text-rose-600">
-                                                                    {isCrossProductBuyGet
-                                                                        ? `Bonus: ${formatRuleItems(
-                                                                              previewRule?.get_items ||
-                                                                                  []
-                                                                          )}. Tambahkan item bonus ke keranjang agar benefit final dihitung.`
-                                                                        : promoSummary.detail}
-                                                                </p>
-                                                            )}
-                                                            {!pricingRule &&
-                                                            latentPromoPreview ? (
-                                                                <p className="mt-1 text-[11px] text-amber-600">
-                                                                    {
-                                                                        latentPromoPreview.headline
-                                                                    }
-                                                                </p>
-                                                            ) : null}
-                                                            {isCrossProductBuyGet &&
-                                                            previewRule ? (
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() =>
-                                                                        handleAddRewardProducts(
-                                                                            previewRule
-                                                                        )
-                                                                    }
-                                                                    className="mt-2 inline-flex items-center rounded-lg border border-primary-200 bg-primary-50 px-2.5 py-1 text-[11px] font-semibold text-primary-700 hover:bg-primary-100"
-                                                                >
-                                                                    Tambah item bonus
-                                                                </button>
-                                                            ) : null}
-                                                        </div>
-
-                                                        {(item.modifiers || []).length >
-                                                        0 ? (
-                                                            <div className="mt-1.5 grid gap-1">
-                                                                {(item.modifiers || []).map(
-                                                                    (modifier) => (
-                                                                        <div
-                                                                            key={
-                                                                                modifier.id
-                                                                            }
-                                                                            className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[11px]"
-                                                                        >
-                                                                            <div className="min-w-0">
-                                                                                <p className="truncate font-medium text-slate-700">
-                                                                                    {
-                                                                                        modifier.name
-                                                                                    }
-                                                                                </p>
-                                                                                <p className="text-slate-500">
-                                                                                    {formatPrice(
-                                                                                        modifier.total_price
-                                                                                    )}
-                                                                                </p>
-                                                                            </div>
-                                                                            <button
-                                                                                type="button"
-                                                                                onClick={() =>
-                                                                                    handleRemoveModifier(
-                                                                                        item.id,
-                                                                                        modifier.id
-                                                                                    )
-                                                                                }
-                                                                                className="rounded-lg p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-500"
-                                                                            >
-                                                                                <IconX
-                                                                                    size={
-                                                                                        12
-                                                                                    }
-                                                                                />
-                                                                            </button>
-                                                                        </div>
-                                                                    )
-                                                                )}
-                                                            </div>
-                                                        ) : null}
-
-                                                        <div className="mt-2 flex items-start justify-between gap-2">
-                                                            <div className="min-w-0 flex-1">
-                                                                <textarea
-                                                                    value={
-                                                                        item.notes ||
-                                                                        ""
-                                                                    }
-                                                                    onChange={(event) =>
-                                                                        handleLocalCartNotesChange(
-                                                                            item.id,
-                                                                            event
-                                                                                .target
-                                                                                .value
-                                                                        )
-                                                                    }
-                                                                    rows={2}
-                                                                    placeholder="Catatan item..."
-                                                                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] text-slate-700 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20"
-                                                                />
-                                                            </div>
-                                                            <div className="flex flex-col items-end gap-2">
-                                                                <div className="flex items-center rounded-xl border border-slate-200 bg-white">
-                                                                    <button
-                                                                        onClick={() =>
-                                                                            handleUpdateQty(
-                                                                                item.id,
-                                                                                item.qty -
-                                                                                    1
-                                                                            )
-                                                                        }
-                                                                        disabled={
-                                                                            item.qty <= 1
-                                                                        }
-                                                                        className="px-2 py-1.5 text-slate-500 disabled:opacity-40"
-                                                                    >
-                                                                        -
-                                                                    </button>
-                                                                    <span className="min-w-[32px] px-2 text-center text-sm font-semibold text-slate-700">
-                                                                        {item.qty}
-                                                                    </span>
-                                                                    <button
-                                                                        onClick={() =>
-                                                                            handleUpdateQty(
-                                                                                item.id,
-                                                                                item.qty +
-                                                                                    1
-                                                                            )
-                                                                        }
-                                                                        className="px-2 py-1.5 text-slate-500"
-                                                                    >
-                                                                        +
-                                                                    </button>
-                                                                </div>
-                                                                {modifierTotal >
-                                                                0 ? (
-                                                                    <p className="text-[10px] font-medium text-slate-500">
-                                                                        Topping{" "}
-                                                                        {formatPrice(
-                                                                            modifierTotal
-                                                                        )}
-                                                                    </p>
-                                                                ) : null}
-                                                            </div>
-                                                            <div className="flex min-w-[88px] items-start justify-end gap-1.5">
-                                                                <div className="text-right">
-                                                                    {baseLineTotal >
-                                                                        effectiveLineTotal && (
-                                                                        <p className="text-[11px] text-slate-400 line-through">
-                                                                            {formatPrice(
-                                                                                baseLineTotal
-                                                                            )}
-                                                                        </p>
-                                                                    )}
-                                                                    <p className="text-sm font-semibold text-primary-600">
-                                                                        {formatPrice(
-                                                                            effectiveLineTotal
-                                                                        )}
-                                                                    </p>
-                                                                </div>
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() =>
-                                                                        handleRemoveFromCart(
-                                                                            item.id
-                                                                        )
-                                                                    }
-                                                                    className="ml-1 flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-500"
-                                                                >
-                                                                    <IconTrash
-                                                                        size={12}
-                                                                    />
-                                                                </button>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </div>
+                                                    item={item}
+                                                    promoState={promoState}
+                                                    formatPrice={formatPrice}
+                                                    onAddRewardProducts={
+                                                        handleAddRewardProducts
+                                                    }
+                                                    onRemoveModifier={
+                                                        handleRemoveModifier
+                                                    }
+                                                    onNotesChange={
+                                                        handleLocalCartNotesChange
+                                                    }
+                                                    onQtyChange={handleUpdateQty}
+                                                    onRemoveItem={
+                                                        handleRemoveFromCart
+                                                    }
+                                                    highlightRewardProductIds={
+                                                        recentRewardProductIds
+                                                    }
+                                                />
                                             );
                                         })}
                                     </div>
@@ -1752,6 +1787,132 @@ export default function Menu({
                             </div>
 
                             <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                                <div className="mb-4">
+                                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                        Ringkasan menu dipilih
+                                    </p>
+                                    <div className="mt-3 space-y-2">
+                                        {paymentPreviewItems.map(
+                                            ({
+                                                item,
+                                                promoState,
+                                                resolvedPromoItem,
+                                            }) => {
+                                                const { resolvedLine } =
+                                                    promoState;
+
+                                                return (
+                                                    <div
+                                                        key={`payment-preview-${item.id}`}
+                                                        className="rounded-xl border border-slate-200 bg-slate-50 p-3"
+                                                    >
+                                                        <div className="flex items-start justify-between gap-3">
+                                                            <div className="min-w-0 flex-1">
+                                                                <p className="truncate text-sm font-semibold text-slate-900">
+                                                                    {item.product
+                                                                        ?.title ||
+                                                                        "Produk"}
+                                                                </p>
+                                                                <div className="mt-1 text-xs text-slate-500">
+                                                                    {resolvedLine.baseUnitPrice >
+                                                                    resolvedLine.effectiveUnitPrice ? (
+                                                                        <p className="line-through">
+                                                                            {formatPrice(
+                                                                                resolvedLine.baseUnitPrice
+                                                                            )}{" "}
+                                                                            ×{" "}
+                                                                            {item.qty}
+                                                                        </p>
+                                                                    ) : null}
+                                                                    <p>
+                                                                        {formatPrice(
+                                                                            resolvedLine.effectiveUnitPrice
+                                                                        )}{" "}
+                                                                        ×{" "}
+                                                                        {item.qty}
+                                                                    </p>
+                                                                </div>
+                                                                {hasPromoApplied(
+                                                                    resolvedPromoItem
+                                                                ) ? (
+                                                                    <div className="mt-2 space-y-1">
+                                                                        <div className="flex flex-wrap gap-1.5">
+                                                                            <span className="rounded-full bg-sky-50 px-2 py-1 text-[11px] font-semibold text-sky-700">
+                                                                                {promoTitleText(
+                                                                                    resolvedPromoItem
+                                                                                )}
+                                                                            </span>
+                                                                            {resolvedPromoItem.pricing_rule_kind ? (
+                                                                            <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-600">
+                                                                                    {promoKindLabel(
+                                                                                        resolvedPromoItem.pricing_rule_kind
+                                                                                    )}
+                                                                                </span>
+                                                                            ) : null}
+                                                                        </div>
+                                                                        {promoDetailText(
+                                                                            resolvedPromoItem
+                                                                        ) ? (
+                                                                            <p className="text-[11px] text-rose-600">
+                                                                                {promoDetailText(
+                                                                                    resolvedPromoItem
+                                                                                )}
+                                                                            </p>
+                                                                        ) : null}
+                                                                    </div>
+                                                                ) : null}
+                                                                {(item.modifiers ||
+                                                                    []).length >
+                                                                0 ? (
+                                                                    <div className="mt-2 space-y-1">
+                                                                        {(item.modifiers || []).map(
+                                                                            (
+                                                                                modifier
+                                                                            ) => (
+                                                                                <div
+                                                                                    key={`payment-modifier-${item.id}-${modifier.id}`}
+                                                                                    className="flex items-center justify-between gap-2 text-[11px] text-slate-500"
+                                                                                >
+                                                                                    <span className="truncate">
+                                                                                        +
+                                                                                        {" "}
+                                                                                        {
+                                                                                            modifier.name
+                                                                                        }
+                                                                                    </span>
+                                                                                    <span>
+                                                                                        {formatPrice(
+                                                                                            modifier.total_price
+                                                                                        )}
+                                                                                    </span>
+                                                                                </div>
+                                                                            )
+                                                                        )}
+                                                                    </div>
+                                                                ) : null}
+                                                            </div>
+                                                            <div className="text-right">
+                                                                {resolvedLine.baseLineTotal >
+                                                                resolvedLine.effectiveLineTotal ? (
+                                                                    <p className="text-[11px] text-slate-400 line-through">
+                                                                        {formatPrice(
+                                                                            resolvedLine.baseLineTotal
+                                                                        )}
+                                                                    </p>
+                                                                ) : null}
+                                                                <p className="text-sm font-bold text-primary-600">
+                                                                    {formatPrice(
+                                                                        resolvedLine.effectiveLineTotal
+                                                                    )}
+                                                                </p>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            }
+                                        )}
+                                    </div>
+                                </div>
                                 <div className="space-y-2">
                                     <div className="flex justify-between text-sm">
                                         <span className="text-slate-500">
@@ -1763,10 +1924,40 @@ export default function Menu({
                                     </div>
                                     <div className="flex justify-between text-sm">
                                         <span className="text-slate-500">
-                                            Promo Otomatis
+                                            {PROMO_TOTAL_LABEL}
                                         </span>
                                         <span className="font-medium text-rose-600">
                                             -{formatPrice(promoDiscount)}
+                                        </span>
+                                    </div>
+                                    {appliedPromoGroups.length > 0 && (
+                                        <div className="rounded-lg border border-slate-200 bg-slate-50 p-2">
+                                            <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                                                Promo yang sedang bekerja
+                                            </div>
+                                            <div className="max-h-20 space-y-1 overflow-y-auto pr-1">
+                                                {appliedPromoGroups.map((group) => (
+                                                    <div
+                                                        key={group.key}
+                                                        className="flex items-start justify-between gap-2 text-[10px]"
+                                                    >
+                                                        <span className="min-w-0 flex-1 break-words text-slate-600">
+                                                            {group.label}
+                                                        </span>
+                                                        <span className="whitespace-nowrap font-medium text-emerald-600">
+                                                            -{formatPrice(group.discount_total)}
+                                                        </span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                    <div className="flex justify-between text-sm">
+                                        <span className="text-slate-500">
+                                            Subtotal Setelah Promo
+                                        </span>
+                                        <span className="font-medium text-slate-800">
+                                            {formatPrice(subtotal)}
                                         </span>
                                     </div>
                                     <div className="h-px bg-slate-200" />

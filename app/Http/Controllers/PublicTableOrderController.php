@@ -12,7 +12,7 @@ use App\Models\Transaction;
 use App\Models\TransactionDetail;
 use App\Services\CustomerOutletMetricService;
 use App\Services\LoyaltyService;
-use App\Services\PricingService;
+use App\Services\ProductCatalogService;
 use App\Services\TableOrderService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -27,7 +27,7 @@ class PublicTableOrderController extends Controller
         private readonly TableOrderService $tableOrderService,
         private readonly LoyaltyService $loyaltyService,
         private readonly CustomerOutletMetricService $customerOutletMetricService,
-        private readonly PricingService $pricingService
+        private readonly ProductCatalogService $productCatalogService
     ) {}
 
     public function show(string $qrToken)
@@ -45,7 +45,7 @@ class PublicTableOrderController extends Controller
             ->with([
                 'category:id,name',
                 'modifierOptions',
-                'tenantOutlet:id,name',
+                'tenantOutlet:id,name,code,slug',
                 'kitchenStationMappings.kitchenStation:id,name,code',
             ])
             ->select(
@@ -54,6 +54,8 @@ class PublicTableOrderController extends Controller
                 'description',
                 'image',
                 'barcode',
+                'sku',
+                'buy_price',
                 'sell_price',
                 'stock',
                 'category_id',
@@ -80,65 +82,26 @@ class PublicTableOrderController extends Controller
                 return $product;
             })
             ->values();
-        $pricingBadges = $this->pricingService->previewProducts(
-            $products,
-            $identifiedCustomer,
-            outletId: $table->outlet_id
-        );
-        $products = $products->map(function (Product $product) use ($pricingBadges) {
-            $pricing = $pricingBadges->get($product->id);
-            $pricingRule = $pricing['pricing_rule'] ?? null;
+        $soldQtyByProduct = TransactionDetail::query()
+            ->selectRaw('product_id, SUM(qty) as sold_qty')
+            ->whereNotNull('product_id')
+            ->when(
+                Schema::hasColumn('transaction_details', 'is_promo_reward'),
+                fn ($query) => $query->where('is_promo_reward', false)
+            )
+            ->whereHas('transaction', fn ($query) => $query->where('outlet_id', $table->outlet_id))
+            ->groupBy('product_id')
+            ->pluck('sold_qty', 'product_id');
 
-            return [
-                'id' => $product->id,
-                'title' => $product->title,
-                'description' => $product->description,
-                'image' => $product->image,
-                'barcode' => $product->barcode,
-                'sell_price' => (int) $product->sell_price,
-                'stock' => (int) $product->stock,
-                'supports_modifiers' => (bool) $product->supports_modifiers,
-                'tenant_outlet' => $product->tenantOutlet ? [
-                    'id' => $product->tenantOutlet->id,
-                    'name' => $product->tenantOutlet->name,
-                ] : null,
-                'modifier_options' => $product->modifierOptions
-                    ->where('is_active', true)
-                    ->map(fn ($option) => [
-                        'id' => $option->id,
-                        'name' => $option->name,
-                        'price' => (int) $option->price,
-                    ])
-                    ->values()
-                    ->all(),
-                'kitchen_stations' => $product->kitchenStationMappings
-                    ->where('is_active', true)
-                    ->sortBy('priority')
-                    ->map(fn ($mapping) => [
-                        'id' => $mapping->kitchenStation?->id,
-                        'name' => $mapping->kitchenStation?->name,
-                        'code' => $mapping->kitchenStation?->code,
-                    ])
-                    ->filter(fn (array $station) => filled($station['name']))
-                    ->values()
-                    ->all(),
-                'category' => $product->category ? [
-                    'id' => $product->category->id,
-                    'name' => $product->category->name,
-                ] : null,
-                'pricing_badge' => $pricing && $pricingRule ? [
-                    'label' => $pricingRule['label'],
-                    'detail' => $pricingRule['detail'] ?? null,
-                    'rule_name' => $pricingRule['name'] ?? null,
-                    'pricing_rule' => $pricingRule,
-                    'promo_price' => $pricingRule['price_context']
-                        ? $pricing['effective_unit_price']
-                        : null,
-                    'base_price' => $pricing['base_unit_price'],
-                    'kind' => $pricingRule['kind'],
-                ] : null,
-            ];
-        })->values();
+        $products = $this->productCatalogService->mapProductsForPosGrid(
+            $products,
+            null,
+            $table->outlet_id,
+            [
+                'soldQtyByProduct' => $soldQtyByProduct,
+                'includeKitchenStations' => true,
+            ]
+        );
 
         $recommendations = $this->recommendationPayload(
             $products,

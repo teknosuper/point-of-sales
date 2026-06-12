@@ -25,6 +25,7 @@ use App\Services\LoyaltyService;
 use App\Services\OutletResolver;
 use App\Services\Payments\PaymentGatewayManager;
 use App\Services\PricingService;
+use App\Services\ProductCatalogService;
 use App\Services\PrintJobService;
 use App\Services\ReceiptLayoutService;
 use App\Services\StockMutationService;
@@ -46,6 +47,7 @@ class TransactionController extends Controller
         private readonly CashierShiftService $cashierShiftService,
         private readonly AuditLogService $auditLogService,
         private readonly PricingService $pricingService,
+        private readonly ProductCatalogService $productCatalogService,
         private readonly LoyaltyService $loyaltyService,
         private readonly OutletResolver $outletResolver,
         private readonly StockMutationService $stockMutationService,
@@ -163,40 +165,14 @@ class TransactionController extends Controller
 
             return $product;
         });
-        $pricingBadges = $this->pricingService->previewProducts($products, null, outletId: $outlet?->id);
-        $products = $products->map(function (Product $product) use ($pricingBadges, $soldQtyByProduct) {
-            $pricing = $pricingBadges->get($product->id);
-
-            return [
-                ...$product->toArray(),
-                'sold_qty' => (int) ($soldQtyByProduct[$product->id] ?? 0),
-                'modifier_options' => $product->modifierOptions
-                    ->where('is_active', true)
-                    ->map(fn ($option) => [
-                        'id' => $option->id,
-                        'name' => $option->name,
-                        'price' => (int) $option->price,
-                    ])
-                    ->values()
-                    ->all(),
-                'tenant_outlet' => $product->tenantOutlet ? [
-                    'id' => $product->tenantOutlet->id,
-                    'name' => $product->tenantOutlet->name,
-                    'code' => $product->tenantOutlet->code,
-                ] : null,
-                'pricing_badge' => $pricing && ! empty($pricing['pricing_rule']) ? [
-                    'label' => $pricing['pricing_rule']['label'],
-                    'detail' => $pricing['pricing_rule']['detail'] ?? null,
-                    'rule_name' => $pricing['pricing_rule']['name'] ?? null,
-                    'pricing_rule' => $pricing['pricing_rule'],
-                    'promo_price' => $pricing['pricing_rule']['price_context']
-                        ? $pricing['effective_unit_price']
-                        : null,
-                    'base_price' => $pricing['base_unit_price'],
-                    'kind' => $pricing['pricing_rule']['kind'],
-                ] : null,
-            ];
-        });
+        $products = $this->productCatalogService->mapProductsForPosGrid(
+            $products,
+            null,
+            $outlet?->id,
+            [
+                'soldQtyByProduct' => $soldQtyByProduct,
+            ]
+        );
 
         // get all categories
         $categories = \App\Models\Category::select('id', 'name', 'image')
