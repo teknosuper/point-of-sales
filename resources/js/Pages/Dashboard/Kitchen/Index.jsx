@@ -82,6 +82,18 @@ const formatDateTime = (value) =>
           })
         : "-";
 
+const formatOrderLocation = (ticket) => {
+    if (ticket?.order_type === "dine_in") {
+        if (ticket?.table_name && ticket?.table_code) {
+            return `${ticket.table_code} - ${ticket.table_name}`;
+        }
+
+        return ticket?.table_name || ticket?.table_code || "Meja belum dipilih";
+    }
+
+    return "Ambil sendiri / takeaway";
+};
+
 const buildBoardFilters = (filters = {}, selectedDevice = null) => ({
     status: filters?.status || "active",
     q: filters?.q || "",
@@ -200,39 +212,38 @@ export default function KitchenIndex({
     useEffect(() => {
         if (typeof window === "undefined") return undefined;
 
-        const unlockAudio = async () => {
-            try {
-                if (!audioContextRef.current) {
-                    const AudioContextClass =
-                        window.AudioContext || window.webkitAudioContext;
-                    if (!AudioContextClass) return;
-                    audioContextRef.current = new AudioContextClass();
-                }
-
-                if (audioContextRef.current.state === "suspended") {
-                    await audioContextRef.current.resume();
-                }
-
-                audioUnlockedRef.current = true;
-            } catch (error) {
-                audioUnlockedRef.current = false;
-            }
+        const markAudioUnlocked = () => {
+            audioUnlockedRef.current = true;
         };
 
-        window.addEventListener("pointerdown", unlockAudio, { once: true });
+        window.addEventListener("pointerdown", markAudioUnlocked, { once: true });
+        window.addEventListener("keydown", markAudioUnlocked, { once: true });
 
         return () => {
-            window.removeEventListener("pointerdown", unlockAudio);
+            window.removeEventListener("pointerdown", markAudioUnlocked);
+            window.removeEventListener("keydown", markAudioUnlocked);
         };
     }, []);
 
-    const playNotificationSound = () => {
-        if (!audioUnlockedRef.current || !audioContextRef.current) {
+    const playNotificationSound = async () => {
+        if (!audioUnlockedRef.current || typeof window === "undefined") {
             return;
         }
 
         try {
+            if (!audioContextRef.current) {
+                const AudioContextClass =
+                    window.AudioContext || window.webkitAudioContext;
+                if (!AudioContextClass) return;
+                audioContextRef.current = new AudioContextClass();
+            }
+
             const context = audioContextRef.current;
+
+            if (context.state === "suspended") {
+                await context.resume();
+            }
+
             const now = context.currentTime;
             const oscillator = context.createOscillator();
             const gain = context.createGain();
@@ -927,7 +938,194 @@ export default function KitchenIndex({
                             </div>
                         ) : (
                             <div className="mt-4 space-y-4">
-                                <div className="overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800">
+                                <div className="space-y-3 md:hidden">
+                                    {selectedTickets.map((ticket) => (
+                                        <div
+                                            key={`mobile-${ticket.id}`}
+                                            className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900"
+                                        >
+                                            <div className="flex items-start justify-between gap-3">
+                                                <div className="min-w-0">
+                                                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                                                        {ticket.ticket_number}
+                                                    </p>
+                                                    <p className="mt-1 break-words text-base font-semibold text-slate-900 dark:text-white">
+                                                        {ticket.invoice || "Tanpa nomor nota"}
+                                                    </p>
+                                                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                        {ticket.customer_name || "Pelanggan umum"}
+                                                    </p>
+                                                </div>
+                                                <span
+                                                    className={`shrink-0 rounded-full px-3 py-1 text-[11px] font-semibold ${
+                                                        ticketStatusMeta[ticket.status]?.badge ||
+                                                        ticketStatusMeta.pending.badge
+                                                    }`}
+                                                >
+                                                    {ticketStatusMeta[ticket.status]?.label || "Menunggu"}
+                                                </span>
+                                            </div>
+
+                                            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                                                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/40">
+                                                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                                                        Waktu
+                                                    </p>
+                                                    <div className="mt-2 space-y-2 text-xs text-slate-600 dark:text-slate-300">
+                                                        <div className="flex items-start gap-2">
+                                                            <IconClockHour4 size={14} className="mt-0.5 shrink-0" />
+                                                            <span>Masuk {formatDateTime(ticket.fired_at)}</span>
+                                                        </div>
+                                                        {ticket.acknowledged_at ? (
+                                                            <div className="flex items-start gap-2">
+                                                                <IconChefHat size={14} className="mt-0.5 shrink-0" />
+                                                                <span>Proses {formatDateTime(ticket.acknowledged_at)}</span>
+                                                            </div>
+                                                        ) : null}
+                                                        {ticket.ready_at ? (
+                                                            <div className="flex items-start gap-2">
+                                                                <IconCheck size={14} className="mt-0.5 shrink-0" />
+                                                                <span>Siap {formatDateTime(ticket.ready_at)}</span>
+                                                            </div>
+                                                        ) : null}
+                                                        {ticket.completed_at ? (
+                                                            <div className="flex items-start gap-2">
+                                                                <IconCheck size={14} className="mt-0.5 shrink-0" />
+                                                                <span>Diserahkan {formatDateTime(ticket.completed_at)}</span>
+                                                            </div>
+                                                        ) : null}
+                                                    </div>
+                                                </div>
+
+                                                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/40">
+                                                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                                                        Detail order
+                                                    </p>
+                                                    <div className="mt-2 space-y-2 text-xs text-slate-600 dark:text-slate-300">
+                                                        <div>
+                                                            <span className="font-semibold text-slate-700 dark:text-slate-200">
+                                                                Jenis:
+                                                            </span>{" "}
+                                                            {ticket.order_type_label || "Bawa Pulang"}
+                                                        </div>
+                                                        <div>
+                                                            <span className="font-semibold text-slate-700 dark:text-slate-200">
+                                                                Lokasi:
+                                                            </span>{" "}
+                                                            {formatOrderLocation(ticket)}
+                                                        </div>
+                                                        <div>
+                                                            <span className="font-semibold text-slate-700 dark:text-slate-200">
+                                                                Pelanggan:
+                                                            </span>{" "}
+                                                            {ticket.customer_name || "Pelanggan umum"}
+                                                        </div>
+                                                        <div>
+                                                            <span className="font-semibold text-slate-700 dark:text-slate-200">
+                                                                No. HP:
+                                                            </span>{" "}
+                                                            {ticket.customer_phone || "-"}
+                                                        </div>
+                                                        {ticket.notes ? (
+                                                            <div className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-2 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300">
+                                                                {ticket.notes}
+                                                            </div>
+                                                        ) : null}
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/40">
+                                                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                                                    Pesanan
+                                                </p>
+                                                <div className="mt-2 space-y-2">
+                                                    {ticket.items.map((item) => (
+                                                        <div
+                                                            key={`mobile-item-${item.id}`}
+                                                            className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 dark:border-slate-700 dark:bg-slate-900"
+                                                        >
+                                                            <div className="flex items-start justify-between gap-3">
+                                                                <div className="min-w-0">
+                                                                    <p className="break-words font-medium text-slate-900 dark:text-white">
+                                                                        {item.product_title}
+                                                                    </p>
+                                                                    {item.notes ? (
+                                                                        <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                                                                            {item.notes}
+                                                                        </p>
+                                                                    ) : null}
+                                                                </div>
+                                                                <span className="shrink-0 rounded-lg bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                                                                    x{item.qty}
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+
+                                            <div className="mt-4 grid gap-2">
+                                                {ticket.status === "pending" &&
+                                                (boardState.activeStation?.processing_mode || "auto") === "manual" ? (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleAcknowledge(ticket.id)}
+                                                        className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-sky-600 px-4 py-3 text-sm font-medium text-white transition hover:bg-sky-700"
+                                                    >
+                                                        <IconChefHat size={16} />
+                                                        Mulai Proses
+                                                    </button>
+                                                ) : null}
+
+                                                {ticket.status === "acknowledged" ? (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleComplete(ticket.id)}
+                                                        className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 text-sm font-medium text-white transition hover:bg-emerald-700"
+                                                    >
+                                                        <IconCheck size={16} />
+                                                        Siap Diantar / Diambil
+                                                    </button>
+                                                ) : null}
+
+                                                {ticket.status === "ready" ? (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleDeliver(ticket.id)}
+                                                        className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-violet-600 px-4 py-3 text-sm font-medium text-white transition hover:bg-violet-700"
+                                                    >
+                                                        <IconCheck size={16} />
+                                                        Sudah Diambil / Diserahkan
+                                                    </button>
+                                                ) : null}
+
+                                                {printerDevices.length > 0 &&
+                                                ticket.status !== "completed" ? (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleQueueDispatch(ticket.id)}
+                                                        className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-primary-600 px-4 py-3 text-sm font-medium text-white transition hover:bg-primary-700"
+                                                    >
+                                                        <IconPrinter size={16} />
+                                                        Kirim ke Printer
+                                                    </button>
+                                                ) : null}
+
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handlePreview(ticket)}
+                                                    className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                                >
+                                                    <IconEye size={16} />
+                                                    Preview
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                <div className="hidden overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 md:block">
                                     <div className="overflow-x-auto">
                                         <table className="min-w-full divide-y divide-slate-200 text-sm dark:divide-slate-800">
                                             <thead className="bg-slate-50 dark:bg-slate-950/40">
@@ -935,7 +1133,7 @@ export default function KitchenIndex({
                                                     <th className="px-4 py-3">Tiket</th>
                                                     <th className="px-4 py-3">Waktu</th>
                                                     <th className="px-4 py-3">Pesanan</th>
-                                                    <th className="px-4 py-3">Printer</th>
+                                                    <th className="px-4 py-3">Detail Order</th>
                                                     <th className="px-4 py-3">Status</th>
                                                     <th className="px-4 py-3 text-right">Aksi</th>
                                                 </tr>
@@ -999,7 +1197,7 @@ export default function KitchenIndex({
                                                                                     {item.product_title}
                                                                                 </p>
                                                                                 {item.notes ? (
-                                                                                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                                                    <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
                                                                                         {item.notes}
                                                                                     </p>
                                                                                 ) : null}
@@ -1013,31 +1211,37 @@ export default function KitchenIndex({
                                                             </div>
                                                         </td>
                                                         <td className="px-4 py-4 text-xs text-slate-500 dark:text-slate-400">
-                                                            {ticket.dispatch?.dispatched_at ? (
-                                                                <div className="space-y-2">
-                                                                    <div className="flex items-center gap-2">
-                                                                        {deviceIcon(ticket.dispatch.device_type || "printer")}
-                                                                        <span className="font-medium text-slate-700 dark:text-slate-200">
-                                                                            {ticket.dispatch.device_name || "Printer"}
-                                                                        </span>
-                                                                    </div>
-                                                                    <div>
-                                                                        {ticket.dispatch.status === "queued"
-                                                                            ? "Antrean"
-                                                                            : ticket.dispatch.status === "failed"
-                                                                              ? "Gagal"
-                                                                              : "Berhasil"}{" "}
-                                                                        {formatDateTime(ticket.dispatch.dispatched_at)}
-                                                                    </div>
-                                                                    {ticket.dispatch.reason ? (
-                                                                        <div className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-2 text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-300">
-                                                                            {ticket.dispatch.reason}
-                                                                        </div>
-                                                                    ) : null}
+                                                            <div className="min-w-[220px] space-y-2">
+                                                                <div>
+                                                                    <span className="font-semibold text-slate-700 dark:text-slate-200">
+                                                                        Jenis:
+                                                                    </span>{" "}
+                                                                    {ticket.order_type_label || "Bawa Pulang"}
                                                                 </div>
-                                                            ) : (
-                                                                <span>-</span>
-                                                            )}
+                                                                <div>
+                                                                    <span className="font-semibold text-slate-700 dark:text-slate-200">
+                                                                        Lokasi:
+                                                                    </span>{" "}
+                                                                    {formatOrderLocation(ticket)}
+                                                                </div>
+                                                                <div>
+                                                                    <span className="font-semibold text-slate-700 dark:text-slate-200">
+                                                                        Pelanggan:
+                                                                    </span>{" "}
+                                                                    {ticket.customer_name || "Pelanggan umum"}
+                                                                </div>
+                                                                <div>
+                                                                    <span className="font-semibold text-slate-700 dark:text-slate-200">
+                                                                        No. HP:
+                                                                    </span>{" "}
+                                                                    {ticket.customer_phone || "-"}
+                                                                </div>
+                                                                {ticket.notes ? (
+                                                                    <div className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-2 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300">
+                                                                        {ticket.notes}
+                                                                    </div>
+                                                                ) : null}
+                                                            </div>
                                                         </td>
                                                         <td className="px-4 py-4">
                                                             <span
@@ -1205,10 +1409,10 @@ export default function KitchenIndex({
                             </div>
                             <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 dark:border-slate-700 dark:bg-slate-950/40">
                                 <p className="font-semibold text-slate-900 dark:text-white">
-                                    Status Printer
+                                    Preview Ticket
                                 </p>
                                 <p className="mt-1">
-                                    Kolom printer hanya menampilkan status antre/cetak terakhir. Tidak perlu aksi manual tambahan.
+                                    Buka preview untuk melihat detail item, catatan pesanan, dan ringkasan ticket lebih lengkap.
                                 </p>
                             </div>
                         </div>

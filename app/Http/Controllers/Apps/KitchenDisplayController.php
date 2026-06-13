@@ -456,7 +456,12 @@ class KitchenDisplayController extends Controller
         $sort = ($filters['sort'] ?? 'oldest') === 'newest' ? 'newest' : 'oldest';
 
         $query = KitchenTicket::query()
-            ->with(['transaction.customer:id,name', 'items'])
+            ->with([
+                'transaction:id,invoice,customer_id,order_type,table_id',
+                'transaction.customer:id,name,no_telp',
+                'transaction.diningTable:id,name,code',
+                'items',
+            ])
             ->where('outlet_id', $station->outlet_id)
             ->where('kitchen_station_id', $station->id);
 
@@ -509,6 +514,11 @@ class KitchenDisplayController extends Controller
                     'completed_at' => optional($ticket->completed_at)?->toIso8601String(),
                     'invoice' => $ticket->transaction?->invoice,
                     'customer_name' => $ticket->transaction?->customer?->name,
+                    'customer_phone' => $ticket->transaction?->customer?->no_telp,
+                    'order_type' => $ticket->transaction?->order_type ?? 'take_away',
+                    'order_type_label' => $this->humanizeOrderType($ticket->transaction?->order_type),
+                    'table_name' => $ticket->transaction?->diningTable?->name,
+                    'table_code' => $ticket->transaction?->diningTable?->code,
                     'notes' => $ticket->notes,
                     'dispatch' => $latestDispatchEvent ? [
                         'event' => $latestDispatchEvent->event,
@@ -546,6 +556,15 @@ class KitchenDisplayController extends Controller
                 'to' => $tickets->lastItem(),
             ],
         ];
+    }
+
+    private function humanizeOrderType(?string $orderType): string
+    {
+        return match ($orderType) {
+            'dine_in' => 'Makan di Tempat',
+            'take_away', 'takeaway' => 'Bawa Pulang',
+            default => 'Bawa Pulang',
+        };
     }
 
     private function autoAcknowledgePendingTickets(?KitchenStation $station, ?int $userId = null): void
