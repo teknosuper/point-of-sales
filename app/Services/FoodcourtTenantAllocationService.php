@@ -85,9 +85,16 @@ class FoodcourtTenantAllocationService
             ]);
             $allocation->save();
 
+            $existingItems = $allocation->items()
+                ->get()
+                ->keyBy(fn ($item) => (int) ($item->transaction_detail_id ?? 0));
+
             $allocation->items()->delete();
 
             foreach ($tenantDetails as $detail) {
+                $existingItem = $existingItems->get((int) $detail->id);
+                $defaultServiceStatus = $detail->kitchen_station_id ? 'pending' : 'not_required';
+
                 $allocation->items()->create([
                     'transaction_detail_id' => $detail->id,
                     'tenant_outlet_id' => (int) $tenantOutletId,
@@ -98,6 +105,10 @@ class FoodcourtTenantAllocationService
                     'unit_price' => (int) max(0, round($this->tenantLineTotal($detail) / max(1, (int) $detail->qty))),
                     'line_total' => $this->tenantLineTotal($detail),
                     'discount_total' => $this->tenantDiscountTotal($detail),
+                    'service_status' => $existingItem?->service_status ?: $defaultServiceStatus,
+                    'ready_at' => $existingItem?->ready_at,
+                    'picked_up_at' => $existingItem?->picked_up_at,
+                    'delivered_at' => $existingItem?->delivered_at,
                 ]);
             }
 

@@ -3,6 +3,7 @@ import KitchenLayout from "@/Layouts/KitchenLayout";
 import KitchenTicketPreview from "@/Components/Dashboard/KitchenTicketPreview";
 import { Head, Link, router, usePage } from "@inertiajs/react";
 import { useEffect, useRef, useState } from "react";
+import Swal from "sweetalert2";
 import {
     IconCheck,
     IconChefHat,
@@ -51,6 +52,36 @@ const ticketStatusMeta = {
     },
 };
 
+const ticketItemStatusMeta = {
+    pending: {
+        label: "Menunggu",
+        badge: "bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300",
+    },
+    acknowledged: {
+        label: "Diproses",
+        badge: "bg-sky-100 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300",
+    },
+    completed: {
+        label: "Siap Antar",
+        badge: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300",
+    },
+};
+
+const kitchenServiceStatusMeta = {
+    ready: {
+        label: "Siap Antar",
+        badge: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300",
+    },
+    picked_up: {
+        label: "Sedang Dibawa",
+        badge: "bg-sky-100 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300",
+    },
+    delivered: {
+        label: "Sudah Diserahkan",
+        badge: "bg-violet-100 text-violet-700 dark:bg-violet-950/50 dark:text-violet-300",
+    },
+};
+
 const emptyTicketPayload = {
     data: [],
     meta: {
@@ -94,6 +125,202 @@ const formatOrderLocation = (ticket) => {
     return "Ambil sendiri / takeaway";
 };
 
+const normalizeKitchenServiceStatus = (item) => {
+    if (item?.resolved_service_status) {
+        return item.resolved_service_status;
+    }
+
+    if (item?.service_status) {
+        return item.service_status;
+    }
+
+    if (item?.status === "completed") {
+        return "ready";
+    }
+
+    return "pending";
+};
+
+const resolveKitchenItemBadge = (item) => {
+    if (item?.status === "completed") {
+        return (
+            kitchenServiceStatusMeta[normalizeKitchenServiceStatus(item)] ||
+            kitchenServiceStatusMeta.ready
+        );
+    }
+
+    return ticketItemStatusMeta[item?.status] || ticketItemStatusMeta.pending;
+};
+
+const summarizeKitchenTicketProgress = (ticket) => {
+    const items = ticket?.items || [];
+    const totalItems = items.length;
+    const readyItems = items.filter(
+        (item) => item.status === "completed" && normalizeKitchenServiceStatus(item) !== "delivered"
+    ).length;
+    const deliveredItems = items.filter(
+        (item) => normalizeKitchenServiceStatus(item) === "delivered"
+    ).length;
+    const processingItems = items.filter((item) =>
+        ["pending", "acknowledged"].includes(item.status)
+    ).length;
+
+    return {
+        totalItems,
+        readyItems,
+        deliveredItems,
+        processingItems,
+    };
+};
+
+const resolveKitchenTicketStatusMeta = (ticket) => {
+    const baseMeta =
+        ticketStatusMeta[ticket?.status] || ticketStatusMeta.pending;
+    const { totalItems, readyItems, deliveredItems, processingItems } =
+        summarizeKitchenTicketProgress(ticket);
+
+    if (totalItems <= 0) {
+        return baseMeta;
+    }
+
+    if (ticket?.status === "acknowledged" && readyItems > 0 && processingItems > 0) {
+        return {
+            label: "Parsial Siap",
+            badge: "bg-amber-100 text-amber-800 ring-1 ring-amber-200 dark:bg-amber-950/50 dark:text-amber-200 dark:ring-amber-900/40",
+        };
+    }
+
+    if (ticket?.status === "ready" && deliveredItems > 0 && deliveredItems < totalItems) {
+        return {
+            label: "Parsial Diserahkan",
+            badge: "bg-violet-100 text-violet-800 ring-1 ring-violet-200 dark:bg-violet-950/50 dark:text-violet-200 dark:ring-violet-900/40",
+        };
+    }
+
+    return baseMeta;
+};
+
+const kitchenProgressLabel = (ticket) => {
+    const { totalItems, readyItems, deliveredItems, processingItems } =
+        summarizeKitchenTicketProgress(ticket);
+
+    if (totalItems === 0) {
+        return null;
+    }
+
+    if (deliveredItems > 0 && deliveredItems < totalItems) {
+        return `${deliveredItems}/${totalItems} item sudah diserahkan`;
+    }
+
+    if (readyItems > 0 && processingItems > 0) {
+        return `${readyItems}/${totalItems} item siap antar`;
+    }
+
+    if (ticket?.status === "ready") {
+        return `${readyItems}/${totalItems} item siap antar`;
+    }
+
+    if (processingItems > 0) {
+        return `${processingItems}/${totalItems} item masih diproses`;
+    }
+
+    return `${totalItems} item`;
+};
+
+const isKitchenItemSelectable = (item) =>
+    ["pending", "acknowledged"].includes(item?.status) ||
+    (item?.status === "completed" &&
+        ["ready", "picked_up"].includes(normalizeKitchenServiceStatus(item)));
+
+const kitchenItemSelectionLabel = (item) => {
+    const serviceStatus = normalizeKitchenServiceStatus(item);
+
+    if (["pending", "acknowledged"].includes(item?.status)) {
+        return "Pilih untuk siap";
+    }
+
+    if (item?.status === "completed" && serviceStatus === "ready") {
+        return "Pilih untuk diserahkan";
+    }
+
+    if (item?.status === "completed" && serviceStatus === "picked_up") {
+        return "Sedang dibawa";
+    }
+
+    return "Final";
+};
+
+const countKitchenActionableItems = (ticket) => {
+    const items = ticket?.items || [];
+
+    return {
+        readyToMark: items.filter((item) =>
+            ["pending", "acknowledged"].includes(item.status)
+        ).length,
+        readyToDeliver: items.filter(
+            (item) =>
+                item.status === "completed" &&
+                ["ready", "picked_up"].includes(
+                    normalizeKitchenServiceStatus(item)
+                )
+        ).length,
+    };
+};
+
+const kitchenActionGroupForItem = (item) => {
+    if (["pending", "acknowledged"].includes(item?.status)) {
+        return "ready";
+    }
+
+    if (
+        item?.status === "completed" &&
+        ["ready", "picked_up"].includes(normalizeKitchenServiceStatus(item))
+    ) {
+        return "deliver";
+    }
+
+    return null;
+};
+
+const resolveKitchenSelectionMode = (ticket, selectedItemIds = []) => {
+    const selectedItems = (ticket?.items || []).filter((item) =>
+        selectedItemIds.map(Number).includes(Number(item.id))
+    );
+
+    const groups = selectedItems
+        .map((item) => kitchenActionGroupForItem(item))
+        .filter(Boolean);
+
+    if (groups.length === 0) {
+        return null;
+    }
+
+    return groups[0] || null;
+};
+
+const resolveKitchenSelectionState = (ticket, selectedItemIds = []) => {
+    const items = (ticket?.items || []).filter((item) =>
+        selectedItemIds.map(Number).includes(Number(item.id))
+    );
+
+    const readyToMark = items.filter((item) =>
+        ["pending", "acknowledged"].includes(item.status)
+    ).length;
+    const readyToDeliver = items.filter(
+        (item) =>
+            item.status === "completed" &&
+            ["ready", "picked_up"].includes(normalizeKitchenServiceStatus(item))
+    ).length;
+
+    return {
+        totalSelected: items.length,
+        readyToMark,
+        readyToDeliver,
+        hasMixedAction:
+            readyToMark > 0 && readyToDeliver > 0,
+    };
+};
+
 const buildBoardFilters = (filters = {}, selectedDevice = null) => ({
     status: filters?.status || "active",
     q: filters?.q || "",
@@ -134,6 +361,7 @@ export default function KitchenIndex({
     const [showPreviewModal, setShowPreviewModal] = useState(false);
     const [previewTicket, setPreviewTicket] = useState(null);
     const [isRefreshing, setIsRefreshing] = useState(false);
+    const [selectedItemIdsByTicket, setSelectedItemIdsByTicket] = useState({});
     const [boardState, setBoardState] = useState(
         buildBoardState({ activeStation, tickets, refreshMeta, filters, selectedDevice })
     );
@@ -264,11 +492,156 @@ export default function KitchenIndex({
         }
     };
 
-    const handleAcknowledge = (ticketId) => {
-        if ((boardState.activeStation?.processing_mode || "auto") === "manual") {
-            const confirmed = window.confirm(
-                "Mulai proses ticket ini sekarang?"
+    const findTicketById = (ticketId) =>
+        (boardState.tickets?.data || []).find((ticket) => ticket.id === ticketId) || null;
+
+    const setSelectedItems = (ticketId, itemIds) => {
+        setSelectedItemIdsByTicket((current) => ({
+            ...current,
+            [ticketId]: itemIds.map(Number),
+        }));
+    };
+
+    const toggleItemSelection = (ticketId, itemId) => {
+        setSelectedItemIdsByTicket((current) => {
+            const ticket = findTicketById(ticketId);
+            const targetItem = (ticket?.items || []).find(
+                (item) => Number(item.id) === Number(itemId)
             );
+            const targetGroup = kitchenActionGroupForItem(targetItem);
+            const currentSelectedIds = (current[ticketId] || []).map(Number);
+            const next = new Set(
+                currentSelectedIds.filter((selectedId) => {
+                    const selectedItem = (ticket?.items || []).find(
+                        (item) => Number(item.id) === Number(selectedId)
+                    );
+
+                    return kitchenActionGroupForItem(selectedItem) === targetGroup;
+                })
+            );
+
+            if (next.has(Number(itemId))) {
+                next.delete(Number(itemId));
+            } else {
+                next.add(Number(itemId));
+            }
+
+            return {
+                ...current,
+                [ticketId]: Array.from(next),
+            };
+        });
+    };
+
+    const resolveEligibleKitchenItemIds = (ticket, allowedStatuses = []) =>
+        (ticket?.items || [])
+            .filter((item) => allowedStatuses.includes(item.status))
+            .map((item) => Number(item.id));
+
+    const resolveEligibleKitchenDeliveredItemIds = (ticket) =>
+        (ticket?.items || [])
+            .filter(
+                (item) =>
+                    item.status === "completed" &&
+                    ["ready", "picked_up"].includes(
+                        normalizeKitchenServiceStatus(item)
+                    )
+            )
+            .map((item) => Number(item.id));
+
+    const resolveSelectedKitchenActionItemIds = (ticket, allowedStatuses = []) => {
+        const eligibleItemIds = resolveEligibleKitchenItemIds(ticket, allowedStatuses);
+        const selectedItemIds = (selectedItemIdsByTicket[ticket?.id] || [])
+            .map(Number)
+            .filter((itemId) => eligibleItemIds.includes(itemId));
+
+        return selectedItemIds.length > 0 ? selectedItemIds : eligibleItemIds;
+    };
+
+    const confirmTicketAction = async ({
+        ticketId,
+        title,
+        text,
+        confirmButtonText,
+        icon = "warning",
+        itemIds = [],
+        itemSectionTitle = "Item terpilih",
+    }) => {
+        const ticket = findTicketById(ticketId);
+        const selectedItems = (ticket?.items || []).filter((item) =>
+            itemIds.includes(Number(item.id))
+        );
+        const detailRows = [
+            ticket?.ticket_number
+                ? `<div><strong>Tiket:</strong> ${ticket.ticket_number}</div>`
+                : "",
+            ticket?.invoice
+                ? `<div><strong>Nota:</strong> ${ticket.invoice}</div>`
+                : "",
+            `<div><strong>Pelanggan:</strong> ${ticket?.customer_name || "Pelanggan umum"}</div>`,
+            `<div><strong>Jenis:</strong> ${ticket?.order_type_label || "Bawa Pulang"}</div>`,
+            `<div><strong>Item:</strong> ${(ticket?.items || []).length} menu</div>`,
+        ]
+            .filter(Boolean)
+            .join("");
+        const selectedItemRows = selectedItems
+            .map(
+                (item) =>
+                    `<div class="flex items-start justify-between gap-3 rounded-2xl border border-slate-200 px-3 py-2">
+                        <div class="min-w-0 text-left">
+                            <div class="font-medium text-slate-800">${item.product_title}</div>
+                            ${item.notes ? `<div class="mt-1 text-xs text-slate-500">${item.notes}</div>` : ""}
+                        </div>
+                        <div class="shrink-0 text-xs font-semibold text-slate-600">x${item.qty}</div>
+                    </div>`
+            )
+            .join("");
+
+        const result = await Swal.fire({
+            title,
+            text,
+            icon,
+            html:
+                detailRows || selectedItemRows
+                    ? `<div class="space-y-4 text-left text-sm text-slate-600">
+                        ${detailRows ? `<div class="space-y-2">${detailRows}</div>` : ""}
+                        ${
+                            selectedItemRows
+                                ? `<div class="space-y-2">
+                                    <div class="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">${itemSectionTitle}</div>
+                                    <div class="space-y-2">${selectedItemRows}</div>
+                                   </div>`
+                                : ""
+                        }
+                    </div>`
+                    : undefined,
+            showCancelButton: true,
+            confirmButtonText,
+            cancelButtonText: "Batal",
+            reverseButtons: true,
+            focusCancel: true,
+            customClass: {
+                popup: "rounded-3xl",
+                confirmButton:
+                    "rounded-2xl bg-primary-600 px-4 py-2 text-sm font-semibold text-white",
+                cancelButton:
+                    "rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700",
+            },
+            buttonsStyling: false,
+        });
+
+        return result.isConfirmed;
+    };
+
+    const handleAcknowledge = async (ticketId) => {
+        if ((boardState.activeStation?.processing_mode || "auto") === "manual") {
+            const confirmed = await confirmTicketAction({
+                ticketId,
+                title: "Mulai proses ticket ini?",
+                text: "Gunakan aksi ini saat dapur benar-benar mulai mengerjakan pesanan.",
+                confirmButtonText: "Ya, mulai proses",
+                icon: "question",
+            });
 
             if (!confirmed) {
                 return;
@@ -280,16 +653,93 @@ export default function KitchenIndex({
         });
     };
 
-    const handleComplete = (ticketId) => {
-        router.post(route("kitchen.tickets.complete", ticketId), {}, {
-            preserveScroll: true,
+    const handleComplete = async (ticketId) => {
+        const ticket = findTicketById(ticketId);
+        const selectedItemIds = (selectedItemIdsByTicket[ticketId] || []).map(Number);
+        const selectionState = resolveKitchenSelectionState(ticket, selectedItemIds);
+        const itemIds =
+            selectionState.totalSelected > 0
+                ? selectedItemIds.filter((itemId) =>
+                      resolveEligibleKitchenItemIds(ticket, ["pending", "acknowledged"]).includes(itemId)
+                  )
+                : resolveSelectedKitchenActionItemIds(ticket, ["pending", "acknowledged"]);
+
+        if (itemIds.length === 0) {
+            toast.error("Tidak ada item aktif yang bisa ditandai siap.");
+            return;
+        }
+
+        if (selectionState.hasMixedAction) {
+            toast.error("Pilihan item bercampur. Pilih hanya item yang masih diproses untuk aksi ini.");
+            return;
+        }
+
+        const confirmed = await confirmTicketAction({
+            ticketId,
+            title: "Tandai pesanan sudah siap?",
+            text: "Status ticket akan dipindahkan ke siap diantar atau diambil.",
+            confirmButtonText: "Ya, tandai siap",
+            itemIds,
+            itemSectionTitle: "Item yang akan ditandai siap",
         });
+
+        if (!confirmed) {
+            return;
+        }
+
+        router.post(
+            route("kitchen.tickets.complete", ticketId),
+            { item_ids: itemIds },
+            {
+                preserveScroll: true,
+                onSuccess: () => setSelectedItems(ticketId, []),
+            }
+        );
     };
 
-    const handleDeliver = (ticketId) => {
-        router.post(route("kitchen.tickets.deliver", ticketId), {}, {
-            preserveScroll: true,
+    const handleDeliver = async (ticketId) => {
+        const ticket = findTicketById(ticketId);
+        const selectedItemIds = (selectedItemIdsByTicket[ticketId] || []).map(Number);
+        const selectionState = resolveKitchenSelectionState(ticket, selectedItemIds);
+        const itemIds = (() => {
+            const eligibleItemIds = resolveEligibleKitchenDeliveredItemIds(ticket);
+            const filteredSelectedItemIds = selectedItemIds
+                .filter((itemId) => eligibleItemIds.includes(itemId));
+
+            return filteredSelectedItemIds.length > 0 ? filteredSelectedItemIds : eligibleItemIds;
+        })();
+
+        if (itemIds.length === 0) {
+            toast.error("Tidak ada item siap yang bisa ditandai diserahkan.");
+            return;
+        }
+
+        if (selectionState.hasMixedAction) {
+            toast.error("Pilihan item bercampur. Pilih hanya item yang siap antar untuk aksi ini.");
+            return;
+        }
+
+        const confirmed = await confirmTicketAction({
+            ticketId,
+            title: "Tandai pesanan sudah diserahkan?",
+            text: "Gunakan aksi ini hanya jika pesanan benar-benar sudah diambil pelanggan atau diserahkan waiter.",
+            confirmButtonText: "Ya, sudah diserahkan",
+            itemIds,
+            itemSectionTitle: "Item yang akan ditandai diserahkan",
         });
+
+        if (!confirmed) {
+            return;
+        }
+
+        router.post(
+            route("kitchen.tickets.deliver", ticketId),
+            { item_ids: itemIds },
+            {
+                preserveScroll: true,
+                onSuccess: () => setSelectedItems(ticketId, []),
+            }
+        );
     };
 
     const handleToggleProcessingMode = () => {
@@ -944,6 +1394,42 @@ export default function KitchenIndex({
                                             key={`mobile-${ticket.id}`}
                                             className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900"
                                         >
+                                            {(() => {
+                                                const actionCounts = countKitchenActionableItems(ticket);
+                                                const selectedIds = (selectedItemIdsByTicket[ticket.id] || []).map(Number);
+                                                const selectionState = resolveKitchenSelectionState(ticket, selectedIds);
+                                                const selectionMode = resolveKitchenSelectionMode(ticket, selectedIds);
+                                                const canMarkReady =
+                                                    selectionState.totalSelected > 0
+                                                        ? selectionState.readyToMark > 0 &&
+                                                          !selectionState.hasMixedAction &&
+                                                          selectionState.readyToDeliver === 0
+                                                        : actionCounts.readyToMark > 0;
+                                                const canDeliver =
+                                                    selectionState.totalSelected > 0
+                                                        ? selectionState.readyToDeliver > 0 &&
+                                                          !selectionState.hasMixedAction &&
+                                                          selectionState.readyToMark === 0
+                                                        : actionCounts.readyToDeliver > 0;
+                                                const readyButtonClass =
+                                                    selectionMode === "ready"
+                                                        ? "bg-emerald-700 ring-2 ring-emerald-200 dark:ring-emerald-900/40"
+                                                        : selectionMode === "deliver"
+                                                          ? "bg-emerald-500/70"
+                                                          : "bg-emerald-600";
+                                                const deliverButtonClass =
+                                                    selectionMode === "deliver"
+                                                        ? "bg-violet-700 ring-2 ring-violet-200 dark:ring-violet-900/40"
+                                                        : selectionMode === "ready"
+                                                          ? "bg-violet-500/70"
+                                                          : "bg-violet-600";
+
+                                                return (
+                                                    <>
+                                            {(() => {
+                                                const ticketStatus = resolveKitchenTicketStatusMeta(ticket);
+
+                                                return (
                                             <div className="flex items-start justify-between gap-3">
                                                 <div className="min-w-0">
                                                     <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
@@ -955,16 +1441,22 @@ export default function KitchenIndex({
                                                     <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                                                         {ticket.customer_name || "Pelanggan umum"}
                                                     </p>
+                                                    {kitchenProgressLabel(ticket) ? (
+                                                        <p className="mt-2 inline-flex rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">
+                                                            {kitchenProgressLabel(ticket)}
+                                                        </p>
+                                                    ) : null}
                                                 </div>
                                                 <span
                                                     className={`shrink-0 rounded-full px-3 py-1 text-[11px] font-semibold ${
-                                                        ticketStatusMeta[ticket.status]?.badge ||
-                                                        ticketStatusMeta.pending.badge
+                                                        ticketStatus.badge
                                                     }`}
                                                 >
-                                                    {ticketStatusMeta[ticket.status]?.label || "Menunggu"}
+                                                    {ticketStatus.label}
                                                 </span>
                                             </div>
+                                                );
+                                            })()}
 
                                             <div className="mt-4 grid gap-3 sm:grid-cols-2">
                                                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/40">
@@ -1002,6 +1494,11 @@ export default function KitchenIndex({
                                                         Detail order
                                                     </p>
                                                     <div className="mt-2 space-y-2 text-xs text-slate-600 dark:text-slate-300">
+                                                        {kitchenProgressLabel(ticket) ? (
+                                                            <div className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-2 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300">
+                                                                {kitchenProgressLabel(ticket)}
+                                                            </div>
+                                                        ) : null}
                                                         <div>
                                                             <span className="font-semibold text-slate-700 dark:text-slate-200">
                                                                 Jenis:
@@ -1039,6 +1536,49 @@ export default function KitchenIndex({
                                                 <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
                                                     Pesanan
                                                 </p>
+                                                    <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() =>
+                                                            setSelectedItems(
+                                                                ticket.id,
+                                                                ticket.status === "ready"
+                                                                    ? resolveEligibleKitchenDeliveredItemIds(ticket)
+                                                                    : resolveEligibleKitchenItemIds(ticket, ["pending", "acknowledged"])
+                                                            )
+                                                        }
+                                                        className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-slate-600 transition hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                                                    >
+                                                        Pilih item aktif
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setSelectedItems(ticket.id, [])}
+                                                        className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-slate-500 transition hover:border-rose-300 hover:text-rose-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400"
+                                                    >
+                                                        Kosongkan pilihan
+                                                    </button>
+                                                    <span className="text-slate-400 dark:text-slate-500">
+                                                        {(selectedItemIdsByTicket[ticket.id] || []).length} item dipilih
+                                                    </span>
+                                                    <span className="text-slate-400 dark:text-slate-500">
+                                                        Hanya item aktif yang bisa dicentang
+                                                    </span>
+                                                    <span className="text-slate-400 dark:text-slate-500">
+                                                        Pilihan beda aksi akan diganti otomatis
+                                                    </span>
+                                                    {selectionMode ? (
+                                                        <span
+                                                            className={`rounded-full px-2.5 py-1 font-semibold ${
+                                                                selectionMode === "ready"
+                                                                    ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
+                                                                    : "bg-violet-100 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300"
+                                                            }`}
+                                                        >
+                                                            Mode: {selectionMode === "ready" ? "Tandai Siap" : "Antar / Serahkan"}
+                                                        </span>
+                                                    ) : null}
+                                                </div>
                                                 <div className="mt-2 space-y-2">
                                                     {ticket.items.map((item) => (
                                                         <div
@@ -1047,18 +1587,79 @@ export default function KitchenIndex({
                                                         >
                                                             <div className="flex items-start justify-between gap-3">
                                                                 <div className="min-w-0">
-                                                                    <p className="break-words font-medium text-slate-900 dark:text-white">
-                                                                        {item.product_title}
-                                                                    </p>
+                                                                    <div className="flex flex-wrap items-center gap-2">
+                                                                        <p className="break-words font-medium text-slate-900 dark:text-white">
+                                                                            {item.product_title}
+                                                                        </p>
+                                                                        <span
+                                                                            className={`rounded-full px-2 py-1 text-[11px] font-semibold ${
+                                                                                resolveKitchenItemBadge(item).badge
+                                                                            }`}
+                                                                        >
+                                                                            {resolveKitchenItemBadge(item).label}
+                                                                        </span>
+                                                                    </div>
                                                                     {item.notes ? (
                                                                         <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
                                                                             {item.notes}
                                                                         </p>
                                                                     ) : null}
+                                                                    {item.ready_at || item.completed_at ? (
+                                                                        <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
+                                                                            Siap: {formatDateTime(item.ready_at || item.completed_at)}
+                                                                        </p>
+                                                                    ) : null}
+                                                                    {item.picked_up_at ? (
+                                                                        <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
+                                                                            Dibawa: {formatDateTime(item.picked_up_at)}
+                                                                        </p>
+                                                                    ) : null}
+                                                                    {item.delivered_at ? (
+                                                                        <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
+                                                                            Diserahkan: {formatDateTime(item.delivered_at)}
+                                                                        </p>
+                                                                    ) : null}
                                                                 </div>
-                                                                <span className="shrink-0 rounded-lg bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">
-                                                                    x{item.qty}
-                                                                </span>
+                                                                <div className="flex shrink-0 items-start gap-3">
+                                                                    <span className="rounded-lg bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                                                                        x{item.qty}
+                                                                    </span>
+                                                                    <div
+                                                                        className={`min-w-[104px] rounded-2xl border px-2.5 py-2 text-center ${
+                                                                            isKitchenItemSelectable(item)
+                                                                                ? kitchenActionGroupForItem(item) === "ready"
+                                                                                    ? "border-emerald-300 bg-emerald-50 shadow-sm dark:border-emerald-700 dark:bg-emerald-950/30"
+                                                                                    : "border-violet-300 bg-violet-50 shadow-sm dark:border-violet-700 dark:bg-violet-950/30"
+                                                                                : "border-slate-200 bg-slate-50 opacity-75 dark:border-slate-700 dark:bg-slate-900/60"
+                                                                        }`}
+                                                                    >
+                                                                        {isKitchenItemSelectable(item) ? (
+                                                                            <label
+                                                                                className={`flex cursor-pointer items-center justify-center gap-2 text-[11px] font-semibold ${
+                                                                                    kitchenActionGroupForItem(item) === "ready"
+                                                                                        ? "text-emerald-700 dark:text-emerald-300"
+                                                                                        : "text-violet-700 dark:text-violet-300"
+                                                                                }`}
+                                                                            >
+                                                                                <input
+                                                                                    type="checkbox"
+                                                                                    checked={(selectedItemIdsByTicket[ticket.id] || []).includes(item.id)}
+                                                                                    onChange={() => toggleItemSelection(ticket.id, item.id)}
+                                                                                    className={`h-5 w-5 rounded-md border-2 focus:ring-2 ${
+                                                                                        kitchenActionGroupForItem(item) === "ready"
+                                                                                            ? "border-emerald-400 text-emerald-600 focus:ring-emerald-500"
+                                                                                            : "border-violet-400 text-violet-600 focus:ring-violet-500"
+                                                                                    }`}
+                                                                                />
+                                                                                <span>{kitchenItemSelectionLabel(item)}</span>
+                                                                            </label>
+                                                                        ) : (
+                                                                            <div className="text-[11px] font-semibold text-slate-400 dark:text-slate-500">
+                                                                                {kitchenItemSelectionLabel(item)}
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
                                                             </div>
                                                         </div>
                                                     ))}
@@ -1066,6 +1667,17 @@ export default function KitchenIndex({
                                             </div>
 
                                             <div className="mt-4 grid gap-2">
+                                                {selectionMode ? (
+                                                    <div
+                                                        className={`rounded-xl border px-3 py-2 text-center text-xs font-semibold ${
+                                                            selectionMode === "ready"
+                                                                ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-300"
+                                                                : "border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-900/40 dark:bg-violet-950/30 dark:text-violet-300"
+                                                        }`}
+                                                    >
+                                                        Aksi aktif: {selectionMode === "ready" ? "Tandai Item Siap" : "Antar / Serahkan Item"}
+                                                    </div>
+                                                ) : null}
                                                 {ticket.status === "pending" &&
                                                 (boardState.activeStation?.processing_mode || "auto") === "manual" ? (
                                                     <button
@@ -1078,27 +1690,25 @@ export default function KitchenIndex({
                                                     </button>
                                                 ) : null}
 
-                                                {ticket.status === "acknowledged" ? (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => handleComplete(ticket.id)}
-                                                        className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 text-sm font-medium text-white transition hover:bg-emerald-700"
-                                                    >
-                                                        <IconCheck size={16} />
-                                                        Siap Diantar / Diambil
-                                                    </button>
-                                                ) : null}
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleComplete(ticket.id)}
+                                                    disabled={!canMarkReady}
+                                                    className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 ${readyButtonClass}`}
+                                                >
+                                                    <IconCheck size={16} />
+                                                    Tandai Item Siap
+                                                </button>
 
-                                                {ticket.status === "ready" ? (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => handleDeliver(ticket.id)}
-                                                        className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-violet-600 px-4 py-3 text-sm font-medium text-white transition hover:bg-violet-700"
-                                                    >
-                                                        <IconCheck size={16} />
-                                                        Sudah Diambil / Diserahkan
-                                                    </button>
-                                                ) : null}
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleDeliver(ticket.id)}
+                                                    disabled={!canDeliver}
+                                                    className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-medium text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-40 ${deliverButtonClass}`}
+                                                >
+                                                    <IconCheck size={16} />
+                                                    Antar / Serahkan Item
+                                                </button>
 
                                                 {printerDevices.length > 0 &&
                                                 ticket.status !== "completed" ? (
@@ -1121,6 +1731,27 @@ export default function KitchenIndex({
                                                     Preview
                                                 </button>
                                             </div>
+                                            <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-950/40 dark:text-slate-400">
+                                                {selectionState.totalSelected > 0
+                                                    ? selectionState.hasMixedAction
+                                                        ? "Pilihan bercampur. Pilih hanya item diproses atau hanya item siap antar."
+                                                        : selectionState.readyToDeliver > 0
+                                                          ? `${selectionState.readyToDeliver} item terpilih siap diantar atau diserahkan sekarang.`
+                                                          : selectionState.readyToMark > 0
+                                                            ? `${selectionState.readyToMark} item terpilih siap ditandai siap antar.`
+                                                            : "Pilihan saat ini tidak punya aksi yang bisa dijalankan."
+                                                    : actionCounts.readyToDeliver > 0 &&
+                                                        actionCounts.readyToMark > 0
+                                                      ? `${actionCounts.readyToDeliver} item sudah bisa diantar sekarang, sementara ${actionCounts.readyToMark} item lain masih menunggu proses dapur.`
+                                                      : actionCounts.readyToDeliver > 0
+                                                        ? `${actionCounts.readyToDeliver} item sudah bisa diantar atau diserahkan sekarang.`
+                                                        : actionCounts.readyToMark > 0
+                                                          ? `${actionCounts.readyToMark} item masih menunggu ditandai siap antar.`
+                                                          : "Semua item pada ticket ini sudah final."}
+                                            </div>
+                                                    </>
+                                                );
+                                            })()}
                                         </div>
                                     ))}
                                 </div>
@@ -1141,7 +1772,44 @@ export default function KitchenIndex({
                                             <tbody className="divide-y divide-slate-100 bg-white dark:divide-slate-800 dark:bg-slate-900">
                                                 {selectedTickets.map((ticket) => (
                                                     <tr key={ticket.id} className="align-top">
+                                                        {(() => {
+                                                            const actionCounts = countKitchenActionableItems(ticket);
+                                                            const selectedIds = (selectedItemIdsByTicket[ticket.id] || []).map(Number);
+                                                            const selectionState = resolveKitchenSelectionState(ticket, selectedIds);
+                                                            const selectionMode = resolveKitchenSelectionMode(ticket, selectedIds);
+                                                            const canMarkReady =
+                                                                selectionState.totalSelected > 0
+                                                                    ? selectionState.readyToMark > 0 &&
+                                                                      !selectionState.hasMixedAction &&
+                                                                      selectionState.readyToDeliver === 0
+                                                                    : actionCounts.readyToMark > 0;
+                                                            const canDeliver =
+                                                                selectionState.totalSelected > 0
+                                                                    ? selectionState.readyToDeliver > 0 &&
+                                                                      !selectionState.hasMixedAction &&
+                                                                      selectionState.readyToMark === 0
+                                                                    : actionCounts.readyToDeliver > 0;
+                                                            const readyButtonClass =
+                                                                selectionMode === "ready"
+                                                                    ? "bg-emerald-700 ring-2 ring-emerald-200 dark:ring-emerald-900/40"
+                                                                    : selectionMode === "deliver"
+                                                                      ? "bg-emerald-500/70"
+                                                                      : "bg-emerald-600";
+                                                            const deliverButtonClass =
+                                                                selectionMode === "deliver"
+                                                                    ? "bg-violet-700 ring-2 ring-violet-200 dark:ring-violet-900/40"
+                                                                    : selectionMode === "ready"
+                                                                      ? "bg-violet-500/70"
+                                                                      : "bg-violet-600";
+
+                                                            return (
+                                                                <>
                                                         <td className="px-4 py-4">
+                                                            {(() => {
+                                                                const ticketStatus = resolveKitchenTicketStatusMeta(ticket);
+
+                                                                return (
+                                                            <>
                                                             <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
                                                                 {ticket.ticket_number}
                                                             </p>
@@ -1151,6 +1819,17 @@ export default function KitchenIndex({
                                                             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                                                                 {ticket.customer_name || "Pelanggan umum"}
                                                             </p>
+                                                            {kitchenProgressLabel(ticket) ? (
+                                                                <p className="mt-2 inline-flex rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">
+                                                                    {kitchenProgressLabel(ticket)}
+                                                                </p>
+                                                            ) : null}
+                                                            <p className="mt-2 inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+                                                                Status tampilan: {ticketStatus.label}
+                                                            </p>
+                                                            </>
+                                                                );
+                                                            })()}
                                                         </td>
                                                         <td className="px-4 py-4 text-xs text-slate-500 dark:text-slate-400">
                                                                 <div className="space-y-2">
@@ -1186,6 +1865,49 @@ export default function KitchenIndex({
                                                         </td>
                                                         <td className="px-4 py-4">
                                                             <div className="min-w-[260px] space-y-2">
+                                                                <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() =>
+                                                                            setSelectedItems(
+                                                                                ticket.id,
+                                                                                ticket.status === "ready"
+                                                                                    ? resolveEligibleKitchenDeliveredItemIds(ticket)
+                                                                                    : resolveEligibleKitchenItemIds(ticket, ["pending", "acknowledged"])
+                                                                            )
+                                                                        }
+                                                                        className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-slate-600 transition hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                                                                    >
+                                                                        Pilih item aktif
+                                                                    </button>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => setSelectedItems(ticket.id, [])}
+                                                                        className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-slate-500 transition hover:border-rose-300 hover:text-rose-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400"
+                                                                    >
+                                                                        Kosongkan pilihan
+                                                                    </button>
+                                                                    <span className="text-slate-400 dark:text-slate-500">
+                                                                        {(selectedItemIdsByTicket[ticket.id] || []).length} item dipilih
+                                                                    </span>
+                                                                    <span className="text-slate-400 dark:text-slate-500">
+                                                                        Hanya item aktif yang bisa dicentang
+                                                                    </span>
+                                                                    <span className="text-slate-400 dark:text-slate-500">
+                                                                        Pilihan beda aksi akan diganti otomatis
+                                                                    </span>
+                                                                    {selectionMode ? (
+                                                                        <span
+                                                                            className={`rounded-full px-2.5 py-1 font-semibold ${
+                                                                                selectionMode === "ready"
+                                                                                    ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
+                                                                                    : "bg-violet-100 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300"
+                                                                            }`}
+                                                                        >
+                                                                            Mode: {selectionMode === "ready" ? "Tandai Siap" : "Antar / Serahkan"}
+                                                                        </span>
+                                                                    ) : null}
+                                                                </div>
                                                                 {ticket.items.map((item) => (
                                                                     <div
                                                                         key={item.id}
@@ -1193,18 +1915,79 @@ export default function KitchenIndex({
                                                                     >
                                                                         <div className="flex items-start justify-between gap-3">
                                                                             <div className="min-w-0">
-                                                                                <p className="font-medium text-slate-900 dark:text-white">
-                                                                                    {item.product_title}
-                                                                                </p>
+                                                                                <div className="flex flex-wrap items-center gap-2">
+                                                                                    <p className="font-medium text-slate-900 dark:text-white">
+                                                                                        {item.product_title}
+                                                                                    </p>
+                                                                                    <span
+                                                                                        className={`rounded-full px-2 py-1 text-[11px] font-semibold ${
+                                                                                resolveKitchenItemBadge(item).badge
+                                                                                        }`}
+                                                                                    >
+                                                                                        {resolveKitchenItemBadge(item).label}
+                                                                                    </span>
+                                                                                </div>
                                                                                 {item.notes ? (
                                                                                     <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
                                                                                         {item.notes}
                                                                                     </p>
                                                                                 ) : null}
+                                                                                {item.ready_at || item.completed_at ? (
+                                                                                    <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
+                                                                                        Siap: {formatDateTime(item.ready_at || item.completed_at)}
+                                                                                    </p>
+                                                                                ) : null}
+                                                                                {item.picked_up_at ? (
+                                                                                    <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
+                                                                                        Dibawa: {formatDateTime(item.picked_up_at)}
+                                                                                    </p>
+                                                                                ) : null}
+                                                                                {item.delivered_at ? (
+                                                                                    <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
+                                                                                        Diserahkan: {formatDateTime(item.delivered_at)}
+                                                                                    </p>
+                                                                                ) : null}
                                                                             </div>
-                                                                            <span className="rounded-lg bg-white px-2 py-1 text-xs font-semibold text-slate-700 dark:bg-slate-900 dark:text-slate-200">
-                                                                                x{item.qty}
-                                                                            </span>
+                                                                            <div className="flex shrink-0 items-start gap-3">
+                                                                                <span className="rounded-lg bg-white px-2 py-1 text-xs font-semibold text-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                                                                                    x{item.qty}
+                                                                                </span>
+                                                                                <div
+                                                                                    className={`min-w-[124px] rounded-2xl border px-3 py-2 text-center ${
+                                                                                        isKitchenItemSelectable(item)
+                                                                                            ? kitchenActionGroupForItem(item) === "ready"
+                                                                                                ? "border-emerald-300 bg-emerald-50 shadow-sm dark:border-emerald-700 dark:bg-emerald-950/30"
+                                                                                                : "border-violet-300 bg-violet-50 shadow-sm dark:border-violet-700 dark:bg-violet-950/30"
+                                                                                            : "border-slate-200 bg-white opacity-75 dark:border-slate-700 dark:bg-slate-900/60"
+                                                                                    }`}
+                                                                                >
+                                                                                    {isKitchenItemSelectable(item) ? (
+                                                                                        <label
+                                                                                            className={`flex cursor-pointer items-center justify-center gap-2 text-[11px] font-semibold ${
+                                                                                                kitchenActionGroupForItem(item) === "ready"
+                                                                                                    ? "text-emerald-700 dark:text-emerald-300"
+                                                                                                    : "text-violet-700 dark:text-violet-300"
+                                                                                            }`}
+                                                                                        >
+                                                                                            <input
+                                                                                                type="checkbox"
+                                                                                                checked={(selectedItemIdsByTicket[ticket.id] || []).includes(item.id)}
+                                                                                                onChange={() => toggleItemSelection(ticket.id, item.id)}
+                                                                                                className={`h-5 w-5 rounded-md border-2 focus:ring-2 ${
+                                                                                                    kitchenActionGroupForItem(item) === "ready"
+                                                                                                        ? "border-emerald-400 text-emerald-600 focus:ring-emerald-500"
+                                                                                                        : "border-violet-400 text-violet-600 focus:ring-violet-500"
+                                                                                                }`}
+                                                                                            />
+                                                                                            <span>{kitchenItemSelectionLabel(item)}</span>
+                                                                                        </label>
+                                                                                    ) : (
+                                                                                        <div className="text-[11px] font-semibold text-slate-400 dark:text-slate-500">
+                                                                                            {kitchenItemSelectionLabel(item)}
+                                                                                        </div>
+                                                                                    )}
+                                                                                </div>
+                                                                            </div>
                                                                         </div>
                                                                     </div>
                                                                 ))}
@@ -1212,6 +1995,11 @@ export default function KitchenIndex({
                                                         </td>
                                                         <td className="px-4 py-4 text-xs text-slate-500 dark:text-slate-400">
                                                             <div className="min-w-[220px] space-y-2">
+                                                                {kitchenProgressLabel(ticket) ? (
+                                                                    <div className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-2 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300">
+                                                                        {kitchenProgressLabel(ticket)}
+                                                                    </div>
+                                                                ) : null}
                                                                 <div>
                                                                     <span className="font-semibold text-slate-700 dark:text-slate-200">
                                                                         Jenis:
@@ -1244,17 +2032,33 @@ export default function KitchenIndex({
                                                             </div>
                                                         </td>
                                                         <td className="px-4 py-4">
+                                                            {(() => {
+                                                                const ticketStatus = resolveKitchenTicketStatusMeta(ticket);
+
+                                                                return (
                                                             <span
                                                                 className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
-                                                                    ticketStatusMeta[ticket.status]?.badge ||
-                                                                    ticketStatusMeta.pending.badge
+                                                                    ticketStatus.badge
                                                                 }`}
                                                             >
-                                                                {ticketStatusMeta[ticket.status]?.label || "Menunggu"}
+                                                                {ticketStatus.label}
                                                             </span>
+                                                                );
+                                                            })()}
                                                         </td>
                                                         <td className="px-4 py-4">
                                                             <div className="flex min-w-[260px] flex-col gap-2">
+                                                                {selectionMode ? (
+                                                                    <div
+                                                                        className={`rounded-xl border px-3 py-2 text-center text-xs font-semibold ${
+                                                                            selectionMode === "ready"
+                                                                                ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-300"
+                                                                                : "border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-900/40 dark:bg-violet-950/30 dark:text-violet-300"
+                                                                        }`}
+                                                                    >
+                                                                        Aksi aktif: {selectionMode === "ready" ? "Tandai Item Siap" : "Antar / Serahkan Item"}
+                                                                    </div>
+                                                                ) : null}
                                                                 {ticket.status === "pending" &&
                                                                 (boardState.activeStation?.processing_mode || "auto") === "manual" ? (
                                                                     <button
@@ -1267,27 +2071,25 @@ export default function KitchenIndex({
                                                                     </button>
                                                                 ) : null}
 
-                                                                {ticket.status === "acknowledged" ? (
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={() => handleComplete(ticket.id)}
-                                                                        className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-emerald-700"
-                                                                    >
-                                                                        <IconCheck size={16} />
-                                                                        Siap Diantar / Diambil
-                                                                    </button>
-                                                                ) : null}
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handleComplete(ticket.id)}
+                                                                    disabled={!canMarkReady}
+                                                                    className={`inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 ${readyButtonClass}`}
+                                                                >
+                                                                    <IconCheck size={16} />
+                                                                    Tandai Item Siap
+                                                                </button>
 
-                                                                {ticket.status === "ready" ? (
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={() => handleDeliver(ticket.id)}
-                                                                        className="inline-flex items-center justify-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-violet-700"
-                                                                    >
-                                                                        <IconCheck size={16} />
-                                                                        Sudah Diambil / Diserahkan
-                                                                    </button>
-                                                                ) : null}
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handleDeliver(ticket.id)}
+                                                                    disabled={!canDeliver}
+                                                                    className={`inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-40 ${deliverButtonClass}`}
+                                                                >
+                                                                    <IconCheck size={16} />
+                                                                    Antar / Serahkan Item
+                                                                </button>
 
                                                                 {printerDevices.length > 0 &&
                                                                 ticket.status !== "completed" ? (
@@ -1309,7 +2111,28 @@ export default function KitchenIndex({
                                                                     Preview
                                                                 </button>
                                                             </div>
+                                                            <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-950/40 dark:text-slate-400">
+                                                                {selectionState.totalSelected > 0
+                                                                    ? selectionState.hasMixedAction
+                                                                        ? "Pilihan bercampur. Pilih hanya item diproses atau hanya item siap antar."
+                                                                        : selectionState.readyToDeliver > 0
+                                                                          ? `${selectionState.readyToDeliver} item terpilih siap diantar atau diserahkan sekarang.`
+                                                                          : selectionState.readyToMark > 0
+                                                                            ? `${selectionState.readyToMark} item terpilih siap ditandai siap antar.`
+                                                                            : "Pilihan saat ini tidak punya aksi yang bisa dijalankan."
+                                                                    : actionCounts.readyToDeliver > 0 &&
+                                                                        actionCounts.readyToMark > 0
+                                                                      ? `${actionCounts.readyToDeliver} item sudah bisa diantar sekarang, sementara ${actionCounts.readyToMark} item lain masih menunggu proses dapur.`
+                                                                      : actionCounts.readyToDeliver > 0
+                                                                        ? `${actionCounts.readyToDeliver} item sudah bisa diantar atau diserahkan sekarang.`
+                                                                        : actionCounts.readyToMark > 0
+                                                                          ? `${actionCounts.readyToMark} item masih menunggu ditandai siap antar.`
+                                                                          : "Semua item pada ticket ini sudah final."}
+                                                            </div>
                                                         </td>
+                                                                </>
+                                                            );
+                                                        })()}
                                                     </tr>
                                                 ))}
                                             </tbody>
@@ -1396,7 +2219,7 @@ export default function KitchenIndex({
                                     Siap Diantar / Diambil
                                 </p>
                                 <p className="mt-1">
-                                    Tutup proses dapur saat item sudah siap keluar dari station.
+                                    Dapur bisa memilih item yang benar-benar siap lebih dulu. Ticket baru berubah penuh ke siap antar saat semua item di dalamnya sudah selesai.
                                 </p>
                             </div>
                             <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 dark:border-slate-700 dark:bg-slate-950/40">

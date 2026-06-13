@@ -21,6 +21,10 @@ class TransactionTenantAllocationItem extends Model
         'line_total',
         'discount_total',
         'notes',
+        'service_status',
+        'ready_at',
+        'picked_up_at',
+        'delivered_at',
     ];
 
     protected $casts = [
@@ -34,6 +38,9 @@ class TransactionTenantAllocationItem extends Model
         'unit_price' => 'integer',
         'line_total' => 'integer',
         'discount_total' => 'integer',
+        'ready_at' => 'datetime',
+        'picked_up_at' => 'datetime',
+        'delivered_at' => 'datetime',
     ];
 
     public function allocation()

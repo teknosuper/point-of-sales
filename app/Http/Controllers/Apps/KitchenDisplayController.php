@@ -6,11 +6,13 @@ use App\Http\Controllers\Controller;
 use App\Models\KitchenStation;
 use App\Models\KitchenStationDevice;
 use App\Models\KitchenTicket;
+use App\Models\TransactionTenantAllocationItem;
 use App\Models\Outlet;
 use App\Models\ProductKitchenStationMapping;
 use App\Models\TransactionTenantAllocation;
 use App\Services\OutletResolver;
 use App\Services\PrintJobService;
+use App\Services\WaiterFulfillmentService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -21,7 +23,8 @@ class KitchenDisplayController extends Controller
 {
     public function __construct(
         private readonly OutletResolver $outletResolver,
-        private readonly PrintJobService $printJobService
+        private readonly PrintJobService $printJobService,
+        private readonly WaiterFulfillmentService $waiterFulfillmentService
     ) {}
 
     public function index(Request $request)
@@ -179,24 +182,68 @@ class KitchenDisplayController extends Controller
     {
         $this->ensureKitchenAccess($request, $kitchenTicket);
 
-        $kitchenTicket->forceFill([
-            'status' => 'ready',
-            'acknowledged_at' => $kitchenTicket->acknowledged_at ?? now(),
-            'ready_at' => now(),
-        ])->save();
-
-        $kitchenTicket->items()->update([
-            'status' => 'completed',
-            'completed_at' => now(),
+        $validated = $request->validate([
+            'item_ids' => ['nullable', 'array'],
+            'item_ids.*' => ['integer'],
         ]);
+
+        $selectedItemIds = collect($validated['item_ids'] ?? [])
+            ->map(fn ($id) => (int) $id)
+            ->filter()
+            ->unique()
+            ->values();
+
+        $itemsQuery = $kitchenTicket->items()
+            ->whereIn('status', ['pending', 'acknowledged']);
+
+        if ($selectedItemIds->isNotEmpty()) {
+            $itemsQuery->whereIn('id', $selectedItemIds->all());
+        }
+
+        $itemsToComplete = $itemsQuery->get();
+
+        if ($itemsToComplete->isEmpty()) {
+            return back()->with('success', 'Tidak ada item baru yang perlu ditandai siap.');
+        }
+
+        $timestamp = now();
+
+        foreach ($itemsToComplete as $item) {
+            $item->forceFill([
+                'status' => 'completed',
+                'completed_at' => $timestamp,
+            ])->save();
+        }
+
+        $detailIds = $itemsToComplete
+            ->pluck('transaction_detail_id')
+            ->filter()
+            ->map(fn ($id) => (int) $id)
+            ->values()
+            ->all();
+
+        $this->waiterFulfillmentService->markAllocationItemsReadyByDetailIds($detailIds);
+
+        $remainingOpenItems = $kitchenTicket->items()
+            ->whereIn('status', ['pending', 'acknowledged'])
+            ->count();
+
+        $kitchenTicket->forceFill([
+            'status' => $remainingOpenItems === 0 ? 'ready' : 'acknowledged',
+            'acknowledged_at' => $kitchenTicket->acknowledged_at ?? $timestamp,
+            'ready_at' => $remainingOpenItems === 0
+                ? ($kitchenTicket->ready_at ?? $timestamp)
+                : $kitchenTicket->ready_at,
+        ])->save();
 
         $kitchenTicket->events()->create([
             'user_id' => $request->user()?->id,
-            'event' => 'ticket.ready',
+            'event' => $remainingOpenItems === 0 ? 'ticket.ready' : 'ticket.partial_ready',
             'payload' => [
                 'station_id' => $kitchenTicket->kitchen_station_id,
+                'item_ids' => $itemsToComplete->pluck('id')->map(fn ($id) => (int) $id)->values()->all(),
             ],
-            'created_at' => now(),
+            'created_at' => $timestamp,
         ]);
 
         TransactionTenantAllocation::query()
@@ -215,69 +262,92 @@ class KitchenDisplayController extends Controller
             )
             ->update([
                 'kitchen_status' => 'completed',
-                'waiter_status' => 'ready',
-                'ready_at' => now(),
             ]);
 
-        return back()->with('success', 'Ticket dapur siap diantar / diambil.');
+        return back()->with('success', $remainingOpenItems === 0
+            ? 'Ticket dapur siap diantar / diambil.'
+            : 'Sebagian item ditandai siap diantar / diambil.');
     }
 
     public function deliver(Request $request, KitchenTicket $kitchenTicket): RedirectResponse
     {
         $this->ensureKitchenAccess($request, $kitchenTicket);
 
-        $kitchenTicket->forceFill([
-            'status' => 'completed',
-            'ready_at' => $kitchenTicket->ready_at ?? now(),
-            'completed_at' => now(),
-        ])->save();
+        $validated = $request->validate([
+            'item_ids' => ['nullable', 'array'],
+            'item_ids.*' => ['integer'],
+        ]);
 
-        $detailIds = $kitchenTicket->items()
+        $selectedItemIds = collect($validated['item_ids'] ?? [])
+            ->map(fn ($id) => (int) $id)
+            ->filter()
+            ->unique()
+            ->values();
+
+        $itemsQuery = $kitchenTicket->items()
+            ->where('status', 'completed');
+
+        if ($selectedItemIds->isNotEmpty()) {
+            $itemsQuery->whereIn('id', $selectedItemIds->all());
+        }
+
+        $itemsToDeliver = $itemsQuery->get();
+
+        if ($itemsToDeliver->isEmpty()) {
+            return back()->with('success', 'Tidak ada item siap antar yang perlu ditandai diserahkan.');
+        }
+
+        $detailIds = $itemsToDeliver
             ->pluck('transaction_detail_id')
             ->filter()
             ->map(fn ($id) => (int) $id)
             ->values();
 
-        if ($detailIds->isNotEmpty()) {
-            TransactionTenantAllocation::query()
-                ->with('items:id,transaction_tenant_allocation_id,transaction_detail_id')
-                ->where('transaction_id', $kitchenTicket->transaction_id)
-                ->whereIn('waiter_status', ['ready', 'assigned', 'picked_up', 'pending'])
-                ->get()
-                ->each(function (TransactionTenantAllocation $allocation) use ($detailIds, $request) {
-                    $allocationDetailIds = $allocation->items
-                        ->pluck('transaction_detail_id')
-                        ->filter()
-                        ->map(fn ($id) => (int) $id)
-                        ->values();
+        $this->waiterFulfillmentService->markAllocationItemsDeliveredByDetailIds(
+            $detailIds->all(),
+            $request->user()?->id
+        );
 
-                    if (
-                        $allocationDetailIds->isNotEmpty() &&
-                        $allocationDetailIds->every(
-                            fn (int $detailId) => $detailIds->contains($detailId)
-                        )
-                    ) {
-                        $allocation->forceFill([
-                            'waiter_id' => $allocation->waiter_id ?: $request->user()?->id,
-                            'waiter_status' => 'delivered',
-                            'ready_at' => $allocation->ready_at ?? now(),
-                            'delivered_at' => now(),
-                        ])->save();
-                    }
-                });
-        }
+        $ticketDetailIds = $kitchenTicket->items()
+            ->pluck('transaction_detail_id')
+            ->filter()
+            ->map(fn ($id) => (int) $id)
+            ->values();
+
+        $deliveredDetailIds = TransactionTenantAllocationItem::query()
+            ->whereIn('transaction_detail_id', $ticketDetailIds->all())
+            ->where('service_status', 'delivered')
+            ->pluck('transaction_detail_id')
+            ->filter()
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values();
+
+        $allDelivered = $ticketDetailIds->isNotEmpty()
+            && $ticketDetailIds->every(fn (int $detailId) => $deliveredDetailIds->contains($detailId));
+
+        $timestamp = now();
+
+        $kitchenTicket->forceFill([
+            'status' => $allDelivered ? 'completed' : 'ready',
+            'ready_at' => $kitchenTicket->ready_at ?? $timestamp,
+            'completed_at' => $allDelivered ? $timestamp : null,
+        ])->save();
 
         $kitchenTicket->events()->create([
             'user_id' => $request->user()?->id,
-            'event' => 'ticket.delivered_direct',
+            'event' => $allDelivered ? 'ticket.delivered_direct' : 'ticket.partial_delivered',
             'payload' => [
                 'station_id' => $kitchenTicket->kitchen_station_id,
                 'delivered_by' => 'kitchen',
+                'item_ids' => $itemsToDeliver->pluck('id')->map(fn ($id) => (int) $id)->values()->all(),
             ],
-            'created_at' => now(),
+            'created_at' => $timestamp,
         ]);
 
-        return back()->with('success', 'Pesanan ditandai sudah diambil / diserahkan.');
+        return back()->with('success', $allDelivered
+            ? 'Pesanan ditandai sudah diambil / diserahkan.'
+            : 'Sebagian item ditandai sudah diambil / diserahkan.');
     }
 
     public function dispatch(Request $request, KitchenTicket $kitchenTicket): RedirectResponse|JsonResponse
@@ -499,6 +569,23 @@ class KitchenDisplayController extends Controller
         $tickets = $query
             ->paginate($perPage)
             ->through(function (KitchenTicket $ticket) {
+                $detailIds = $ticket->items
+                    ->pluck('transaction_detail_id')
+                    ->filter()
+                    ->map(fn ($id) => (int) $id)
+                    ->values();
+
+                $serviceStatusMap = TransactionTenantAllocationItem::query()
+                    ->whereIn('transaction_detail_id', $detailIds->all())
+                    ->get([
+                        'transaction_detail_id',
+                        'service_status',
+                        'ready_at',
+                        'picked_up_at',
+                        'delivered_at',
+                    ])
+                    ->keyBy(fn ($item) => (int) $item->transaction_detail_id);
+
                 $latestDispatchEvent = $ticket->events()
                     ->whereIn('event', ['ticket.dispatch_queued', 'ticket.dispatched', 'ticket.dispatch_failed'])
                     ->latest('created_at')
@@ -536,11 +623,25 @@ class KitchenDisplayController extends Controller
                         'reason' => data_get($latestDispatchEvent->payload, 'reason'),
                     ] : null,
                     'items' => $ticket->items->map(fn ($item) => [
+                        'resolved_service_status' => (($serviceStatusMap->get((int) $item->transaction_detail_id)?->service_status === 'not_required')
+                            && $item->status === 'completed')
+                            ? 'ready'
+                            : (optional($serviceStatusMap->get((int) $item->transaction_detail_id))->service_status
+                                ?? ($item->status === 'completed' ? 'ready' : 'pending')),
                         'id' => $item->id,
                         'product_title' => $item->product_title,
                         'qty' => (int) $item->qty,
                         'status' => $item->status,
                         'notes' => $item->notes,
+                        'completed_at' => optional($item->completed_at)?->toIso8601String(),
+                        'service_status' => (($serviceStatusMap->get((int) $item->transaction_detail_id)?->service_status === 'not_required')
+                            && $item->status === 'completed')
+                            ? 'ready'
+                            : (optional($serviceStatusMap->get((int) $item->transaction_detail_id))->service_status
+                                ?? ($item->status === 'completed' ? 'ready' : 'pending')),
+                        'ready_at' => optional(optional($serviceStatusMap->get((int) $item->transaction_detail_id))->ready_at)?->toIso8601String(),
+                        'picked_up_at' => optional(optional($serviceStatusMap->get((int) $item->transaction_detail_id))->picked_up_at)?->toIso8601String(),
+                        'delivered_at' => optional(optional($serviceStatusMap->get((int) $item->transaction_detail_id))->delivered_at)?->toIso8601String(),
                     ])->values(),
                 ];
             });

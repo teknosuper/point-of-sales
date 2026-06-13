@@ -3,10 +3,10 @@
 namespace App\Http\Controllers\Apps;
 
 use App\Http\Controllers\Controller;
-use App\Models\KitchenTicket;
 use App\Models\TransactionTenantAllocation;
 use App\Models\User;
 use App\Services\OutletResolver;
+use App\Services\WaiterFulfillmentService;
 use Illuminate\Http\Request;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Validation\ValidationException;
@@ -15,7 +15,8 @@ use Inertia\Inertia;
 class WaiterBoardController extends Controller
 {
     public function __construct(
-        private readonly OutletResolver $outletResolver
+        private readonly OutletResolver $outletResolver,
+        private readonly WaiterFulfillmentService $waiterFulfillmentService
     ) {}
 
     public function index(Request $request)
@@ -98,6 +99,10 @@ class WaiterBoardController extends Controller
                         'product_title' => $item->product?->title ?? 'Produk',
                         'qty' => (int) $item->qty,
                         'notes' => $item->notes,
+                        'service_status' => $item->service_status ?? 'pending',
+                        'ready_at' => optional($item->ready_at)?->toIso8601String(),
+                        'picked_up_at' => optional($item->picked_up_at)?->toIso8601String(),
+                        'delivered_at' => optional($item->delivered_at)?->toIso8601String(),
                     ])->values(),
                 ];
             });
@@ -181,8 +186,9 @@ class WaiterBoardController extends Controller
 
         $allocation->forceFill([
             'waiter_id' => (int) $waiter->id,
-            'waiter_status' => 'assigned',
         ])->save();
+
+        $this->waiterFulfillmentService->syncAllocation($allocation->fresh('items'));
 
         return back()->with('success', 'Waiter berhasil ditugaskan.');
     }
@@ -195,12 +201,16 @@ class WaiterBoardController extends Controller
         $this->ensureAllocationAccessibleByUser($request->user(), $allocation);
 
         $waiterId = $allocation->waiter_id ?: $request->user()?->id;
+        $validated = $request->validate([
+            'item_ids' => ['nullable', 'array'],
+            'item_ids.*' => ['integer'],
+        ]);
 
-        $allocation->forceFill([
-            'waiter_id' => $waiterId,
-            'waiter_status' => 'picked_up',
-            'picked_up_at' => now(),
-        ])->save();
+        $this->waiterFulfillmentService->pickUpAllocationItems(
+            $allocation,
+            $validated['item_ids'] ?? [],
+            $waiterId
+        );
 
         return back()->with('success', 'Pesanan ditandai sedang diantar.');
     }
@@ -213,55 +223,16 @@ class WaiterBoardController extends Controller
         $this->ensureAllocationAccessibleByUser($request->user(), $allocation);
 
         $waiterId = $allocation->waiter_id ?: $request->user()?->id;
+        $validated = $request->validate([
+            'item_ids' => ['nullable', 'array'],
+            'item_ids.*' => ['integer'],
+        ]);
 
-        $allocation->forceFill([
-            'waiter_id' => $waiterId,
-            'waiter_status' => 'delivered',
-            'delivered_at' => now(),
-        ])->save();
-
-        $deliveredDetailIds = $allocation->items()
-            ->pluck('transaction_detail_id')
-            ->filter()
-            ->map(fn ($id) => (int) $id)
-            ->values();
-
-        if ($deliveredDetailIds->isNotEmpty()) {
-            KitchenTicket::query()
-                ->with('items:id,kitchen_ticket_id,transaction_detail_id')
-                ->where('transaction_id', $allocation->transaction_id)
-                ->where('status', 'ready')
-                ->get()
-                ->each(function (KitchenTicket $ticket) use ($deliveredDetailIds) {
-                    $ticketDetailIds = $ticket->items
-                        ->pluck('transaction_detail_id')
-                        ->filter()
-                        ->map(fn ($id) => (int) $id)
-                        ->values();
-
-                    if (
-                        $ticketDetailIds->isNotEmpty() &&
-                        $ticketDetailIds->every(
-                            fn (int $detailId) => $deliveredDetailIds->contains($detailId)
-                        )
-                    ) {
-                        $ticket->forceFill([
-                            'status' => 'completed',
-                            'completed_at' => now(),
-                        ])->save();
-
-                        $ticket->events()->create([
-                            'user_id' => $allocation->waiter_id,
-                            'event' => 'ticket.delivered',
-                            'payload' => [
-                                'transaction_tenant_allocation_id' => $allocation->id,
-                                'waiter_id' => $allocation->waiter_id,
-                            ],
-                            'created_at' => now(),
-                        ]);
-                    }
-                });
-        }
+        $this->waiterFulfillmentService->deliverAllocationItems(
+            $allocation,
+            $validated['item_ids'] ?? [],
+            $waiterId
+        );
 
         return back()->with('success', 'Pesanan berhasil diantar.');
     }

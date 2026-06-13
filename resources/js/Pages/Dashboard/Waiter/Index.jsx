@@ -40,6 +40,29 @@ const waiterStatusMeta = {
     },
 };
 
+const itemServiceStatusMeta = {
+    pending: {
+        label: "Menunggu Dapur",
+        badge: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300",
+    },
+    ready: {
+        label: "Siap Diantar",
+        badge: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
+    },
+    picked_up: {
+        label: "Sedang Diantar",
+        badge: "bg-sky-100 text-sky-700 dark:bg-sky-950/30 dark:text-sky-300",
+    },
+    delivered: {
+        label: "Sudah Diserahkan",
+        badge: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300",
+    },
+    not_required: {
+        label: "Tidak Perlu Antar",
+        badge: "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400",
+    },
+};
+
 const defaultFilters = {
     q: "",
     status: "all",
@@ -74,6 +97,7 @@ export default function WaiterIndex({
     perPageOptions = [10, 15, 25, 50],
 }) {
     const [showGuide, setShowGuide] = useState(false);
+    const [selectedItemIdsByAllocation, setSelectedItemIdsByAllocation] = useState({});
     const [showAdvancedFilter, setShowAdvancedFilter] = useState(
         Boolean(filters?.q || (filters?.status && filters.status !== "all") || (filters?.sort && filters.sort !== "ready_oldest") || (filters?.per_page && Number(filters.per_page) !== 15))
     );
@@ -114,12 +138,68 @@ export default function WaiterIndex({
         );
     };
 
-    const markPickedUp = (allocationId) => {
-        router.post(route("waiter-board.pick-up", allocationId), {}, { preserveScroll: true });
+    const setSelectedItems = (allocationId, itemIds) => {
+        setSelectedItemIdsByAllocation((current) => ({
+            ...current,
+            [allocationId]: itemIds.map(Number),
+        }));
     };
 
-    const markDelivered = (allocationId) => {
-        router.post(route("waiter-board.deliver", allocationId), {}, { preserveScroll: true });
+    const toggleItemSelection = (allocationId, itemId) => {
+        setSelectedItemIdsByAllocation((current) => {
+            const next = new Set((current[allocationId] || []).map(Number));
+
+            if (next.has(Number(itemId))) {
+                next.delete(Number(itemId));
+            } else {
+                next.add(Number(itemId));
+            }
+
+            return {
+                ...current,
+                [allocationId]: Array.from(next),
+            };
+        });
+    };
+
+    const resolveEligibleItemIds = (allocation, allowedStatuses = []) =>
+        (allocation.items || [])
+            .filter((item) => allowedStatuses.includes(item.service_status))
+            .map((item) => Number(item.id));
+
+    const resolveSelectedActionItemIds = (allocation, allowedStatuses = []) => {
+        const eligibleItemIds = resolveEligibleItemIds(allocation, allowedStatuses);
+        const selectedItemIds = (selectedItemIdsByAllocation[allocation.id] || [])
+            .map(Number)
+            .filter((itemId) => eligibleItemIds.includes(itemId));
+
+        return selectedItemIds.length > 0 ? selectedItemIds : eligibleItemIds;
+    };
+
+    const markPickedUp = (allocation) => {
+        const itemIds = resolveSelectedActionItemIds(allocation, ["ready"]);
+
+        router.post(
+            route("waiter-board.pick-up", allocation.id),
+            { item_ids: itemIds },
+            {
+                preserveScroll: true,
+                onSuccess: () => setSelectedItems(allocation.id, []),
+            }
+        );
+    };
+
+    const markDelivered = (allocation) => {
+        const itemIds = resolveSelectedActionItemIds(allocation, ["ready", "picked_up"]);
+
+        router.post(
+            route("waiter-board.deliver", allocation.id),
+            { item_ids: itemIds },
+            {
+                preserveScroll: true,
+                onSuccess: () => setSelectedItems(allocation.id, []),
+            }
+        );
     };
 
     const applyAdvancedFilters = () => {
@@ -477,22 +557,79 @@ export default function WaiterIndex({
                                                 <IconClipboardList size={14} />
                                                 Item Pesanan
                                             </div>
+                                            <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
+                                                <button
+                                                    type="button"
+                                                    onClick={() =>
+                                                        setSelectedItems(
+                                                            allocation.id,
+                                                            resolveEligibleItemIds(allocation, ["ready", "picked_up"])
+                                                        )
+                                                    }
+                                                    className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-slate-600 transition hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                                                >
+                                                    Pilih item aktif
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setSelectedItems(allocation.id, [])}
+                                                    className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-slate-500 transition hover:border-rose-300 hover:text-rose-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400"
+                                                >
+                                                    Kosongkan pilihan
+                                                </button>
+                                                <span className="text-slate-400 dark:text-slate-500">
+                                                    {(selectedItemIdsByAllocation[allocation.id] || []).length} item dipilih
+                                                </span>
+                                            </div>
                                             <div className="space-y-2">
                                                 {allocation.items.map((item) => (
-                                                    <div key={item.id} className="flex items-start justify-between gap-3 text-sm">
-                                                        <div>
-                                                            <p className="font-medium text-slate-800 dark:text-slate-200">
-                                                                {item.product_title}
-                                                            </p>
-                                                            {item.notes ? (
-                                                                <p className="text-xs text-slate-500 dark:text-slate-400">
-                                                                    {item.notes}
-                                                                </p>
-                                                            ) : null}
+                                                    <div
+                                                        key={item.id}
+                                                        className="rounded-xl border border-slate-200 bg-white px-3 py-3 dark:border-slate-700 dark:bg-slate-900"
+                                                    >
+                                                        <div className="flex items-start justify-between gap-3 text-sm">
+                                                            <div className="min-w-0">
+                                                                <div className="flex flex-wrap items-center gap-2">
+                                                                    <p className="font-medium text-slate-800 dark:text-slate-200">
+                                                                        {item.product_title}
+                                                                    </p>
+                                                                    <span
+                                                                        className={`rounded-full px-2 py-1 text-[11px] font-semibold ${
+                                                                            itemServiceStatusMeta[item.service_status]?.badge ||
+                                                                            itemServiceStatusMeta.pending.badge
+                                                                        }`}
+                                                                    >
+                                                                        {itemServiceStatusMeta[item.service_status]?.label || item.service_status}
+                                                                    </span>
+                                                                </div>
+                                                                {item.notes ? (
+                                                                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                                        {item.notes}
+                                                                    </p>
+                                                                ) : null}
+                                                                <div className="mt-2 flex flex-wrap gap-3 text-[11px] text-slate-400 dark:text-slate-500">
+                                                                    {item.ready_at ? <span>Siap: {formatDateTime(item.ready_at)}</span> : null}
+                                                                    {item.picked_up_at ? <span>Diambil: {formatDateTime(item.picked_up_at)}</span> : null}
+                                                                    {item.delivered_at ? <span>Diserahkan: {formatDateTime(item.delivered_at)}</span> : null}
+                                                                </div>
+                                                            </div>
+                                                            <div className="flex shrink-0 items-start gap-3">
+                                                                <span className="font-semibold text-slate-700 dark:text-slate-300">
+                                                                    x{item.qty}
+                                                                </span>
+                                                                {["ready", "picked_up"].includes(item.service_status) ? (
+                                                                    <label className="inline-flex items-center gap-2 text-xs font-medium text-slate-600 dark:text-slate-300">
+                                                                        <input
+                                                                            type="checkbox"
+                                                                            checked={(selectedItemIdsByAllocation[allocation.id] || []).includes(item.id)}
+                                                                            onChange={() => toggleItemSelection(allocation.id, item.id)}
+                                                                            className="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500"
+                                                                        />
+                                                                        Pilih
+                                                                    </label>
+                                                                ) : null}
+                                                            </div>
                                                         </div>
-                                                        <span className="font-semibold text-slate-700 dark:text-slate-300">
-                                                            x{item.qty}
-                                                        </span>
                                                     </div>
                                                 ))}
                                             </div>
@@ -556,26 +693,26 @@ export default function WaiterIndex({
                                         <div className="grid grid-cols-2 gap-2">
                                             <button
                                                 type="button"
-                                                onClick={() => markPickedUp(allocation.id)}
-                                                disabled={allocation.waiter_status === "picked_up" || allocation.waiter_status === "delivered"}
+                                                onClick={() => markPickedUp(allocation)}
+                                                disabled={resolveEligibleItemIds(allocation, ["ready"]).length === 0}
                                                 className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary-500 px-4 py-3 text-sm font-semibold text-white hover:bg-primary-600 disabled:opacity-50"
                                             >
                                                 <IconBike size={16} />
-                                                Ambil dari Dapur
+                                                Ambil Item
                                             </button>
                                             <button
                                                 type="button"
-                                                onClick={() => markDelivered(allocation.id)}
-                                                disabled={allocation.waiter_status === "delivered"}
+                                                onClick={() => markDelivered(allocation)}
+                                                disabled={resolveEligibleItemIds(allocation, ["ready", "picked_up"]).length === 0}
                                                 className="inline-flex items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-50 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-300"
                                             >
                                                 <IconCheck size={16} />
-                                                Sudah Diserahkan
+                                                Serahkan Item
                                             </button>
                                         </div>
 
                                         <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-950/40 dark:text-slate-400">
-                                            `Ambil dari Dapur` dipakai saat petugas antar sudah membawa pesanan keluar dari dapur. `Sudah Diserahkan` dipakai saat pesanan benar-benar sampai ke pelanggan atau sudah diambil langsung oleh pelanggan.
+                                            Pilih item yang benar-benar keluar lebih dulu. Jika tidak memilih manual, aksi akan diterapkan ke semua item yang masih aktif pada alokasi ini.
                                         </div>
                                     </div>
                                 </div>
