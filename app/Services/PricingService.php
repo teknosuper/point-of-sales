@@ -154,6 +154,41 @@ class PricingService
             });
     }
 
+    public function describeProductRules(
+        Product $product,
+        ?Customer $customer = null,
+        ?CarbonInterface $at = null,
+        ?int $outletId = null
+    ): array {
+        $rules = $this->getActiveRules($at, $outletId);
+        $matchingRules = $rules
+            ->filter(function (PricingRule $rule) use ($product, $customer, $outletId) {
+                if (! $this->ruleTouchesProduct($rule, $product)) {
+                    return false;
+                }
+
+                return $customer
+                    ? $this->matchesCustomerScope($rule, $customer, $outletId)
+                    : true;
+            })
+            ->values();
+        $currentPrice = $this->calculateProductPrice($product, 1, $customer, $rules, $outletId);
+
+        return [
+            'active_rules_count' => $matchingRules->count(),
+            'current_price' => [
+                'base_unit_price' => (int) ($currentPrice['base_unit_price'] ?? 0),
+                'effective_unit_price' => (int) ($currentPrice['effective_unit_price'] ?? 0),
+                'line_discount_total' => (int) ($currentPrice['line_discount_total'] ?? 0),
+                'pricing_rule' => $currentPrice['pricing_rule'] ?? null,
+            ],
+            'rules' => $matchingRules
+                ->map(fn (PricingRule $rule) => $this->describeSingleProductRule($rule, $product))
+                ->values()
+                ->all(),
+        ];
+    }
+
     public function calculateProductPrice(
         Product $product,
         int $qty = 1,
@@ -1133,6 +1168,76 @@ class PricingService
         );
     }
 
+    private function kindLabel(string $kind): string
+    {
+        return match ($kind) {
+            PricingRule::KIND_QTY_BREAK => 'Belanja Lebih Untung',
+            PricingRule::KIND_BUNDLE_PRICE => 'Paket Hemat',
+            PricingRule::KIND_BUY_X_GET_Y => 'Promo Buy Get',
+            default => 'Harga Spesial',
+        };
+    }
+
+    private function customerScopeLabel(?string $scope): string
+    {
+        return match ($scope) {
+            PricingRule::SCOPE_WALK_IN => 'Pelanggan umum',
+            PricingRule::SCOPE_REGISTERED => 'Pelanggan terdaftar',
+            PricingRule::SCOPE_MEMBER => 'Member loyalty',
+            default => 'Semua pelanggan',
+        };
+    }
+
+    private function productRuleTargetLabel(PricingRule $rule, Product $product): string
+    {
+        return match ($rule->target_type) {
+            PricingRule::TARGET_PRODUCT => 'Produk ini',
+            PricingRule::TARGET_CATEGORY => 'Kategori '.($product->category?->name ?? $rule->category?->name ?? 'produk ini'),
+            default => 'Semua produk',
+        };
+    }
+
+    private function scheduleSummary(PricingRule $rule): string
+    {
+        $parts = [];
+
+        if ($rule->starts_at || $rule->ends_at) {
+            $parts[] = trim(collect([
+                $rule->starts_at ? 'mulai '.$rule->starts_at->format('d/m/Y H:i') : null,
+                $rule->ends_at ? 'sampai '.$rule->ends_at->format('d/m/Y H:i') : null,
+            ])->filter()->implode(' '));
+        }
+
+        if (! empty($rule->active_days)) {
+            $dayMap = [
+                PricingRule::DAY_MONDAY => 'Sen',
+                PricingRule::DAY_TUESDAY => 'Sel',
+                PricingRule::DAY_WEDNESDAY => 'Rab',
+                PricingRule::DAY_THURSDAY => 'Kam',
+                PricingRule::DAY_FRIDAY => 'Jum',
+                PricingRule::DAY_SATURDAY => 'Sab',
+                PricingRule::DAY_SUNDAY => 'Min',
+            ];
+
+            $days = collect($rule->active_days)
+                ->map(fn ($day) => $dayMap[$day] ?? strtoupper((string) $day))
+                ->implode(', ');
+
+            if ($days !== '') {
+                $parts[] = 'hari '.$days;
+            }
+        }
+
+        if ($rule->daily_start_time || $rule->daily_end_time) {
+            $parts[] = trim(collect([
+                $rule->daily_start_time ? 'jam '.$rule->daily_start_time : null,
+                $rule->daily_end_time ? 's.d. '.$rule->daily_end_time : null,
+            ])->filter()->implode(' '));
+        }
+
+        return $parts !== [] ? implode(' • ', $parts) : 'Aktif setiap saat';
+    }
+
     private function ruleDetail(PricingRule $rule, ?array $activeBreak = null): string
     {
         return match ($rule->kind) {
@@ -1228,6 +1333,194 @@ class PricingService
         }
 
         return 'Beli '.implode(' + ', $buyItems->all()).', gratis '.implode(' + ', $getItems->all()).'.';
+    }
+
+    private function describeSingleProductRule(PricingRule $rule, Product $product): array
+    {
+        $serializedRule = $this->serializeRule($rule, true);
+        $requiresCartContext = in_array($rule->kind, [
+            PricingRule::KIND_BUNDLE_PRICE,
+            PricingRule::KIND_BUY_X_GET_Y,
+        ], true);
+        $previewQuantity = $this->previewQuantityForRule($rule, $product);
+        $directCandidate = $requiresCartContext
+            ? null
+            : $this->calculateLineCandidate($rule, $product, $previewQuantity);
+        $productRole = $this->productRoleInRule($rule, $product);
+
+        $impact = [
+            'requires_cart_context' => $requiresCartContext,
+            'participation_role' => $productRole,
+            'summary' => $requiresCartContext
+                ? $this->productContextualImpactSummary($rule, $productRole)
+                : $this->productDirectImpactSummary($rule, $product, $directCandidate, $previewQuantity),
+        ];
+
+        if ($requiresCartContext) {
+            $impact = [
+                ...$impact,
+                ...$this->productContextualImpactData($rule),
+            ];
+        }
+
+        if ($directCandidate) {
+            $baseUnitPrice = $this->resolveBaseUnitPrice($product, $rule);
+            $impact = [
+                ...$impact,
+                'preview_quantity' => $previewQuantity,
+                'base_unit_price' => $baseUnitPrice,
+                'effective_unit_price' => (int) round($directCandidate['line_total'] / max(1, $previewQuantity)),
+                'line_base_total' => $baseUnitPrice * $previewQuantity,
+                'line_total' => (int) $directCandidate['line_total'],
+                'line_discount_total' => (int) $directCandidate['line_discount'],
+            ];
+
+            if (($directCandidate['active_break'] ?? null) !== null) {
+                $serializedRule['active_break'] = $directCandidate['active_break'];
+                $serializedRule['label'] = $this->ruleLabel($rule, $directCandidate['active_break']);
+                $serializedRule['detail'] = $this->ruleDetail($rule, $directCandidate['active_break']);
+            }
+        }
+
+        return [
+            'id' => (int) $rule->id,
+            'name' => $rule->name,
+            'kind' => $rule->kind,
+            'kind_label' => $this->kindLabel($rule->kind),
+            'target_label' => $this->productRuleTargetLabel($rule, $product),
+            'customer_scope_label' => $this->customerScopeLabel($rule->customer_scope),
+            'outlet_label' => $rule->outlet
+                ? trim(($rule->outlet->code ? $rule->outlet->code.' - ' : '').$rule->outlet->name)
+                : 'Semua outlet',
+            'schedule_label' => $this->scheduleSummary($rule),
+            'rule' => $serializedRule,
+            'impact' => $impact,
+        ];
+    }
+
+    private function productRoleInRule(PricingRule $rule, Product $product): string
+    {
+        if ($rule->kind === PricingRule::KIND_BUNDLE_PRICE) {
+            return $rule->bundleItems->contains(fn ($item) => (int) $item->product_id === (int) $product->id)
+                ? 'bundle_item'
+                : 'related';
+        }
+
+        if ($rule->kind === PricingRule::KIND_BUY_X_GET_Y) {
+            $isBuy = $rule->buyGetItems->contains(
+                fn ($item) => $item->role === PricingRuleBuyGetItem::ROLE_BUY && (int) $item->product_id === (int) $product->id
+            );
+            $isGet = $rule->buyGetItems->contains(
+                fn ($item) => $item->role === PricingRuleBuyGetItem::ROLE_GET && (int) $item->product_id === (int) $product->id
+            );
+
+            if ($isBuy && $isGet) {
+                return 'buy_and_get';
+            }
+
+            if ($isBuy) {
+                return 'buy_item';
+            }
+
+            if ($isGet) {
+                return 'get_item';
+            }
+        }
+
+        return 'direct';
+    }
+
+    private function productContextualImpactSummary(PricingRule $rule, string $productRole): string
+    {
+        if ($rule->kind === PricingRule::KIND_BUNDLE_PRICE) {
+            return 'Produk ini ikut dalam paket. Promo aktif jika semua item bundle terpenuhi, lalu total paket mengikuti harga promo.';
+        }
+
+        if ($rule->kind === PricingRule::KIND_BUY_X_GET_Y) {
+            return match ($productRole) {
+                'buy_item' => 'Produk ini berperan sebagai item pembelian pemicu promo.',
+                'get_item' => 'Produk ini berperan sebagai item bonus / gratis pada promo ini.',
+                'buy_and_get' => 'Produk ini bisa menjadi item pembelian sekaligus item bonus tergantung kombinasi cart.',
+                default => 'Promo aktif saat kombinasi item pembelian dan bonus di cart terpenuhi.',
+            };
+        }
+
+        return 'Promo ini membutuhkan konteks cart.';
+    }
+
+    private function productContextualImpactData(PricingRule $rule): array
+    {
+        if ($rule->kind === PricingRule::KIND_BUNDLE_PRICE) {
+            $baseTotal = (int) $rule->bundleItems->sum(function ($item) use ($rule) {
+                $product = $item->product;
+
+                if (! $product) {
+                    return 0;
+                }
+
+                return $this->resolveBaseUnitPrice($product, $rule) * max(1, (int) $item->quantity);
+            });
+            $promoTotal = (int) round((float) $rule->discount_value);
+
+            return [
+                'preview_quantity' => (int) $rule->bundleItems->sum('quantity'),
+                'base_package_total' => $baseTotal,
+                'promo_package_total' => $promoTotal,
+                'line_discount_total' => max(0, $baseTotal - $promoTotal),
+                'display_discount_label' => max(0, $baseTotal - $promoTotal) > 0
+                    ? 'Hemat Rp '.number_format(max(0, $baseTotal - $promoTotal), 0, ',', '.').' per paket'
+                    : 'Harga paket mengikuti rule bundle',
+                'display_price_label' => 'Paket Rp '.number_format($promoTotal, 0, ',', '.'),
+            ];
+        }
+
+        if ($rule->kind === PricingRule::KIND_BUY_X_GET_Y) {
+            $rewardBaseTotal = (int) $rule->buyGetItems
+                ->where('role', PricingRuleBuyGetItem::ROLE_GET)
+                ->sum(function ($item) {
+                    $product = $item->product;
+
+                    if (! $product) {
+                        return 0;
+                    }
+
+                    return (int) ($product->sell_price ?? 0) * max(1, (int) $item->quantity);
+                });
+
+            return [
+                'preview_quantity' => (int) $rule->buyGetItems->sum('quantity'),
+                'line_discount_total' => max(0, $rewardBaseTotal),
+                'display_discount_label' => $rewardBaseTotal > 0
+                    ? 'Bonus senilai Rp '.number_format($rewardBaseTotal, 0, ',', '.')
+                    : 'Diskon mengikuti item bonus yang terpenuhi',
+                'display_price_label' => 'Menunggu kombinasi item buy/get',
+            ];
+        }
+
+        return [];
+    }
+
+    private function productDirectImpactSummary(
+        PricingRule $rule,
+        Product $product,
+        ?array $directCandidate,
+        int $previewQuantity
+    ): string {
+        if (! $directCandidate) {
+            return 'Rule aktif, tetapi belum menghasilkan simulasi harga pada produk ini.';
+        }
+
+        $baseUnitPrice = $this->resolveBaseUnitPrice($product, $rule);
+        $effectiveUnitPrice = (int) round($directCandidate['line_total'] / max(1, $previewQuantity));
+
+        if ($previewQuantity <= 1) {
+            return 'Harga item turun dari Rp '.number_format($baseUnitPrice, 0, ',', '.')
+                .' menjadi Rp '.number_format($effectiveUnitPrice, 0, ',', '.').'.';
+        }
+
+        return 'Simulasi qty '.$previewQuantity.': total dari Rp '
+            .number_format($baseUnitPrice * $previewQuantity, 0, ',', '.')
+            .' menjadi Rp '.number_format((int) $directCandidate['line_total'], 0, ',', '.').'.';
     }
 
     private function matchesRecurringSchedule(PricingRule $rule, CarbonInterface $at): bool

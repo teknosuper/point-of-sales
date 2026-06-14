@@ -27,6 +27,70 @@ const formatCurrency = (value = 0) =>
         minimumFractionDigits: 0,
     }).format(Number(value || 0));
 
+const participationRoleLabel = (role) => {
+    if (role === "buy_item") return "Produk pemicu promo";
+    if (role === "get_item") return "Produk bonus / gratis";
+    if (role === "buy_and_get") return "Produk pemicu dan bonus";
+    if (role === "bundle_item") return "Item dalam paket";
+    return "Berlaku langsung";
+};
+
+const humanizeSchedule = (scheduleLabel) => {
+    const raw = String(scheduleLabel || "").trim();
+
+    if (!raw || raw === "Aktif setiap saat") {
+        return {
+            alwaysOn: true,
+            period: "Tanpa batas tanggal",
+            days: "Setiap hari",
+            time: "24 jam",
+        };
+    }
+
+    const segments = raw.split("•").map((part) => part.trim()).filter(Boolean);
+    const periodSegment =
+        segments.find((part) => part.startsWith("mulai ") || part.startsWith("sampai ")) ||
+        null;
+    const daysSegment = segments.find((part) => part.startsWith("hari ")) || null;
+    const timeSegment = segments.find((part) => part.startsWith("jam ")) || null;
+
+    const period = periodSegment
+        ? periodSegment
+              .replace(/^mulai\s+/i, "Mulai ")
+              .replace(/\s+sampai\s+/i, " - ")
+        : "Tanpa batas tanggal";
+
+    const days = daysSegment
+        ? daysSegment
+              .replace(/^hari\s+/i, "")
+              .replace(/\bMin\b/g, "Minggu")
+              .replace(/\bSen\b/g, "Senin")
+              .replace(/\bSel\b/g, "Selasa")
+              .replace(/\bRab\b/g, "Rabu")
+              .replace(/\bKam\b/g, "Kamis")
+              .replace(/\bJum\b/g, "Jumat")
+              .replace(/\bSab\b/g, "Sabtu")
+        : "Setiap hari";
+
+    const normalizedTime = timeSegment
+        ? timeSegment
+              .replace(/^jam\s+/i, "")
+              .replace(/\s*s\.d\.\s*/i, " - ")
+        : "24 jam";
+    const time =
+        normalizedTime === "00:00:00 - 23:59:00" ||
+        normalizedTime === "00:00 - 23:59"
+            ? "24 jam"
+            : normalizedTime;
+
+    return {
+        alwaysOn: false,
+        period,
+        days,
+        time,
+    };
+};
+
 const previewAutoSku = (sku, barcode, title) => {
     const source = String(sku || barcode || title || "SKU")
         .toUpperCase()
@@ -107,6 +171,7 @@ export default function Edit({
     product,
     tenantOutlets = [],
     outletStocks = [],
+    activePricingRules = {},
     capabilities = {},
 }) {
     const { errors } = usePage().props;
@@ -168,6 +233,9 @@ export default function Edit({
     );
     const [showModifierSection, setShowModifierSection] = useState(false);
     const [showOutletStockSection, setShowOutletStockSection] = useState(false);
+    const pricingRules = activePricingRules?.rules || [];
+    const activeRulesCount = Number(activePricingRules?.active_rules_count || 0);
+    const currentPricingRule = activePricingRules?.current_price?.pricing_rule || null;
 
     useEffect(() => {
         if (product.category_id) {
@@ -840,6 +908,339 @@ export default function Edit({
                             </p>
                         </div>
                         )}
+
+                        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">
+                            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                                <div>
+                                    <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1 flex items-center gap-2">
+                                        <IconCurrencyDollar size={18} />
+                                        Promo Aktif pada Produk Ini
+                                    </h3>
+                                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                                        Ringkasan rule pricing aktif yang sedang menyentuh produk ini, termasuk potongan dan cara rule tersebut bekerja.
+                                    </p>
+                                </div>
+                                <Link
+                                    href={route("pricing-rules.index")}
+                                    className="inline-flex items-center justify-center rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                                >
+                                    Buka Promo Harga
+                                </Link>
+                            </div>
+
+                            <div className="mt-4 grid gap-3 md:grid-cols-3">
+                                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800">
+                                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                        Rule Aktif
+                                    </p>
+                                    <p className="mt-1 text-2xl font-bold text-slate-900 dark:text-slate-100">
+                                        {activeRulesCount}
+                                    </p>
+                                </div>
+                                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800">
+                                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                        Harga Dasar
+                                    </p>
+                                    <p className="mt-1 text-lg font-bold text-slate-900 dark:text-slate-100">
+                                        {formatCurrency(activePricingRules?.current_price?.base_unit_price || product.sell_price || product.buy_price || 0)}
+                                    </p>
+                                </div>
+                                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800">
+                                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                        Harga Efektif Saat Ini
+                                    </p>
+                                    <p className="mt-1 text-lg font-bold text-primary-600 dark:text-primary-400">
+                                        {formatCurrency(activePricingRules?.current_price?.effective_unit_price || product.sell_price || product.buy_price || 0)}
+                                    </p>
+                                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                        {currentPricingRule?.name
+                                            ? `Dipengaruhi langsung oleh ${currentPricingRule.name}.`
+                                            : "Belum ada rule direct yang menurunkan harga 1 item."}
+                                    </p>
+                                </div>
+                            </div>
+
+                            {pricingRules.length === 0 ? (
+                                <div className="mt-4 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-4 text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
+                                    Tidak ada promo aktif yang sedang menyentuh produk ini pada outlet aktif.
+                                </div>
+                            ) : (
+                                <div className="mt-4 space-y-4">
+                                    {pricingRules.map((entry) => {
+                                        const schedule = humanizeSchedule(
+                                            entry.schedule_label
+                                        );
+
+                                        return (
+                                        <div
+                                            key={entry.id}
+                                            className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4 dark:border-slate-700 dark:bg-slate-800/60"
+                                        >
+                                            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                                                <div className="min-w-0">
+                                                    <div className="flex flex-wrap items-center gap-2">
+                                                        <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                                                            {entry.name}
+                                                        </p>
+                                                        <span className="rounded-full bg-primary-100 px-2.5 py-1 text-[11px] font-semibold text-primary-700 dark:bg-primary-950/40 dark:text-primary-300">
+                                                            {entry.kind_label}
+                                                        </span>
+                                                        <span className="rounded-full bg-slate-200 px-2.5 py-1 text-[11px] font-medium text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+                                                            {entry.rule?.label}
+                                                        </span>
+                                                    </div>
+                                                    <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+                                                        {entry.rule?.detail}
+                                                    </p>
+                                                    <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                                                        {entry.impact?.summary}
+                                                    </p>
+                                                </div>
+                                                <div className="grid min-w-full gap-2 sm:grid-cols-2 lg:min-w-[320px]">
+                                                    <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900">
+                                                        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                                            Target
+                                                        </p>
+                                                        <p className="mt-1 text-sm font-medium text-slate-900 dark:text-slate-100">
+                                                            {entry.target_label}
+                                                        </p>
+                                                    </div>
+                                                    <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900">
+                                                        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                                            Pelanggan
+                                                        </p>
+                                                        <p className="mt-1 text-sm font-medium text-slate-900 dark:text-slate-100">
+                                                            {entry.customer_scope_label}
+                                                        </p>
+                                                    </div>
+                                                    <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900">
+                                                        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                                            Outlet
+                                                        </p>
+                                                        <p className="mt-1 text-sm font-medium text-slate-900 dark:text-slate-100">
+                                                            {entry.outlet_label}
+                                                        </p>
+                                                    </div>
+                                                    <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900">
+                                                        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                                            Cara Produk Ini Ikut
+                                                        </p>
+                                                        <p className="mt-1 text-sm font-medium text-slate-900 dark:text-slate-100">
+                                                            {participationRoleLabel(entry.impact?.participation_role)}
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                                                <div className="rounded-xl border border-slate-200 bg-white px-3 py-3 dark:border-slate-700 dark:bg-slate-900">
+                                                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                                        Jadwal Aktif
+                                                    </p>
+                                                    <div className="mt-2 space-y-2">
+                                                        <div className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2 dark:border-slate-700 dark:bg-slate-800">
+                                                            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                                                                Periode
+                                                            </p>
+                                                            <p className="mt-1 text-xs font-medium text-slate-700 dark:text-slate-200">
+                                                                {schedule.period}
+                                                            </p>
+                                                        </div>
+                                                        <div className="grid grid-cols-1 gap-2">
+                                                            <div className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2 dark:border-slate-700 dark:bg-slate-800">
+                                                                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                                                                    Hari
+                                                                </p>
+                                                                <p className="mt-1 text-xs font-medium text-slate-700 dark:text-slate-200">
+                                                                    {schedule.days}
+                                                                </p>
+                                                            </div>
+                                                            <div className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2 dark:border-slate-700 dark:bg-slate-800">
+                                                                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                                                                    Jam
+                                                                </p>
+                                                                <p className="mt-1 text-xs font-medium text-slate-700 dark:text-slate-200">
+                                                                    {schedule.time}
+                                                                </p>
+                                                            </div>
+                                                        </div>
+                                                        {schedule.alwaysOn ? (
+                                                            <span className="inline-flex rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">
+                                                                Aktif terus
+                                                            </span>
+                                                        ) : null}
+                                                    </div>
+                                                </div>
+                                                <div className="rounded-xl border border-slate-200 bg-white px-3 py-3 dark:border-slate-700 dark:bg-slate-900">
+                                                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                                        Qty Simulasi
+                                                    </p>
+                                                    <p className="mt-1 text-sm text-slate-700 dark:text-slate-200">
+                                                        {entry.impact?.preview_quantity || 1} item
+                                                    </p>
+                                                </div>
+                                                <div className="rounded-xl border border-slate-200 bg-white px-3 py-3 dark:border-slate-700 dark:bg-slate-900">
+                                                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                                        Potongan Simulasi
+                                                    </p>
+                                                    {entry.kind === "bundle_price" &&
+                                                    entry.impact?.base_package_total !== undefined &&
+                                                    entry.impact?.base_package_total !== null &&
+                                                    entry.impact?.promo_package_total !== undefined &&
+                                                    entry.impact?.promo_package_total !== null ? (
+                                                        <div className="mt-1 space-y-1 text-sm">
+                                                            <p className="text-slate-500 dark:text-slate-400">
+                                                                Sebelum bundle:{" "}
+                                                                <span className="font-semibold text-slate-700 dark:text-slate-200">
+                                                                    {formatCurrency(entry.impact.base_package_total)}
+                                                                </span>
+                                                            </p>
+                                                            <p className="text-primary-600 dark:text-primary-400">
+                                                                Setelah bundle:{" "}
+                                                                <span className="font-semibold">
+                                                                    {formatCurrency(entry.impact.promo_package_total)}
+                                                                </span>
+                                                            </p>
+                                                        </div>
+                                                    ) : entry.impact?.display_discount_label ? (
+                                                        <p className="mt-1 text-sm font-semibold text-danger-600 dark:text-danger-400">
+                                                            {entry.impact.display_discount_label}
+                                                        </p>
+                                                    ) : (
+                                                        <p className="mt-1 text-sm font-semibold text-danger-600 dark:text-danger-400">
+                                                            {formatCurrency(entry.impact?.line_discount_total || 0)}
+                                                        </p>
+                                                    )}
+                                                </div>
+                                                <div className="rounded-xl border border-slate-200 bg-white px-3 py-3 dark:border-slate-700 dark:bg-slate-900">
+                                                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                                        Harga Setelah Promo
+                                                    </p>
+                                                    {entry.impact?.display_price_label ? (
+                                                        <div className="mt-1 space-y-1">
+                                                            {entry.impact?.base_package_total !== undefined &&
+                                                            entry.impact?.base_package_total !== null &&
+                                                            entry.impact?.promo_package_total !== undefined &&
+                                                            entry.impact?.promo_package_total !== null &&
+                                                            Number(entry.impact.base_package_total) >
+                                                                Number(entry.impact.promo_package_total) ? (
+                                                                <span className="text-xs text-slate-400 line-through dark:text-slate-500">
+                                                                    {formatCurrency(entry.impact.base_package_total)}
+                                                                </span>
+                                                            ) : null}
+                                                            <p className="text-sm font-semibold text-primary-600 dark:text-primary-400">
+                                                                {entry.impact.display_price_label}
+                                                            </p>
+                                                            {entry.kind === "bundle_price" &&
+                                                            entry.impact?.base_package_total !== undefined &&
+                                                            entry.impact?.base_package_total !== null &&
+                                                            entry.impact?.promo_package_total !== undefined &&
+                                                            entry.impact?.promo_package_total !== null ? (
+                                                                <p className="text-xs text-slate-500 dark:text-slate-400">
+                                                                    Harga normal paket{" "}
+                                                                    {formatCurrency(entry.impact.base_package_total)}{" "}
+                                                                    menjadi{" "}
+                                                                    {formatCurrency(entry.impact.promo_package_total)}.
+                                                                </p>
+                                                            ) : null}
+                                                        </div>
+                                                    ) : (
+                                                        <div className="mt-1 flex flex-wrap items-center gap-2">
+                                                            {entry.impact?.base_unit_price &&
+                                                            entry.impact?.effective_unit_price &&
+                                                            Number(entry.impact.base_unit_price) >
+                                                                Number(entry.impact.effective_unit_price) ? (
+                                                                <span className="text-xs text-slate-400 line-through dark:text-slate-500">
+                                                                    {formatCurrency(entry.impact.base_unit_price)}
+                                                                </span>
+                                                            ) : null}
+                                                            <span className="text-sm font-semibold text-primary-600 dark:text-primary-400">
+                                                                {formatCurrency(entry.impact?.effective_unit_price || entry.impact?.base_unit_price || 0)}
+                                                            </span>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            {entry.rule?.qty_breaks?.length ? (
+                                                <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-900/40 dark:bg-amber-950/20">
+                                                    <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">
+                                                        Break Quantity
+                                                    </p>
+                                                    <div className="mt-2 flex flex-wrap gap-2">
+                                                        {entry.rule.qty_breaks.map((breakItem, index) => (
+                                                            <span
+                                                                key={`${entry.id}-break-${index}`}
+                                                                className="rounded-full border border-amber-200 bg-white px-2.5 py-1 text-xs font-medium text-amber-800 dark:border-amber-800 dark:bg-amber-950/20 dark:text-amber-200"
+                                                            >
+                                                                Qty {breakItem.min_qty}:{" "}
+                                                                {breakItem.discount_type === "percentage"
+                                                                    ? `${Number(breakItem.discount_value)}% OFF`
+                                                                    : breakItem.discount_type === "fixed_price"
+                                                                      ? formatCurrency(breakItem.discount_value)
+                                                                      : `Hemat ${formatCurrency(breakItem.discount_value)}`}
+                                                            </span>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            ) : null}
+
+                                            {Boolean(
+                                                (entry.rule?.bundle_items?.length || 0) ||
+                                                    (entry.rule?.buy_items?.length || 0) ||
+                                                    (entry.rule?.get_items?.length || 0)
+                                            ) && (
+                                                <div className="mt-4 grid gap-3 md:grid-cols-3">
+                                                    {entry.rule?.bundle_items?.length ? (
+                                                        <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 dark:border-slate-700 dark:bg-slate-900">
+                                                            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                                                Item Bundle
+                                                            </p>
+                                                            <div className="mt-2 space-y-1 text-sm text-slate-700 dark:text-slate-200">
+                                                                {entry.rule.bundle_items.map((item, index) => (
+                                                                    <p key={`${entry.id}-bundle-${index}`}>
+                                                                        {item.quantity}x {item.product_title}
+                                                                    </p>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    ) : null}
+                                                    {entry.rule?.buy_items?.length ? (
+                                                        <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 dark:border-slate-700 dark:bg-slate-900">
+                                                            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                                                Item Pembelian
+                                                            </p>
+                                                            <div className="mt-2 space-y-1 text-sm text-slate-700 dark:text-slate-200">
+                                                                {entry.rule.buy_items.map((item, index) => (
+                                                                    <p key={`${entry.id}-buy-${index}`}>
+                                                                        {item.quantity}x {item.product_title}
+                                                                    </p>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    ) : null}
+                                                    {entry.rule?.get_items?.length ? (
+                                                        <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 dark:border-slate-700 dark:bg-slate-900">
+                                                            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                                                Item Bonus
+                                                            </p>
+                                                            <div className="mt-2 space-y-1 text-sm text-slate-700 dark:text-slate-200">
+                                                                {entry.rule.get_items.map((item, index) => (
+                                                                    <p key={`${entry.id}-get-${index}`}>
+                                                                        {item.quantity}x {item.product_title}
+                                                                    </p>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    ) : null}
+                                                </div>
+                                            )}
+                                        </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
 
                         {canManageCatalog && data.supports_modifiers && (
                             <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">

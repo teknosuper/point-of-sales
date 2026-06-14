@@ -125,35 +125,10 @@ export default function Notification() {
         };
     }, []);
 
-    useEffect(() => {
-        setSnapshot({
-            lowStockNotifications,
-            receivableNotifications,
-            payableNotifications,
-            pendingTableOrders,
-        });
-        setData(
-            mergeData(
-                lowStockNotifications,
-                receivableNotifications,
-                payableNotifications
-            )
-        );
-        setLivePendingTableOrders(pendingTableOrders);
-        previousCountsRef.current = {
-            total:
-                lowStockNotifications.length +
-                receivableNotifications.length +
-                payableNotifications.length +
-                pendingTableOrders.length,
-            pendingTableOrders: pendingTableOrders.length,
-        };
-    }, [
-        lowStockNotifications,
-        receivableNotifications,
-        payableNotifications,
-        pendingTableOrders,
-    ]);
+    // Initial sync from props is done via useState initializer above.
+    // Polling in the effect below handles live updates.
+    // Intentionally omitted: syncing props on every render causes infinite loops
+    // because Inertia recreates array references each time.
 
     useEffect(() => {
         let cancelled = false;

@@ -1,12 +1,14 @@
-import React from "react";
+import React, { useState } from "react";
 import { Head, Link, router } from "@inertiajs/react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import Button from "@/Components/Dashboard/Button";
+import Modal from "@/Components/Dashboard/Modal";
 import Table from "@/Components/Dashboard/Table";
 import Pagination from "@/Components/Dashboard/Pagination";
 import {
     IconChartInfographic,
     IconCirclePlus,
+    IconInfoCircle,
     IconPencil,
     IconSearch,
     IconTrash,
@@ -68,6 +70,7 @@ const basisLabel = (basis) =>
 
 export default function Index({ rules, filters, summary = {}, recentAudits = [], workspace = {} }) {
     const { can } = useAuthorization();
+    const [showInfoModal, setShowInfoModal] = useState(false);
     const hasData = rules.data.length > 0;
 
     const handleFilterChange = (key, value) => {
@@ -133,25 +136,15 @@ export default function Index({ rules, filters, summary = {}, recentAudits = [],
                     ))}
                 </div>
 
-                <div className="mb-6 grid gap-3 lg:grid-cols-3">
-                    <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-100">
-                        <p className="font-semibold">Promo Tenant</p>
-                        <p className="mt-1">
-                            Dipakai saat outlet aktif adalah tenant atau workspace dapur. Perhitungan promo memakai harga beli tenant, bukan harga jual owner.
-                        </p>
-                    </div>
-                    <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-100">
-                        <p className="font-semibold">Promo Outlet Owner</p>
-                        <p className="mt-1">
-                            Dipakai untuk outlet utama atau owner outlet. Perhitungan promo memakai harga jual owner kecuali rule diatur berbeda.
-                        </p>
-                    </div>
-                    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100">
-                        <p className="font-semibold">Cara Baca Halaman Ini</p>
-                        <p className="mt-1">
-                            Lihat kolom `Scope` untuk tahu rule ini milik tenant atau owner, lalu lihat kolom `Basis` untuk memastikan promo dihitung dari harga yang benar.
-                        </p>
-                    </div>
+                <div className="mb-6 flex items-center justify-end">
+                    <button
+                        type="button"
+                        onClick={() => setShowInfoModal(true)}
+                        className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 shadow-sm transition hover:bg-slate-50 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                    >
+                        <IconInfoCircle size={18} />
+                        Panduan Promo
+                    </button>
                 </div>
 
                 <div className="mb-4 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
@@ -360,6 +353,34 @@ export default function Index({ rules, filters, summary = {}, recentAudits = [],
                     </div>
                 )}
             </div>
+
+            <Modal
+                show={showInfoModal}
+                onClose={() => setShowInfoModal(false)}
+                title="Panduan Promo Harga"
+                maxWidth="2xl"
+            >
+                <div className="space-y-4">
+                    <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-100">
+                        <p className="font-semibold">Promo Tenant</p>
+                        <p className="mt-1">
+                            Dipakai saat outlet aktif adalah tenant atau workspace dapur. Perhitungan promo memakai harga beli tenant, bukan harga jual owner.
+                        </p>
+                    </div>
+                    <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-100">
+                        <p className="font-semibold">Promo Outlet Owner</p>
+                        <p className="mt-1">
+                            Dipakai untuk outlet utama atau owner outlet. Perhitungan promo memakai harga jual owner kecuali rule diatur berbeda.
+                        </p>
+                    </div>
+                    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100">
+                        <p className="font-semibold">Cara Baca Halaman Ini</p>
+                        <p className="mt-1">
+                            Lihat kolom <span className="font-semibold">Scope</span> untuk tahu rule ini milik tenant atau owner, lalu lihat kolom <span className="font-semibold">Basis</span> untuk memastikan promo dihitung dari harga yang benar.
+                        </p>
+                    </div>
+                </div>
+            </Modal>
         </>
     );
 }

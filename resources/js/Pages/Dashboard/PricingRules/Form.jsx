@@ -3,10 +3,13 @@ import { Head, useForm } from "@inertiajs/react";
 import axios from "axios";
 import toast from "react-hot-toast";
 import Button from "@/Components/Dashboard/Button";
+import HintButton from "@/Components/Dashboard/HintButton";
+import Modal from "@/Components/Dashboard/Modal";
 import {
     IconArrowLeft,
     IconChartInfographic,
     IconDeviceFloppy,
+    IconInfoCircle,
     IconPlus,
     IconTrash,
 } from "@/Utils/icons";
@@ -46,6 +49,15 @@ const basisLabel = (basis) =>
 function InputError({ message }) {
     if (!message) return null;
     return <p className="mt-1 text-xs text-rose-500">{message}</p>;
+}
+
+function FieldLabel({ children, hint }) {
+    return (
+        <label className="mb-2 flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-300">
+            {children}
+            {hint ? <HintButton>{hint}</HintButton> : null}
+        </label>
+    );
 }
 
 const formatCurrency = (value) =>
@@ -113,6 +125,7 @@ export default function Form({
 }) {
     const isEdit = mode === "edit";
     const forcedPriceBasis = pricingContext?.forced_price_basis || null;
+    const [showInfoModal, setShowInfoModal] = useState(false);
     const { data, setData, post, put, processing, errors, transform } = useForm({
         name: rule?.name ?? "",
         kind: rule?.kind ?? "standard_discount",
@@ -261,42 +274,37 @@ export default function Form({
                         className="mb-3 border-none bg-transparent px-0 text-slate-500 shadow-none hover:bg-transparent hover:text-primary-600 dark:text-slate-400"
                         label="Kembali ke promo harga"
                     />
-                    <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
-                        {isEdit ? "Edit Promo Harga" : "Buat Promo Harga"}
-                    </h1>
-                    <p className="text-sm text-slate-500 dark:text-slate-400">
-                        Kelola promo standar, grosir, bundle, dan buy x get y dalam satu engine yang otomatis masuk ke kasir dan self order.
-                    </p>
-                    {pricingContext?.active_outlet ? (
-                        <p className="mt-2 text-xs font-medium text-slate-500 dark:text-slate-400">
-                            Mode: {pricingContext.mode_label || "Promo Harga"} •{" "}
-                            Outlet aktif: {pricingContext.active_outlet.code} - {pricingContext.active_outlet.name}
-                            {forcedPriceBasis === "buy_price"
-                                ? " • Rule tenant akan menghitung promo dari harga beli tenant."
-                                : " • Rule outlet akan menghitung promo dari harga jual owner."}
-                        </p>
-                    ) : null}
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                            <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
+                                {isEdit ? "Edit Promo Harga" : "Buat Promo Harga"}
+                            </h1>
+                            <p className="text-sm text-slate-500 dark:text-slate-400">
+                                Kelola promo standar, grosir, bundle, dan buy x get y dalam satu engine yang otomatis masuk ke kasir dan self order.
+                            </p>
+                            {pricingContext?.active_outlet ? (
+                                <p className="mt-2 text-xs font-medium text-slate-500 dark:text-slate-400">
+                                    Mode: {pricingContext.mode_label || "Promo Harga"} •{" "}
+                                    Outlet aktif: {pricingContext.active_outlet.code} - {pricingContext.active_outlet.name}
+                                    {forcedPriceBasis === "buy_price"
+                                        ? " • Rule tenant akan menghitung promo dari harga beli tenant."
+                                        : " • Rule outlet akan menghitung promo dari harga jual owner."}
+                                </p>
+                            ) : null}
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setShowInfoModal(true)}
+                            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 shadow-sm transition hover:bg-slate-50 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                        >
+                            <IconInfoCircle size={18} />
+                            Panduan Promo
+                        </button>
+                    </div>
                 </div>
 
-                <div className="grid gap-3 lg:grid-cols-3">
-                    <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-100">
-                        <p className="font-semibold">Kapan disebut Promo Tenant</p>
-                        <p className="mt-1">
-                            Jika outlet aktif adalah tenant atau user sedang bekerja di workspace tenant, rule ini akan menjadi promo tenant dan tidak memakai harga jual owner.
-                        </p>
-                    </div>
-                    <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-100">
-                        <p className="font-semibold">Kapan disebut Promo Owner</p>
-                        <p className="mt-1">
-                            Jika admin bekerja di outlet owner, rule ini menjadi promo outlet owner dan basis harga default-nya mengikuti harga jual owner.
-                        </p>
-                    </div>
-                    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100">
-                        <p className="font-semibold">Yang Harus Dicek</p>
-                        <p className="mt-1">
-                            Pastikan outlet aktif sudah benar, lalu cek bagian `Basis Harga` sebelum menyimpan rule supaya promo tidak masuk ke sisi yang salah.
-                        </p>
-                    </div>
+                <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+                    Gunakan tombol <span className="font-semibold">Panduan Promo</span> untuk melihat ringkasan promo tenant, promo owner, dan hal yang wajib dicek sebelum menyimpan rule.
                 </div>
 
                 <form onSubmit={submit} className="space-y-6">
@@ -322,9 +330,9 @@ export default function Form({
                     >
                         <div className="grid gap-4 md:grid-cols-2">
                             <div>
-                                <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                <FieldLabel hint="Nama internal promo. Buat sejelas mungkin supaya tim mudah mengenali rule ini saat preview, audit, dan evaluasi hasil promo.">
                                     Nama Rule
-                                </label>
+                                </FieldLabel>
                                 <input
                                     type="text"
                                     value={data.name}
@@ -336,9 +344,9 @@ export default function Form({
                                 <InputError message={errors.name} />
                             </div>
                             <div>
-                                <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                <FieldLabel hint="Pilih bentuk promonya: diskon langsung, grosir bertingkat, paket bundle, atau buy x get y.">
                                     Jenis Rule
-                                </label>
+                                </FieldLabel>
                                 <select
                                     value={data.kind}
                                     onChange={(event) =>
@@ -355,9 +363,9 @@ export default function Form({
                                 <InputError message={errors.kind} />
                             </div>
                             <div>
-                                <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                <FieldLabel hint="Menentukan rule mana yang didahulukan jika beberapa promo sama-sama cocok. Angka lebih besar berarti prioritas lebih tinggi.">
                                     Priority
-                                </label>
+                                </FieldLabel>
                                 <input
                                     type="number"
                                     min="0"
@@ -370,9 +378,9 @@ export default function Form({
                                 <InputError message={errors.priority} />
                             </div>
                             <div>
-                                <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                <FieldLabel hint="Dipakai untuk simulasi di kartu produk POS/self-order. Isi 2 atau 3 jika promo baru terasa saat beli minimal 2 atau 3 item.">
                                     Qty Preview POS
-                                </label>
+                                </FieldLabel>
                                 <input
                                     type="number"
                                     min="1"
@@ -387,9 +395,9 @@ export default function Form({
                                 />
                             </div>
                             <div className="md:col-span-2">
-                                <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                <FieldLabel hint="Menentukan harga acuan saat diskon dihitung. Harga jual owner dipakai untuk promo outlet, sedangkan harga beli tenant dipakai untuk promo tenant/dapur.">
                                     Basis Harga
-                                </label>
+                                </FieldLabel>
                                 {forcedPriceBasis ? (
                                     <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100">
                                         Workspace tenant mengunci basis promo ke <span className="font-semibold">harga beli tenant</span>. Rule ini tidak akan memakai harga jual owner outlet.
@@ -428,9 +436,9 @@ export default function Form({
                     >
                         <div className="grid gap-4 md:grid-cols-2">
                             <div>
-                                <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                <FieldLabel hint="Tentukan apakah promo berlaku untuk semua produk, satu produk tertentu, atau seluruh produk dalam satu kategori.">
                                     Target Rule
-                                </label>
+                                </FieldLabel>
                                 <select
                                     value={data.target_type}
                                     onChange={(event) =>
@@ -446,9 +454,9 @@ export default function Form({
                                 </select>
                             </div>
                             <div>
-                                <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                <FieldLabel hint="Batasi siapa yang berhak menerima promo ini: semua orang, pelanggan umum, pelanggan terdaftar, atau hanya member loyalty.">
                                     Scope Pelanggan
-                                </label>
+                                </FieldLabel>
                                 <select
                                     value={data.customer_scope}
                                     onChange={(event) =>
@@ -465,9 +473,9 @@ export default function Form({
                             </div>
                             {data.target_type === "product" && (
                                 <div className="md:col-span-2">
-                                    <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                    <FieldLabel hint="Pilih produk spesifik yang menerima promo. Jika target-nya kategori atau semua produk, field ini tidak dipakai.">
                                         Produk
-                                    </label>
+                                    </FieldLabel>
                                     <select
                                         value={data.product_id}
                                         onChange={(event) =>
@@ -480,16 +488,16 @@ export default function Form({
                                             <option key={product.id} value={product.id}>
                                                 {product.title}
                                             </option>
-                                        ))}
-                                    </select>
+                                            ))}
+                                        </select>
                                     <InputError message={errors.product_id} />
                                 </div>
                             )}
                             {data.target_type === "category" && (
                                 <div className="md:col-span-2">
-                                    <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                    <FieldLabel hint="Semua produk dalam kategori ini akan ikut dievaluasi oleh engine promo.">
                                         Kategori
-                                    </label>
+                                    </FieldLabel>
                                     <select
                                         value={data.category_id}
                                         onChange={(event) =>
@@ -502,16 +510,16 @@ export default function Form({
                                             <option key={category.id} value={category.id}>
                                                 {category.name}
                                             </option>
-                                        ))}
-                                    </select>
+                                            ))}
+                                        </select>
                                     <InputError message={errors.category_id} />
                                 </div>
                             )}
                             {data.customer_scope === "member" && (
                                 <div className="md:col-span-2">
-                                    <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                    <FieldLabel hint="Kosongkan jika semua tier member boleh mendapat promo. Centang hanya tier tertentu bila promo ini eksklusif.">
                                         Tier Member yang Berhak
-                                    </label>
+                                    </FieldLabel>
                                     <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
                                         {tierOptions.map((tier) => {
                                             const checked = data.eligible_loyalty_tiers.includes(
@@ -559,9 +567,9 @@ export default function Form({
                     >
                         <div className="grid gap-4 md:grid-cols-2">
                             <div>
-                                <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                <FieldLabel hint="Kosongkan jika promo boleh langsung aktif tanpa batas tanggal mulai.">
                                     Mulai Aktif
-                                </label>
+                                </FieldLabel>
                                 <input
                                     type="datetime-local"
                                     value={data.starts_at}
@@ -573,9 +581,9 @@ export default function Form({
                                 <InputError message={errors.starts_at} />
                             </div>
                             <div>
-                                <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                <FieldLabel hint="Kosongkan jika promo tidak punya tanggal berakhir.">
                                     Selesai Aktif
-                                </label>
+                                </FieldLabel>
                                 <input
                                     type="datetime-local"
                                     value={data.ends_at}
@@ -587,9 +595,9 @@ export default function Form({
                                 <InputError message={errors.ends_at} />
                             </div>
                             <div className="md:col-span-2">
-                                <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                <FieldLabel hint="Jika tidak ada hari yang dicentang, promo dianggap boleh berjalan setiap hari.">
                                     Hari Aktif
-                                </label>
+                                </FieldLabel>
                                 <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
                                     {dayOptions.map((day) => {
                                         const checked = data.active_days.includes(day.value);
@@ -620,9 +628,9 @@ export default function Form({
                                 <InputError message={errors.active_days} />
                             </div>
                             <div>
-                                <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                <FieldLabel hint="Isi jika promo hanya aktif mulai jam tertentu, misalnya promo sarapan atau happy hour.">
                                     Jam Mulai
-                                </label>
+                                </FieldLabel>
                                 <input
                                     type="time"
                                     value={data.daily_start_time}
@@ -634,9 +642,9 @@ export default function Form({
                                 <InputError message={errors.daily_start_time} />
                             </div>
                             <div>
-                                <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                <FieldLabel hint="Isi bersama jam mulai. Jika kosong, promo dianggap tidak dibatasi jam.">
                                     Jam Selesai
-                                </label>
+                                </FieldLabel>
                                 <input
                                     type="time"
                                     value={data.daily_end_time}
@@ -658,9 +666,9 @@ export default function Form({
                         >
                             <div className="grid gap-4 md:grid-cols-2">
                                 <div>
-                                    <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                    <FieldLabel hint="Persentase memotong dalam %, Potongan Nominal mengurangi rupiah per item, Harga Final memaksa harga akhir item.">
                                         Tipe Diskon
-                                    </label>
+                                    </FieldLabel>
                                     <select
                                         value={data.discount_type}
                                         onChange={(event) =>
@@ -676,9 +684,9 @@ export default function Form({
                                     </select>
                                 </div>
                                 <div>
-                                    <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                    <FieldLabel hint="Contoh: isi 15 untuk diskon 15%, 2000 untuk potongan Rp2.000, atau 18000 jika ingin harga akhir jadi Rp18.000.">
                                         Nilai Diskon
-                                    </label>
+                                    </FieldLabel>
                                     <input
                                         type="number"
                                         min="0.01"
@@ -700,6 +708,30 @@ export default function Form({
                             title="Qty Break / Grosir"
                             description="Satu rule bisa memiliki beberapa breakpoint quantity."
                         >
+                            <div className="mb-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
+                                Setiap baris berarti: saat qty minimal terpenuhi, promo pada baris itu aktif. Break dengan `min qty` paling besar yang lolos akan dipakai lebih dulu.
+                            </div>
+                            <div className="mb-3 hidden items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs font-medium text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400 md:grid md:grid-cols-4">
+                                <div className="flex items-center gap-2">
+                                    Min Qty
+                                    <HintButton>
+                                        Jumlah minimum item agar break ini aktif.
+                                    </HintButton>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    Tipe Diskon
+                                    <HintButton>
+                                        Bentuk potongan yang dipakai saat break ini aktif.
+                                    </HintButton>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    Nilai
+                                    <HintButton>
+                                        Besar diskon untuk break ini, mengikuti tipe diskon yang dipilih.
+                                    </HintButton>
+                                </div>
+                                <div className="text-center">Aksi</div>
+                            </div>
                             <div className="space-y-3">
                                 {data.qty_breaks.map((row, index) => (
                                     <div
@@ -798,9 +830,9 @@ export default function Form({
                             description="Pilih kombinasi produk dan harga paket final."
                         >
                             <div className="mb-4">
-                                <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                <FieldLabel hint="Ini adalah total harga paket setelah promo, bukan nilai potongan. Contoh: dua item normal Rp44.000 lalu dijual bundle Rp38.000.">
                                     Harga Bundle
-                                </label>
+                                </FieldLabel>
                                 <input
                                     type="number"
                                     min="1"
@@ -810,6 +842,21 @@ export default function Form({
                                     }
                                     className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
                                 />
+                            </div>
+                            <div className="mb-3 hidden items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs font-medium text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400 md:grid md:grid-cols-[1fr_160px_48px]">
+                                <div className="flex items-center gap-2">
+                                    Produk Bundle
+                                    <HintButton>
+                                        Pilih item yang harus hadir bersama dalam satu paket promo.
+                                    </HintButton>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    Qty
+                                    <HintButton>
+                                        Berapa unit produk ini yang dibutuhkan dalam paket.
+                                    </HintButton>
+                                </div>
+                                <div className="text-center">Aksi</div>
                             </div>
                             <div className="space-y-3">
                                 {data.bundle_items.map((row, index) => (
@@ -892,6 +939,30 @@ export default function Form({
                             title="Buy X Get Y"
                             description="Atur item pembelian (buy) dan item hadiah/diskon (get)."
                         >
+                            <div className="mb-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
+                                Baris `Buy` adalah syarat pembelian. Baris `Get` adalah item bonus yang akan dibuat gratis / terdiskon saat syarat terpenuhi.
+                            </div>
+                            <div className="mb-3 hidden items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs font-medium text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400 md:grid md:grid-cols-[160px_1fr_140px_48px]">
+                                <div className="flex items-center gap-2">
+                                    Role
+                                    <HintButton>
+                                        `Buy` adalah syarat pembelian, `Get` adalah item hadiah/bonus.
+                                    </HintButton>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    Produk
+                                    <HintButton>
+                                        Produk yang dipakai sebagai pemicu promo atau hadiah promo.
+                                    </HintButton>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    Qty
+                                    <HintButton>
+                                        Jumlah unit yang harus dibeli atau yang akan diberikan sebagai bonus.
+                                    </HintButton>
+                                </div>
+                                <div className="text-center">Aksi</div>
+                            </div>
                             <div className="space-y-3">
                                 {data.buy_get_items.map((row, index) => (
                                     <div
@@ -989,9 +1060,9 @@ export default function Form({
                     >
                         <div className="grid gap-4 md:grid-cols-2">
                             <div>
-                                <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                <FieldLabel hint="Versi singkat dari jadwal. Kosongkan jika promo boleh langsung aktif tanpa tanggal mulai khusus.">
                                     Mulai
-                                </label>
+                                </FieldLabel>
                                 <input
                                     type="datetime-local"
                                     value={data.starts_at}
@@ -1002,9 +1073,9 @@ export default function Form({
                                 />
                             </div>
                             <div>
-                                <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                <FieldLabel hint="Kosongkan jika promo boleh terus aktif sampai dinonaktifkan manual.">
                                     Berakhir
-                                </label>
+                                </FieldLabel>
                                 <input
                                     type="datetime-local"
                                     value={data.ends_at}
@@ -1015,9 +1086,9 @@ export default function Form({
                                 />
                             </div>
                             <div className="md:col-span-2">
-                                <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                <FieldLabel hint="Catatan internal untuk tim, misalnya alasan promo dibuat, channel kampanye, atau instruksi operasional.">
                                     Catatan
-                                </label>
+                                </FieldLabel>
                                 <textarea
                                     rows="3"
                                     value={data.notes}
@@ -1036,13 +1107,16 @@ export default function Form({
                                     }
                                 />
                                 Aktifkan rule ini
+                                <HintButton>
+                                    Jika dimatikan, rule tetap tersimpan tetapi engine promo tidak akan memakainya di POS, kasir, atau self-order.
+                                </HintButton>
                             </label>
                         </div>
                     </CardSection>
 
                     <CardSection
-                        title="Preview Draft"
-                        description="Simulasikan rule ini terhadap contoh produk sebelum disimpan."
+                        title="Coba Dulu Sebelum Simpan"
+                        description="Uji coba rule ini langsung terhadap contoh produk. Lihat estimasi diskon, potongan tenant/owner, dan total akhir sebelum disimpan."
                     >
                         <div className="mb-4 flex flex-wrap gap-3">
                             <button
@@ -1053,7 +1127,7 @@ export default function Form({
                                 <IconChartInfographic size={16} />
                                 {previewState.loading
                                     ? "Memuat preview..."
-                                    : "Jalankan Preview"}
+                                    : "Lihat Hasil Preview"}
                             </button>
                         </div>
 
@@ -1062,7 +1136,7 @@ export default function Form({
                                 <div className="grid gap-3 md:grid-cols-3">
                                     <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800">
                                         <p className="text-xs uppercase tracking-wide text-slate-500">
-                                            Base subtotal
+                                            Harga Awal
                                         </p>
                                         <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-white">
                                             {formatCurrency(previewSummary.base_subtotal)}
@@ -1070,7 +1144,7 @@ export default function Form({
                                     </div>
                                     <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800">
                                         <p className="text-xs uppercase tracking-wide text-slate-500">
-                                            Promo discount
+                                            Diskon Promo
                                         </p>
                                         <p className="mt-1 text-lg font-semibold text-rose-600 dark:text-rose-300">
                                             {formatCurrency(previewSummary.promo_discount_total)}
@@ -1081,7 +1155,7 @@ export default function Form({
                                     </div>
                                     <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800">
                                         <p className="text-xs uppercase tracking-wide text-slate-500">
-                                            After promo
+                                            Total Setelah Diskon
                                         </p>
                                         <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-white">
                                             {formatCurrency(previewSummary.subtotal_after_promo)}
@@ -1098,7 +1172,7 @@ export default function Form({
                                 {previewItems.length > 0 && (
                                     <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800">
                                         <h3 className="mb-3 text-sm font-semibold text-slate-900 dark:text-white">
-                                            Item Preview
+                                            Detail Item
                                         </h3>
                                         <div className="space-y-2">
                                             {previewItems.map((item) => (
@@ -1120,9 +1194,9 @@ export default function Form({
                                                                 </p>
                                                             ) : null}
                                                             {(Number(item.tenant_discount_total || 0) > 0 || Number(item.owner_discount_total || 0) > 0) ? (
-                                                                <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-                                                                    Tenant cut {formatCurrency(item.tenant_discount_total || 0)} • Owner cut {formatCurrency(item.owner_discount_total || 0)}
-                                                                </p>
+                                        <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                                            Potongan Tenant {formatCurrency(item.tenant_discount_total || 0)} • Potongan Owner {formatCurrency(item.owner_discount_total || 0)}
+                                        </p>
                                                             ) : null}
                                                         </div>
                                                         <div className="text-right">
@@ -1145,20 +1219,20 @@ export default function Form({
                                 {previewDiagnostics && (
                                     <details className="rounded-xl border border-dashed border-slate-300 bg-white p-4 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
                                         <summary className="cursor-pointer font-semibold text-slate-900 dark:text-white">
-                                            Diagnostik Preview
+                                            Diagnostik
                                         </summary>
                                         <div className="mt-3 space-y-1">
                                             <p>
-                                                Kind: <span className="font-medium">{previewDiagnostics.kind}</span>
+                                                Jenis: <span className="font-medium">{previewDiagnostics.kind}</span>
                                             </p>
                                             <p>
                                                 Basis harga: <span className="font-medium">{previewDiagnostics.price_basis}</span>
                                             </p>
                                             <p>
-                                                Draft discount: <span className="font-medium">{formatCurrency(previewDiagnostics.draft_discount_value)}</span>
+                                                Nilai Diskon: <span className="font-medium">{formatCurrency(previewDiagnostics.draft_discount_value)}</span>
                                             </p>
                                             <p>
-                                                Cart count: <span className="font-medium">{previewDiagnostics.cart_count}</span>
+                                                Jumlah Keranjang: <span className="font-medium">{previewDiagnostics.cart_count}</span>
                                             </p>
                                         </div>
                                         {Array.isArray(previewDiagnostics.cart_items) && previewDiagnostics.cart_items.length > 0 && (
@@ -1181,7 +1255,7 @@ export default function Form({
                                 {previewGroups.length > 0 && (
                                     <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800">
                                         <h3 className="mb-3 text-sm font-semibold text-slate-900 dark:text-white">
-                                            Applied Groups
+                                            Grup Diskon
                                         </h3>
                                         <div className="space-y-2">
                                             {previewGroups.map((group) => (
@@ -1222,6 +1296,34 @@ export default function Form({
                     </div>
                 </form>
             </div>
+
+            <Modal
+                show={showInfoModal}
+                onClose={() => setShowInfoModal(false)}
+                title="Panduan Promo Harga"
+                maxWidth="2xl"
+            >
+                <div className="space-y-4">
+                    <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-100">
+                        <p className="font-semibold">Promo Tenant</p>
+                        <p className="mt-1">
+                            Dipakai saat outlet aktif adalah tenant atau workspace dapur. Perhitungan promo memakai harga beli tenant, bukan harga jual owner.
+                        </p>
+                    </div>
+                    <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-100">
+                        <p className="font-semibold">Promo Outlet Owner</p>
+                        <p className="mt-1">
+                            Dipakai untuk outlet utama atau owner outlet. Perhitungan promo memakai harga jual owner kecuali rule diatur berbeda.
+                        </p>
+                    </div>
+                    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100">
+                        <p className="font-semibold">Yang Harus Dicek</p>
+                        <p className="mt-1">
+                            Pastikan outlet aktif sudah benar, lalu cek <span className="font-semibold">Basis Harga</span>, target produk, dan preview promo sebelum menyimpan rule supaya promo tidak masuk ke sisi yang salah.
+                        </p>
+                    </div>
+                </div>
+            </Modal>
         </>
     );
 }

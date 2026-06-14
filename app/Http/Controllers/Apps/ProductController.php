@@ -482,6 +482,12 @@ class ProductController extends Controller
                 ? []
                 : Outlet::active()->ordered()->get(['id', 'name', 'code']),
             'outletStocks' => $outletStocks,
+            'activePricingRules' => $this->pricingService->describeProductRules(
+                $product,
+                null,
+                null,
+                $activeOutletId
+            ),
             'capabilities' => [
                 'can_manage_catalog' => $canManageCatalog,
                 'can_manage_pricing' => (request()->user()?->can('products-pricing-update') ?? false)
