@@ -12,7 +12,6 @@ export default function PWAInstallPrompt() {
         appLabel,
         canPromptInstall,
         isCheckingInstallState,
-        installHelpText,
         promptInstall,
         shouldShowInstallEntry,
     } = usePwaInstall();
@@ -42,14 +41,16 @@ export default function PWAInstallPrompt() {
         }
 
         if (isCheckingInstallState || dismissed || !shouldShowInstallEntry) return false;
-        if (!canPromptInstall) return false;
         return true;
-    }, [canPromptInstall, dismissed, isCheckingInstallState, shouldShowInstallEntry]);
+    }, [dismissed, isCheckingInstallState, shouldShowInstallEntry]);
 
     const handleInstall = async () => {
         if (canPromptInstall) {
             await promptInstall();
+            return;
         }
+
+        window.location.href = route("guides.pwa-setup");
     };
 
     const handleDismiss = () => {
@@ -79,22 +80,24 @@ export default function PWAInstallPrompt() {
                 </div>
                 <div className="min-w-0">
                     <p className="text-sm font-semibold text-slate-900 dark:text-white">
-                        Instal aplikasi {appLabel}
+                        {canPromptInstall
+                            ? `Instal aplikasi ${appLabel}`
+                            : `Cara install ${appLabel}`}
                     </p>
                     <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                        {installHelpText}
+                        {canPromptInstall
+                            ? "Tombol ini akan memunculkan dialog install dari browser."
+                            : "Browser belum menampilkan dialog install. Buka panduan install perangkat ini."}
                     </p>
 
-                    {canPromptInstall && (
-                        <button
-                            type="button"
-                            onClick={handleInstall}
-                            className="mt-3 inline-flex items-center gap-2 rounded-xl bg-primary-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-primary-700"
-                        >
-                            <IconDownload size={16} />
-                            Instal Aplikasi
-                        </button>
-                    )}
+                    <button
+                        type="button"
+                        onClick={handleInstall}
+                        className="mt-3 inline-flex items-center gap-2 rounded-xl bg-primary-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-primary-700"
+                    >
+                        <IconDownload size={16} />
+                        {canPromptInstall ? "Instal Aplikasi" : "Cara Install"}
+                    </button>
                 </div>
             </div>
         </div>

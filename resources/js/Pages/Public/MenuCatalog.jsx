@@ -19,7 +19,10 @@ export default function MenuCatalog({
     const {
         appLabel,
         canPromptInstall,
+        isCheckingInstallState,
+        isChromeLike,
         installHelpText,
+        isIos,
         promptInstall,
         shouldShowInstallEntry,
     } = usePwaInstall();
@@ -28,6 +31,7 @@ export default function MenuCatalog({
     const [refreshing, setRefreshing] = useState(false);
     const [searchQuery, setSearchQuery] = useState("");
     const [selectedProduct, setSelectedProduct] = useState(null);
+    const [showInstallGuide, setShowInstallGuide] = useState(false);
     const [lastUpdatedAt, setLastUpdatedAt] = useState(null);
     const [usingCachedData, setUsingCachedData] = useState(false);
     const [syncError, setSyncError] = useState("");
@@ -200,11 +204,26 @@ export default function MenuCatalog({
             return;
         }
 
-        toast(installHelpText, {
-            duration: 5000,
-            icon: "📲",
-        });
-    }, [canPromptInstall, installHelpText, promptInstall]);
+        setShowInstallGuide(true);
+    }, [canPromptInstall, promptInstall]);
+
+    const installGuideSteps = isIos
+        ? [
+              "Buka menu ini dari Safari di iPhone atau iPad.",
+              "Tap tombol Bagikan di browser.",
+              "Pilih Tambahkan ke Layar Utama.",
+          ]
+        : isChromeLike
+          ? [
+                "Buka menu browser Chrome atau Edge.",
+                "Pilih Install app atau Tambahkan ke layar utama.",
+                "Konfirmasi pemasangan GTC Menu ke perangkat.",
+            ]
+          : [
+                "Buka menu browser di perangkat Anda.",
+                "Cari opsi Tambahkan ke layar utama atau Install app.",
+                "Ikuti konfirmasi yang tersedia di browser.",
+            ];
 
     return (
         <>
@@ -354,17 +373,64 @@ export default function MenuCatalog({
                 </div>
             ) : null}
 
-            {shouldShowInstallEntry ? (
-                <div className="pointer-events-none fixed inset-x-0 bottom-0 z-[70] flex justify-center px-4 pb-[max(1rem,env(safe-area-inset-bottom))] print:hidden">
-                    <div className="pointer-events-auto w-full max-w-md rounded-[24px] border border-slate-200 bg-white/95 p-3 shadow-[0_20px_60px_-30px_rgba(15,23,42,0.45)] backdrop-blur">
+            {shouldShowInstallEntry && !isCheckingInstallState ? (
+                <div className="fixed inset-x-0 bottom-0 z-[90] px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] sm:px-4 print:hidden">
+                    <div className="mx-auto w-full max-w-md rounded-[24px] border border-slate-200 bg-white/95 p-3 shadow-[0_20px_60px_-30px_rgba(15,23,42,0.45)] backdrop-blur">
                         <button
                             type="button"
                             onClick={handleInstallApp}
-                            className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
+                            className="inline-flex min-h-[52px] w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 active:scale-[0.99]"
                         >
                             <IconDownload size={16} />
-                            Install {appLabel}
+                            {canPromptInstall
+                                ? `Install ${appLabel}`
+                                : `Cara Install ${appLabel}`}
                         </button>
+                    </div>
+                </div>
+            ) : null}
+
+            {showInstallGuide ? (
+                <div className="fixed inset-0 z-[95] flex items-end justify-center p-3 sm:items-center sm:p-4">
+                    <div
+                        className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm"
+                        onClick={() => setShowInstallGuide(false)}
+                    />
+                    <div className="relative w-full max-w-md overflow-hidden rounded-[28px] bg-white shadow-2xl">
+                        <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4">
+                            <div>
+                                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary-500">
+                                    Install {appLabel}
+                                </p>
+                                <h3 className="mt-1 text-lg font-bold text-slate-900">
+                                    Panduan install di perangkat ini
+                                </h3>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setShowInstallGuide(false)}
+                                className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 text-slate-500 hover:bg-slate-200"
+                            >
+                                <IconX size={18} />
+                            </button>
+                        </div>
+                        <div className="space-y-4 px-5 py-4">
+                            <p className="text-sm text-slate-500">
+                                {installHelpText}
+                            </p>
+                            <ol className="list-decimal space-y-2 pl-5 text-sm text-slate-700">
+                                {installGuideSteps.map((step) => (
+                                    <li key={step}>{step}</li>
+                                ))}
+                            </ol>
+                            <button
+                                type="button"
+                                onClick={() => setShowInstallGuide(false)}
+                                className="inline-flex w-full items-center justify-center rounded-2xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white"
+                            >
+                                Tutup
+                            </button>
+                        </div>
                     </div>
                 </div>
             ) : null}

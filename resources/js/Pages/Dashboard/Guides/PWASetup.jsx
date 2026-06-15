@@ -548,9 +548,7 @@ export default function PWASetup({
                                         ? "Memeriksa Status..."
                                         : canPromptInstall
                                         ? "Instal Sekarang"
-                                        : isIos
-                                        ? "Lihat Cara Install iPhone/iPad"
-                                        : "Cek Cara Install Perangkat Ini"}
+                                        : "Cara Install Perangkat Ini"}
                                 </button>
                             ) : (
                                 <>

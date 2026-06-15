@@ -1,11 +1,14 @@
 import { useCallback } from "react";
 import { IconDownload } from "@/Utils/icons";
-import toast from "react-hot-toast";
 import usePwaInstall from "@/Hooks/usePwaInstall";
 
 export default function PWAInstallButton({ compact = false }) {
-    const { canPromptInstall, isIos, promptInstall, shouldShowInstallEntry } =
-        usePwaInstall();
+    const {
+        canPromptInstall,
+        isCheckingInstallState,
+        promptInstall,
+        shouldShowInstallEntry,
+    } = usePwaInstall();
 
     const handleInstall = useCallback(async () => {
         if (canPromptInstall) {
@@ -13,19 +16,10 @@ export default function PWAInstallButton({ compact = false }) {
             return;
         }
 
-        if (isIos) {
-            toast("Gunakan Bagikan lalu pilih Tambahkan ke Layar Utama.", {
-                duration: 4000,
-                icon: "📲",
-            });
-            window.location.href = route("guides.pwa-setup");
-            return;
-        }
-
         window.location.href = route("guides.pwa-setup");
-    }, [canPromptInstall, isIos, promptInstall]);
+    }, [canPromptInstall, promptInstall]);
 
-    if (!shouldShowInstallEntry) return null;
+    if (isCheckingInstallState || !shouldShowInstallEntry) return null;
 
     return (
         <button
@@ -38,7 +32,7 @@ export default function PWAInstallButton({ compact = false }) {
             }`}
         >
             <IconDownload size={16} />
-            {canPromptInstall ? "Instal Aplikasi" : "Halaman Install PWA"}
+            {canPromptInstall ? "Instal Aplikasi" : "Cara Install"}
         </button>
     );
 }
