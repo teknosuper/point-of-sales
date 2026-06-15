@@ -361,6 +361,7 @@ export default function ProductGrid({
     listLayoutClass = "grid grid-cols-1 gap-3 md:grid-cols-2",
     compactHeaderLayout = false,
     showFilterSummary = true,
+    groupByCategoryWhenTenantFiltered = false,
 }) {
     const [selectedTenantOutletId, setSelectedTenantOutletId] = useState(null);
     const [isFilterPanelExpanded, setIsFilterPanelExpanded] = useState(() => {
@@ -460,6 +461,31 @@ export default function ProductGrid({
                 return alphabetical;
         }
     });
+    const groupedCategorySections =
+        groupByCategoryWhenTenantFiltered && selectedTenantOutletId !== null
+            ? sortedProducts.reduce((sections, product) => {
+                  const categoryId = Number(product?.category?.id || 0);
+                  const categoryName = String(
+                      product?.category?.name || "Tanpa Kategori"
+                  );
+                  const existingSection = sections.find(
+                      (section) => section.categoryId === categoryId
+                  );
+
+                  if (existingSection) {
+                      existingSection.products.push(product);
+                      return sections;
+                  }
+
+                  sections.push({
+                      categoryId,
+                      categoryName,
+                      products: [product],
+                  });
+
+                  return sections;
+              }, [])
+            : [];
 
     const selectedTenantName =
         selectedTenantOutletId === null
@@ -704,25 +730,63 @@ export default function ProductGrid({
             {/* Products Grid */}
             <div className="min-h-0 flex-1 overflow-y-auto p-4 scrollbar-thin">
                 {sortedProducts.length > 0 ? (
-                    <div
-                        className={
-                            viewMode === "grid"
-                                ? gridLayoutClass
-                                : listLayoutClass
-                        }
-                    >
-                        {sortedProducts.map((product) => (
-                            <ProductCard
-                                key={product.id}
-                                product={product}
-                                onAddToCart={onAddToCart}
-                                isAdding={addingProductId === product.id}
-                                viewMode={viewMode}
-                                interactive={interactive}
-                                onProductSelect={onProductSelect}
-                            />
-                        ))}
-                    </div>
+                    groupedCategorySections.length > 0 ? (
+                        <div className="space-y-5">
+                            {groupedCategorySections.map((section) => (
+                                <section key={`${selectedTenantOutletId}-${section.categoryId}`}>
+                                    <div className="mb-3 flex items-center justify-between gap-3">
+                                        <div>
+                                            <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                                                {section.categoryName}
+                                            </h3>
+                                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                                                {section.products.length} menu
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <div
+                                        className={
+                                            viewMode === "grid"
+                                                ? gridLayoutClass
+                                                : listLayoutClass
+                                        }
+                                    >
+                                        {section.products.map((product) => (
+                                            <ProductCard
+                                                key={product.id}
+                                                product={product}
+                                                onAddToCart={onAddToCart}
+                                                isAdding={addingProductId === product.id}
+                                                viewMode={viewMode}
+                                                interactive={interactive}
+                                                onProductSelect={onProductSelect}
+                                            />
+                                        ))}
+                                    </div>
+                                </section>
+                            ))}
+                        </div>
+                    ) : (
+                        <div
+                            className={
+                                viewMode === "grid"
+                                    ? gridLayoutClass
+                                    : listLayoutClass
+                            }
+                        >
+                            {sortedProducts.map((product) => (
+                                <ProductCard
+                                    key={product.id}
+                                    product={product}
+                                    onAddToCart={onAddToCart}
+                                    isAdding={addingProductId === product.id}
+                                    viewMode={viewMode}
+                                    interactive={interactive}
+                                    onProductSelect={onProductSelect}
+                                />
+                            ))}
+                        </div>
+                    )
                 ) : (
                     <div className="h-full flex flex-col items-center justify-center text-slate-400 dark:text-slate-600">
                         <IconShoppingBag

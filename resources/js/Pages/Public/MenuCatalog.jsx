@@ -256,6 +256,7 @@ export default function MenuCatalog({
                                     listLayoutClass="grid grid-cols-1 gap-3"
                                     compactHeaderLayout={true}
                                     showFilterSummary={false}
+                                    groupByCategoryWhenTenantFiltered={true}
                                     storageNamespace={`public-menu:${
                                         outlet?.code || store?.name || "default"
                                     }`}
