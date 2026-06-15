@@ -6858,24 +6858,30 @@ export default function Index({
                         className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm"
                         onClick={closeHistoryModal}
                     />
-                    <div className="relative z-10 flex max-h-[calc(100vh-2rem)] w-full max-w-6xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl dark:bg-slate-900">
-                        <div className="flex items-center justify-between gap-4 border-b border-slate-200 px-5 py-4 dark:border-slate-800">
+                    <div className="relative z-10 flex max-h-[calc(100dvh-1rem)] w-full max-w-6xl flex-col overflow-hidden rounded-[2rem] bg-white shadow-2xl dark:bg-slate-900 sm:max-h-[calc(100vh-2rem)] sm:rounded-3xl">
+                        <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-4 py-3 dark:border-slate-800 sm:items-center sm:gap-4 sm:px-5 sm:py-4">
                             <div>
                                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary-600">
                                     Riwayat Kasir
                                 </p>
-                                <h3 className="mt-1 flex items-center gap-2 text-lg font-bold text-slate-900 dark:text-white">
-                                    <IconHistory size={20} />
-                                    Perjalanan transaksi pelanggan
+                                <h3 className="mt-1 flex items-center gap-2 text-base font-bold text-slate-900 dark:text-white sm:text-lg">
+                                    <IconHistory size={18} />
+                                    <span className="sm:hidden">Riwayat transaksi</span>
+                                    <span className="hidden sm:inline">
+                                        Perjalanan transaksi pelanggan
+                                    </span>
                                 </h3>
-                                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 sm:hidden">
+                                    Detail, status bayar, dan cetak struk.
+                                </p>
+                                <p className="mt-1 hidden text-sm text-slate-500 dark:text-slate-400 sm:block">
                                     Pantau detail belanja, status pembayaran, dan cetak struk tanpa pindah halaman.
                                 </p>
                             </div>
                             <button
                                 type="button"
                                 onClick={closeHistoryModal}
-                                className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 text-slate-500 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"
+                                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-500 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"
                             >
                                 <IconX size={18} />
                             </button>
@@ -6883,7 +6889,7 @@ export default function Index({
 
                         <div className="grid min-h-0 flex-1 lg:grid-cols-[360px,1fr]">
                             <div className="flex min-h-0 flex-col border-b border-slate-200 dark:border-slate-800 lg:border-b-0 lg:border-r">
-                                <div className="border-b border-slate-200 px-5 py-4 dark:border-slate-800">
+                                <div className="border-b border-slate-200 px-4 py-3 dark:border-slate-800 sm:px-5 sm:py-4">
                                     <div className="grid gap-3">
                                         <div className="flex items-center gap-2">
                                             <input
@@ -7076,7 +7082,7 @@ export default function Index({
                                         </div>
                                     </div>
                                 </div>
-                                <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+                                <div className="min-h-0 max-h-[26vh] flex-1 overflow-y-auto px-3 py-3 sm:max-h-none">
                                     <div className="space-y-2">
                                         {historyTransactions.length > 0 ? (
                                             historyTransactions.map(
@@ -7164,8 +7170,8 @@ export default function Index({
                                         )}
                                     </div>
                                 </div>
-                                <div className="border-t border-slate-200 px-4 py-3 dark:border-slate-800">
-                                    <div className="flex items-center justify-between gap-2">
+                                <div className="border-t border-slate-200 px-3 py-2 dark:border-slate-800 sm:px-4 sm:py-3">
+                                    <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
                                         <button
                                             type="button"
                                             onClick={() =>
@@ -7185,12 +7191,13 @@ export default function Index({
                                                     historyMeta.current_page || 1
                                                 ) <= 1
                                             }
-                                            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                            className="rounded-xl border border-slate-200 bg-white px-2 py-2 text-[11px] font-semibold text-slate-700 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 sm:px-3 sm:text-xs"
                                         >
-                                            Sebelumnya
+                                            <span className="sm:hidden">Prev</span>
+                                            <span className="hidden sm:inline">Sebelumnya</span>
                                         </button>
-                                        <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
-                                            Hal. {historyMeta.current_page || 1} /{" "}
+                                        <span className="text-center text-[11px] font-medium text-slate-500 dark:text-slate-400 sm:text-xs">
+                                            {historyMeta.current_page || 1} /{" "}
                                             {historyMeta.last_page || 1}
                                         </span>
                                         <button
@@ -7217,23 +7224,24 @@ export default function Index({
                                                         historyMeta.last_page || 1
                                                     )
                                             }
-                                            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                            className="rounded-xl border border-slate-200 bg-white px-2 py-2 text-[11px] font-semibold text-slate-700 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 sm:px-3 sm:text-xs"
                                         >
-                                            Berikutnya
+                                            <span className="sm:hidden">Next</span>
+                                            <span className="hidden sm:inline">Berikutnya</span>
                                         </button>
                                     </div>
                                 </div>
                             </div>
 
-                            <div className="min-h-0 overflow-y-auto">
+                            <div className="min-h-0 overflow-y-auto border-t border-slate-200 dark:border-slate-800 lg:border-t-0">
                                 {selectedHistoryTransaction ? (
-                                    <div className="space-y-5 px-5 py-5">
+                                    <div className="space-y-4 px-4 py-4 sm:space-y-5 sm:px-5 sm:py-5">
                                         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                                             <div>
                                                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
                                                     Detail Transaksi
                                                 </p>
-                                                <h4 className="mt-1 text-2xl font-bold text-slate-900 dark:text-white">
+                                                <h4 className="mt-1 text-xl font-bold text-slate-900 dark:text-white sm:text-2xl">
                                                     {
                                                         selectedHistoryTransaction.invoice
                                                     }
@@ -7443,7 +7451,7 @@ export default function Index({
                             </div>
                         </div>
 
-                        <div className="grid gap-3 border-t border-slate-200 bg-slate-50 px-5 py-4 dark:border-slate-800 dark:bg-slate-900/80 sm:grid-cols-2 xl:grid-cols-[1fr,1fr,1fr,1.2fr]">
+                        <div className="grid grid-cols-2 gap-3 border-t border-slate-200 bg-slate-50 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/80 xl:grid-cols-[1fr,1fr,1fr,1.2fr]">
                             <button
                                 type="button"
                                 onClick={closeHistoryModal}
@@ -7502,7 +7510,7 @@ export default function Index({
                                         : "Print Ulang ke Queue"}
                                 </button>
                             ) : (
-                                <div />
+                                <div className="hidden xl:block" />
                             )}
                             {selectedHistoryTransaction &&
                             canConfirmPayment &&
@@ -7516,7 +7524,7 @@ export default function Index({
                                         )
                                     }
                                     disabled={isConfirmingHistoryPayment}
-                                    className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white disabled:opacity-60"
+                                    className="col-span-2 inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white disabled:opacity-60 xl:col-span-1"
                                 >
                                     <IconCheck size={16} />
                                     {isConfirmingHistoryPayment
@@ -7524,7 +7532,7 @@ export default function Index({
                                         : "Konfirmasi Lunas"}
                                 </button>
                             ) : (
-                                <div />
+                                <div className="hidden xl:block" />
                             )}
                         </div>
                     </div>
