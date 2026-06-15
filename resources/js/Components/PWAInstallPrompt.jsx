@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-    IconArrowRight,
     IconDeviceMobile,
     IconDownload,
     IconX,
@@ -11,10 +10,9 @@ export default function PWAInstallPrompt() {
     const [dismissed, setDismissed] = useState(false);
     const {
         appLabel,
-        isPwaEnabled,
         canPromptInstall,
+        isCheckingInstallState,
         installHelpText,
-        pwaKind,
         promptInstall,
         shouldShowInstallEntry,
     } = usePwaInstall();
@@ -43,21 +41,15 @@ export default function PWAInstallPrompt() {
             }
         }
 
-        if (dismissed || !shouldShowInstallEntry) return false;
+        if (isCheckingInstallState || dismissed || !shouldShowInstallEntry) return false;
+        if (!canPromptInstall) return false;
         return true;
-    }, [dismissed, shouldShowInstallEntry]);
+    }, [canPromptInstall, dismissed, isCheckingInstallState, shouldShowInstallEntry]);
 
     const handleInstall = async () => {
         if (canPromptInstall) {
             await promptInstall();
-            return;
         }
-
-        if (pwaKind === "menu") {
-            return;
-        }
-
-        window.location.href = route("guides.pwa-setup");
     };
 
     const handleDismiss = () => {
@@ -93,7 +85,7 @@ export default function PWAInstallPrompt() {
                         {installHelpText}
                     </p>
 
-                    {canPromptInstall ? (
+                    {canPromptInstall && (
                         <button
                             type="button"
                             onClick={handleInstall}
@@ -101,15 +93,6 @@ export default function PWAInstallPrompt() {
                         >
                             <IconDownload size={16} />
                             Instal Aplikasi
-                        </button>
-                    ) : isPwaEnabled && pwaKind !== "menu" && (
-                        <button
-                            type="button"
-                            onClick={handleInstall}
-                            className="mt-3 inline-flex items-center gap-2 rounded-xl border border-primary-200 bg-primary-50 px-4 py-2 text-sm font-medium text-primary-700 transition hover:bg-primary-100 dark:border-primary-900/40 dark:bg-primary-950/30 dark:text-primary-200"
-                        >
-                            <IconArrowRight size={16} />
-                            Buka Halaman Install
                         </button>
                     )}
                 </div>

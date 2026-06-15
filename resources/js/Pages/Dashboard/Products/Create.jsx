@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import { Head, useForm, usePage, Link } from "@inertiajs/react";
 import Button from "@/Components/Dashboard/Button";
@@ -54,11 +54,45 @@ export default function Create({ categories, tenantOutlets = [] }) {
     const [imagePreview, setImagePreview] = useState(null);
     const [showModifierSection, setShowModifierSection] = useState(false);
     const autoSkuPreview = previewAutoSku(data.sku, data.barcode, data.title);
+    const selectedTenantOutlet = useMemo(
+        () =>
+            tenantOutlets.find(
+                (outlet) => String(outlet.id) === String(data.tenant_outlet_id)
+            ) || null,
+        [data.tenant_outlet_id, tenantOutlets]
+    );
+    const availableCategories = useMemo(
+        () =>
+            categories.filter(
+                (category) =>
+                    String(category.tenant_outlet_id || "") ===
+                    String(data.tenant_outlet_id || "")
+            ),
+        [categories, data.tenant_outlet_id]
+    );
 
     const setSelectedCategoryHandler = (value) => {
         setSelectedCategory(value);
         setData("category_id", value?.id || "");
     };
+
+    useEffect(() => {
+        if (!data.category_id) {
+            setSelectedCategory(null);
+            return;
+        }
+
+        const matchedCategory =
+            availableCategories.find(
+                (category) => String(category.id) === String(data.category_id)
+            ) || null;
+
+        setSelectedCategory(matchedCategory);
+
+        if (!matchedCategory) {
+            setData("category_id", "");
+        }
+    }, [availableCategories, data.category_id, setData]);
 
     const handleImageChange = (e) => {
         const file = e.target.files[0];
@@ -168,29 +202,19 @@ export default function Create({ categories, tenantOutlets = [] }) {
                             </h3>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div className="md:col-span-2">
-                                    <InputSelect
-                                        label="Kategori"
-                                        data={categories}
-                                        selected={selectedCategory}
-                                        setSelected={setSelectedCategoryHandler}
-                                        placeholder="Pilih kategori"
-                                        errors={errors.category_id}
-                                        searchable={true}
-                                        displayKey="name"
-                                    />
-                                </div>
-                                <div className="md:col-span-2">
                                     <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
                                         Tenant Outlet
                                     </label>
                                     <select
                                         value={data.tenant_outlet_id}
-                                        onChange={(e) =>
-                                            setData("tenant_outlet_id", e.target.value)
-                                        }
+                                        onChange={(e) => {
+                                            setData("tenant_outlet_id", e.target.value);
+                                            setData("category_id", "");
+                                            setSelectedCategory(null);
+                                        }}
                                         className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
                                     >
-                                        <option value="">Pilih tenant outlet</option>
+                                        <option value="">Global / Owner Outlet</option>
                                         {tenantOutlets.map((outlet) => (
                                             <option key={outlet.id} value={outlet.id}>
                                                 {outlet.code} - {outlet.name}
@@ -202,6 +226,32 @@ export default function Create({ categories, tenantOutlets = [] }) {
                                             {errors.tenant_outlet_id}
                                         </p>
                                     )}
+                                    <p className="mt-1 text-xs text-slate-500">
+                                        {selectedTenantOutlet
+                                            ? `Kategori yang tersedia akan dibatasi ke tenant ${selectedTenantOutlet.name}.`
+                                            : "Pilih global jika produk milik owner outlet dan memakai kategori global."}
+                                    </p>
+                                </div>
+                                <div className="md:col-span-2">
+                                    <InputSelect
+                                        label="Kategori"
+                                        data={availableCategories}
+                                        selected={selectedCategory}
+                                        setSelected={setSelectedCategoryHandler}
+                                        placeholder={
+                                            data.tenant_outlet_id
+                                                ? "Pilih kategori tenant"
+                                                : "Pilih kategori global"
+                                        }
+                                        errors={errors.category_id}
+                                        searchable={true}
+                                        displayKey="name"
+                                    />
+                                    <p className="mt-1 text-xs text-slate-500">
+                                        {availableCategories.length > 0
+                                            ? `${availableCategories.length} kategori tersedia untuk konteks ini.`
+                                            : "Belum ada kategori untuk tenant/konteks ini. Buat kategori terlebih dahulu."}
+                                    </p>
                                 </div>
                                 <Input
                                     type="text"

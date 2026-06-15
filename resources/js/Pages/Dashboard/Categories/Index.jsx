@@ -93,6 +93,13 @@ function CategoryCard({ category, canUpdate, canDelete }) {
                 <p className="line-clamp-2 text-sm text-slate-500 dark:text-slate-400">
                     {category.description || "-"}
                 </p>
+                <div className="mt-3">
+                    <span className="inline-flex items-center rounded-full bg-primary-50 px-2.5 py-1 text-xs font-medium text-primary-700 dark:bg-primary-950/40 dark:text-primary-300">
+                        {category.tenant_outlet
+                            ? `Tenant: ${category.tenant_outlet.name}`
+                            : "Global / Owner"}
+                    </span>
+                </div>
             </div>
         </div>
     );
@@ -100,6 +107,7 @@ function CategoryCard({ category, canUpdate, canDelete }) {
 
 const defaultFilters = {
     search: "",
+    tenant_outlet_id: "",
     has_image: "",
     sort: "latest",
     per_page: "10",
@@ -112,11 +120,18 @@ export default function Index({ categories, filters = {}, meta = {} }) {
     const { can } = useAuthorization();
     const [viewMode, setViewMode] = useState("grid");
     const [showFilters, setShowFilters] = useState(
-        Boolean(filters?.search || filters?.has_image || filters?.sort || filters?.per_page)
+        Boolean(
+            filters?.search ||
+                filters?.tenant_outlet_id ||
+                filters?.has_image ||
+                filters?.sort ||
+                filters?.per_page
+        )
     );
     const [filterData, setFilterData] = useState({
         ...defaultFilters,
         search: castFilterValue(filters?.search),
+        tenant_outlet_id: castFilterValue(filters?.tenant_outlet_id),
         has_image: castFilterValue(filters?.has_image),
         sort: castFilterValue(filters?.sort, "latest"),
         per_page: castFilterValue(filters?.per_page, "10"),
@@ -126,6 +141,7 @@ export default function Index({ categories, filters = {}, meta = {} }) {
         setFilterData({
             ...defaultFilters,
             search: castFilterValue(filters?.search),
+            tenant_outlet_id: castFilterValue(filters?.tenant_outlet_id),
             has_image: castFilterValue(filters?.has_image),
             sort: castFilterValue(filters?.sort, "latest"),
             per_page: castFilterValue(filters?.per_page, "10"),
@@ -140,6 +156,7 @@ export default function Index({ categories, filters = {}, meta = {} }) {
         () =>
             Boolean(
                 filterData.search ||
+                    filterData.tenant_outlet_id ||
                     filterData.has_image ||
                     filterData.sort !== "latest" ||
                     filterData.per_page !== "10"
@@ -192,6 +209,7 @@ export default function Index({ categories, filters = {}, meta = {} }) {
     const currentPage = Number(categories?.current_page ?? 1);
     const perPage = Number(categories?.per_page ?? 10);
     const perPageOptions = meta?.per_page_options ?? [10, 25, 50, 100];
+    const tenantOutlets = meta?.tenantOutlets ?? [];
 
     return (
         <>
@@ -238,7 +256,7 @@ export default function Index({ categories, filters = {}, meta = {} }) {
                 {showFilters && (
                     <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
                         <form onSubmit={applyFilters}>
-                            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
                                 <div>
                                     <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
                                         Cari
@@ -257,6 +275,27 @@ export default function Index({ categories, filters = {}, meta = {} }) {
                                             <IconSearch size={18} />
                                         </div>
                                     </div>
+                                </div>
+
+                                <div>
+                                    <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                        Tenant Outlet
+                                    </label>
+                                    <select
+                                        value={filterData.tenant_outlet_id}
+                                        onChange={(event) =>
+                                            handleChange("tenant_outlet_id", event.target.value)
+                                        }
+                                        className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-700 outline-none transition focus:border-primary-300 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                                    >
+                                        <option value="">Semua kategori</option>
+                                        <option value="global">Global / Owner</option>
+                                        {tenantOutlets.map((outlet) => (
+                                            <option key={outlet.id} value={String(outlet.id)}>
+                                                {outlet.code} - {outlet.name}
+                                            </option>
+                                        ))}
+                                    </select>
                                 </div>
 
                                 <div>
@@ -408,6 +447,7 @@ export default function Index({ categories, filters = {}, meta = {} }) {
                                     <tr>
                                         <Table.Th className="w-10">No</Table.Th>
                                         <Table.Th>Kategori</Table.Th>
+                                        <Table.Th>Tenant</Table.Th>
                                         <Table.Th>Deskripsi</Table.Th>
                                         <Table.Th className="w-40">Gambar</Table.Th>
                                         <Table.Th></Table.Th>
@@ -426,6 +466,11 @@ export default function Index({ categories, filters = {}, meta = {} }) {
                                                 <p className="text-sm font-medium text-slate-800 dark:text-slate-200">
                                                     {category.name}
                                                 </p>
+                                            </Table.Td>
+                                            <Table.Td>
+                                                <span className="inline-flex items-center rounded-full bg-primary-50 px-2.5 py-1 text-xs font-medium text-primary-700 dark:bg-primary-950/40 dark:text-primary-300">
+                                                    {category.tenant_outlet?.name || "Global / Owner"}
+                                                </span>
                                             </Table.Td>
                                             <Table.Td>
                                                 <p className="line-clamp-2 text-sm text-slate-500 dark:text-slate-400">

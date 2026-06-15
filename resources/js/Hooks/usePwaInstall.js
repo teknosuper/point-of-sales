@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
     detectPwaInstalled,
     persistPwaInstalled,
+    probePwaInstalled,
 } from "@/Utils/pwaInstallation";
 
 export default function usePwaInstall() {
@@ -10,6 +11,7 @@ export default function usePwaInstall() {
     const [isIos, setIsIos] = useState(false);
     const [isStandalone, setIsStandalone] = useState(false);
     const [isChromeLike, setIsChromeLike] = useState(false);
+    const [isCheckingInstallState, setIsCheckingInstallState] = useState(true);
     const isPwaEnabled =
         typeof window !== "undefined"
             ? Boolean(window.__PWA_CONFIG?.sw)
@@ -28,12 +30,24 @@ export default function usePwaInstall() {
             return undefined;
         }
 
-        const syncInstalledState = () => {
+        const syncInstalledState = async () => {
+            setIsCheckingInstallState(true);
             const standalone =
                 Boolean(
                     window.matchMedia?.("(display-mode: standalone)")?.matches
-                ) || window.navigator.standalone === true;
-            const installed = detectPwaInstalled();
+                ) ||
+                Boolean(
+                    window.matchMedia?.("(display-mode: window-controls-overlay)")?.matches
+                ) ||
+                Boolean(
+                    window.matchMedia?.("(display-mode: minimal-ui)")?.matches
+                ) ||
+                window.navigator.standalone === true;
+            let installed = detectPwaInstalled();
+
+            if (!installed) {
+                installed = await probePwaInstalled();
+            }
 
             setIsStandalone(standalone);
             setIsInstalled(installed);
@@ -41,6 +55,8 @@ export default function usePwaInstall() {
             if (installed) {
                 persistPwaInstalled();
             }
+
+            setIsCheckingInstallState(false);
         };
 
         const ua = window.navigator.userAgent || "";
@@ -57,9 +73,9 @@ export default function usePwaInstall() {
 
         const handleInstalled = () => {
             persistPwaInstalled();
-            syncInstalledState();
             setDeferredPrompt(null);
             setIsInstalled(true);
+            setIsStandalone(true);
         };
 
         syncInstalledState();
@@ -69,8 +85,15 @@ export default function usePwaInstall() {
             handleBeforeInstallPrompt
         );
         window.addEventListener("appinstalled", handleInstalled);
-        window.addEventListener("focus", syncInstalledState);
-        window.addEventListener("pageshow", syncInstalledState);
+        const handleFocus = () => {
+            syncInstalledState();
+        };
+        const handlePageShow = () => {
+            syncInstalledState();
+        };
+
+        window.addEventListener("focus", handleFocus);
+        window.addEventListener("pageshow", handlePageShow);
 
         return () => {
             window.removeEventListener(
@@ -78,8 +101,8 @@ export default function usePwaInstall() {
                 handleBeforeInstallPrompt
             );
             window.removeEventListener("appinstalled", handleInstalled);
-            window.removeEventListener("focus", syncInstalledState);
-            window.removeEventListener("pageshow", syncInstalledState);
+            window.removeEventListener("focus", handleFocus);
+            window.removeEventListener("pageshow", handlePageShow);
         };
     }, []);
 
@@ -136,6 +159,7 @@ export default function usePwaInstall() {
         canPromptInstall,
         installHelpText,
         isChromeLike,
+        isCheckingInstallState,
         isInstalled,
         isIos,
         pwaKind,

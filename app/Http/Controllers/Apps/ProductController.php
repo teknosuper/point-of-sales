@@ -18,6 +18,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 
 class ProductController extends Controller
@@ -186,7 +187,7 @@ class ProductController extends Controller
             ],
             'meta' => [
                 'per_page_options' => $allowedPerPage,
-                'categories' => Category::query()->orderBy('name')->get(['id', 'name']),
+                'categories' => $this->categoryOptionsQuery()->get(['id', 'name', 'tenant_outlet_id']),
                 'tenantOutlets' => $tenantOutlets,
                 'kitchenStations' => ($isKitchenWorkspace || $isTenantOutlet)
                     ? []
@@ -328,12 +329,12 @@ class ProductController extends Controller
         }
 
         // get categories
-        $categories = Category::all();
+        $categories = $this->categoryOptionsQuery()->get(['id', 'name', 'tenant_outlet_id']);
 
         // return inertia
         return Inertia::render('Dashboard/Products/Create', [
             'categories' => $categories,
-            'tenantOutlets' => Outlet::active()->ordered()->get(['id', 'name', 'code']),
+            'tenantOutlets' => Outlet::active()->ordered()->get(['id', 'name', 'code', 'outlet_type']),
         ]);
     }
 
@@ -373,6 +374,11 @@ class ProductController extends Controller
             $validated['barcode'] ?? null,
             $validated['title'] ?? null,
         );
+        $validated['tenant_outlet_id'] = $request->integer('tenant_outlet_id') ?: null;
+        $validated['category_id'] = $this->validateCategorySelection(
+            (int) $validated['category_id'],
+            $validated['tenant_outlet_id']
+        );
 
         $tenantHppPrice = $request->filled('tenant_hpp_price')
             ? (int) $validated['tenant_hpp_price']
@@ -398,7 +404,7 @@ class ProductController extends Controller
             'title' => $validated['title'],
             'description' => $validated['description'],
             'category_id' => $validated['category_id'],
-            'tenant_outlet_id' => $request->integer('tenant_outlet_id') ?: null,
+            'tenant_outlet_id' => $validated['tenant_outlet_id'],
             'tenant_hpp_price' => $tenantHppPrice,
             'supports_modifiers' => $request->boolean('supports_modifiers'),
             'buy_price' => $validated['buy_price'],
@@ -442,7 +448,7 @@ class ProductController extends Controller
         $canManageProductImage = $canManageCatalog || $canManageTenantBasicFields;
 
         // get categories
-        $categories = Category::all();
+        $categories = $this->categoryOptionsQuery()->get(['id', 'name', 'tenant_outlet_id']);
         $product->load(['outletStocks.outlet', 'modifierOptions', 'tenantOutlet:id,name,code']);
         $productPayload = $product->toArray();
 
@@ -480,7 +486,7 @@ class ProductController extends Controller
             'categories' => $categories,
             'tenantOutlets' => $request->user()?->isKitchenWorkspace()
                 ? []
-                : Outlet::active()->ordered()->get(['id', 'name', 'code']),
+                : Outlet::active()->ordered()->get(['id', 'name', 'code', 'outlet_type']),
             'outletStocks' => $outletStocks,
             'activePricingRules' => $this->pricingService->describeProductRules(
                 $product,
@@ -680,6 +686,14 @@ class ProductController extends Controller
                 ->all();
         }
 
+        $validated['tenant_outlet_id'] = $validated['tenant_outlet_id']
+            ? (int) $validated['tenant_outlet_id']
+            : null;
+        $validated['category_id'] = $this->validateCategorySelection(
+            (int) $validated['category_id'],
+            $validated['tenant_outlet_id']
+        );
+
         if (! $canManagePricing || ($this->isTenantOutletWorkspace($request) && ! $canManageCatalog)) {
             $validated['buy_price'] = ($canManagePricing || $canManageTenantSellPrice)
                 ? ($validated['buy_price'] ?? $product->buy_price)
@@ -801,6 +815,38 @@ class ProductController extends Controller
         }
 
         return $candidate;
+    }
+
+    private function categoryOptionsQuery()
+    {
+        return Category::query()
+            ->with('tenantOutlet:id,name,code')
+            ->orderByRaw('CASE WHEN tenant_outlet_id IS NULL THEN 0 ELSE 1 END')
+            ->orderBy('tenant_outlet_id')
+            ->orderBy('name');
+    }
+
+    private function validateCategorySelection(int $categoryId, ?int $tenantOutletId): int
+    {
+        $category = Category::query()->find($categoryId);
+
+        if (! $category) {
+            throw ValidationException::withMessages([
+                'category_id' => 'Kategori tidak ditemukan.',
+            ]);
+        }
+
+        $categoryTenantOutletId = $category->tenant_outlet_id ? (int) $category->tenant_outlet_id : null;
+
+        if ($categoryTenantOutletId !== $tenantOutletId) {
+            throw ValidationException::withMessages([
+                'category_id' => $tenantOutletId
+                    ? 'Kategori harus berasal dari tenant yang sama dengan produk.'
+                    : 'Produk global hanya boleh memakai kategori global.',
+            ]);
+        }
+
+        return (int) $category->id;
     }
 
     /**

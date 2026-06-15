@@ -19,12 +19,13 @@ const ALLOWED_IMAGE_TYPES = [
     "image/webp",
 ];
 
-export default function Create() {
+export default function Create({ tenantOutlets = [] }) {
     const { errors } = usePage().props;
 
     const { data, setData, post, processing } = useForm({
         name: "",
         description: "",
+        tenant_outlet_id: "",
         image: "",
     });
 
@@ -162,6 +163,30 @@ export default function Create() {
 
                             {/* Info */}
                             <div className="space-y-4">
+                                <div>
+                                    <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                        Tenant Outlet
+                                    </label>
+                                    <select
+                                        value={data.tenant_outlet_id}
+                                        onChange={(e) =>
+                                            setData("tenant_outlet_id", e.target.value)
+                                        }
+                                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                    >
+                                        <option value="">Global / Owner Outlet</option>
+                                        {tenantOutlets.map((outlet) => (
+                                            <option key={outlet.id} value={outlet.id}>
+                                                {outlet.code} - {outlet.name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    {errors.tenant_outlet_id && (
+                                        <p className="mt-1 text-xs text-red-500">
+                                            {errors.tenant_outlet_id}
+                                        </p>
+                                    )}
+                                </div>
                                 <Input
                                     type="text"
                                     label="Nama Kategori"

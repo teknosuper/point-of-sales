@@ -29,7 +29,10 @@ export default function PWASetup({
     buildInfo = null,
 }) {
     const {
+        appLabel,
         canPromptInstall,
+        isCheckingInstallState,
+        isChromeLike,
         installHelpText,
         isInstalled,
         isIos,
@@ -48,6 +51,7 @@ export default function PWASetup({
     const [isWarmingAllProfiles, setIsWarmingAllProfiles] = useState(false);
     const [isCheckingAppUpdate, setIsCheckingAppUpdate] = useState(false);
     const [isResettingAppCache, setIsResettingAppCache] = useState(false);
+    const [showUninstallGuide, setShowUninstallGuide] = useState(false);
     const [offlineShellStatus, setOfflineShellStatus] = useState(() => {
         if (typeof window === "undefined") {
             return {};
@@ -149,6 +153,14 @@ export default function PWASetup({
     }, []);
 
     const handleInstallAction = async () => {
+        if (isCheckingInstallState) {
+            toast("Sedang memeriksa status instalasi perangkat ini.", {
+                duration: 2500,
+                icon: "ℹ️",
+            });
+            return;
+        }
+
         if (canPromptInstall) {
             await promptInstall();
             return;
@@ -159,8 +171,40 @@ export default function PWASetup({
                 duration: 4500,
                 icon: "📲",
             });
+            return;
         }
+
+        if (isChromeLike) {
+            toast("Buka menu browser lalu pilih Install app atau Tambahkan ke layar utama.", {
+                duration: 4500,
+                icon: "⬇️",
+            });
+            return;
+        }
+
+        toast("Browser ini belum menyediakan dialog install otomatis untuk halaman ini.", {
+            duration: 4000,
+            icon: "ℹ️",
+        });
     };
+
+    const uninstallGuide = isIos
+        ? [
+              "Tekan lama ikon aplikasi di layar utama iPhone/iPad.",
+              "Pilih Hapus App atau Remove App.",
+              "Konfirmasi penghapusan dari layar utama.",
+          ]
+        : isChromeLike
+          ? [
+                "Buka aplikasi GTC KASIR yang sudah terpasang dari desktop atau launcher.",
+                "Buka menu aplikasi atau klik ikon info di title bar/window controls browser.",
+                "Pilih Uninstall GTC KASIR atau Remove from device.",
+            ]
+          : [
+                "Buka daftar aplikasi terpasang di perangkat Anda.",
+                "Cari GTC KASIR.",
+                "Pilih opsi hapus atau uninstall aplikasi.",
+            ];
 
     const diagnosticItems = [
         {
@@ -492,22 +536,34 @@ export default function PWASetup({
                         </p>
 
                         <div className="mt-5 flex flex-wrap gap-3">
-                            {!isInstalled && !isStandalone && (
+                            {!isInstalled && !isStandalone ? (
                                 <button
                                     type="button"
                                     onClick={handleInstallAction}
+                                    disabled={isCheckingInstallState}
                                     className="inline-flex items-center gap-2 rounded-2xl bg-primary-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-primary-700"
-                                    >
-                                        <IconDownload size={18} />
-                                        {canPromptInstall
+                                >
+                                    <IconDownload size={18} />
+                                    {isCheckingInstallState
+                                        ? "Memeriksa Status..."
+                                        : canPromptInstall
                                         ? "Instal Sekarang"
                                         : isIos
                                         ? "Lihat Cara Install iPhone/iPad"
                                         : "Cek Cara Install Perangkat Ini"}
                                 </button>
-                            )}
-                            {(isInstalled || isStandalone) && (
+                            ) : (
                                 <>
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowUninstallGuide((value) => !value)}
+                                        className="inline-flex items-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-3 text-sm font-semibold text-amber-700 transition hover:bg-amber-100 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200"
+                                    >
+                                        <IconTrash size={18} />
+                                        {showUninstallGuide
+                                            ? "Sembunyikan Cara Uninstall"
+                                            : "Lihat Cara Uninstall"}
+                                    </button>
                                     <button
                                         type="button"
                                         onClick={handleAppUpdate}
@@ -540,6 +596,22 @@ export default function PWASetup({
                                 Buka POS Kasir
                             </Link>
                         </div>
+
+                        {(isInstalled || isStandalone) && showUninstallGuide && (
+                            <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/40 dark:bg-amber-950/20">
+                                <p className="text-sm font-semibold text-amber-800 dark:text-amber-100">
+                                    Cara uninstall {appLabel}
+                                </p>
+                                <p className="mt-1 text-sm text-amber-700 dark:text-amber-200">
+                                    Browser belum menyediakan API uninstall langsung dari halaman web, jadi penghapusan tetap dilakukan dari perangkat atau jendela aplikasi yang sudah terpasang.
+                                </p>
+                                <ol className="mt-3 list-decimal space-y-1 pl-5 text-sm text-amber-700 dark:text-amber-200">
+                                    {uninstallGuide.map((step) => (
+                                        <li key={step}>{step}</li>
+                                    ))}
+                                </ol>
+                            </div>
+                        )}
                     </div>
 
                     <div className="rounded-3xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
@@ -574,7 +646,11 @@ export default function PWASetup({
                                     Prompt browser siap
                                 </span>
                                 <span className="font-semibold text-slate-900 dark:text-white">
-                                    {canPromptInstall ? "Ya" : "Belum"}
+                                    {isCheckingInstallState
+                                        ? "Memeriksa..."
+                                        : canPromptInstall
+                                          ? "Ya"
+                                          : "Belum"}
                                 </span>
                             </div>
                             <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3 dark:bg-slate-950/40">
@@ -582,7 +658,11 @@ export default function PWASetup({
                                     Tombol install perlu tampil
                                 </span>
                                 <span className="font-semibold text-slate-900 dark:text-white">
-                                    {shouldShowInstallEntry ? "Ya" : "Tidak"}
+                                    {isCheckingInstallState
+                                        ? "Memeriksa..."
+                                        : shouldShowInstallEntry
+                                          ? "Ya"
+                                          : "Tidak"}
                                 </span>
                             </div>
                             <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3 dark:bg-slate-950/40">
@@ -609,8 +689,9 @@ export default function PWASetup({
                                 </p>
                             </div>
                             <div className="rounded-2xl bg-slate-50 px-4 py-3 text-xs leading-6 text-slate-500 dark:bg-slate-950/40 dark:text-slate-400">
-                                Browser tidak menyediakan tombol web untuk uninstall atau install ulang aplikasi native. Untuk itu saya sediakan
-                                ` Reset Cache Aplikasi ` agar shell dan cache bisa dibangun ulang dengan aman.
+                                Install bisa dipicu dari halaman ini jika browser mengirim dialog install. Uninstall tetap dikelola oleh perangkat atau jendela aplikasi terpasang. Gunakan
+                                {" "}`Reset Cache Aplikasi`{" "}
+                                jika Anda hanya ingin membangun ulang shell dan cache tanpa melepas aplikasi dari perangkat.
                             </div>
                         </div>
                     </div>

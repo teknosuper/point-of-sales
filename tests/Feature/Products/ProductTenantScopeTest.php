@@ -114,6 +114,43 @@ class ProductTenantScopeTest extends TestCase
         $this->assertNull($product->tenant_discount_price);
     }
 
+    public function test_product_store_requires_category_from_same_tenant_context(): void
+    {
+        $user = User::factory()->create();
+        $user->givePermissionTo(['products-create']);
+
+        $tenantOutlet = Outlet::create([
+            'code' => 'TNT-STORE',
+            'slug' => 'tenant-store',
+            'name' => 'Tenant Store',
+            'outlet_type' => 'tenant',
+            'is_active' => true,
+            'is_default' => false,
+        ]);
+
+        $globalCategory = Category::create([
+            'name' => 'Kategori Global',
+            'description' => 'Kategori global',
+            'image' => 'global-category.png',
+        ]);
+
+        $this->actingAs($user)
+            ->from(route('products.create'))
+            ->post(route('products.store'), [
+                'image' => \Illuminate\Http\UploadedFile::fake()->image('product.png'),
+                'barcode' => 'BARCODE-STORE-001',
+                'sku' => 'SKU-STORE-001',
+                'title' => 'Produk Tenant Baru',
+                'description' => 'Produk tenant baru',
+                'category_id' => $globalCategory->id,
+                'tenant_outlet_id' => $tenantOutlet->id,
+                'buy_price' => 20000,
+                'sell_price' => 28000,
+                'stock' => 5,
+            ])
+            ->assertSessionHasErrors(['category_id']);
+    }
+
     /**
      * @return array{0: User, 1: Outlet, 2: Product}
      */
@@ -147,6 +184,7 @@ class ProductTenantScopeTest extends TestCase
             'name' => 'Kategori Tenant '.Str::random(4),
             'description' => 'Kategori Tenant',
             'image' => 'tenant-category.png',
+            'tenant_outlet_id' => $outlet->id,
         ]);
 
         $product = Product::create([

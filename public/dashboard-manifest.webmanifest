@@ -10,6 +10,13 @@
   "background_color": "#f8fafc",
   "theme_color": "#4f46e5",
   "categories": ["business", "productivity", "finance"],
+  "related_applications": [
+    {
+      "platform": "webapp",
+      "url": "/dashboard-manifest.webmanifest",
+      "id": "/dashboard"
+    }
+  ],
   "icons": [
     {
       "src": "/media/gtclogo.png",

@@ -10,6 +10,13 @@
   "background_color": "#f8fafc",
   "theme_color": "#0f172a",
   "categories": ["food", "shopping", "business"],
+  "related_applications": [
+    {
+      "platform": "webapp",
+      "url": "/menu-manifest.webmanifest",
+      "id": "/daftarmenu"
+    }
+  ],
   "icons": [
     {
       "src": "/menu-pwa-icon.svg",

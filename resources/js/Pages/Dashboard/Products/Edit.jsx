@@ -236,14 +236,40 @@ export default function Edit({
     const pricingRules = activePricingRules?.rules || [];
     const activeRulesCount = Number(activePricingRules?.active_rules_count || 0);
     const currentPricingRule = activePricingRules?.current_price?.pricing_rule || null;
+    const selectedTenantOutlet = useMemo(
+        () =>
+            tenantOutlets.find(
+                (outlet) => String(outlet.id) === String(data.tenant_outlet_id)
+            ) || null,
+        [data.tenant_outlet_id, tenantOutlets]
+    );
+    const availableCategories = useMemo(
+        () =>
+            categories.filter(
+                (category) =>
+                    String(category.tenant_outlet_id || "") ===
+                    String(data.tenant_outlet_id || "")
+            ),
+        [categories, data.tenant_outlet_id]
+    );
 
     useEffect(() => {
-        if (product.category_id) {
-            setSelectedCategory(
-                categories.find((cat) => cat.id === product.category_id)
-            );
+        if (!data.category_id) {
+            setSelectedCategory(null);
+            return;
         }
-    }, [categories, product.category_id]);
+
+        const matchedCategory =
+            availableCategories.find(
+                (category) => String(category.id) === String(data.category_id)
+            ) || null;
+
+        setSelectedCategory(matchedCategory);
+
+        if (!matchedCategory) {
+            setData("category_id", "");
+        }
+    }, [availableCategories, data.category_id, setData]);
 
     const modifierSummary = useMemo(
         () =>
@@ -413,41 +439,20 @@ export default function Edit({
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div className="md:col-span-2">
                                     {canManageCatalog ? (
-                                        <InputSelect
-                                            label="Kategori"
-                                            data={categories}
-                                            selected={selectedCategory}
-                                            setSelected={setSelectedCategoryHandler}
-                                            placeholder="Pilih kategori"
-                                            errors={errors.category_id}
-                                            searchable={true}
-                                            displayKey="name"
-                                        />
-                                    ) : (
-                                        <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800">
-                                            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                                                Kategori
-                                            </p>
-                                            <p className="mt-1 text-sm font-medium text-slate-900 dark:text-slate-100">
-                                                {selectedCategory?.name || "-"}
-                                            </p>
-                                        </div>
-                                    )}
-                                </div>
-                                <div className="md:col-span-2">
-                                    {canManageCatalog ? (
                                         <>
                                             <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
                                                 Tenant Outlet
                                             </label>
                                             <select
                                                 value={data.tenant_outlet_id}
-                                                onChange={(e) =>
-                                                    setData("tenant_outlet_id", e.target.value)
-                                                }
+                                                onChange={(e) => {
+                                                    setData("tenant_outlet_id", e.target.value);
+                                                    setData("category_id", "");
+                                                    setSelectedCategory(null);
+                                                }}
                                                 className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
                                             >
-                                                <option value="">Pilih tenant outlet</option>
+                                                <option value="">Global / Owner Outlet</option>
                                                 {tenantOutlets.map((outlet) => (
                                                     <option key={outlet.id} value={outlet.id}>
                                                         {outlet.code} - {outlet.name}
@@ -459,6 +464,11 @@ export default function Edit({
                                                     {errors.tenant_outlet_id}
                                                 </p>
                                             )}
+                                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                {selectedTenantOutlet
+                                                    ? `Kategori yang tampil dibatasi ke tenant ${selectedTenantOutlet.name}.`
+                                                    : "Produk global hanya dapat memakai kategori global."}
+                                            </p>
                                         </>
                                     ) : (
                                         <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800">
@@ -471,6 +481,40 @@ export default function Edit({
                                                 )?.name ||
                                                     product.tenant_outlet?.name ||
                                                     "Global"}
+                                            </p>
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="md:col-span-2">
+                                    {canManageCatalog ? (
+                                        <>
+                                            <InputSelect
+                                                label="Kategori"
+                                                data={availableCategories}
+                                                selected={selectedCategory}
+                                                setSelected={setSelectedCategoryHandler}
+                                                placeholder={
+                                                    data.tenant_outlet_id
+                                                        ? "Pilih kategori tenant"
+                                                        : "Pilih kategori global"
+                                                }
+                                                errors={errors.category_id}
+                                                searchable={true}
+                                                displayKey="name"
+                                            />
+                                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                {availableCategories.length > 0
+                                                    ? `${availableCategories.length} kategori tersedia untuk konteks ini.`
+                                                    : "Belum ada kategori yang cocok untuk tenant/konteks ini."}
+                                            </p>
+                                        </>
+                                    ) : (
+                                        <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800">
+                                            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                                Kategori
+                                            </p>
+                                            <p className="mt-1 text-sm font-medium text-slate-900 dark:text-slate-100">
+                                                {selectedCategory?.name || product.category?.name || "-"}
                                             </p>
                                         </div>
                                     )}

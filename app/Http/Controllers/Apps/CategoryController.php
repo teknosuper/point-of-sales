@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Apps;
 
 use App\Http\Controllers\Controller;
 use App\Models\Category;
+use App\Models\Outlet;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
@@ -21,6 +22,7 @@ class CategoryController extends Controller
     {
         $filters = [
             'search' => trim((string) $request->input('search', '')),
+            'tenant_outlet_id' => $request->input('tenant_outlet_id', ''),
             'has_image' => $request->input('has_image', ''),
             'sort' => $request->input('sort', 'latest'),
             'per_page' => (int) $request->input('per_page', 10),
@@ -40,6 +42,13 @@ class CategoryController extends Controller
                         ->where('name', 'like', '%'.$search.'%')
                         ->orWhere('description', 'like', '%'.$search.'%');
                 });
+            })
+            ->when($filters['tenant_outlet_id'] !== '', function ($query) use ($filters) {
+                if ($filters['tenant_outlet_id'] === 'global') {
+                    return $query->whereNull('tenant_outlet_id');
+                }
+
+                return $query->where('tenant_outlet_id', $filters['tenant_outlet_id']);
             })
             ->when($filters['has_image'] !== '', function ($query) use ($filters) {
                 if ($filters['has_image'] === 'yes') {
@@ -61,6 +70,7 @@ class CategoryController extends Controller
         };
 
         $categories = $categories
+            ->with('tenantOutlet:id,name,code')
             ->paginate($filters['per_page'])
             ->withQueryString();
 
@@ -69,6 +79,7 @@ class CategoryController extends Controller
             'filters' => $filters,
             'meta' => [
                 'per_page_options' => $allowedPerPage,
+                'tenantOutlets' => Outlet::active()->ordered()->get(['id', 'name', 'code', 'outlet_type']),
             ],
         ]);
     }
@@ -80,7 +91,9 @@ class CategoryController extends Controller
      */
     public function create()
     {
-        return Inertia::render('Dashboard/Categories/Create');
+        return Inertia::render('Dashboard/Categories/Create', [
+            'tenantOutlets' => Outlet::active()->ordered()->get(['id', 'name', 'code', 'outlet_type']),
+        ]);
     }
 
     /**
@@ -97,6 +110,7 @@ class CategoryController extends Controller
             'image' => ['required', 'image', 'mimes:jpeg,jpg,png,webp', 'max:2048'],
             'name' => ['required', 'string', 'max:255'],
             'description' => ['required', 'string'],
+            'tenant_outlet_id' => ['nullable', 'exists:outlets,id'],
         ], [
             'image.required' => 'Gambar kategori wajib dipilih.',
             'image.image' => 'File yang diunggah harus berupa gambar.',
@@ -113,6 +127,7 @@ class CategoryController extends Controller
             'image' => $image->hashName(),
             'name' => $validated['name'],
             'description' => $validated['description'],
+            'tenant_outlet_id' => $request->integer('tenant_outlet_id') ?: null,
         ]);
 
         return to_route('categories.index');
@@ -128,6 +143,7 @@ class CategoryController extends Controller
     {
         return Inertia::render('Dashboard/Categories/Edit', [
             'category' => $category,
+            'tenantOutlets' => Outlet::active()->ordered()->get(['id', 'name', 'code', 'outlet_type']),
         ]);
     }
 
@@ -143,6 +159,7 @@ class CategoryController extends Controller
             'image' => ['nullable', 'image', 'mimes:jpeg,jpg,png,webp', 'max:2048'],
             'name' => ['required', 'string', 'max:255'],
             'description' => ['required', 'string'],
+            'tenant_outlet_id' => ['nullable', 'exists:outlets,id'],
         ], [
             'image.image' => 'File yang diunggah harus berupa gambar.',
             'image.mimes' => 'Format gambar harus jpeg, jpg, png, atau webp.',
@@ -160,11 +177,13 @@ class CategoryController extends Controller
                 'image' => $image->hashName(),
                 'name' => $validated['name'],
                 'description' => $validated['description'],
+                'tenant_outlet_id' => $request->integer('tenant_outlet_id') ?: null,
             ]);
         } else {
             $category->update([
                 'name' => $validated['name'],
                 'description' => $validated['description'],
+                'tenant_outlet_id' => $request->integer('tenant_outlet_id') ?: null,
             ]);
         }
 

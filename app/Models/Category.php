@@ -14,6 +14,7 @@ class Category extends Model
 
     protected $casts = [
         'id' => 'integer',
+        'tenant_outlet_id' => 'integer',
     ];
 
     /**
@@ -22,7 +23,7 @@ class Category extends Model
      * @var array
      */
     protected $fillable = [
-        'image', 'name', 'description',
+        'image', 'name', 'description', 'tenant_outlet_id',
     ];
 
     /**
@@ -38,6 +39,11 @@ class Category extends Model
     public function pricingRules()
     {
         return $this->hasMany(PricingRule::class);
+    }
+
+    public function tenantOutlet()
+    {
+        return $this->belongsTo(Outlet::class, 'tenant_outlet_id');
     }
 
     /**
