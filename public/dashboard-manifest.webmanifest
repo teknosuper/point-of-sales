@@ -1,0 +1,44 @@
+{
+  "id": "/dashboard",
+  "name": "GTC KASIR",
+  "short_name": "GTC KASIR",
+  "description": "Point of sale, kitchen queue, dan operasional outlet berbasis web yang bisa di-install.",
+  "start_url": "/dashboard",
+  "scope": "/dashboard/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#f8fafc",
+  "theme_color": "#4f46e5",
+  "categories": ["business", "productivity", "finance"],
+  "icons": [
+    {
+      "src": "/media/gtclogo.png",
+      "sizes": "any",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/media/gtclogo.png",
+      "sizes": "any",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Dashboard",
+      "short_name": "Dashboard",
+      "url": "/dashboard"
+    },
+    {
+      "name": "Kasir",
+      "short_name": "Kasir",
+      "url": "/dashboard/transactions"
+    },
+    {
+      "name": "Kitchen Queue",
+      "short_name": "Kitchen",
+      "url": "/dashboard/kitchen"
+    }
+  ]
+}

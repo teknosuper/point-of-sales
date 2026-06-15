@@ -7,6 +7,8 @@ use App\Models\Outlet;
 use App\Models\PricingRule;
 use App\Models\Product;
 use App\Models\ProductOutletStock;
+use App\Models\TransactionDetail;
+use App\Services\ProductCatalogService;
 use App\Services\PricingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
@@ -14,7 +16,8 @@ use Illuminate\Support\Facades\Schema;
 class PublicMenuController extends Controller
 {
     public function __construct(
-        private readonly PricingService $pricingService
+        private readonly PricingService $pricingService,
+        private readonly ProductCatalogService $productCatalogService,
     ) {}
 
     public function index(Request $request)
@@ -76,6 +79,7 @@ class PublicMenuController extends Controller
             ->with([
                 'category:id,name,description,image',
                 'tenantOutlet:id,code,slug,name',
+                'modifierOptions',
             ])
             ->select([
                 'id', 'image', 'barcode', 'sku', 'title', 'description',
@@ -108,39 +112,29 @@ class PublicMenuController extends Controller
             return $p;
         })->values();
 
-        $pricing = $this->pricingService->previewProducts($products, outletId: $outletId);
+        $soldQtyByProduct = TransactionDetail::query()
+            ->selectRaw('product_id, SUM(qty) as sold_qty')
+            ->whereNotNull('product_id')
+            ->when(
+                Schema::hasColumn('transaction_details', 'is_promo_reward'),
+                fn ($builder) => $builder->where('is_promo_reward', false)
+            )
+            ->whereHas('transaction', fn ($builder) => $builder
+                ->when($outletId, fn ($query) => $query->where('outlet_id', $outletId)))
+            ->groupBy('product_id')
+            ->pluck('sold_qty', 'product_id');
 
-        $mapped = $products->map(function (Product $p) use ($pricing) {
-            $preview = $pricing->get($p->id);
-            $rule = $preview['pricing_rule'] ?? null;
-
-            return [
-                'id' => $p->id,
-                'title' => $p->title,
-                'description' => $p->description,
-                'image' => $p->image,
-                'barcode' => $p->barcode,
-                'sku' => $p->sku,
-                'sell_price' => (int) $p->sell_price,
-                'buy_price' => (int) $p->buy_price,
-                'stock' => (int) $p->stock,
-                'effective_price' => (int) ($preview['effective_unit_price'] ?? $p->sell_price),
-                'promo_discount_total' => (int) ($preview['line_discount_total'] ?? 0),
-                'supports_modifiers' => (bool) $p->supports_modifiers,
-                'category' => $p->category ? ['id' => $p->category->id, 'name' => $p->category->name] : null,
-                'tenant_outlet' => $p->tenantOutlet ? ['id' => $p->tenantOutlet->id, 'code' => $p->tenantOutlet->code, 'name' => $p->tenantOutlet->name] : null,
-                'pricing_badge' => $rule ? [
-                    'id' => $rule['id'],
-                    'name' => $rule['name'],
-                    'kind' => $rule['kind'],
-                    'label' => $rule['label'],
-                    'detail' => $rule['detail'] ?? null,
-                    'base_price' => (int) ($preview['base_unit_price'] ?? $p->sell_price),
-                    'promo_price' => $rule['price_context'] ?? false ? (int) ($preview['effective_unit_price'] ?? $p->sell_price) : null,
-                ] : null,
-                'created_at' => optional($p->created_at)->toISOString(),
-            ];
-        })->values();
+        $mapped = $this->productCatalogService
+            ->mapProductsForPosGrid($products, null, $outletId, [
+                'soldQtyByProduct' => $soldQtyByProduct,
+            ])
+            ->map(fn (array $product) => [
+                ...$product,
+                'created_at' => optional(
+                    $products->firstWhere('id', $product['id'])?->created_at
+                )->toISOString(),
+            ])
+            ->values();
 
         if ($request->boolean('promo_only')) {
             $mapped = $mapped->filter(fn (array $p) => $p['pricing_badge'] !== null)->values();

@@ -1,12 +1,11 @@
 import React, { useState } from 'react'
-import { Listbox } from '@headlessui/react'
 import {
     IconChevronDown,
+    IconChevronUp,
     IconCircle,
     IconCircleFilled,
     IconFilterOff,
     IconSearch,
-    IconSelector,
     IconX,
 } from '@/Utils/icons'
 import { decoratePermission } from "@/Utils/permissionPresentation";
@@ -77,6 +76,17 @@ export default function ListBox({ selected, data, setSelected, label, errors, pr
     };
 
     const handleClearAll = () => setSelected([]);
+    const togglePermission = (item) => {
+        const exists = selected.some((selectedItem) => selectedItem.id === item.id);
+
+        if (exists) {
+            setSelected(selected.filter((selectedItem) => selectedItem.id !== item.id));
+            return;
+        }
+
+        setSelected([...selected, item]);
+    };
+
     const applyPreset = (permissionNames = []) => {
         const presetItems = decoratedItems.filter((item) =>
             permissionNames.includes(item.name)
@@ -94,7 +104,7 @@ export default function ListBox({ selected, data, setSelected, label, errors, pr
     };
 
     return (
-        <div className='flex flex-col gap-2'>
+        <div className='relative flex flex-col gap-2'>
             <label className='text-gray-600 text-sm'>{label}</label>
             {presets.length > 0 && (
                 <div className='rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-100'>
@@ -117,13 +127,21 @@ export default function ListBox({ selected, data, setSelected, label, errors, pr
                     </div>
                 </div>
             )}
-            <Listbox value={selected} onChange={setSelected} multiple by="id">
-                <Listbox.Button className={'w-full px-3 py-1.5 border text-sm rounded-md focus:outline-none focus:ring-0 flex justify-between items-center gap-8 bg-white text-gray-700 focus:border-gray-200 border-gray-200 dark:bg-gray-900 dark:text-gray-300 dark:focus:border-gray-700 dark:border-gray-800'}>
+            <button
+                type='button'
+                onClick={() => setShowPermissionLibrary((value) => !value)}
+                className={'w-full px-3 py-1.5 border text-sm rounded-md focus:outline-none focus:ring-0 flex justify-between items-center gap-8 bg-white text-gray-700 focus:border-gray-200 border-gray-200 dark:bg-gray-900 dark:text-gray-300 dark:focus:border-gray-700 dark:border-gray-800'}
+            >
                     {preview}
-                    <IconChevronDown size={20} strokeWidth={1.5} />
-                </Listbox.Button>
-                <Listbox.Options className={'max-h-[55vh] overflow-y-auto overscroll-contain rounded-lg border bg-gray-100 dark:border-gray-900 dark:bg-gray-950'}>
-                    <div className='sticky top-0 z-10 space-y-3 border-b border-gray-200 bg-gray-100 p-4 dark:border-gray-900 dark:bg-gray-950'>
+                    {showPermissionLibrary ? (
+                        <IconChevronUp size={20} strokeWidth={1.5} />
+                    ) : (
+                        <IconChevronDown size={20} strokeWidth={1.5} />
+                    )}
+            </button>
+            {showPermissionLibrary ? (
+                <div className='relative z-30 mt-2 rounded-lg border bg-gray-100 shadow-xl dark:border-gray-900 dark:bg-gray-950'>
+                    <div className='space-y-3 border-b border-gray-200 p-4 dark:border-gray-900'>
                         <div className='flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300'>
                             <div>
                                 <p className='font-semibold text-gray-700 dark:text-gray-200'>Izin detail</p>
@@ -131,14 +149,12 @@ export default function ListBox({ selected, data, setSelected, label, errors, pr
                             </div>
                             <button
                                 type='button'
-                                onClick={() => setShowPermissionLibrary((value) => !value)}
+                                onClick={() => setShowPermissionLibrary(false)}
                                 className='rounded-full border border-gray-200 px-3 py-1 font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800'
                             >
-                                {showPermissionLibrary ? 'Sembunyikan' : 'Buka'}
+                                Sembunyikan
                             </button>
                         </div>
-                        {showPermissionLibrary ? (
-                        <>
                         <div className='grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_auto_auto]'>
                             <div className='relative'>
                                 <input
@@ -157,7 +173,6 @@ export default function ListBox({ selected, data, setSelected, label, errors, pr
                                 onClick={handleSelectAllVisible}
                                 className='inline-flex items-center justify-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700 hover:bg-emerald-100 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-300'
                             >
-                                <IconSelector size={14} />
                                 {allVisibleSelected ? 'Batalkan Terlihat' : 'Pilih Terlihat'}
                             </button>
                             <button
@@ -212,11 +227,9 @@ export default function ListBox({ selected, data, setSelected, label, errors, pr
                         <div className='text-xs text-gray-500 dark:text-gray-400'>
                             Menampilkan {filteredItems.length} dari {decoratedItems.length} izin • terpilih {selected.length}
                         </div>
-                        </>
-                        ) : null}
                     </div>
-                    {showPermissionLibrary ? (
-                    <div className='space-y-4 p-4'>
+                    <div className='max-h-[32vh] overflow-y-auto overscroll-contain p-4 sm:max-h-[38vh]'>
+                    <div className='space-y-4'>
                         {groupedSections.map((section) => (
                             <div key={section.key} className='space-y-2'>
                                 <div className='flex items-center justify-between gap-3'>
@@ -230,37 +243,34 @@ export default function ListBox({ selected, data, setSelected, label, errors, pr
                                 <div className='grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3'>
                                     {section.items.map((item) => {
                                         const decorated = item;
+                                        const isSelected = selectedIds.has(item.id);
 
                                         return (
-                                        <Listbox.Option key={item.id} value={item}>
-                                            {({ selected }) => (
-                                                <div
-                                                    className='text-sm cursor-pointer px-3 py-1.5 rounded-lg flex items-start gap-2 bg-white text-gray-700 hover:bg-gray-200 border dark:bg-gray-900 dark:border-gray-800 dark:text-gray-400 dark:hover:bg-gray-800 '>
-                                                    {selected ? <IconCircleFilled size={15} strokeWidth={1.5} className='text-teal-500' /> : <IconCircle size={15} strokeWidth={1.5} />}
+                                                <button
+                                                    key={item.id}
+                                                    type='button'
+                                                    onClick={() => togglePermission(item)}
+                                                    className='text-sm cursor-pointer px-3 py-1.5 rounded-lg flex items-start gap-2 bg-white text-left text-gray-700 hover:bg-gray-200 border dark:bg-gray-900 dark:border-gray-800 dark:text-gray-400 dark:hover:bg-gray-800 '
+                                                >
+                                                    {isSelected ? <IconCircleFilled size={15} strokeWidth={1.5} className='text-teal-500' /> : <IconCircle size={15} strokeWidth={1.5} />}
                                                     <div className='flex flex-col'>
                                                         <span>{decorated.label}</span>
                                                         <span className='text-xs text-gray-400'>{decorated.name}</span>
                                                     </div>
-                                                </div>
-                                            )}
-                                        </Listbox.Option>
-                                    )})}
+                                                </button>
+                                            )})}
                                 </div>
                             </div>
                         ))}
                     </div>
-                    ) : (
-                        <div className='m-4 rounded-lg border border-dashed border-gray-300 px-4 py-6 text-center text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400'>
-                            Paket akses dan ringkasan izin tetap aktif. Buka detail izin jika Anda ingin memilih izin satu per satu.
-                        </div>
-                    )}
+                    </div>
                     {showPermissionLibrary && filteredItems.length === 0 && (
                         <div className='m-4 rounded-lg border border-dashed border-gray-300 px-4 py-6 text-center text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400'>
                             Tidak ada izin yang cocok dengan filter saat ini.
                         </div>
                     )}
-                </Listbox.Options>
-            </Listbox>
+                </div>
+            ) : null}
             {errors && (
                 <small className='text-xs text-red-500'>{errors}</small>
             )}

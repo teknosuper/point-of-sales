@@ -2,6 +2,7 @@ import React, { useMemo, useState } from "react";
 import { Head, Link, router, usePage } from "@inertiajs/react";
 import Swal from "sweetalert2";
 import DashboardLayout from "@/Layouts/DashboardLayout";
+import ConfirmPasswordModal from "@/Components/Dashboard/ConfirmPasswordModal";
 import {
     IconArrowLeft,
     IconCashBanknote,
@@ -49,6 +50,7 @@ export default function Show({ cashierShift, canForceClose = false }) {
         cashierShift.actual_cash !== null ? String(cashierShift.actual_cash) : ""
     );
     const [closeNotes, setCloseNotes] = useState(cashierShift.close_notes || "");
+    const [isConfirmPasswordOpen, setIsConfirmPasswordOpen] = useState(false);
 
     const canCloseShift = useMemo(() => {
         if (cashierShift.status !== "open") return false;
@@ -101,6 +103,13 @@ export default function Show({ cashierShift, canForceClose = false }) {
             ? ((registeredTransactions / totalTransactions) * 100).toFixed(0)
             : "0";
 
+    const submitCloseShift = () => {
+        router.post(route("cashier-shifts.close", cashierShift.id), {
+            actual_cash: actualCashNumber,
+            close_notes: closeNotes,
+        });
+    };
+
     const handleCloseShift = async (event) => {
         event.preventDefault();
 
@@ -125,15 +134,23 @@ export default function Show({ cashierShift, canForceClose = false }) {
             return;
         }
 
-        router.post(route("cashier-shifts.close", cashierShift.id), {
-            actual_cash: actualCashNumber,
-            close_notes: closeNotes,
-        });
+        if (canForceCloseShift) {
+            setIsConfirmPasswordOpen(true);
+            return;
+        }
+
+        submitCloseShift();
     };
 
     return (
         <>
             <Head title={`Shift #${cashierShift.id}`} />
+            <ConfirmPasswordModal
+                show={isConfirmPasswordOpen}
+                onClose={() => setIsConfirmPasswordOpen(false)}
+                challengeLabel="force close shift kasir"
+                onConfirmed={submitCloseShift}
+            />
 
             <div className="space-y-6">
                 <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">

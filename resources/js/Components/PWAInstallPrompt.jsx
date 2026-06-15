@@ -10,24 +10,35 @@ import usePwaInstall from "@/Hooks/usePwaInstall";
 export default function PWAInstallPrompt() {
     const [dismissed, setDismissed] = useState(false);
     const {
+        appLabel,
+        isPwaEnabled,
         canPromptInstall,
         installHelpText,
+        pwaKind,
         promptInstall,
         shouldShowInstallEntry,
     } = usePwaInstall();
+    const dismissKey =
+        typeof window !== "undefined"
+            ? `pwaInstallPromptDismissed:${window.__PWA_CONFIG?.kind || "default"}`
+            : "pwaInstallPromptDismissed:default";
 
     useEffect(() => {
         if (typeof window === "undefined") {
             return;
         }
 
-        setDismissed(window.localStorage.getItem("pwaInstallPromptDismissed") === "true");
-    }, []);
+        setDismissed(window.localStorage.getItem(dismissKey) === "true");
+    }, [dismissKey]);
 
     const canShow = useMemo(() => {
         if (typeof window !== "undefined") {
             const pathname = window.location?.pathname || "";
-            if (/^\/order\/table\//.test(pathname) || pathname.startsWith("/dashboard/guides/pwa-setup")) {
+            if (
+                /^\/order\/table\//.test(pathname) ||
+                pathname.startsWith("/dashboard/guides/pwa-setup") ||
+                pathname === "/daftarmenu"
+            ) {
                 return false;
             }
         }
@@ -42,6 +53,10 @@ export default function PWAInstallPrompt() {
             return;
         }
 
+        if (pwaKind === "menu") {
+            return;
+        }
+
         window.location.href = route("guides.pwa-setup");
     };
 
@@ -49,7 +64,7 @@ export default function PWAInstallPrompt() {
         setDismissed(true);
 
         if (typeof window !== "undefined") {
-            window.localStorage.setItem("pwaInstallPromptDismissed", "true");
+            window.localStorage.setItem(dismissKey, "true");
         }
     };
 
@@ -72,7 +87,7 @@ export default function PWAInstallPrompt() {
                 </div>
                 <div className="min-w-0">
                     <p className="text-sm font-semibold text-slate-900 dark:text-white">
-                        Instal aplikasi GTC KASIR
+                        Instal aplikasi {appLabel}
                     </p>
                     <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                         {installHelpText}
@@ -87,7 +102,7 @@ export default function PWAInstallPrompt() {
                             <IconDownload size={16} />
                             Instal Aplikasi
                         </button>
-                    ) : (
+                    ) : isPwaEnabled && pwaKind !== "menu" && (
                         <button
                             type="button"
                             onClick={handleInstall}

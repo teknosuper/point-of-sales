@@ -1,0 +1,34 @@
+{
+  "id": "/daftarmenu",
+  "name": "GTC Menu",
+  "short_name": "GTC Menu",
+  "description": "Buku menu digital publik yang bisa di-install untuk akses cepat dan offline cache.",
+  "start_url": "/daftarmenu",
+  "scope": "/daftarmenu",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#f8fafc",
+  "theme_color": "#0f172a",
+  "categories": ["food", "shopping", "business"],
+  "icons": [
+    {
+      "src": "/menu-pwa-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/menu-pwa-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Daftar Menu",
+      "short_name": "Menu",
+      "url": "/daftarmenu"
+    }
+  ]
+}

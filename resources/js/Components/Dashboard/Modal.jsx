@@ -47,12 +47,12 @@ export default function Modal({ children, title, show = false, maxWidth = '2xl',
                     leaveTo="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
                 >
                     <Dialog.Panel
-                        className={`my-6 flex max-h-[calc(100vh-3rem)] w-full flex-col overflow-hidden rounded-lg bg-white shadow-xl transform transition-all dark:bg-gray-950 sm:mx-auto ${maxWidthClass}`}
+                        className={`my-6 flex max-h-[calc(100vh-3rem)] w-full flex-col overflow-visible rounded-lg bg-white shadow-xl transform transition-all dark:bg-gray-950 sm:mx-auto ${maxWidthClass}`}
                     >
                         <Dialog.Title className={'border-b px-4 py-2 font-semibold text-base flex items-center gap-2 text-gray-700 dark:border-gray-900 dark:text-gray-300'}>
                             {title}
                         </Dialog.Title>
-                        <div className='overflow-y-auto p-4'>
+                        <div className='overflow-y-auto overflow-x-visible p-4'>
                             {children}
                         </div>
                     </Dialog.Panel>

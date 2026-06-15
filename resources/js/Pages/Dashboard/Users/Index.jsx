@@ -201,6 +201,7 @@ export default function Index() {
                 filters.outlet_id
         )
     );
+    const [showUserTemplates, setShowUserTemplates] = useState(false);
 
     const setSelectedUser = (e) => {
         let items = data.selectedUser;
@@ -376,7 +377,7 @@ export default function Index() {
 
             {canCreateUsers ? (
                 <div className="mb-6 rounded-2xl border border-primary-200 bg-primary-50/60 p-4 dark:border-primary-900/40 dark:bg-primary-950/20">
-                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="flex items-start justify-between gap-3">
                         <div>
                             <p className="text-sm font-semibold text-slate-900 dark:text-white">
                                 Buat User dari Template Akses
@@ -384,13 +385,26 @@ export default function Index() {
                             <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
                                 Jika admin tidak ingin memilih role manual, mulai dari template yang paling dekat dengan tugas user.
                             </p>
-                        </div>
-                        <div className="rounded-2xl border border-white/80 bg-white px-4 py-3 text-sm text-slate-600 shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
-                            <p className="font-medium text-slate-800 dark:text-slate-100">
-                                Alur paling cepat
+                            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                                Alur cepat: pilih template, cek role, lalu simpan user.
                             </p>
-                            <p className="mt-1">Pilih template, cek role, lalu simpan user</p>
                         </div>
+                        <button
+                            type="button"
+                            onClick={() => setShowUserTemplates((value) => !value)}
+                            className="inline-flex items-center gap-2 rounded-xl border border-primary-200 bg-white px-3 py-2 text-sm font-semibold text-primary-700 transition-colors hover:bg-primary-50 dark:border-primary-900/40 dark:bg-slate-900 dark:text-primary-300 dark:hover:bg-slate-800"
+                        >
+                            {showUserTemplates ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                            {showUserTemplates ? "Sembunyikan" : "Buka"}
+                        </button>
+                    </div>
+                    {showUserTemplates ? (
+                    <>
+                    <div className="mt-4 rounded-2xl border border-white/80 bg-white px-4 py-3 text-sm text-slate-600 shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+                        <p className="font-medium text-slate-800 dark:text-slate-100">
+                            Alur paling cepat
+                        </p>
+                        <p className="mt-1">Pilih template, cek role, lalu simpan user</p>
                     </div>
                     <div className="mt-5 space-y-4">
                         {templateGroups.map((group) => (
@@ -470,6 +484,8 @@ export default function Index() {
                             Lihat Role Akses
                         </Link>
                     </div>
+                    </>
+                    ) : null}
                 </div>
             ) : null}
 

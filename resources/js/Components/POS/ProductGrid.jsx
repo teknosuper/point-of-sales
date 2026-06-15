@@ -20,9 +20,8 @@ const formatPrice = (value = 0) =>
         minimumFractionDigits: 0,
     });
 
-const FILTER_PANEL_STORAGE_KEY = "pos:product-grid:filter-panel-expanded";
-const VIEW_MODE_STORAGE_KEY = "pos:product-grid:view-mode";
-const SORT_MODE_STORAGE_KEY = "pos:product-grid:sort-mode";
+const storageKey = (namespace, suffix) =>
+    `${namespace || "pos:product-grid"}:${suffix}`;
 
 const promoExplanation = (badge) => {
     if (!badge) {
@@ -33,7 +32,14 @@ const promoExplanation = (badge) => {
 };
 
 // Single Product Card
-function ProductCard({ product, onAddToCart, isAdding, viewMode = "list" }) {
+function ProductCard({
+    product,
+    onAddToCart,
+    isAdding,
+    viewMode = "list",
+    interactive = true,
+    onProductSelect,
+}) {
     const hasStock = product.stock > 0;
     const lowStock = product.stock > 0 && product.stock <= 5;
     const promoBadge = product.pricing_badge;
@@ -55,21 +61,42 @@ function ProductCard({ product, onAddToCart, isAdding, viewMode = "list" }) {
     const showBadge = Boolean(promoBadge?.label);
     const promoDetail = promoExplanation(promoBadge);
     const isListMode = viewMode === "list";
+    const hasModifierOptions = Array.isArray(product?.modifier_options)
+        && product.modifier_options.length > 0;
     const secondaryLabel =
         product.tenant_outlet?.name || product.category?.name || "-";
+    const isSelectable =
+        interactive ||
+        (typeof onProductSelect === "function" && hasModifierOptions);
+    const CardTag = isSelectable ? "button" : "div";
+    const cardProps = isSelectable
+        ? {
+              onClick: () => {
+                  if (interactive && hasStock) {
+                      onAddToCart?.(product);
+                      return;
+                  }
+
+                  onProductSelect?.(product);
+              },
+              disabled: interactive ? !hasStock || isAdding : false,
+              type: "button",
+          }
+        : {};
 
     return (
-        <button
-            onClick={() => hasStock && onAddToCart(product)}
-            disabled={!hasStock || isAdding}
-                className={`
+        <CardTag
+            {...cardProps}
+            className={`
                 group relative flex bg-white dark:bg-slate-900
                 rounded-2xl border border-slate-200 dark:border-slate-800
                 transition-all duration-200
                 ${
-                    hasStock
+                    isSelectable && hasStock
                         ? "hover:border-primary-300 dark:hover:border-primary-700 hover:shadow-lg hover:-translate-y-0.5 active:scale-[0.98] cursor-pointer"
-                        : "opacity-60 cursor-not-allowed"
+                        : hasStock
+                          ? ""
+                          : "opacity-60"
                 } ${isListMode ? "w-full items-center gap-2 px-2.5 py-1.5 text-left" : "flex-col overflow-hidden rounded-xl"}
             `}
         >
@@ -118,7 +145,7 @@ function ProductCard({ product, onAddToCart, isAdding, viewMode = "list" }) {
                         </div>
                     )}
 
-                    {hasStock && (
+                    {interactive && hasStock && (
                         <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-primary-500/10 opacity-0 transition-opacity group-hover:opacity-100">
                             <div className="rounded-full bg-primary-500 px-4 py-2 text-sm font-semibold text-white shadow-lg">
                                 Pilih Menu
@@ -179,6 +206,11 @@ function ProductCard({ product, onAddToCart, isAdding, viewMode = "list" }) {
                                 {Number(product.stock || 0)} tersisa
                             </span>
                         </p>
+                        {!interactive && hasModifierOptions && (
+                            <p className="font-medium text-primary-600 dark:text-primary-300">
+                                Ada topping, klik untuk detail topping
+                            </p>
+                        )}
                     </div>
                 </div>
                 <div
@@ -209,7 +241,7 @@ function ProductCard({ product, onAddToCart, isAdding, viewMode = "list" }) {
                             {promoDetail}
                         </p>
                     )}
-                    {isListMode && hasStock && (
+                    {interactive && isListMode && hasStock && (
                         <span className="mt-1 inline-flex rounded-full bg-primary-50 px-2 py-0.5 text-[10px] font-semibold text-primary-600 dark:bg-primary-950/30 dark:text-primary-300">
                             Tambah
                         </span>
@@ -217,7 +249,7 @@ function ProductCard({ product, onAddToCart, isAdding, viewMode = "list" }) {
                 </div>
             </div>
 
-        </button>
+        </CardTag>
     );
 }
 
@@ -250,6 +282,7 @@ function SearchInput({
     placeholder,
     inputRef,
     onBarcodeDetected,
+    enableBarcodeScanner = true,
 }) {
     const [cameraOpen, setCameraOpen] = useState(false);
 
@@ -274,14 +307,16 @@ function SearchInput({
                 disabled={isSearching}
             />
             <div className="absolute right-3 top-1/2 flex -translate-y-1/2 items-center gap-1">
-                <button
-                    type="button"
-                    onClick={() => setCameraOpen(true)}
-                    className="rounded-lg p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-primary-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-primary-400"
-                    title="Scan dengan kamera"
-                >
-                    <IconCamera size={18} />
-                </button>
+                {enableBarcodeScanner && (
+                    <button
+                        type="button"
+                        onClick={() => setCameraOpen(true)}
+                        className="rounded-lg p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-primary-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-primary-400"
+                        title="Scan dengan kamera"
+                    >
+                        <IconCamera size={18} />
+                    </button>
+                )}
                 {isSearching ? (
                     <div className="w-5 h-5 border-2 border-primary-500 border-t-transparent rounded-full animate-spin" />
                 ) : (
@@ -290,7 +325,7 @@ function SearchInput({
             </div>
         </div>
         <CameraBarcodeScanner
-            open={cameraOpen}
+            open={enableBarcodeScanner && cameraOpen}
             onClose={() => setCameraOpen(false)}
             onDetected={(barcode) => {
                 onChange?.(barcode);
@@ -312,6 +347,20 @@ export default function ProductGrid({
     addingProductId,
     searchInputRef,
     onBarcodeDetected,
+    interactive = true,
+    searchPlaceholder,
+    emptyMessage,
+    enableBarcodeScanner = true,
+    storageNamespace = "pos:product-grid",
+    onProductSelect,
+    sortControlVariant = "select",
+    filterPanelCollapsible = true,
+    tenantSectionLabel = "Tenant",
+    allTenantLabel = "Semua Tenant",
+    gridLayoutClass = "grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-2",
+    listLayoutClass = "grid grid-cols-1 gap-3 md:grid-cols-2",
+    compactHeaderLayout = false,
+    showFilterSummary = true,
 }) {
     const [selectedTenantOutletId, setSelectedTenantOutletId] = useState(null);
     const [isFilterPanelExpanded, setIsFilterPanelExpanded] = useState(() => {
@@ -320,7 +369,7 @@ export default function ProductGrid({
         }
 
         const savedValue = window.localStorage.getItem(
-            FILTER_PANEL_STORAGE_KEY
+            storageKey(storageNamespace, "filter-panel-expanded")
         );
 
         return savedValue === null ? true : savedValue === "true";
@@ -331,7 +380,9 @@ export default function ProductGrid({
         }
 
         const savedValue =
-            window.localStorage.getItem(VIEW_MODE_STORAGE_KEY);
+            window.localStorage.getItem(
+                storageKey(storageNamespace, "view-mode")
+            );
 
         return savedValue === "grid" ? "grid" : "list";
     });
@@ -341,7 +392,9 @@ export default function ProductGrid({
         }
 
         return (
-            window.localStorage.getItem(SORT_MODE_STORAGE_KEY) ||
+            window.localStorage.getItem(
+                storageKey(storageNamespace, "sort-mode")
+            ) ||
             "alphabetical"
         );
     });
@@ -410,7 +463,7 @@ export default function ProductGrid({
 
     const selectedTenantName =
         selectedTenantOutletId === null
-            ? "Semua Tenant"
+            ? allTenantLabel
             : tenantTabs.find(
                   (tenant) =>
                       Number(tenant.id) === Number(selectedTenantOutletId)
@@ -422,68 +475,61 @@ export default function ProductGrid({
         }
 
         window.localStorage.setItem(
-            FILTER_PANEL_STORAGE_KEY,
+            storageKey(storageNamespace, "filter-panel-expanded"),
             String(isFilterPanelExpanded)
         );
-    }, [isFilterPanelExpanded]);
+    }, [isFilterPanelExpanded, storageNamespace]);
 
     useEffect(() => {
         if (typeof window === "undefined") {
             return;
         }
 
-        window.localStorage.setItem(VIEW_MODE_STORAGE_KEY, viewMode);
-    }, [viewMode]);
+        window.localStorage.setItem(
+            storageKey(storageNamespace, "view-mode"),
+            viewMode
+        );
+    }, [viewMode, storageNamespace]);
 
     useEffect(() => {
         if (typeof window === "undefined") {
             return;
         }
 
-        window.localStorage.setItem(SORT_MODE_STORAGE_KEY, sortMode);
-    }, [sortMode]);
+        window.localStorage.setItem(
+            storageKey(storageNamespace, "sort-mode"),
+            sortMode
+        );
+    }, [sortMode, storageNamespace]);
+
+    useEffect(() => {
+        if (!filterPanelCollapsible) {
+            setIsFilterPanelExpanded(true);
+        }
+    }, [filterPanelCollapsible]);
 
     return (
         <div className="flex h-full min-h-0 flex-col">
             {/* Search Bar */}
-            <div className="p-4 border-b border-slate-200 dark:border-slate-800">
-                <SearchInput
-                    value={searchQuery}
-                    onChange={onSearchChange}
-                    onSearch={onSearch}
-                    isSearching={isSearching}
-                    placeholder="Cari produk atau scan barcode... (tekan / untuk fokus)"
-                    inputRef={searchInputRef}
-                    onBarcodeDetected={onBarcodeDetected}
-                />
-            </div>
-
-            <div className="border-b border-slate-200 dark:border-slate-800">
-                <div className="flex items-center justify-between gap-3 px-4 py-3">
-                    <div className="min-w-0">
-                        <div className="flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
-                            <IconAdjustmentsHorizontal size={16} />
-                            Filter Produk
-                        </div>
-                        <div className="mt-1 flex flex-wrap gap-2 text-xs text-slate-500 dark:text-slate-400">
-                            <span className="rounded-full bg-slate-100 px-2.5 py-1 dark:bg-slate-800">
-                                {selectedTenantName}
-                            </span>
-                        </div>
+            <div className="border-b border-slate-200 p-4 dark:border-slate-800">
+                <div className={`flex gap-3 ${compactHeaderLayout ? "items-center" : "flex-col"}`}>
+                    <div className="min-w-0 flex-1">
+                        <SearchInput
+                            value={searchQuery}
+                            onChange={onSearchChange}
+                            onSearch={onSearch}
+                            isSearching={isSearching}
+                            placeholder={
+                                searchPlaceholder ||
+                                "Cari produk atau scan barcode... (tekan / untuk fokus)"
+                            }
+                            inputRef={searchInputRef}
+                            onBarcodeDetected={onBarcodeDetected}
+                            enableBarcodeScanner={enableBarcodeScanner}
+                        />
                     </div>
-                    <div className="flex items-center gap-2">
-                        <select
-                            value={sortMode}
-                            onChange={(e) => setSortMode(e.target.value)}
-                            className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
-                        >
-                            {sortOptions.map((option) => (
-                                <option key={option.value} value={option.value}>
-                                    {option.label}
-                                </option>
-                            ))}
-                        </select>
-                        <div className="inline-flex rounded-xl border border-slate-200 bg-white p-1 dark:border-slate-700 dark:bg-slate-900">
+                    {compactHeaderLayout && (
+                        <div className="inline-flex shrink-0 rounded-xl border border-slate-200 bg-white p-1 dark:border-slate-700 dark:bg-slate-900">
                             <button
                                 type="button"
                                 onClick={() => setViewMode("list")}
@@ -509,34 +555,122 @@ export default function ProductGrid({
                                 Grid
                             </button>
                         </div>
-                        <button
-                            type="button"
-                            onClick={() =>
-                                setIsFilterPanelExpanded((current) => !current)
-                            }
-                            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
-                        >
-                            {isFilterPanelExpanded ? "Ringkas" : "Tampilkan"}
-                            {isFilterPanelExpanded ? (
-                                <IconChevronUp size={16} />
-                            ) : (
-                                <IconChevronDown size={16} />
-                            )}
-                        </button>
+                    )}
+                </div>
+            </div>
+
+            <div className="border-b border-slate-200 dark:border-slate-800">
+                <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+                    <div className="min-w-0">
+                        {showFilterSummary && (
+                            <>
+                                <div className="flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
+                                    <IconAdjustmentsHorizontal size={16} />
+                                    Filter Produk
+                                </div>
+                                <div className="mt-1 flex flex-wrap gap-2 text-xs text-slate-500 dark:text-slate-400">
+                                    <span className="rounded-full bg-slate-100 px-2.5 py-1 dark:bg-slate-800">
+                                        {selectedTenantName}
+                                    </span>
+                                </div>
+                            </>
+                        )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                        {sortControlVariant === "chips" ? null : (
+                            <select
+                                value={sortMode}
+                                onChange={(e) => setSortMode(e.target.value)}
+                                className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                            >
+                                {sortOptions.map((option) => (
+                                    <option key={option.value} value={option.value}>
+                                        {option.label}
+                                    </option>
+                                ))}
+                            </select>
+                        )}
+                        {!compactHeaderLayout && (
+                            <div className="inline-flex rounded-xl border border-slate-200 bg-white p-1 dark:border-slate-700 dark:bg-slate-900">
+                                <button
+                                    type="button"
+                                    onClick={() => setViewMode("list")}
+                                    className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition ${
+                                        viewMode === "list"
+                                            ? "bg-primary-500 text-white"
+                                            : "text-slate-500 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800"
+                                    }`}
+                                >
+                                    <IconList size={15} />
+                                    List
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setViewMode("grid")}
+                                    className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition ${
+                                        viewMode === "grid"
+                                            ? "bg-primary-500 text-white"
+                                            : "text-slate-500 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800"
+                                    }`}
+                                >
+                                    <IconLayoutGrid size={15} />
+                                    Grid
+                                </button>
+                            </div>
+                        )}
+                        {filterPanelCollapsible && (
+                            <button
+                                type="button"
+                                onClick={() =>
+                                    setIsFilterPanelExpanded((current) => !current)
+                                }
+                                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+                            >
+                                {isFilterPanelExpanded ? "Ringkas" : "Tampilkan"}
+                                {isFilterPanelExpanded ? (
+                                    <IconChevronUp size={16} />
+                                ) : (
+                                    <IconChevronDown size={16} />
+                                )}
+                            </button>
+                        )}
                     </div>
                 </div>
 
                 {isFilterPanelExpanded && (
                     <div className="space-y-3 px-4 pb-3">
+                        {sortControlVariant === "chips" && (
+                            <div>
+                                <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400 dark:text-slate-500">
+                                    Urutkan
+                                </p>
+                                <div className="flex flex-wrap gap-2">
+                                    {sortOptions.map((option) => (
+                                        <button
+                                            key={option.value}
+                                            type="button"
+                                            onClick={() => setSortMode(option.value)}
+                                            className={`rounded-xl px-3 py-2 text-xs font-semibold transition ${
+                                                sortMode === option.value
+                                                    ? "bg-primary-500 text-white shadow-md shadow-primary-500/25"
+                                                    : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+                                            }`}
+                                        >
+                                            {option.label}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
                         <div>
                             <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400 dark:text-slate-500">
-                                Tenant
+                                {tenantSectionLabel}
                             </p>
                             <div className="flex flex-wrap gap-2">
                                 <CategoryTab
                                     category={{
                                         id: null,
-                                        name: "Semua Tenant",
+                                        name: allTenantLabel,
                                     }}
                                     isActive={selectedTenantOutletId === null}
                                     onClick={() =>
@@ -573,8 +707,8 @@ export default function ProductGrid({
                     <div
                         className={
                             viewMode === "grid"
-                                ? "grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-2"
-                                : "grid grid-cols-1 gap-3 md:grid-cols-2"
+                                ? gridLayoutClass
+                                : listLayoutClass
                         }
                     >
                         {sortedProducts.map((product) => (
@@ -584,6 +718,8 @@ export default function ProductGrid({
                                 onAddToCart={onAddToCart}
                                 isAdding={addingProductId === product.id}
                                 viewMode={viewMode}
+                                interactive={interactive}
+                                onProductSelect={onProductSelect}
                             />
                         ))}
                     </div>
@@ -595,9 +731,10 @@ export default function ProductGrid({
                             className="mb-3"
                         />
                         <p className="text-sm">
-                            {searchQuery
-                                ? "Produk tidak ditemukan"
-                                : "Tidak ada produk"}
+                            {emptyMessage ||
+                                (searchQuery
+                                    ? "Produk tidak ditemukan"
+                                    : "Tidak ada produk")}
                         </p>
                     </div>
                 )}

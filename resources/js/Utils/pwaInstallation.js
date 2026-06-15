@@ -1,3 +1,11 @@
+const getInstallStorageKey = () => {
+    if (typeof window === "undefined") {
+        return "pwa-installed:default";
+    }
+
+    return `pwa-installed:${window.__PWA_CONFIG?.kind || "default"}`;
+};
+
 export function detectPwaInstalled() {
     if (typeof window === "undefined") {
         return false;
@@ -5,11 +13,15 @@ export function detectPwaInstalled() {
 
     return Boolean(
         window.matchMedia?.("(display-mode: standalone)")?.matches ||
-            window.navigator.standalone === true
+            window.navigator.standalone === true ||
+            window.localStorage.getItem(getInstallStorageKey()) === "true"
     );
 }
 
 export function persistPwaInstalled() {
-    // No-op. Status install harus mengikuti kondisi runtime nyata,
-    // bukan flag lokal yang bisa tertinggal setelah uninstall.
+    if (typeof window === "undefined") {
+        return;
+    }
+
+    window.localStorage.setItem(getInstallStorageKey(), "true");
 }

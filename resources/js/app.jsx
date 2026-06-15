@@ -9,6 +9,7 @@ import GlobalLoadingIndicator from './Components/GlobalLoadingIndicator';
 import PWAInstallPrompt from './Components/PWAInstallPrompt';
 import PWAStartupSplash from './Components/PWAStartupSplash';
 const appName = import.meta.env.VITE_APP_NAME || 'GTC KASIR';
+const pwaConfig = typeof window !== "undefined" ? window.__PWA_CONFIG || null : null;
 
 createInertiaApp({
     title: (title) => `${title} - ${appName}`,
@@ -33,41 +34,47 @@ createInertiaApp({
 
 if ("serviceWorker" in navigator && window.isSecureContext) {
     window.addEventListener("load", async () => {
-        const hostname = window.location.hostname;
-        const isLocalhost =
-            hostname === "localhost" ||
-            hostname === "127.0.0.1" ||
-            hostname === "::1";
+        try {
+            const registrations =
+                await navigator.serviceWorker.getRegistrations();
 
-        if (isLocalhost) {
-            try {
-                const registrations =
-                    await navigator.serviceWorker.getRegistrations();
+            await Promise.all(
+                registrations.map(async (registration) => {
+                    const scriptUrl =
+                        registration.active?.scriptURL ||
+                        registration.waiting?.scriptURL ||
+                        registration.installing?.scriptURL ||
+                        "";
+
+                    const pathname = scriptUrl
+                        ? new URL(scriptUrl).pathname
+                        : "";
+
+                    if (pathname === "/sw.js") {
+                        await registration.unregister();
+                    }
+                })
+            );
+
+            if ("caches" in window) {
+                const cacheKeys = await window.caches.keys();
                 await Promise.all(
-                    registrations.map((registration) =>
-                        registration.unregister()
-                    )
-                );
-
-                if ("caches" in window) {
-                    const cacheKeys = await window.caches.keys();
-                    await Promise.all(
-                        cacheKeys
-                            .filter((key) => key.startsWith("poinza-"))
-                            .map((key) => window.caches.delete(key))
-                    );
-                }
-            } catch (error) {
-                console.error(
-                    "Service worker cleanup failed on localhost",
-                    error
+                    cacheKeys
+                        .filter((key) => key.startsWith("poinza-"))
+                        .map((key) => window.caches.delete(key))
                 );
             }
+        } catch (error) {
+            console.error("Legacy service worker cleanup failed", error);
+        }
 
+        if (!pwaConfig?.sw || !pwaConfig?.scope) {
             return;
         }
 
-        navigator.serviceWorker.register("/sw.js").catch((error) => {
+        navigator.serviceWorker.register(pwaConfig.sw, {
+            scope: pwaConfig.scope,
+        }).catch((error) => {
             console.error("Service worker registration failed", error);
         });
     });

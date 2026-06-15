@@ -237,6 +237,7 @@ export default function Index() {
     const [showFilters, setShowFilters] = useState(
         Boolean(filters.search || filters.kind)
     );
+    const [showRoleTemplates, setShowRoleTemplates] = useState(false);
     const wizardPermissionObjects = (wizardTemplate?.permissions || [])
         .map((name) => permissions.find((permission) => permission.name === name))
         .filter(Boolean);
@@ -487,7 +488,7 @@ export default function Index() {
 
             {!wizardTemplate ? (
                 <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
-                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="flex items-start justify-between gap-3">
                         <div>
                             <p className="text-sm font-semibold text-slate-900 dark:text-white">
                                 Template Role Akses
@@ -495,15 +496,28 @@ export default function Index() {
                             <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                                 Mulai dari paket yang paling dekat dengan tugas user. Ini lebih cepat daripada memilih izin satu per satu.
                             </p>
-                        </div>
-                        <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">
-                            <p className="font-medium text-slate-800 dark:text-slate-100">
-                                Urutan paling mudah
-                            </p>
-                            <p className="mt-1">
-                                1. Pilih template 2. Simpan role 3. Buat pengguna dari role itu
+                            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                                Urutan mudah: pilih template, simpan role, lalu buat pengguna dari role itu.
                             </p>
                         </div>
+                        <button
+                            type="button"
+                            onClick={() => setShowRoleTemplates((value) => !value)}
+                            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                        >
+                            {showRoleTemplates ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                            {showRoleTemplates ? "Sembunyikan" : "Buka"}
+                        </button>
+                    </div>
+                    {showRoleTemplates ? (
+                    <>
+                    <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">
+                        <p className="font-medium text-slate-800 dark:text-slate-100">
+                            Urutan paling mudah
+                        </p>
+                        <p className="mt-1">
+                            1. Pilih template 2. Simpan role 3. Buat pengguna dari role itu
+                        </p>
                     </div>
                     <div className="mt-5 space-y-4">
                         {templateGroups.map((group) => (
@@ -587,6 +601,8 @@ export default function Index() {
                             </div>
                         ))}
                     </div>
+                    </>
+                    ) : null}
                 </div>
             ) : null}
 

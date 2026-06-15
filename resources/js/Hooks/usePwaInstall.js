@@ -10,6 +10,18 @@ export default function usePwaInstall() {
     const [isIos, setIsIos] = useState(false);
     const [isStandalone, setIsStandalone] = useState(false);
     const [isChromeLike, setIsChromeLike] = useState(false);
+    const isPwaEnabled =
+        typeof window !== "undefined"
+            ? Boolean(window.__PWA_CONFIG?.sw)
+            : false;
+    const appLabel =
+        typeof window !== "undefined"
+            ? window.__PWA_CONFIG?.name || "GTC KASIR"
+            : "GTC KASIR";
+    const pwaKind =
+        typeof window !== "undefined"
+            ? window.__PWA_CONFIG?.kind || "default"
+            : "default";
 
     useEffect(() => {
         if (typeof window === "undefined") {
@@ -47,6 +59,7 @@ export default function usePwaInstall() {
             persistPwaInstalled();
             syncInstalledState();
             setDeferredPrompt(null);
+            setIsInstalled(true);
         };
 
         syncInstalledState();
@@ -71,7 +84,7 @@ export default function usePwaInstall() {
     }, []);
 
     const canPromptInstall = Boolean(deferredPrompt);
-    const shouldShowInstallEntry = !isInstalled && !isStandalone;
+    const shouldShowInstallEntry = isPwaEnabled && !isInstalled && !isStandalone;
 
     const promptInstall = useCallback(async () => {
         if (!deferredPrompt) {
@@ -82,6 +95,8 @@ export default function usePwaInstall() {
         const choice = await deferredPrompt.userChoice;
 
         if (choice?.outcome === "accepted") {
+            persistPwaInstalled();
+            setIsInstalled(true);
             setDeferredPrompt(null);
         }
 
@@ -102,18 +117,29 @@ export default function usePwaInstall() {
         }
 
         if (isChromeLike) {
+            if (pwaKind === "menu") {
+                return "Jika dialog belum muncul, buka menu ini dari Chrome atau Edge lalu gunakan opsi Install app pada browser.";
+            }
+
             return "Jika dialog belum muncul, buka halaman setup PWA dan pastikan aplikasi dibuka dari Chrome atau Edge dengan HTTPS atau localhost.";
         }
 
+        if (pwaKind === "menu") {
+            return "Gunakan menu browser untuk menambahkan aplikasi ini ke layar utama bila perangkat mendukung.";
+        }
+
         return "Gunakan halaman setup PWA untuk melihat langkah manual instalasi di perangkat ini.";
-    }, [canPromptInstall, isChromeLike, isInstalled, isIos, isStandalone]);
+    }, [canPromptInstall, isChromeLike, isInstalled, isIos, isStandalone, pwaKind]);
 
     return {
+        appLabel,
         canPromptInstall,
         installHelpText,
         isChromeLike,
         isInstalled,
         isIos,
+        pwaKind,
+        isPwaEnabled,
         isStandalone,
         promptInstall,
         shouldShowInstallEntry,
