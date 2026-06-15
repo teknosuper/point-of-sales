@@ -298,6 +298,20 @@ class TransactionFlowTest extends TestCase
             });
     }
 
+    public function test_transaction_page_exposes_outlet_open_shift_for_other_operator_to_join(): void
+    {
+        $cashier = $this->createCashier();
+        $admin = $this->createCashier();
+        $shift = $this->openShiftFor($cashier);
+
+        $this->actingAs($admin)
+            ->get(route('transactions.index'))
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Dashboard/Transactions/Index')
+                ->where('outletOpenShift.id', $shift->id)
+                ->where('outletOpenShift.user.name', $cashier->name));
+    }
+
     public function test_cashier_can_request_midtrans_payment_link(): void
     {
         $cashier = $this->createCashier();

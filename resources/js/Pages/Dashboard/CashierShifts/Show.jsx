@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { Head, Link, router, usePage } from "@inertiajs/react";
+import Swal from "sweetalert2";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import {
     IconArrowLeft,
@@ -54,9 +55,22 @@ export default function Show({ cashierShift, canForceClose = false }) {
 
         return (
             can("cashier-shifts-close") &&
-            (cashierShift.user?.id === auth?.user?.id ||
-                auth?.super ||
-                canForceClose)
+            cashierShift.user?.id === auth?.user?.id
+        );
+    }, [
+        auth?.user?.id,
+        can,
+        cashierShift.status,
+        cashierShift.user?.id,
+    ]);
+
+    const canForceCloseShift = useMemo(() => {
+        if (cashierShift.status !== "open") return false;
+
+        return (
+            can("cashier-shifts-close") &&
+            cashierShift.user?.id !== auth?.user?.id &&
+            (auth?.super || canForceClose)
         );
     }, [
         auth?.super,
@@ -87,8 +101,29 @@ export default function Show({ cashierShift, canForceClose = false }) {
             ? ((registeredTransactions / totalTransactions) * 100).toFixed(0)
             : "0";
 
-    const handleCloseShift = (event) => {
+    const handleCloseShift = async (event) => {
         event.preventDefault();
+
+        const result = await Swal.fire({
+            title: canForceCloseShift
+                ? "Force Close Shift?"
+                : "Tutup Shift Sekarang?",
+            text: canForceCloseShift
+                ? "Shift ini milik operator lain. Pastikan kas fisik dan catatan closing sudah benar sebelum menutup paksa."
+                : "Pastikan kas fisik aktual sudah sesuai sebelum shift drawer difinalisasi.",
+            icon: "warning",
+            showCancelButton: true,
+            confirmButtonText: canForceCloseShift
+                ? "Ya, Force Close"
+                : "Ya, Tutup Shift",
+            cancelButtonText: "Batal",
+            confirmButtonColor: canForceCloseShift ? "#dc2626" : "#16a34a",
+            reverseButtons: true,
+        });
+
+        if (!result.isConfirmed) {
+            return;
+        }
 
         router.post(route("cashier-shifts.close", cashierShift.id), {
             actual_cash: actualCashNumber,
@@ -115,6 +150,9 @@ export default function Show({ cashierShift, canForceClose = false }) {
                         </h1>
                         <p className="text-sm text-slate-500 dark:text-slate-400">
                             Dibuka {formatDateTime(cashierShift.opened_at)}
+                        </p>
+                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                            Operator aktif: {(cashierShift.operators || []).map((operator) => operator.name).join(", ") || "-"}
                         </p>
                     </div>
                     <span
@@ -158,6 +196,12 @@ export default function Show({ cashierShift, canForceClose = false }) {
                             <div>
                                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Kasir</p>
                                 <p className="mt-2 text-sm text-slate-900 dark:text-white">{cashierShift.user?.name || "-"}</p>
+                            </div>
+                            <div>
+                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Operator</p>
+                                <p className="mt-2 text-sm text-slate-900 dark:text-white">
+                                    {(cashierShift.operators || []).map((operator) => operator.name).join(", ") || "-"}
+                                </p>
                             </div>
                             <div>
                                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Dibuka Oleh</p>
@@ -273,13 +317,15 @@ export default function Show({ cashierShift, canForceClose = false }) {
                             </div>
                         </div>
 
-                        {canCloseShift && (
+                        {(canCloseShift || canForceCloseShift) && (
                             <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
                                 <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
-                                    Tutup Shift
+                                    {canForceCloseShift ? "Force Close Shift" : "Tutup Shift"}
                                 </h2>
                                 <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                                    Input kas fisik akhir untuk finalisasi cash closing.
+                                    {canForceCloseShift
+                                        ? "Input kas fisik akhir untuk menutup shift drawer milik operator lain dengan otorisasi tinggi."
+                                        : "Input kas fisik akhir untuk finalisasi cash closing."}
                                 </p>
                                 <form onSubmit={handleCloseShift} className="mt-4 space-y-4">
                                     <div>
@@ -321,7 +367,7 @@ export default function Show({ cashierShift, canForceClose = false }) {
                                         className="inline-flex items-center gap-2 rounded-xl bg-primary-500 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-primary-600"
                                     >
                                         <IconCashBanknote size={18} />
-                                        <span>Finalisasi Closing</span>
+                                        <span>{canForceCloseShift ? "Force Close Shift" : "Finalisasi Closing"}</span>
                                     </button>
                                 </form>
                             </div>

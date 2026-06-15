@@ -34,8 +34,10 @@ export default function Index({
     filters,
     cashiers = [],
     activeShift = null,
+    outletOpenShift = null,
+    otherOpenShifts = [],
 }) {
-    const { auth, errors } = usePage().props;
+    const { auth, errors, activeOutlet } = usePage().props;
     const { can } = useAuthorization();
     const [openingCash, setOpeningCash] = useState("");
     const [notes, setNotes] = useState("");
@@ -75,6 +77,12 @@ export default function Index({
         });
     };
 
+    const handleJoinShift = () => {
+        router.post(route("cashier-shifts.store"), {
+            join_existing: true,
+        });
+    };
+
     return (
         <>
             <Head title="Shift Kasir" />
@@ -90,7 +98,7 @@ export default function Index({
                         </p>
                     </div>
                     <div className="flex gap-2">
-                    {!activeShift && canOpenShift && (
+                    {!activeShift && !outletOpenShift && canOpenShift && (
                         <button
                             type="button"
                             onClick={() => setShowOpenShiftForm((value) => !value)}
@@ -112,7 +120,36 @@ export default function Index({
                     </div>
                 </div>
 
-                {!activeShift && canOpenShift && showOpenShiftForm && (
+                {!activeShift && outletOpenShift && (
+                    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 dark:border-amber-900/50 dark:bg-amber-950/20">
+                        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                            <div>
+                                <h2 className="text-lg font-semibold text-amber-900 dark:text-amber-100">
+                                    Drawer outlet sudah aktif
+                                </h2>
+                                <p className="mt-1 text-sm text-amber-700 dark:text-amber-300">
+                                    Shift ini dibuka oleh {outletOpenShift.user?.name || "-"} dan bisa dipakai bersama dalam satu drawer.
+                                </p>
+                                <p className="mt-2 text-sm text-amber-800 dark:text-amber-200">
+                                    Operator aktif: {(outletOpenShift.operators || []).map((operator) => operator.name).join(", ") || "-"}
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={handleJoinShift}
+                                className="inline-flex items-center justify-center gap-2 rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-amber-600"
+                            >
+                                <IconUser size={18} />
+                                <span>Gabung Shift Aktif</span>
+                            </button>
+                        </div>
+                        {errors?.shift && (
+                            <p className="mt-3 text-xs text-rose-500">{errors.shift}</p>
+                        )}
+                    </div>
+                )}
+
+                {!activeShift && !outletOpenShift && canOpenShift && showOpenShiftForm && (
                     <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
                         <div className="mb-4">
                             <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
@@ -177,6 +214,12 @@ export default function Index({
                             <p className="mt-1 text-sm text-emerald-700 dark:text-emerald-300">
                                 {formatDateTime(activeShift.opened_at)}
                             </p>
+                            <p className="mt-1 text-xs font-medium uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+                                {activeShift.outlet?.code || activeShift.outlet?.name || activeOutlet?.name || "Outlet aktif"}
+                            </p>
+                            <p className="mt-2 text-sm text-emerald-700 dark:text-emerald-300">
+                                Operator: {(activeShift.operators || []).map((operator) => operator.name).join(", ") || "-"}
+                            </p>
                         </div>
                         <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
                             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
@@ -209,6 +252,30 @@ export default function Index({
                             <p className="mt-2 text-sm font-semibold text-slate-900 dark:text-white">
                                 Walk-in {activeShift.walk_in_transactions_count ?? 0} • Customer {activeShift.registered_transactions_count ?? 0}
                             </p>
+                        </div>
+                    </div>
+                )}
+
+                {otherOpenShifts.length > 0 && (
+                    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 dark:border-amber-900/50 dark:bg-amber-950/20">
+                        <h2 className="text-lg font-semibold text-amber-900 dark:text-amber-100">
+                            Ada shift open di outlet lain
+                        </h2>
+                        <p className="mt-1 text-sm text-amber-700 dark:text-amber-300">
+                            Histori di bawah sudah dibatasi ke outlet aktif{activeOutlet?.name ? `: ${activeOutlet.name}` : ""}, tetapi masih ada shift open lain yang perlu ditinjau.
+                        </p>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                            {otherOpenShifts.map((shift) => (
+                                <Link
+                                    key={shift.id}
+                                    href={route("cashier-shifts.show", shift.id)}
+                                    className="inline-flex items-center gap-2 rounded-full border border-amber-300 px-3 py-1.5 text-xs font-medium text-amber-800 transition hover:bg-amber-100 dark:border-amber-800 dark:text-amber-200 dark:hover:bg-amber-900/30"
+                                >
+                                    <span>{shift.outlet?.code || shift.outlet?.name || "Tanpa outlet"}</span>
+                                    <span>•</span>
+                                    <span>{shift.user?.name || "-"}</span>
+                                </Link>
+                            ))}
                         </div>
                     </div>
                 )}
@@ -258,10 +325,14 @@ export default function Index({
                 </div>
 
                 <Table.Card title="Histori Shift Kasir">
+                    <div className="mb-4 text-sm text-slate-500 dark:text-slate-400">
+                        Menampilkan histori untuk outlet aktif{activeOutlet?.name ? `: ${activeOutlet.name}` : ""}.
+                    </div>
                     <Table>
                         <Table.Thead>
                             <tr>
                                 <Table.Th>Kasir</Table.Th>
+                                <Table.Th>Outlet</Table.Th>
                                 <Table.Th>Status</Table.Th>
                                 <Table.Th>Buka</Table.Th>
                                 <Table.Th>Tutup</Table.Th>
@@ -294,6 +365,14 @@ export default function Index({
                                                             0}
                                                     </span>
                                                 </div>
+                                            </div>
+                                        </Table.Td>
+                                        <Table.Td>
+                                            <div className="text-sm text-slate-700 dark:text-slate-300">
+                                                {shift.outlet?.name || "-"}
+                                            </div>
+                                            <div className="text-xs text-slate-500 dark:text-slate-400">
+                                                {shift.outlet?.code || "Tanpa kode"}
                                             </div>
                                         </Table.Td>
                                         <Table.Td>
@@ -333,7 +412,7 @@ export default function Index({
                                 ))
                             ) : (
                                 <Table.Empty
-                                    colSpan={7}
+                                    colSpan={8}
                                     message={
                                         <div className="text-slate-500 dark:text-slate-400">
                                             Belum ada histori shift kasir.

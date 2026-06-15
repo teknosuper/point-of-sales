@@ -67,6 +67,9 @@ class TransactionController extends Controller
         $userId = auth()->user()->id;
         $outlet = $this->resolveActiveOutlet();
         $activeShift = $this->cashierShiftService->getActiveShiftForUser($userId, $outlet?->id);
+        $outletOpenShift = $activeShift
+            ? null
+            : $this->cashierShiftService->getOpenShiftForOutlet($outlet?->id);
         $openTableOrderId = (int) $request->integer('open_table_order');
 
         // Get active cart items (not held)
@@ -268,6 +271,7 @@ class TransactionController extends Controller
             'pendingTableOrders' => $pendingTableOrders,
             'openTableOrderId' => $openTableOrderId > 0 ? $openTableOrderId : null,
             'shiftSummary' => $this->cashierShiftService->summarizeForDisplay($activeShift),
+            'outletOpenShift' => $this->cashierShiftService->summarizeForDisplay($outletOpenShift),
             'loyaltyTierOptions' => $this->loyaltyService->tierOptions(),
             'tenantOutlets' => Outlet::query()
                 ->active()

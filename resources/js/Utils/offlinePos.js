@@ -114,6 +114,14 @@ export function saveOfflinePosBootstrap(snapshot) {
     );
 }
 
+export function clearOfflinePosBootstrap() {
+    if (!canUseStorage()) {
+        return;
+    }
+
+    window.localStorage.removeItem(OFFLINE_BOOTSTRAP_STORAGE_KEY);
+}
+
 export function buildOfflineInvoice() {
     const random = Math.random().toString(36).slice(2, 8).toUpperCase();
     const timestamp = new Date()

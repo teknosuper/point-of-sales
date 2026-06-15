@@ -28,6 +28,7 @@ class CashierShiftController extends Controller
 
     public function index(Request $request): Response
     {
+        $activeOutlet = $this->outletResolver->resolve($request, $request->user());
         $filters = [
             'cashier_id' => $request->input('cashier_id'),
             'status' => $request->input('status'),
@@ -36,11 +37,16 @@ class CashierShiftController extends Controller
         ];
 
         $query = CashierShift::query()
-            ->with(['user:id,name', 'openedBy:id,name', 'closedBy:id,name'])
+            ->with(['user:id,name', 'openedBy:id,name', 'closedBy:id,name', 'operators:id,name', 'outlet:id,name,code'])
             ->when($filters['cashier_id'], fn (Builder $builder, $cashierId) => $builder->where('user_id', $cashierId))
             ->when($filters['status'], fn (Builder $builder, $status) => $builder->where('status', $status))
             ->when($filters['opened_from'], fn (Builder $builder, $date) => $builder->whereDate('opened_at', '>=', $date))
             ->when($filters['opened_to'], fn (Builder $builder, $date) => $builder->whereDate('opened_at', '<=', $date))
+            ->when(
+                $activeOutlet,
+                fn (Builder $builder) => $builder->where('outlet_id', $activeOutlet->id),
+                fn (Builder $builder) => $builder->whereNull('outlet_id')
+            )
             ->latest('opened_at');
 
         $query = $this->cashierShiftService->visibleToUser($query, $request->user());
@@ -50,8 +56,47 @@ class CashierShiftController extends Controller
 
         $activeShift = $this->cashierShiftService->getActiveShiftForUser(
             $request->user()->id,
-            $this->outletResolver->resolve($request, $request->user())?->id
+            $activeOutlet?->id
         );
+        $outletOpenShift = null;
+        $otherOpenShifts = collect();
+
+        if (! $activeShift) {
+            $outletOpenShift = $this->cashierShiftService->getOpenShiftForOutlet(
+                $activeOutlet?->id
+            );
+        }
+
+        $otherOpenShiftsQuery = CashierShift::query()
+            ->with(['user:id,name', 'outlet:id,name,code'])
+            ->open()
+            ->when(
+                $activeOutlet,
+                fn (Builder $builder) => $builder->where('outlet_id', '!=', $activeOutlet->id),
+                fn (Builder $builder) => $builder->whereNotNull('outlet_id')
+            )
+            ->latest('opened_at');
+
+        $otherOpenShiftsQuery = $this->cashierShiftService->visibleToUser($otherOpenShiftsQuery, $request->user());
+
+        $otherOpenShifts = $otherOpenShiftsQuery
+            ->limit(5)
+            ->get()
+            ->map(fn (CashierShift $shift) => [
+                'id' => $shift->id,
+                'opened_at' => optional($shift->opened_at)?->toISOString(),
+                'user' => $shift->user ? [
+                    'id' => $shift->user->id,
+                    'name' => $shift->user->name,
+                ] : null,
+                'outlet' => $shift->outlet ? [
+                    'id' => $shift->outlet->id,
+                    'name' => $shift->outlet->name,
+                    'code' => $shift->outlet->code,
+                ] : null,
+            ])
+            ->values();
+
         $cashiers = $request->user()->isSuperAdmin() || $request->user()->can('cashier-shifts-force-close')
             ? User::query()->orderBy('name')->get(['id', 'name'])
             : collect([$request->user()->only(['id', 'name'])]);
@@ -61,6 +106,8 @@ class CashierShiftController extends Controller
             'filters' => $filters,
             'cashiers' => $cashiers,
             'activeShift' => $activeShift ? $this->transformShift($activeShift) : null,
+            'outletOpenShift' => $outletOpenShift ? $this->transformShift($outletOpenShift) : null,
+            'otherOpenShifts' => $otherOpenShifts,
             'canForceClose' => $request->user()->isSuperAdmin() || $request->user()->can('cashier-shifts-force-close'),
         ]);
     }
@@ -77,23 +124,33 @@ class CashierShiftController extends Controller
 
     public function store(StoreCashierShiftRequest $request): RedirectResponse
     {
-        $shift = $this->cashierShiftService->openShift(
-            cashier: $request->user(),
-            actor: $request->user(),
-            openingCash: (int) $request->validated('opening_cash'),
-            notes: $request->validated('notes'),
-            outletId: $this->outletResolver->resolve($request, $request->user())?->id,
-        );
+        $outletId = $this->outletResolver->resolve($request, $request->user())?->id;
+        $joinExisting = (bool) $request->boolean('join_existing');
+
+        $shift = $joinExisting
+            ? $this->cashierShiftService->joinOpenShift(
+                cashier: $request->user(),
+                actor: $request->user(),
+                outletId: $outletId,
+            )
+            : $this->cashierShiftService->openShift(
+                cashier: $request->user(),
+                actor: $request->user(),
+                openingCash: (int) $request->validated('opening_cash'),
+                notes: $request->validated('notes'),
+                outletId: $outletId,
+            );
 
         $this->auditLogService->log(
-            event: 'cashier_shift.opened',
+            event: $joinExisting ? 'cashier_shift.joined' : 'cashier_shift.opened',
             module: 'cashier_shifts',
             auditable: $shift,
-            description: 'Shift kasir dibuka.',
+            description: $joinExisting ? 'Operator bergabung ke shift kasir.' : 'Shift kasir dibuka.',
             after: $this->shiftAuditPayload($shift),
             meta: [
                 'cashier_id' => $shift->user_id,
                 'opened_by' => $shift->opened_by,
+                'operator_id' => $request->user()->id,
             ],
         );
 
@@ -101,14 +158,15 @@ class CashierShiftController extends Controller
             ? route('transactions.index')
             : route('cashier-shifts.show', $shift);
 
-        return redirect($target)->with('success', 'Shift kasir berhasil dibuka.');
+        return redirect($target)->with('success', $joinExisting ? 'Berhasil bergabung ke shift aktif.' : 'Shift kasir berhasil dibuka.');
     }
 
     public function close(CloseCashierShiftRequest $request, CashierShift $cashierShift, ConfirmPasswordForForceCloseRequest $confirmPasswordRequest): RedirectResponse
     {
         $cashierShift = $this->resolveVisibleShift($request, $cashierShift);
         $before = $this->shiftAuditPayload($cashierShift);
-        $forceClose = $cashierShift->user_id !== $request->user()->id;
+        $isShiftOwner = (int) $cashierShift->user_id === (int) $request->user()->id;
+        $forceClose = ! $isShiftOwner;
 
         if ($forceClose && ! ($request->user()->isSuperAdmin() || $request->user()->can('cashier-shifts-force-close'))) {
             abort(403);
@@ -164,7 +222,7 @@ class CashierShiftController extends Controller
     private function resolveVisibleShift(Request $request, CashierShift $cashierShift): CashierShift
     {
         $query = CashierShift::query()
-            ->with(['user:id,name', 'openedBy:id,name', 'closedBy:id,name'])
+            ->with(['user:id,name', 'openedBy:id,name', 'closedBy:id,name', 'operators:id,name', 'outlet:id,name,code'])
             ->whereKey($cashierShift->id);
 
         $query = $this->cashierShiftService->visibleToUser($query, $request->user());
@@ -184,6 +242,11 @@ class CashierShiftController extends Controller
         return [
             'id' => $shift->id,
             'status' => $shift->status,
+            'outlet' => $shift->outlet ? [
+                'id' => $shift->outlet->id,
+                'name' => $shift->outlet->name,
+                'code' => $shift->outlet->code,
+            ] : null,
             'opened_at' => optional($shift->opened_at)?->toISOString(),
             'closed_at' => optional($shift->closed_at)?->toISOString(),
             'opening_cash' => (int) $shift->opening_cash,
@@ -216,6 +279,13 @@ class CashierShiftController extends Controller
                 'id' => $shift->user->id,
                 'name' => $shift->user->name,
             ] : null,
+            'operators' => $shift->operators
+                ->map(fn (User $operator) => [
+                    'id' => $operator->id,
+                    'name' => $operator->name,
+                ])
+                ->values()
+                ->all(),
             'opened_by' => $shift->openedBy ? [
                 'id' => $shift->openedBy->id,
                 'name' => $shift->openedBy->name,

@@ -67,9 +67,21 @@ class CashierShift extends Model
         return $this->belongsTo(User::class);
     }
 
+    public function operators()
+    {
+        return $this->belongsToMany(User::class, 'cashier_shift_operators')
+            ->withPivot(['joined_at', 'joined_by'])
+            ->withTimestamps();
+    }
+
     public function openedBy()
     {
         return $this->belongsTo(User::class, 'opened_by');
+    }
+
+    public function outlet()
+    {
+        return $this->belongsTo(Outlet::class);
     }
 
     public function closedBy()

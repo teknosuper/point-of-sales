@@ -15,23 +15,15 @@ class CashierShiftService
 {
     public function getActiveShiftForUser(int $userId, ?int $outletId = null): ?CashierShift
     {
-        return CashierShift::query()
-            ->with(['user:id,name', 'openedBy:id,name'])
-            ->open()
-            ->where('user_id', $userId)
-            ->when($outletId, fn ($query) => $query->where('outlet_id', $outletId))
-            ->latest('opened_at')
+        return $this->activeShiftQueryForUser($userId, $outletId)
+            ->with(['user:id,name', 'openedBy:id,name', 'operators:id,name'])
             ->first();
     }
 
     public function requireActiveShiftForUser(int $userId, ?int $outletId = null, bool $lockForUpdate = false): CashierShift
     {
         // Avoid locking a range with ORDER BY ... FOR UPDATE; lock a single row by PK instead.
-        $baseQuery = CashierShift::query()
-            ->open()
-            ->where('user_id', $userId)
-            ->when($outletId, fn ($builder) => $builder->where('outlet_id', $outletId))
-            ->latest('opened_at');
+        $baseQuery = $this->activeShiftQueryForUser($userId, $outletId);
 
         if (! $lockForUpdate) {
             $shift = $baseQuery->first();
@@ -51,13 +43,19 @@ class CashierShiftService
         return $shift;
     }
 
+    public function getOpenShiftForOutlet(?int $outletId = null): ?CashierShift
+    {
+        return CashierShift::query()
+            ->with(['user:id,name', 'openedBy:id,name', 'operators:id,name'])
+            ->open()
+            ->when($outletId, fn ($query) => $query->where('outlet_id', $outletId), fn ($query) => $query->whereNull('outlet_id'))
+            ->latest('opened_at')
+            ->first();
+    }
+
     public function openShift(User $cashier, User $actor, int $openingCash, ?string $notes = null, ?int $outletId = null): CashierShift
     {
-        $existing = CashierShift::query()
-            ->open()
-            ->where('user_id', $cashier->id)
-            ->when($outletId, fn ($query) => $query->where('outlet_id', $outletId))
-            ->exists();
+        $existing = $this->getActiveShiftForUser($cashier->id, $outletId);
 
         if ($existing) {
             throw ValidationException::withMessages([
@@ -65,7 +63,13 @@ class CashierShiftService
             ]);
         }
 
-        return CashierShift::create([
+        if ($this->getOpenShiftForOutlet($outletId)) {
+            throw ValidationException::withMessages([
+                'opening_cash' => 'Drawer outlet ini sudah memiliki shift aktif. Gunakan gabung shift.',
+            ]);
+        }
+
+        $shift = CashierShift::create([
             'user_id' => $cashier->id,
             'outlet_id' => $outletId,
             'opened_by' => $actor->id,
@@ -75,6 +79,41 @@ class CashierShiftService
             'notes' => $notes,
             'status' => CashierShift::STATUS_OPEN,
         ]);
+
+        $shift->operators()->syncWithoutDetaching([
+            $cashier->id => [
+                'joined_by' => $actor->id,
+                'joined_at' => now(),
+            ],
+        ]);
+
+        return $shift->fresh(['user:id,name', 'openedBy:id,name', 'operators:id,name']);
+    }
+
+    public function joinOpenShift(User $cashier, User $actor, ?int $outletId = null): CashierShift
+    {
+        $existing = $this->getActiveShiftForUser($cashier->id, $outletId);
+
+        if ($existing) {
+            return $existing;
+        }
+
+        $shift = $this->getOpenShiftForOutlet($outletId);
+
+        if (! $shift) {
+            throw ValidationException::withMessages([
+                'shift' => 'Belum ada shift drawer aktif untuk outlet ini.',
+            ]);
+        }
+
+        $shift->operators()->syncWithoutDetaching([
+            $cashier->id => [
+                'joined_by' => $actor->id,
+                'joined_at' => now(),
+            ],
+        ]);
+
+        return $shift->fresh(['user:id,name', 'openedBy:id,name', 'operators:id,name']);
     }
 
     public function calculateSummary(CashierShift $shift): array
@@ -212,6 +251,15 @@ class CashierShiftService
                 'id' => $shift->user->id,
                 'name' => $shift->user->name,
             ] : null,
+            'operators' => $shift->operators
+                ? $shift->operators
+                    ->map(fn (User $operator) => [
+                        'id' => $operator->id,
+                        'name' => $operator->name,
+                    ])
+                    ->values()
+                    ->all()
+                : [],
             ...$summary,
         ];
     }
@@ -222,6 +270,32 @@ class CashierShiftService
             return $query;
         }
 
-        return $query->where('user_id', $user->id);
+        return $query->where(function (Builder $builder) use ($user) {
+            $builder
+                ->where('user_id', $user->id)
+                ->orWhereHas('operators', fn (Builder $operatorQuery) => $operatorQuery->where('users.id', $user->id));
+        });
+    }
+
+    public function userAssignedToShift(CashierShift $shift, int $userId): bool
+    {
+        if ((int) $shift->user_id === $userId) {
+            return true;
+        }
+
+        return $shift->operators()->where('users.id', $userId)->exists();
+    }
+
+    private function activeShiftQueryForUser(int $userId, ?int $outletId = null): Builder
+    {
+        return CashierShift::query()
+            ->open()
+            ->where(function (Builder $query) use ($userId) {
+                $query
+                    ->where('user_id', $userId)
+                    ->orWhereHas('operators', fn (Builder $operatorQuery) => $operatorQuery->where('users.id', $userId));
+            })
+            ->when($outletId, fn ($query) => $query->where('outlet_id', $outletId), fn ($query) => $query->whereNull('outlet_id'))
+            ->latest('opened_at');
     }
 }

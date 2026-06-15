@@ -45,6 +45,7 @@ import {
     buildOfflineInvoice,
     buildOfflinePricing,
     clearOfflineCart,
+    clearOfflinePosBootstrap,
     loadOfflineCart,
     loadOfflinePosBootstrap,
     loadOfflineTransactionHistory,
@@ -167,6 +168,7 @@ export default function Index({
     bankAccounts = [],
     pendingTableOrders = [],
     openTableOrderId = null,
+    outletOpenShift = null,
     loyaltyTierOptions: loyaltyTierOptionValues = [],
     tenantOutlets: tenantOutletOptions = [],
 }) {
@@ -335,55 +337,67 @@ export default function Index({
         );
     }, [isOfflineBannerExpanded]);
 
+    const trustedOfflineBootstrap =
+        offlineBootstrap &&
+        Number(offlineBootstrap.user_id || 0) === Number(auth?.user?.id || 0)
+            ? offlineBootstrap
+            : null;
+
     const normalizedSelectedCategory =
         selectedCategory === null ? null : Number(selectedCategory);
     const products =
         productOptions.length > 0
             ? productOptions
-            : offlineBootstrap?.products || [];
+            : trustedOfflineBootstrap?.products || [];
     const customers =
         customerOptions.length > 0
             ? customerOptions
-            : offlineBootstrap?.customers || [];
+            : trustedOfflineBootstrap?.customers || [];
     const categories =
         categoryOptions.length > 0
             ? categoryOptions
-            : offlineBootstrap?.categories || [];
+            : trustedOfflineBootstrap?.categories || [];
     const diningTables =
         diningTableOptions.length > 0
             ? diningTableOptions
-            : offlineBootstrap?.diningTables || [];
+            : trustedOfflineBootstrap?.diningTables || [];
     const paymentGateways =
         paymentGatewayOptions.length > 0
             ? paymentGatewayOptions
-            : offlineBootstrap?.paymentGateways || [];
+            : trustedOfflineBootstrap?.paymentGateways || [];
     const productsById = useMemo(
         () =>
             Object.fromEntries(
                 (productOptions.length > 0
                     ? productOptions
-                    : offlineBootstrap?.products || []
+                    : trustedOfflineBootstrap?.products || []
                 ).map((product) => [Number(product.id), product])
             ),
-        [offlineBootstrap?.products, productOptions]
+        [productOptions, trustedOfflineBootstrap?.products]
     );
     const loyaltyTierOptions =
         loyaltyTierOptionValues.length > 0
             ? loyaltyTierOptionValues
-            : offlineBootstrap?.loyaltyTierOptions || [];
+            : trustedOfflineBootstrap?.loyaltyTierOptions || [];
     const tenantOutlets =
         tenantOutletOptions.length > 0
             ? tenantOutletOptions
-            : offlineBootstrap?.tenantOutlets || [];
+            : trustedOfflineBootstrap?.tenantOutlets || [];
     const activeCashierShift =
-        activeCashierShiftProp || offlineBootstrap?.activeCashierShift || null;
+        activeCashierShiftProp ||
+        (isOfflineMode ? trustedOfflineBootstrap?.activeCashierShift : null) ||
+        null;
     const activeOutlet =
-        activeOutletProp || offlineBootstrap?.activeOutlet || null;
+        activeOutletProp ||
+        (isOfflineMode ? trustedOfflineBootstrap?.activeOutlet : null) ||
+        null;
     const storeProfile =
-        storeProfileProp || offlineBootstrap?.storeProfile || null;
+        storeProfileProp ||
+        (isOfflineMode ? trustedOfflineBootstrap?.storeProfile : null) ||
+        null;
     const resolvedDefaultPaymentGateway =
         defaultPaymentGateway ||
-        offlineBootstrap?.defaultPaymentGateway ||
+        trustedOfflineBootstrap?.defaultPaymentGateway ||
         "cash";
     const qrisPaymentImageUrl = paymentGatewayMeta?.qrisImageUrl || null;
     const resolvedPricingPreview = useMemo(() => {
@@ -507,6 +521,22 @@ export default function Index({
         setOfflineHistory(loadOfflineTransactionHistory());
     }, []);
 
+    useEffect(() => {
+        if (!offlineBootstrap) {
+            return;
+        }
+
+        if (
+            Number(offlineBootstrap.user_id || 0) !==
+            Number(auth?.user?.id || 0)
+        ) {
+            clearOfflinePosBootstrap();
+            clearOfflineCart();
+            setOfflineBootstrap(null);
+            setLocalCarts([]);
+        }
+    }, [auth?.user?.id, offlineBootstrap]);
+
     const persistOfflineSnapshot = useCallback(() => {
         if (
             isOfflineMode ||
@@ -519,6 +549,7 @@ export default function Index({
 
         setIsPreparingOfflineSnapshot(true);
         const snapshot = {
+            user_id: auth?.user?.id || null,
             products: productOptions,
             customers: customerOptions,
             categories: categoryOptions,
@@ -538,6 +569,7 @@ export default function Index({
     }, [
         activeCashierShiftProp,
         activeOutletProp,
+        auth?.user?.id,
         categoryOptions,
         customerOptions,
         defaultPaymentGateway,
@@ -835,10 +867,10 @@ export default function Index({
     const hasOfflineSnapshot = useMemo(
         () =>
             Boolean(
-                offlineBootstrap?.products?.length &&
-                    offlineBootstrap?.activeCashierShift
+                trustedOfflineBootstrap?.products?.length &&
+                    trustedOfflineBootstrap?.activeCashierShift
             ),
-        [offlineBootstrap]
+        [trustedOfflineBootstrap]
     );
     const isOfflineDeviceReady = useMemo(
         () =>
@@ -1348,6 +1380,12 @@ export default function Index({
         router.post(route("cashier-shifts.store"), {
             opening_cash: Number(openingCashInput || 0),
             notes: shiftNotesInput,
+            redirect_to: "transactions",
+        });
+    };
+    const handleJoinShift = () => {
+        router.post(route("cashier-shifts.store"), {
+            join_existing: true,
             redirect_to: "transactions",
         });
     };
@@ -3995,45 +4033,74 @@ export default function Index({
                             <IconWallet size={28} />
                         </div>
                         <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
-                            Shift kasir belum dibuka
+                            {outletOpenShift
+                                ? "Shift drawer outlet sudah aktif"
+                                : "Shift kasir belum dibuka"}
                         </h1>
                         <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
-                            Buka shift terlebih dulu untuk mengaktifkan transaksi, keranjang, dan cash closing.
+                            {outletOpenShift
+                                ? "Kasir lain sudah membuka drawer di outlet ini. Gabung ke shift aktif agar transaksi dan keranjang Anda bisa diproses."
+                                : "Buka shift terlebih dulu untuk mengaktifkan transaksi, keranjang, dan cash closing."}
                         </p>
 
-                        <div className="mt-6 grid gap-4 md:grid-cols-2">
-                            <div>
-                                <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                    Modal Awal
-                                </label>
-                                <input
-                                    type="number"
-                                    min="0"
-                                    value={openingCashInput}
-                                    onChange={(event) => setOpeningCashInput(event.target.value)}
-                                    className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-800 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
-                                    placeholder="0"
-                                />
-                                {errors?.opening_cash && (
-                                    <p className="mt-2 text-xs text-rose-500">{errors.opening_cash}</p>
-                                )}
+                        {outletOpenShift && (
+                            <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/50 dark:bg-amber-950/20">
+                                <p className="text-sm font-semibold text-amber-900 dark:text-amber-100">
+                                    Shift aktif: {outletOpenShift.user?.name || "-"}
+                                </p>
+                                <p className="mt-1 text-sm text-amber-700 dark:text-amber-300">
+                                    Modal awal {formatPrice(outletOpenShift.opening_cash)} • Expected cash {formatPrice(outletOpenShift.expected_cash)}
+                                </p>
+                                <p className="mt-2 text-sm text-amber-800 dark:text-amber-200">
+                                    Operator: {(outletOpenShift.operators || []).map((operator) => operator.name).join(", ") || "-"}
+                                </p>
                             </div>
-                            <div>
-                                <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                    Catatan
-                                </label>
-                                <input
-                                    type="text"
-                                    value={shiftNotesInput}
-                                    onChange={(event) => setShiftNotesInput(event.target.value)}
-                                    className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-800 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
-                                    placeholder="Opsional"
-                                />
+                        )}
+
+                        {!outletOpenShift && (
+                            <div className="mt-6 grid gap-4 md:grid-cols-2">
+                                <div>
+                                    <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                        Modal Awal
+                                    </label>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        value={openingCashInput}
+                                        onChange={(event) => setOpeningCashInput(event.target.value)}
+                                        className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-800 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                                        placeholder="0"
+                                    />
+                                    {errors?.opening_cash && (
+                                        <p className="mt-2 text-xs text-rose-500">{errors.opening_cash}</p>
+                                    )}
+                                </div>
+                                <div>
+                                    <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                        Catatan
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={shiftNotesInput}
+                                        onChange={(event) => setShiftNotesInput(event.target.value)}
+                                        className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-800 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                                        placeholder="Opsional"
+                                    />
+                                </div>
                             </div>
-                        </div>
+                        )}
 
                         <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-                            {canOpenShift && (
+                            {outletOpenShift ? (
+                                <button
+                                    type="button"
+                                    onClick={handleJoinShift}
+                                    className="inline-flex items-center justify-center gap-2 rounded-2xl bg-amber-500 px-5 py-3 text-sm font-medium text-white transition-colors hover:bg-amber-600"
+                                >
+                                    <IconWallet size={18} />
+                                    <span>Gabung Shift Aktif</span>
+                                </button>
+                            ) : canOpenShift && (
                                 <button
                                     type="button"
                                     onClick={handleOpenShift}
@@ -4051,6 +4118,9 @@ export default function Index({
                                 <span>Lihat Histori Shift</span>
                             </button>
                         </div>
+                        {errors?.shift && (
+                            <p className="mt-3 text-xs text-rose-500">{errors.shift}</p>
+                        )}
                     </div>
                 </div>
             </>

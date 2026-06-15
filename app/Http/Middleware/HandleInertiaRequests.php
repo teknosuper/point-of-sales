@@ -188,13 +188,10 @@ class HandleInertiaRequests extends Middleware
                     ];
                 });
 
-            $activeShift = CashierShift::query()
-                ->with('user:id,name')
-                ->open()
-                ->where('user_id', $userId)
-                ->when($activeOutlet && Schema::hasColumn('cashier_shifts', 'outlet_id'), fn ($query) => $query->where('outlet_id', $activeOutlet->id))
-                ->latest('opened_at')
-                ->first();
+            $activeShift = app(CashierShiftService::class)->getActiveShiftForUser(
+                $userId,
+                $activeOutlet && Schema::hasColumn('cashier_shifts', 'outlet_id') ? $activeOutlet->id : null
+            );
 
             if ($activeShift) {
                 $activeCashierShift = app(CashierShiftService::class)->summarizeForDisplay($activeShift);

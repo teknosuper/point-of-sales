@@ -58,6 +58,10 @@ class CashierShiftTest extends TestCase
         $this->assertSame($cashier->id, $shift->user_id);
         $this->assertSame(150000, (int) $shift->opening_cash);
         $this->assertSame(CashierShift::STATUS_OPEN, $shift->status);
+        $this->assertDatabaseHas('cashier_shift_operators', [
+            'cashier_shift_id' => $shift->id,
+            'user_id' => $cashier->id,
+        ]);
     }
 
     public function test_cashier_cannot_open_second_shift_while_first_is_active(): void
@@ -111,6 +115,84 @@ class CashierShiftTest extends TestCase
             ->component('Dashboard/Transactions/Index')
             ->where('activeCashierShift.id', $shift->id)
             ->where('activeCashierShift.opening_cash', 90000));
+    }
+
+    public function test_cashier_can_join_existing_outlet_shift_as_shared_drawer_operator(): void
+    {
+        $owner = $this->createUserWithPermissions([
+            'cashier-shifts-access',
+            'cashier-shifts-open',
+        ]);
+        $secondCashier = $this->createUserWithPermissions([
+            'cashier-shifts-access',
+            'cashier-shifts-open',
+            'transactions-access',
+        ]);
+
+        $shift = CashierShift::create([
+            'user_id' => $owner->id,
+            'opened_by' => $owner->id,
+            'opened_at' => now(),
+            'opening_cash' => 125000,
+            'expected_cash' => 125000,
+            'status' => CashierShift::STATUS_OPEN,
+        ]);
+        $shift->operators()->syncWithoutDetaching([
+            $owner->id => [
+                'joined_by' => $owner->id,
+                'joined_at' => now(),
+            ],
+        ]);
+
+        $response = $this
+            ->actingAs($secondCashier)
+            ->post(route('cashier-shifts.store'), [
+                'join_existing' => true,
+            ]);
+
+        $response->assertRedirect(route('cashier-shifts.show', $shift));
+        $this->assertDatabaseHas('cashier_shift_operators', [
+            'cashier_shift_id' => $shift->id,
+            'user_id' => $secondCashier->id,
+        ]);
+
+        $this->actingAs($secondCashier)
+            ->get(route('transactions.index'))
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Dashboard/Transactions/Index')
+                ->where('activeCashierShift.id', $shift->id)
+                ->has('activeCashierShift.operators', 2));
+    }
+
+    public function test_cashier_cannot_open_new_shift_when_shared_drawer_shift_is_already_active(): void
+    {
+        $owner = $this->createUserWithPermissions([
+            'cashier-shifts-access',
+            'cashier-shifts-open',
+        ]);
+        $secondCashier = $this->createUserWithPermissions([
+            'cashier-shifts-access',
+            'cashier-shifts-open',
+        ]);
+
+        CashierShift::create([
+            'user_id' => $owner->id,
+            'opened_by' => $owner->id,
+            'opened_at' => now(),
+            'opening_cash' => 100000,
+            'expected_cash' => 100000,
+            'status' => CashierShift::STATUS_OPEN,
+        ]);
+
+        $response = $this
+            ->from(route('cashier-shifts.index'))
+            ->actingAs($secondCashier)
+            ->post(route('cashier-shifts.store'), [
+                'opening_cash' => 200000,
+            ]);
+
+        $response->assertInvalid(['opening_cash']);
+        $this->assertDatabaseCount('cashier_shifts', 1);
     }
 
     public function test_closing_shift_calculates_expected_cash_and_difference(): void
@@ -251,6 +333,50 @@ class CashierShiftTest extends TestCase
             'id' => $shift->id,
             'closed_by' => $admin->id,
             'status' => CashierShift::STATUS_FORCE_CLOSED,
+        ]);
+    }
+
+    public function test_shared_shift_operator_cannot_close_without_force_close_permission(): void
+    {
+        $owner = $this->createUserWithPermissions([
+            'cashier-shifts-access',
+            'cashier-shifts-open',
+        ]);
+        $operator = $this->createUserWithPermissions([
+            'cashier-shifts-access',
+            'cashier-shifts-close',
+            'cashier-shifts-open',
+        ]);
+
+        $shift = CashierShift::create([
+            'user_id' => $owner->id,
+            'opened_by' => $owner->id,
+            'opened_at' => now(),
+            'opening_cash' => 80000,
+            'expected_cash' => 80000,
+            'status' => CashierShift::STATUS_OPEN,
+        ]);
+        $shift->operators()->syncWithoutDetaching([
+            $owner->id => [
+                'joined_by' => $owner->id,
+                'joined_at' => now(),
+            ],
+            $operator->id => [
+                'joined_by' => $owner->id,
+                'joined_at' => now(),
+            ],
+        ]);
+
+        $response = $this
+            ->actingAs($operator)
+            ->post(route('cashier-shifts.close', $shift), [
+                'actual_cash' => 80000,
+            ]);
+
+        $response->assertForbidden();
+        $this->assertDatabaseHas('cashier_shifts', [
+            'id' => $shift->id,
+            'status' => CashierShift::STATUS_OPEN,
         ]);
     }
 
