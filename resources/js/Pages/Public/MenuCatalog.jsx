@@ -21,8 +21,11 @@ export default function MenuCatalog({
         canPromptInstall,
         isCheckingInstallState,
         isChromeLike,
+        isInstalled,
         installHelpText,
         isIos,
+        isPwaEnabled,
+        isStandalone,
         promptInstall,
         shouldShowInstallEntry,
     } = usePwaInstall();
@@ -31,6 +34,7 @@ export default function MenuCatalog({
     const [refreshing, setRefreshing] = useState(false);
     const [searchQuery, setSearchQuery] = useState("");
     const [selectedProduct, setSelectedProduct] = useState(null);
+    const [showInstallDebug, setShowInstallDebug] = useState(false);
     const [showInstallGuide, setShowInstallGuide] = useState(false);
     const [lastUpdatedAt, setLastUpdatedAt] = useState(null);
     const [usingCachedData, setUsingCachedData] = useState(false);
@@ -386,6 +390,101 @@ export default function MenuCatalog({
                                 ? `Install ${appLabel}`
                                 : `Cara Install ${appLabel}`}
                         </button>
+                        <button
+                            type="button"
+                            onClick={() =>
+                                setShowInstallDebug((current) => !current)
+                            }
+                            className="mt-2 inline-flex w-full items-center justify-center rounded-xl px-3 py-2 text-xs font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+                        >
+                            {showInstallDebug
+                                ? "Sembunyikan status perangkat"
+                                : "Lihat status perangkat"}
+                        </button>
+                        {showInstallDebug && (
+                            <div className="mt-2 rounded-2xl bg-slate-100 p-3 text-xs text-slate-600">
+                                <div className="grid grid-cols-2 gap-2">
+                                    <span>Prompt browser</span>
+                                    <span className="font-semibold text-right">
+                                        {canPromptInstall ? "Siap" : "Belum"}
+                                    </span>
+                                    <span>Sudah terpasang</span>
+                                    <span className="font-semibold text-right">
+                                        {isInstalled ? "Ya" : "Belum"}
+                                    </span>
+                                    <span>Mode standalone</span>
+                                    <span className="font-semibold text-right">
+                                        {isStandalone ? "Aktif" : "Tidak"}
+                                    </span>
+                                    <span>Browser iOS</span>
+                                    <span className="font-semibold text-right">
+                                        {isIos ? "Ya" : "Tidak"}
+                                    </span>
+                                    <span>Chrome / Edge</span>
+                                    <span className="font-semibold text-right">
+                                        {isChromeLike ? "Ya" : "Tidak"}
+                                    </span>
+                                    <span>PWA aktif</span>
+                                    <span className="font-semibold text-right">
+                                        {isPwaEnabled ? "Ya" : "Tidak"}
+                                    </span>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            ) : !isCheckingInstallState && !isInstalled && !isStandalone ? (
+                <div className="fixed inset-x-0 bottom-0 z-[90] px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] sm:px-4 print:hidden">
+                    <div className="mx-auto w-full max-w-md rounded-[24px] border border-slate-200 bg-white/95 p-3 shadow-[0_20px_60px_-30px_rgba(15,23,42,0.45)] backdrop-blur">
+                        <button
+                            type="button"
+                            onClick={handleInstallApp}
+                            className="inline-flex min-h-[52px] w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 active:scale-[0.99]"
+                        >
+                            <IconDownload size={16} />
+                            Cara Install {appLabel}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() =>
+                                setShowInstallDebug((current) => !current)
+                            }
+                            className="mt-2 inline-flex w-full items-center justify-center rounded-xl px-3 py-2 text-xs font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+                        >
+                            {showInstallDebug
+                                ? "Sembunyikan status perangkat"
+                                : "Lihat status perangkat"}
+                        </button>
+                        {showInstallDebug && (
+                            <div className="mt-2 rounded-2xl bg-slate-100 p-3 text-xs text-slate-600">
+                                <div className="grid grid-cols-2 gap-2">
+                                    <span>Prompt browser</span>
+                                    <span className="font-semibold text-right">
+                                        {canPromptInstall ? "Siap" : "Belum"}
+                                    </span>
+                                    <span>Sudah terpasang</span>
+                                    <span className="font-semibold text-right">
+                                        {isInstalled ? "Ya" : "Belum"}
+                                    </span>
+                                    <span>Mode standalone</span>
+                                    <span className="font-semibold text-right">
+                                        {isStandalone ? "Aktif" : "Tidak"}
+                                    </span>
+                                    <span>Browser iOS</span>
+                                    <span className="font-semibold text-right">
+                                        {isIos ? "Ya" : "Tidak"}
+                                    </span>
+                                    <span>Chrome / Edge</span>
+                                    <span className="font-semibold text-right">
+                                        {isChromeLike ? "Ya" : "Tidak"}
+                                    </span>
+                                    <span>PWA aktif</span>
+                                    <span className="font-semibold text-right">
+                                        {isPwaEnabled ? "Ya" : "Tidak"}
+                                    </span>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
             ) : null}
