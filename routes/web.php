@@ -135,9 +135,19 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
         ->middlewareFor('store', ['permission:dining-tables-create', 'outlet_access'])
         ->middlewareFor('update', ['permission:dining-tables-update', 'outlet_access'])
         ->middlewareFor('destroy', ['permission:dining-tables-delete', 'outlet_access']);
-    Route::get('dining-tables/{diningTable}/print', [DiningTableController::class, 'print'])
-        ->middleware(['permission:dining-tables-access', 'outlet_access'])
-        ->name('dining-tables.print');
+        Route::get('dining-tables/{diningTable}/print', [DiningTableController::class, 'print'])
+            ->middleware(['permission:dining-tables-access', 'outlet_access'])
+            ->name('dining-tables.print');
+
+        Route::get('dining-tables/{diningTable}/print-v2', [DiningTableController::class, 'printV2'])
+            ->middleware(['permission:dining-tables-access', 'outlet_access'])
+            ->name('dining-tables.print-v2');
+        Route::get('dining-tables/{diningTable}/print-image', [DiningTableController::class, 'printImage'])
+            ->middleware(['permission:dining-tables-access', 'outlet_access'])
+            ->name('dining-tables.print-image');
+        Route::get('dining-tables/{diningTable}/print-pdf', [DiningTableController::class, 'printPdf'])
+            ->middleware(['permission:dining-tables-access', 'outlet_access'])
+            ->name('dining-tables.print-pdf');
     Route::get('table-orders', [TableOrderController::class, 'index'])
         ->middleware('permission:table-orders-access')
         ->name('table-orders.index');

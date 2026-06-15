@@ -558,7 +558,34 @@ export default function Index({
                                                     className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
                                                 >
                                                     <IconPrinter size={15} />
-                                                    Print QR Meja
+                                                    Print QR
+                                                </a>
+                                                <a
+                                                    href={route("dining-tables.print-v2", table.id)}
+                                                    target="_blank"
+                                                    rel="noreferrer"
+                                                    className="inline-flex items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-700 dark:border-sky-800 dark:bg-sky-900/30 dark:text-sky-300"
+                                                >
+                                                    <IconPrinter size={15} />
+                                                    Print QR V2
+                                                </a>
+                                                <a
+                                                    href={route("dining-tables.print-image", table.id)}
+                                                    target="_blank"
+                                                    rel="noreferrer"
+                                                    className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300"
+                                                >
+                                                    <IconPrinter size={15} />
+                                                    Versi Gambar
+                                                </a>
+                                                <a
+                                                    href={route("dining-tables.print-pdf", table.id)}
+                                                    target="_blank"
+                                                    rel="noreferrer"
+                                                    className="inline-flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-800 dark:bg-rose-900/30 dark:text-rose-300"
+                                                >
+                                                    <IconPrinter size={15} />
+                                                    Versi PDF
                                                 </a>
                                             </>
                                         ) : null}

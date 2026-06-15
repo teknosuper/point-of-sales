@@ -7,6 +7,8 @@ use App\Models\DiningTable;
 use App\Models\Outlet;
 use App\Services\AuditLogService;
 use App\Services\OutletResolver;
+use Barryvdh\DomPDF\Facade\Pdf;
+use Illuminate\Http\Response;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -170,6 +172,53 @@ class DiningTableController extends Controller
         ]);
     }
 
+    public function printV2(Request $request, DiningTable $diningTable)
+    {
+        $outlet = $this->resolveRequiredOutlet($request);
+        abort_unless((int) $diningTable->outlet_id === (int) $outlet->id, 404);
+
+        return Inertia::render('Dashboard/DiningTables/PrintV2', [
+            'table' => $this->tablePayload($diningTable),
+            'outlet' => [
+                'id' => (int) $outlet->id,
+                'name' => $outlet->name,
+            ],
+            'printMeta' => [
+                'paper_width_mm' => 152,
+                'printed_at' => now()->toIso8601String(),
+            ],
+        ]);
+    }
+
+    public function printImage(Request $request, DiningTable $diningTable): Response
+    {
+        $outlet = $this->resolveRequiredOutlet($request);
+        abort_unless((int) $diningTable->outlet_id === (int) $outlet->id, 404);
+
+        $payload = $this->printV2Payload($diningTable, $outlet);
+        $svg = $this->renderPrintV2Svg($payload);
+
+        return response($svg, 200, [
+            'Content-Type' => 'image/svg+xml; charset=UTF-8',
+            'Content-Disposition' => 'inline; filename="dining-table-'.$diningTable->id.'-qr-v2.svg"',
+        ]);
+    }
+
+    public function printPdf(Request $request, DiningTable $diningTable)
+    {
+        $outlet = $this->resolveRequiredOutlet($request);
+        abort_unless((int) $diningTable->outlet_id === (int) $outlet->id, 404);
+
+        $payload = $this->printV2Payload($diningTable, $outlet);
+        $payload['svgDataUrl'] = 'data:image/svg+xml;base64,'.base64_encode(
+            $this->renderPrintV2Svg($payload)
+        );
+        $pdf = Pdf::loadView('pdf.dining_table_qr_v2', $payload)
+            ->setPaper([0, 0, 432, 288], 'landscape');
+
+        return $pdf->stream('dining-table-'.$diningTable->id.'-qr-v2.pdf');
+    }
+
     private function validateRequest(Request $request, Outlet $outlet, ?DiningTable $diningTable = null): array
     {
         return $request->validate([
@@ -227,6 +276,57 @@ class DiningTableController extends Controller
             'notes' => $table->notes,
             'transactions_count' => (int) ($table->transactions_count ?? 0),
         ];
+    }
+
+    private function printV2Payload(DiningTable $diningTable, Outlet $outlet): array
+    {
+        $table = $this->tablePayload($diningTable);
+
+        return [
+            'table' => $table,
+            'outlet' => [
+                'id' => (int) $outlet->id,
+                'name' => $outlet->name,
+            ],
+            'qrImageDataUrl' => $this->qrImageDataUrl($table['order_url'] ?? ''),
+            'steps' => [
+                ['num' => 1, 'title' => 'Scan Meja', 'desc' => 'Scan QR code dengan HP untuk buka halaman menu'],
+                ['num' => 2, 'title' => 'Masukkan Data Pemesan', 'desc' => 'Isi nama & no HP agar pesanan tercatat'],
+                ['num' => 3, 'title' => 'Lakukan Pemesanan', 'desc' => 'Pilih menu, pilih jumlah, lalu tambah ke pesanan'],
+                ['num' => 4, 'title' => 'Konfirmasi Pesanan', 'desc' => 'Cek kembali pesanan, lalu kirim ke dapur'],
+                ['num' => 5, 'title' => 'Bayar ke Kasir', 'desc' => 'Datang ke kasir, sebutkan nama, lakukan pembayaran'],
+                ['num' => 6, 'title' => 'Tunggu Pesanan', 'desc' => 'Duduk santai, pesanan akan diantar ke meja'],
+            ],
+            'printMeta' => [
+                'paper_width_mm' => 152,
+                'printed_at' => now()->toIso8601String(),
+            ],
+        ];
+    }
+
+    private function qrImageDataUrl(string $value): string
+    {
+        $url = 'https://api.qrserver.com/v1/create-qr-code/?size=400x400&data='.urlencode($value);
+        $context = stream_context_create([
+            'http' => ['timeout' => 5],
+            'ssl' => [
+                'verify_peer' => false,
+                'verify_peer_name' => false,
+            ],
+        ]);
+
+        $image = @file_get_contents($url, false, $context);
+
+        if ($image === false) {
+            return $url;
+        }
+
+        return 'data:image/png;base64,'.base64_encode($image);
+    }
+
+    private function renderPrintV2Svg(array $payload): string
+    {
+        return view('exports.dining_tables.print_v2_svg', $payload)->render();
     }
 
     private function ensureQrToken(DiningTable $table): DiningTable
