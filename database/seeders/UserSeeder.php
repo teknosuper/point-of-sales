@@ -15,10 +15,15 @@ class UserSeeder extends Seeder
     {
         app(PermissionRegistrar::class)->forgetCachedPermissions();
 
+        $legacySuperAdmin = User::query()->where('email', 'arya@gmail.com')->first();
+        if ($legacySuperAdmin && ! User::query()->where('email', 'saifulbahri@gtc-center.my.id')->exists()) {
+            $legacySuperAdmin->update(['email' => 'saifulbahri@gtc-center.my.id']);
+        }
+
         $superAdmin = User::updateOrCreate(
-            ['email' => 'arya@gmail.com'],
+            ['email' => 'saifulbahri@gtc-center.my.id'],
             [
-                'name' => 'Arya Dwi Putra',
+                'name' => 'Saiful Bahri',
                 'password' => Hash::make('password'),
             ]
         );

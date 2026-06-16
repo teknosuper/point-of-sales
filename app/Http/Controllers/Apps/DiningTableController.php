@@ -190,6 +190,31 @@ class DiningTableController extends Controller
         ]);
     }
 
+    public function printV2All(Request $request)
+    {
+        $outlet = $this->resolveRequiredOutlet($request);
+
+        $tables = DiningTable::query()
+            ->forOutlet($outlet->id)
+            ->orderBy('sort_order')
+            ->orderBy('name')
+            ->get()
+            ->map(fn (DiningTable $table) => $this->tablePayload($table))
+            ->values();
+
+        return Inertia::render('Dashboard/DiningTables/PrintV2All', [
+            'tables' => $tables,
+            'outlet' => [
+                'id' => (int) $outlet->id,
+                'name' => $outlet->name,
+            ],
+            'printMeta' => [
+                'paper_width_mm' => 152,
+                'printed_at' => now()->toIso8601String(),
+            ],
+        ]);
+    }
+
     public function printImage(Request $request, DiningTable $diningTable): Response
     {
         $outlet = $this->resolveRequiredOutlet($request);
@@ -267,6 +292,7 @@ class DiningTableController extends Controller
             'outlet_id' => (int) $table->outlet_id,
             'name' => $table->name,
             'code' => $table->code,
+            'area' => $this->extractTableArea($table),
             'qr_token' => $table->qr_token,
             'self_order_enabled' => (bool) $table->self_order_enabled,
             'order_url' => route('table-order.show', $table->qr_token),
@@ -276,6 +302,24 @@ class DiningTableController extends Controller
             'notes' => $table->notes,
             'transactions_count' => (int) ($table->transactions_count ?? 0),
         ];
+    }
+
+    private function extractTableArea(DiningTable $table): ?string
+    {
+        $name = trim((string) $table->name);
+        $code = trim((string) $table->code);
+
+        if ($name === '') {
+            return null;
+        }
+
+        if ($code !== '' && Str::startsWith($name, $code)) {
+            $area = trim(Str::after($name, $code));
+
+            return $area !== '' ? $area : null;
+        }
+
+        return null;
     }
 
     private function printV2Payload(DiningTable $diningTable, Outlet $outlet): array

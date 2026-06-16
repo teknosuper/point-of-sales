@@ -82,10 +82,6 @@ export default function Create({ tenantOutlets = [] }) {
             nextErrors.description = "Deskripsi kategori wajib diisi.";
         }
 
-        if (!data.image || !selectedImageName) {
-            nextErrors.image = "Gambar kategori wajib dipilih.";
-        }
-
         setLocalErrors(nextErrors);
 
         if (Object.keys(nextErrors).length > 0) {
@@ -117,7 +113,7 @@ export default function Create({ tenantOutlets = [] }) {
                     Tambah Kategori
                 </h1>
                 <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                    Isi nama, deskripsi, dan gambar kategori.
+                    Isi nama dan deskripsi kategori. Jika gambar tidak dipilih, sistem memakai `default.jpg`.
                 </p>
             </div>
 
@@ -155,7 +151,7 @@ export default function Create({ tenantOutlets = [] }) {
                                     <p>
                                         {selectedImageName
                                             ? `File dipilih: ${selectedImageName}`
-                                            : "Belum ada gambar dipilih."}
+                                            : "Belum ada gambar dipilih. Sistem akan memakai default.jpg."}
                                     </p>
                                     <p>Format: JPG, PNG, WEBP. Maksimal 2MB.</p>
                                 </div>

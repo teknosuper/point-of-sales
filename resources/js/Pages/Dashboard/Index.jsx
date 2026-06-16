@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Chart from "chart.js/auto";
 import { detectPwaInstalled } from "@/Utils/pwaInstallation";
 import { useAuthorization } from "@/Utils/authorization";
+import PWAInstallButton from "@/Components/PWAInstallButton";
 import {
     IconBooks,
     IconBox,
@@ -501,13 +502,16 @@ export default function Dashboard({
                                 : "Ringkasan aktivitas bisnis Anda"}
                         </p>
                     </div>
-                    <Link
-                        href={route("transactions.index")}
-                        className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-primary-500 hover:bg-primary-600 text-white text-sm font-medium transition-colors shadow-lg shadow-primary-500/30"
-                    >
-                        <IconShoppingCart size={18} />
-                        <span>Transaksi Baru</span>
-                    </Link>
+                    <div className="flex flex-wrap items-center gap-3">
+                        <PWAInstallButton compact />
+                        <Link
+                            href={route("transactions.index")}
+                            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-primary-500 hover:bg-primary-600 text-white text-sm font-medium transition-colors shadow-lg shadow-primary-500/30"
+                        >
+                            <IconShoppingCart size={18} />
+                            <span>Transaksi Baru</span>
+                        </Link>
+                    </div>
                 </div>
 
                 {quickMenus.length > 0 && (

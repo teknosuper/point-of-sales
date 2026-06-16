@@ -12,6 +12,7 @@ use Inertia\Inertia;
 class CategoryController extends Controller
 {
     private const IMAGE_DIRECTORY = 'public/categories';
+    private const DEFAULT_IMAGE = 'default.jpg';
 
     /**
      * Display a listing of the resource.
@@ -107,12 +108,11 @@ class CategoryController extends Controller
          * validate
          */
         $validated = $request->validate([
-            'image' => ['required', 'image', 'mimes:jpeg,jpg,png,webp', 'max:2048'],
+            'image' => ['nullable', 'image', 'mimes:jpeg,jpg,png,webp', 'max:2048'],
             'name' => ['required', 'string', 'max:255'],
             'description' => ['required', 'string'],
             'tenant_outlet_id' => ['nullable', 'exists:outlets,id'],
         ], [
-            'image.required' => 'Gambar kategori wajib dipilih.',
             'image.image' => 'File yang diunggah harus berupa gambar.',
             'image.mimes' => 'Format gambar harus jpeg, jpg, png, atau webp.',
             'image.max' => 'Ukuran gambar maksimal 2MB.',
@@ -121,10 +121,15 @@ class CategoryController extends Controller
         ]);
 
         $image = $request->file('image');
-        $image->storeAs(self::IMAGE_DIRECTORY, $image->hashName());
+        $imageName = self::DEFAULT_IMAGE;
+
+        if ($image) {
+            $image->storeAs(self::IMAGE_DIRECTORY, $image->hashName());
+            $imageName = $image->hashName();
+        }
 
         Category::create([
-            'image' => $image->hashName(),
+            'image' => $imageName,
             'name' => $validated['name'],
             'description' => $validated['description'],
             'tenant_outlet_id' => $request->integer('tenant_outlet_id') ?: null,

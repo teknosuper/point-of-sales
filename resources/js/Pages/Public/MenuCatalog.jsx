@@ -114,21 +114,45 @@ export default function MenuCatalog({
         setSyncError("");
 
         try {
-            const params = new URLSearchParams();
-            params.append("include_out_of_stock", "1");
+            const buildParams = (page) => {
+                const params = new URLSearchParams();
+                params.append("include_out_of_stock", "1");
+                params.append("per_page", "100");
+                params.append("page", String(page));
 
-            if (outlet?.code) {
-                params.append("outlet_code", outlet.code);
+                if (outlet?.code) {
+                    params.append("outlet_code", outlet.code);
+                }
+
+                return params;
+            };
+
+            const loadPage = async (page) => {
+                const response = await fetch(
+                    `/api/public/catalog/products?${buildParams(page).toString()}`
+                );
+
+                if (!response.ok) {
+                    throw new Error(`Request failed with status ${response.status}`);
+                }
+
+                return response.json();
+            };
+
+            const firstPayload = await loadPage(1);
+            const allProducts = Array.isArray(firstPayload.data)
+                ? [...firstPayload.data]
+                : [];
+            const lastPage = Number(firstPayload?.meta?.last_page || 1);
+
+            for (let page = 2; page <= lastPage; page += 1) {
+                const payload = await loadPage(page);
+                if (Array.isArray(payload.data)) {
+                    allProducts.push(...payload.data);
+                }
             }
 
-            const response = await fetch(
-                `/api/public/catalog/products?${params.toString()}`
-            );
-            if (!response.ok) {
-                throw new Error(`Request failed with status ${response.status}`);
-            }
-            const payload = await response.json();
-            const nextProducts = Array.isArray(payload.data) ? payload.data : [];
+            const nextProducts = allProducts;
             const syncedAt = new Date().toISOString();
 
             setProducts(nextProducts);

@@ -56,26 +56,20 @@ class DemoInitialSetupSeeder extends Seeder
 
         DB::transaction(function () use ($mainOutlet) {
             $tenantOutlets = $this->seedTenantOutlets();
-            $this->seedDemoCategories();
+            $this->seedDemoCategories($tenantOutlets);
             $diningTables = $this->seedDiningTables($mainOutlet);
             $stations = $this->seedKitchenStations($mainOutlet);
             $this->seedKitchenDevices($stations);
-            $users = $this->seedDemoUsers($mainOutlet, $stations, $tenantOutlets);
+            $this->seedDemoUsers($mainOutlet, $stations, $tenantOutlets);
             $products = $this->seedDemoFoodcourtProducts($mainOutlet, $tenantOutlets);
             $this->seedProductOutletStocks($mainOutlet, $products);
             $this->seedProductMappings($products, $stations);
-            $customers = $this->seedDemoCustomers($mainOutlet);
-            $transactions = $this->seedDemoTransactions($mainOutlet, $users, $products, $customers, $diningTables);
-            $this->seedDemoReceivables($mainOutlet, $transactions, $customers);
-            $this->seedDemoPayables($mainOutlet);
-            $this->seedDemoPrintJobs($mainOutlet, $transactions);
-            $this->markDemoTenantSettlements($transactions);
         });
 
         app(PermissionRegistrar::class)->forgetCachedPermissions();
     }
 
-    private function seedDemoCategories(): Collection
+    private function seedDemoCategories(Collection $tenantOutlets): Collection
     {
         $rows = collect([
             [
@@ -96,13 +90,145 @@ class DemoInitialSetupSeeder extends Seeder
             ],
         ]);
 
-        return $rows->map(fn (array $row) => Category::query()->updateOrCreate(
+        $categories = $rows->map(fn (array $row) => Category::query()->updateOrCreate(
             ['name' => $row['name']],
             [
                 'description' => $row['description'],
                 'image' => 'default.jpg',
             ]
-        ))->keyBy('name');
+        ));
+
+        $minumanTenant = $tenantOutlets->get('dapur-minuman');
+
+        if ($minumanTenant) {
+            $tenantCategories = collect($this->minumanSections())
+                ->map(fn (array $section) => Category::query()->updateOrCreate(
+                    [
+                        'name' => $section['group'],
+                        'tenant_outlet_id' => $minumanTenant->id,
+                    ],
+                    [
+                        'description' => sprintf(
+                            'Kategori tenant %s untuk demo foodcourt dapur minuman.',
+                            $section['group']
+                        ),
+                        'image' => 'default.jpg',
+                    ]
+                ));
+
+            $categories = $categories->merge($tenantCategories);
+        }
+
+        $mieTenant = $tenantOutlets->get('dapur-mie');
+
+        if ($mieTenant) {
+            $tenantCategories = collect($this->mieSections())
+                ->map(fn (array $section) => Category::query()->updateOrCreate(
+                    [
+                        'name' => $section['group'],
+                        'tenant_outlet_id' => $mieTenant->id,
+                    ],
+                    [
+                        'description' => sprintf(
+                            'Kategori tenant %s untuk demo foodcourt dapur mie.',
+                            $section['group']
+                        ),
+                        'image' => 'default.jpg',
+                    ]
+                ));
+
+            $categories = $categories->merge($tenantCategories);
+        }
+
+        $durianTenant = $tenantOutlets->get('dapur-durian');
+
+        if ($durianTenant) {
+            $tenantCategories = collect($this->durianSections())
+                ->map(fn (array $section) => Category::query()->updateOrCreate(
+                    [
+                        'name' => $section['group'],
+                        'tenant_outlet_id' => $durianTenant->id,
+                    ],
+                    [
+                        'description' => sprintf(
+                            'Kategori tenant %s untuk demo foodcourt dapur durian.',
+                            $section['group']
+                        ),
+                        'image' => 'default.jpg',
+                    ]
+                ));
+
+            $categories = $categories->merge($tenantCategories);
+        }
+
+        $ayamTenant = $tenantOutlets->get('dapur-ayam');
+
+        if ($ayamTenant) {
+            $tenantCategories = collect($this->ayamSections())
+                ->map(fn (array $section) => Category::query()->updateOrCreate(
+                    [
+                        'name' => $section['group'],
+                        'tenant_outlet_id' => $ayamTenant->id,
+                    ],
+                    [
+                        'description' => sprintf(
+                            'Kategori tenant %s untuk demo foodcourt dapur ayam.',
+                            $section['group']
+                        ),
+                        'image' => 'default.jpg',
+                    ]
+                ));
+
+            $categories = $categories->merge($tenantCategories);
+        }
+
+        $buahTenant = $tenantOutlets->get('dapur-buah');
+
+        if ($buahTenant) {
+            $tenantCategories = collect($this->buahSections())
+                ->map(fn (array $section) => Category::query()->updateOrCreate(
+                    [
+                        'name' => $section['group'],
+                        'tenant_outlet_id' => $buahTenant->id,
+                    ],
+                    [
+                        'description' => sprintf(
+                            'Kategori tenant %s untuk demo foodcourt dapur buah.',
+                            $section['group']
+                        ),
+                        'image' => 'default.jpg',
+                    ]
+                ));
+
+            $categories = $categories->merge($tenantCategories);
+        }
+
+        $ramenTenant = $tenantOutlets->get('dapur-ramen');
+
+        if ($ramenTenant) {
+            $tenantCategories = collect($this->ramenSections())
+                ->map(fn (array $section) => Category::query()->updateOrCreate(
+                    [
+                        'name' => $section['group'],
+                        'tenant_outlet_id' => $ramenTenant->id,
+                    ],
+                    [
+                        'description' => sprintf(
+                            'Kategori tenant %s untuk demo foodcourt dapur ramen.',
+                            $section['group']
+                        ),
+                        'image' => 'default.jpg',
+                    ]
+                ));
+
+            $categories = $categories->merge($tenantCategories);
+        }
+
+        return $categories->keyBy(fn (Category $category) => sprintf(
+            '%s:%s',
+            $category->tenant_outlet_id ?: 'global',
+            Str::lower($category->name)
+        ));
     }
 
     private function seedTenantOutlets(): Collection
@@ -231,25 +357,50 @@ class DemoInitialSetupSeeder extends Seeder
 
     private function seedDiningTables(Outlet $mainOutlet): Collection
     {
-        $rows = collect([
-            ['code' => 'A1', 'name' => 'Meja A1', 'capacity' => 2, 'sort_order' => 10],
-            ['code' => 'A2', 'name' => 'Meja A2', 'capacity' => 2, 'sort_order' => 20],
-            ['code' => 'A3', 'name' => 'Meja A3', 'capacity' => 4, 'sort_order' => 30],
-            ['code' => 'B1', 'name' => 'Meja B1', 'capacity' => 4, 'sort_order' => 40],
-            ['code' => 'B2', 'name' => 'Meja B2', 'capacity' => 4, 'sort_order' => 50],
-            ['code' => 'B3', 'name' => 'Meja B3', 'capacity' => 6, 'sort_order' => 60],
-            ['code' => 'VIP1', 'name' => 'Meja VIP 1', 'capacity' => 6, 'sort_order' => 70],
-            ['code' => 'OUT1', 'name' => 'Meja Outdoor 1', 'capacity' => 4, 'sort_order' => 80],
-        ]);
+        $rows = collect();
+
+        foreach (range(1, 45) as $number) {
+            $code = str_pad((string) $number, 3, '0', STR_PAD_LEFT);
+
+            if ($number <= 10) {
+                $area = 'VIP';
+                $capacity = 6;
+            } elseif ($number <= 36) {
+                $area = 'Semi Outdoor';
+                $capacity = 4;
+            } elseif ($number <= 40) {
+                $area = 'Depan Panggung';
+                $capacity = 4;
+            } else {
+                $area = 'Depan VIP';
+                $capacity = 6;
+            }
+
+            $rows->push([
+                'code' => $code,
+                'name' => $code.' '.$area,
+                'capacity' => $capacity,
+                'sort_order' => $number * 10,
+            ]);
+        }
+
+        $activeCodes = $rows->pluck('code')->all();
+
+        DiningTable::query()
+            ->where('outlet_id', $mainOutlet->id)
+            ->whereNotIn('code', $activeCodes)
+            ->doesntHave('transactions')
+            ->doesntHave('tableOrders')
+            ->delete();
 
         return $rows->map(function (array $row) use ($mainOutlet) {
             return DiningTable::query()->updateOrCreate(
                 [
                     'outlet_id' => $mainOutlet->id,
-                    'name' => $row['name'],
+                    'code' => $row['code'],
                 ],
                 [
-                    'code' => $row['code'],
+                    'name' => $row['name'],
                     'qr_token' => (string) Str::uuid(),
                     'capacity' => $row['capacity'],
                     'status' => 'active',
@@ -317,6 +468,7 @@ class DemoInitialSetupSeeder extends Seeder
     private function seedDemoUsers(Outlet $mainOutlet, Collection $stations, Collection $tenantOutlets): Collection
     {
         $workspaceColumnsReady = $this->supportsKitchenWorkspaceColumns();
+        $this->purgeLegacyDemoUsers();
         $tenantSpecs = collect([
             ['slug' => 'dapur-minuman', 'station_slug' => 'minuman', 'name' => 'Dapur Minuman', 'handle' => 'minuman'],
             ['slug' => 'dapur-mie', 'station_slug' => 'mie', 'name' => 'Dapur Mie', 'handle' => 'mie'],
@@ -330,7 +482,7 @@ class DemoInitialSetupSeeder extends Seeder
 
         $users = collect([
             [
-                'email' => 'admin.outlet@gmail.com',
+                'email' => 'admin.outlet@gtc-center.my.id',
                 'name' => 'Admin Outlet Demo',
                 'workspace' => 'standard',
                 'station' => null,
@@ -339,7 +491,7 @@ class DemoInitialSetupSeeder extends Seeder
                 'outlet_ids' => [$mainOutlet->id],
             ],
             [
-                'email' => 'owner.outlet@gmail.com',
+                'email' => 'owner.outlet@gtc-center.my.id',
                 'name' => 'Outlet Owner Demo',
                 'workspace' => 'standard',
                 'station' => null,
@@ -348,7 +500,7 @@ class DemoInitialSetupSeeder extends Seeder
                 'outlet_ids' => [$mainOutlet->id],
             ],
             [
-                'email' => 'cashier.foodcourt@gmail.com',
+                'email' => 'cashier.foodcourt@gtc-center.my.id',
                 'name' => 'Kasir Foodcourt Demo',
                 'workspace' => 'standard',
                 'station' => null,
@@ -357,7 +509,7 @@ class DemoInitialSetupSeeder extends Seeder
                 'outlet_ids' => [$mainOutlet->id],
             ],
             [
-                'email' => 'waiter.outlet@gmail.com',
+                'email' => 'waiter.outlet@gtc-center.my.id',
                 'name' => 'Petugas Antar Outlet Demo',
                 'workspace' => 'standard',
                 'station' => null,
@@ -374,7 +526,7 @@ class DemoInitialSetupSeeder extends Seeder
 
                 return [
                     [
-                        'email' => 'owner.'.$tenant['handle'].'@gmail.com',
+                        'email' => 'owner.'.$tenant['handle'].'@gtc-center.my.id',
                         'name' => 'Owner '.$tenant['name'],
                         'workspace' => 'standard',
                         'station' => null,
@@ -383,7 +535,7 @@ class DemoInitialSetupSeeder extends Seeder
                         'outlet_ids' => [$tenantOutletId],
                     ],
                     [
-                        'email' => 'ops.'.$tenant['handle'].'@gmail.com',
+                        'email' => 'ops.'.$tenant['handle'].'@gtc-center.my.id',
                         'name' => 'Operasional '.$tenant['name'],
                         'workspace' => 'standard',
                         'station' => null,
@@ -392,7 +544,7 @@ class DemoInitialSetupSeeder extends Seeder
                         'outlet_ids' => [$tenantOutletId],
                     ],
                     [
-                        'email' => 'antar.'.$tenant['handle'].'@gmail.com',
+                        'email' => 'antar.'.$tenant['handle'].'@gtc-center.my.id',
                         'name' => 'Petugas Antar '.$tenant['name'],
                         'workspace' => 'standard',
                         'station' => null,
@@ -403,7 +555,7 @@ class DemoInitialSetupSeeder extends Seeder
                         'waiter_tenant_slugs' => [$tenant['slug']],
                     ],
                     [
-                        'email' => 'kitchen.'.$tenant['handle'].'@gmail.com',
+                        'email' => 'dapur.'.$tenant['handle'].'@gtc-center.my.id',
                         'name' => 'Layar '.$tenant['name'],
                         'workspace' => 'kitchen',
                         'station' => $stationId,
@@ -463,6 +615,62 @@ class DemoInitialSetupSeeder extends Seeder
             });
 
         return $users->keyBy('email');
+    }
+
+    private function purgeLegacyDemoUsers(): void
+    {
+        $emailMap = [
+            'admin.outlet@gmail.com' => 'admin.outlet@gtc-center.my.id',
+            'owner.outlet@gmail.com' => 'owner.outlet@gtc-center.my.id',
+            'cashier.foodcourt@gmail.com' => 'cashier.foodcourt@gtc-center.my.id',
+            'waiter.outlet@gmail.com' => 'waiter.outlet@gtc-center.my.id',
+            'owner.minuman@gmail.com' => 'owner.minuman@gtc-center.my.id',
+            'ops.minuman@gmail.com' => 'ops.minuman@gtc-center.my.id',
+            'antar.minuman@gmail.com' => 'antar.minuman@gtc-center.my.id',
+            'kitchen.minuman@gmail.com' => 'dapur.minuman@gtc-center.my.id',
+            'owner.mie@gmail.com' => 'owner.mie@gtc-center.my.id',
+            'ops.mie@gmail.com' => 'ops.mie@gtc-center.my.id',
+            'antar.mie@gmail.com' => 'antar.mie@gtc-center.my.id',
+            'kitchen.mie@gmail.com' => 'dapur.mie@gtc-center.my.id',
+            'owner.ayam@gmail.com' => 'owner.ayam@gtc-center.my.id',
+            'ops.ayam@gmail.com' => 'ops.ayam@gtc-center.my.id',
+            'antar.ayam@gmail.com' => 'antar.ayam@gtc-center.my.id',
+            'kitchen.ayam@gmail.com' => 'dapur.ayam@gtc-center.my.id',
+            'owner.ramen@gmail.com' => 'owner.ramen@gtc-center.my.id',
+            'ops.ramen@gmail.com' => 'ops.ramen@gtc-center.my.id',
+            'antar.ramen@gmail.com' => 'antar.ramen@gtc-center.my.id',
+            'kitchen.ramen@gmail.com' => 'dapur.ramen@gtc-center.my.id',
+            'owner.steak@gmail.com' => 'owner.steak@gtc-center.my.id',
+            'ops.steak@gmail.com' => 'ops.steak@gtc-center.my.id',
+            'antar.steak@gmail.com' => 'antar.steak@gtc-center.my.id',
+            'kitchen.steak@gmail.com' => 'dapur.steak@gtc-center.my.id',
+            'owner.durian@gmail.com' => 'owner.durian@gtc-center.my.id',
+            'ops.durian@gmail.com' => 'ops.durian@gtc-center.my.id',
+            'antar.durian@gmail.com' => 'antar.durian@gtc-center.my.id',
+            'kitchen.durian@gmail.com' => 'dapur.durian@gtc-center.my.id',
+            'owner.nasgor@gmail.com' => 'owner.nasgor@gtc-center.my.id',
+            'ops.nasgor@gmail.com' => 'ops.nasgor@gtc-center.my.id',
+            'antar.nasgor@gmail.com' => 'antar.nasgor@gtc-center.my.id',
+            'kitchen.nasgor@gmail.com' => 'dapur.nasgor@gtc-center.my.id',
+            'owner.buah@gmail.com' => 'owner.buah@gtc-center.my.id',
+            'ops.buah@gmail.com' => 'ops.buah@gtc-center.my.id',
+            'antar.buah@gmail.com' => 'antar.buah@gtc-center.my.id',
+            'kitchen.buah@gmail.com' => 'dapur.buah@gtc-center.my.id',
+        ];
+
+        foreach ($emailMap as $oldEmail => $newEmail) {
+            $legacyUser = User::query()->where('email', $oldEmail)->first();
+
+            if (! $legacyUser) {
+                continue;
+            }
+
+            if (User::query()->where('email', $newEmail)->exists()) {
+                continue;
+            }
+
+            $legacyUser->update(['email' => $newEmail]);
+        }
     }
 
     private function seedDemoCustomers(Outlet $mainOutlet): Collection
@@ -536,59 +744,77 @@ class DemoInitialSetupSeeder extends Seeder
 
     private function seedDemoFoodcourtProducts(Outlet $mainOutlet, Collection $tenantOutlets): Collection
     {
-        $categories = Category::query()->whereIn('name', [
-            'Minuman',
-            'Makanan Berat',
-            'Makanan Ringan',
-            'Roti & Kue',
-        ])->get()->keyBy('name');
-
         $rows = collect(array_merge(
             $this->minumanMenuRows(),
+            $this->mieMenuRows(),
+            $this->durianMenuRows(),
+            $this->ayamMenuRows(),
+            $this->buahMenuRows(),
+            $this->ramenMenuRows(),
             [
-            ['barcode' => 'FC-MIE-001', 'title' => 'Mie Goreng Jawa', 'description' => 'Mie goreng gurih khas untuk dapur mie.', 'category' => 'Makanan Berat', 'tenant_slug' => 'dapur-mie', 'station_slug' => 'mie', 'buy_price' => 13000, 'sell_price' => 22000, 'stock' => 60, 'modifier_options' => [['name' => 'Telur dadar', 'price' => 5000], ['name' => 'Bakso', 'price' => 6000], ['name' => 'Pangsit goreng', 'price' => 4000]]],
-            ['barcode' => 'FC-MIE-002', 'title' => 'Mie Nyemek Spesial', 'description' => 'Mie nyemek pedas manis untuk antrian dapur mie.', 'category' => 'Makanan Berat', 'tenant_slug' => 'dapur-mie', 'station_slug' => 'mie', 'buy_price' => 15000, 'sell_price' => 25000, 'stock' => 55, 'modifier_options' => [['name' => 'Kornet', 'price' => 7000], ['name' => 'Keju', 'price' => 5000], ['name' => 'Sosis', 'price' => 6000]]],
-            ['barcode' => 'FC-MIE-003', 'title' => 'Mie Godog Kampung', 'description' => 'Mie kuah gurih lengkap untuk skenario kitchen ticket.', 'category' => 'Makanan Berat', 'tenant_slug' => 'dapur-mie', 'station_slug' => 'mie', 'buy_price' => 14000, 'sell_price' => 23000, 'stock' => 58, 'modifier_options' => [['name' => 'Telur ceplok', 'price' => 5000], ['name' => 'Ayam suwir', 'price' => 7000], ['name' => 'Sambal ijo', 'price' => 2000]]],
-            ['barcode' => 'FC-MIE-004', 'title' => 'Mie Ayam Rica', 'description' => 'Mie ayam pedas untuk dapur mie dengan topping lengkap.', 'category' => 'Makanan Berat', 'tenant_slug' => 'dapur-mie', 'station_slug' => 'mie', 'buy_price' => 16000, 'sell_price' => 26000, 'stock' => 52, 'modifier_options' => [['name' => 'Pangsit rebus', 'price' => 5000], ['name' => 'Ceker', 'price' => 7000], ['name' => 'Bakso', 'price' => 6000]]],
-
-            ['barcode' => 'FC-AYM-001', 'title' => 'Ayam Geprek Original', 'description' => 'Menu ayam favorit untuk skenario dapur ayam.', 'category' => 'Makanan Berat', 'tenant_slug' => 'dapur-ayam', 'station_slug' => 'ayam', 'buy_price' => 17000, 'sell_price' => 28000, 'stock' => 68, 'modifier_options' => [['name' => 'Keju leleh', 'price' => 6000], ['name' => 'Telur dadar', 'price' => 5000], ['name' => 'Sambal ekstra', 'price' => 2000]]],
-            ['barcode' => 'FC-AYM-002', 'title' => 'Ayam Bakar Madu', 'description' => 'Ayam bakar manis gurih untuk tenant ayam.', 'category' => 'Makanan Berat', 'tenant_slug' => 'dapur-ayam', 'station_slug' => 'ayam', 'buy_price' => 19000, 'sell_price' => 32000, 'stock' => 54, 'modifier_options' => [['name' => 'Nasi putih', 'price' => 6000], ['name' => 'Kulit crispy', 'price' => 7000], ['name' => 'Sambal matah', 'price' => 3000]]],
-            ['barcode' => 'FC-AYM-003', 'title' => 'Ayam Crispy Blackpepper', 'description' => 'Ayam crispy dengan saus lada hitam.', 'category' => 'Makanan Berat', 'tenant_slug' => 'dapur-ayam', 'station_slug' => 'ayam', 'buy_price' => 20000, 'sell_price' => 34000, 'stock' => 48, 'modifier_options' => [['name' => 'Kentang goreng', 'price' => 8000], ['name' => 'Cheese sauce', 'price' => 5000], ['name' => 'Telur ceplok', 'price' => 5000]]],
-            ['barcode' => 'FC-AYM-004', 'title' => 'Paket Ayam Komplit', 'description' => 'Ayam, nasi, lalap, dan sambal untuk testing paket.', 'category' => 'Makanan Berat', 'tenant_slug' => 'dapur-ayam', 'station_slug' => 'ayam', 'buy_price' => 24000, 'sell_price' => 39000, 'stock' => 46, 'modifier_options' => [['name' => 'Extra ayam', 'price' => 14000], ['name' => 'Tahu tempe', 'price' => 4000], ['name' => 'Sambal korek', 'price' => 3000]]],
-
-            ['barcode' => 'FC-RMN-001', 'title' => 'Ramen Original', 'description' => 'Ramen kuah gurih untuk dapur ramen.', 'category' => 'Makanan Berat', 'tenant_slug' => 'dapur-ramen', 'station_slug' => 'ramen', 'buy_price' => 22000, 'sell_price' => 36000, 'stock' => 44, 'modifier_options' => [['name' => 'Ajitama egg', 'price' => 7000], ['name' => 'Nori', 'price' => 4000], ['name' => 'Chashu', 'price' => 12000]]],
-            ['barcode' => 'FC-RMN-002', 'title' => 'Spicy Tori Ramen', 'description' => 'Ramen ayam pedas untuk skenario modifier pedas.', 'category' => 'Makanan Berat', 'tenant_slug' => 'dapur-ramen', 'station_slug' => 'ramen', 'buy_price' => 23000, 'sell_price' => 38000, 'stock' => 40, 'modifier_options' => [['name' => 'Jamur enoki', 'price' => 6000], ['name' => 'Extra chicken', 'price' => 10000], ['name' => 'Cheese slice', 'price' => 5000]]],
-            ['barcode' => 'FC-RMN-003', 'title' => 'Beef Curry Ramen', 'description' => 'Ramen kari daging dengan topping premium.', 'category' => 'Makanan Berat', 'tenant_slug' => 'dapur-ramen', 'station_slug' => 'ramen', 'buy_price' => 25000, 'sell_price' => 42000, 'stock' => 35, 'modifier_options' => [['name' => 'Beef slice', 'price' => 12000], ['name' => 'Ajitama egg', 'price' => 7000], ['name' => 'Extra noodle', 'price' => 8000]]],
-            ['barcode' => 'FC-RMN-004', 'title' => 'Chicken Katsu Ramen', 'description' => 'Ramen dengan chicken katsu untuk test combo.', 'category' => 'Makanan Berat', 'tenant_slug' => 'dapur-ramen', 'station_slug' => 'ramen', 'buy_price' => 24000, 'sell_price' => 40000, 'stock' => 38, 'modifier_options' => [['name' => 'Katsu extra', 'price' => 12000], ['name' => 'Corn butter', 'price' => 5000], ['name' => 'Nori', 'price' => 4000]]],
-
             ['barcode' => 'FC-STK-001', 'title' => 'Chicken Steak Crispy', 'description' => 'Steak ayam crispy lengkap dengan sayur.', 'category' => 'Makanan Berat', 'tenant_slug' => 'dapur-steak', 'station_slug' => 'steak', 'buy_price' => 22000, 'sell_price' => 36000, 'stock' => 42, 'modifier_options' => [['name' => 'Kentang wedges', 'price' => 8000], ['name' => 'Mushroom sauce', 'price' => 5000], ['name' => 'Cheese sauce', 'price' => 5000]]],
             ['barcode' => 'FC-STK-002', 'title' => 'Sirloin Steak', 'description' => 'Sirloin steak premium untuk simulasi high value order.', 'category' => 'Makanan Berat', 'tenant_slug' => 'dapur-steak', 'station_slug' => 'steak', 'buy_price' => 38000, 'sell_price' => 58000, 'stock' => 30, 'modifier_options' => [['name' => 'Extra beef slice', 'price' => 18000], ['name' => 'Mashed potato', 'price' => 9000], ['name' => 'Blackpepper sauce', 'price' => 5000]]],
             ['barcode' => 'FC-STK-003', 'title' => 'Beef Steak BBQ', 'description' => 'Beef steak dengan saus BBQ manis asap.', 'category' => 'Makanan Berat', 'tenant_slug' => 'dapur-steak', 'station_slug' => 'steak', 'buy_price' => 34000, 'sell_price' => 54000, 'stock' => 32, 'modifier_options' => [['name' => 'Onion ring', 'price' => 8000], ['name' => 'Cheese sauce', 'price' => 5000], ['name' => 'Sunny side egg', 'price' => 5000]]],
             ['barcode' => 'FC-STK-004', 'title' => 'Mix Grill Platter', 'description' => 'Paket grill combo untuk testing item premium.', 'category' => 'Makanan Berat', 'tenant_slug' => 'dapur-steak', 'station_slug' => 'steak', 'buy_price' => 42000, 'sell_price' => 68000, 'stock' => 26, 'modifier_options' => [['name' => 'Sosis bratwurst', 'price' => 12000], ['name' => 'Mashed potato', 'price' => 9000], ['name' => 'Extra sauce', 'price' => 4000]]],
-
-            ['barcode' => 'FC-DRN-001', 'title' => 'Es Durian Original', 'description' => 'Dessert durian andalan untuk dapur durian.', 'category' => 'Makanan Ringan', 'tenant_slug' => 'dapur-durian', 'station_slug' => 'durian', 'buy_price' => 18000, 'sell_price' => 30000, 'stock' => 40, 'modifier_options' => [['name' => 'Extra daging durian', 'price' => 12000], ['name' => 'Keju parut', 'price' => 5000], ['name' => 'Coklat meses', 'price' => 3000]]],
-            ['barcode' => 'FC-DRN-002', 'title' => 'Pancake Durian', 'description' => 'Pancake durian lembut isi krim melimpah.', 'category' => 'Roti & Kue', 'tenant_slug' => 'dapur-durian', 'station_slug' => 'durian', 'buy_price' => 16000, 'sell_price' => 28000, 'stock' => 36, 'modifier_options' => [['name' => 'Extra filling durian', 'price' => 10000], ['name' => 'Oreo crumble', 'price' => 4000], ['name' => 'Cheese topping', 'price' => 5000]]],
-            ['barcode' => 'FC-DRN-003', 'title' => 'Durian Box Premium', 'description' => 'Durian cup premium untuk transaksi dessert.', 'category' => 'Makanan Ringan', 'tenant_slug' => 'dapur-durian', 'station_slug' => 'durian', 'buy_price' => 20000, 'sell_price' => 34000, 'stock' => 34, 'modifier_options' => [['name' => 'Almond slice', 'price' => 5000], ['name' => 'Extra krim', 'price' => 4000], ['name' => 'Brown sugar sauce', 'price' => 4000]]],
-            ['barcode' => 'FC-DRN-004', 'title' => 'Durian Cheese Cup', 'description' => 'Durian cup dengan kombinasi keju gurih.', 'category' => 'Makanan Ringan', 'tenant_slug' => 'dapur-durian', 'station_slug' => 'durian', 'buy_price' => 19000, 'sell_price' => 32000, 'stock' => 33, 'modifier_options' => [['name' => 'Cheese foam', 'price' => 6000], ['name' => 'Extra daging durian', 'price' => 12000], ['name' => 'Biskuit regal', 'price' => 4000]]],
 
             ['barcode' => 'FC-NSG-001', 'title' => 'Nasgor Biasa', 'description' => 'Nasi goreng klasik untuk testing dapur nasgor.', 'category' => 'Makanan Berat', 'tenant_slug' => 'dapur-nasgor', 'station_slug' => 'nasgor', 'buy_price' => 15000, 'sell_price' => 24000, 'stock' => 62, 'modifier_options' => [['name' => 'Telur dadar', 'price' => 5000], ['name' => 'Sosis', 'price' => 6000], ['name' => 'Keju', 'price' => 5000]]],
             ['barcode' => 'FC-NSG-002', 'title' => 'Nasgor Ayam', 'description' => 'Nasi goreng ayam gurih untuk simulasi add-on lauk.', 'category' => 'Makanan Berat', 'tenant_slug' => 'dapur-nasgor', 'station_slug' => 'nasgor', 'buy_price' => 17000, 'sell_price' => 28000, 'stock' => 58, 'modifier_options' => [['name' => 'Ayam crispy', 'price' => 10000], ['name' => 'Telur ceplok', 'price' => 5000], ['name' => 'Acar', 'price' => 2000]]],
             ['barcode' => 'FC-NSG-003', 'title' => 'Nasgor Spesial', 'description' => 'Nasi goreng spesial lengkap untuk skenario high-demand.', 'category' => 'Makanan Berat', 'tenant_slug' => 'dapur-nasgor', 'station_slug' => 'nasgor', 'buy_price' => 19000, 'sell_price' => 32000, 'stock' => 50, 'modifier_options' => [['name' => 'Bakso', 'price' => 6000], ['name' => 'Udang', 'price' => 9000], ['name' => 'Keju mozarella', 'price' => 7000]]],
             ['barcode' => 'FC-NSG-004', 'title' => 'Nasgor Seafood', 'description' => 'Nasi goreng seafood untuk testing item lintas topping.', 'category' => 'Makanan Berat', 'tenant_slug' => 'dapur-nasgor', 'station_slug' => 'nasgor', 'buy_price' => 21000, 'sell_price' => 35000, 'stock' => 46, 'modifier_options' => [['name' => 'Cumi extra', 'price' => 10000], ['name' => 'Telur dadar', 'price' => 5000], ['name' => 'Sambal roa', 'price' => 3000]]],
 
-            ['barcode' => 'FC-BUH-001', 'title' => 'Salad Buah Premium', 'description' => 'Salad buah segar untuk dapur buah.', 'category' => 'Makanan Ringan', 'tenant_slug' => 'dapur-buah', 'station_slug' => 'buah', 'buy_price' => 12000, 'sell_price' => 18000, 'stock' => 72, 'modifier_options' => [['name' => 'Keju parut', 'price' => 4000], ['name' => 'Yogurt dressing', 'price' => 4000], ['name' => 'Granola', 'price' => 5000]]],
-            ['barcode' => 'FC-BUH-002', 'title' => 'Jus Alpukat', 'description' => 'Jus alpukat kental untuk dapur buah.', 'category' => 'Minuman', 'tenant_slug' => 'dapur-buah', 'station_slug' => 'buah', 'buy_price' => 10000, 'sell_price' => 17000, 'stock' => 64, 'modifier_options' => [['name' => 'Extra espresso', 'price' => 5000], ['name' => 'Coklat sauce', 'price' => 3000], ['name' => 'Ice cream vanilla', 'price' => 5000]]],
-            ['barcode' => 'FC-BUH-003', 'title' => 'Sop Buah', 'description' => 'Sop buah segar untuk order family.', 'category' => 'Minuman', 'tenant_slug' => 'dapur-buah', 'station_slug' => 'buah', 'buy_price' => 13000, 'sell_price' => 20000, 'stock' => 66, 'modifier_options' => [['name' => 'Nata de coco', 'price' => 3000], ['name' => 'Melon extra', 'price' => 3000], ['name' => 'Susu kental manis', 'price' => 2000]]],
-            ['barcode' => 'FC-BUH-004', 'title' => 'Fruit Yogurt Bowl', 'description' => 'Yogurt bowl buah untuk testing dessert outlet.', 'category' => 'Makanan Ringan', 'tenant_slug' => 'dapur-buah', 'station_slug' => 'buah', 'buy_price' => 14000, 'sell_price' => 22000, 'stock' => 48, 'modifier_options' => [['name' => 'Madu', 'price' => 3000], ['name' => 'Granola', 'price' => 5000], ['name' => 'Kiwi extra', 'price' => 4000]]],
         ]));
 
+        $this->purgeLegacyTenantDemoProducts(
+            $tenantOutlets->get('dapur-minuman'),
+            'FC-MIN-',
+            $rows->where('tenant_slug', 'dapur-minuman')->pluck('barcode')->all()
+        );
+        $this->purgeLegacyTenantDemoProducts(
+            $tenantOutlets->get('dapur-mie'),
+            'FC-MIE-',
+            $rows->where('tenant_slug', 'dapur-mie')->pluck('barcode')->all()
+        );
+        $this->purgeLegacyTenantDemoProducts(
+            $tenantOutlets->get('dapur-durian'),
+            'FC-DRN-',
+            $rows->where('tenant_slug', 'dapur-durian')->pluck('barcode')->all()
+        );
+        $this->purgeLegacyTenantDemoProducts(
+            $tenantOutlets->get('dapur-ayam'),
+            'FC-AYM-',
+            $rows->where('tenant_slug', 'dapur-ayam')->pluck('barcode')->all()
+        );
+        $this->purgeLegacyTenantDemoProducts(
+            $tenantOutlets->get('dapur-buah'),
+            'FC-BUH-',
+            $rows->where('tenant_slug', 'dapur-buah')->pluck('barcode')->all()
+        );
+        $this->purgeLegacyTenantDemoProducts(
+            $tenantOutlets->get('dapur-ramen'),
+            'FC-RMN-',
+            $rows->where('tenant_slug', 'dapur-ramen')->pluck('barcode')->all()
+        );
+
+        $categories = Category::query()
+            ->whereIn('name', $rows->pluck('category')->unique()->values()->all())
+            ->get()
+            ->keyBy(fn (Category $category) => $this->seedCategoryLookupKey(
+                $category->name,
+                $category->tenant_outlet_id
+            ));
+
         $products = $rows->values()->map(function (array $row, int $index) use ($categories, $tenantOutlets) {
-            $category = $categories->get($row['category']);
             $tenant = $tenantOutlets->get($row['tenant_slug']);
+            $category = $categories->get($this->seedCategoryLookupKey($row['category'], $tenant?->id))
+                ?? $categories->get($this->seedCategoryLookupKey($row['category']));
             $buyPrice = (int) $row['buy_price'];
-            $tenantHppPrice = max(0, $buyPrice - 2000);
-            $ownerMarkup = (int) ($row['owner_markup'] ?? ($index % 4 === 3 ? 3000 : 2000));
+            $tenantHppPrice = in_array($row['tenant_slug'], ['dapur-minuman', 'dapur-mie', 'dapur-durian', 'dapur-ayam', 'dapur-buah', 'dapur-ramen'], true)
+                ? $buyPrice
+                : max(0, $buyPrice - 2000);
+            $ownerMarkup = (int) ($row['owner_markup']
+                ?? (isset($row['sell_price']) ? max(0, (int) $row['sell_price'] - $buyPrice) : ($index % 4 === 3 ? 3000 : 2000)));
             $sellPrice = $buyPrice + $ownerMarkup;
+            $modifierOptions = collect($row['modifier_options'] ?? [])->values();
 
             $product = Product::query()->updateOrCreate(
                 ['barcode' => $row['barcode']],
@@ -601,15 +827,14 @@ class DemoInitialSetupSeeder extends Seeder
                     'buy_price' => $buyPrice,
                     'sell_price' => $sellPrice,
                     'tenant_outlet_id' => $tenant?->id,
-                    'supports_modifiers' => true,
+                    'supports_modifiers' => $modifierOptions->isNotEmpty(),
                     'stock' => $row['stock'],
                 ]
             );
 
             $product->modifierOptions()->delete();
             $product->modifierOptions()->createMany(
-                collect($row['modifier_options'] ?? [])
-                    ->values()
+                $modifierOptions
                     ->map(fn (array $option, int $index) => [
                         'name' => $option['name'],
                         'price' => (int) ($option['price'] ?? 0),
@@ -627,135 +852,398 @@ class DemoInitialSetupSeeder extends Seeder
         return $products->keyBy('barcode');
     }
 
-    private function minumanMenuRows(): array
+    private function minumanSections(): array
     {
-        $sections = [
+        return [
             [
                 'group' => 'Coffee Latte',
-                'prefix' => 'coffee-latte',
-                'modifiers' => [
-                    ['name' => 'Extra espresso', 'price' => 5000],
-                    ['name' => 'Oat milk', 'price' => 6000],
-                    ['name' => 'Whipped cream', 'price' => 4000],
-                ],
                 'items' => [
-                    ['name' => 'Mouro Coffee (Ice)', 'buy' => 21000, 'sell' => 23000],
-                    ['name' => 'Mouro Butterscotch (Ice)', 'buy' => 21000, 'sell' => 23000],
-                    ['name' => 'Mouro Caramel Macchiato (Ice)', 'buy' => 21000, 'sell' => 23000],
-                    ['name' => 'Mouro Aren (Ice)', 'buy' => 17000, 'sell' => 19000],
-                    ['name' => 'Mouro Latte (Ice)', 'buy' => 17000, 'sell' => 19000],
-                    ['name' => 'Mouro Vanilla (Ice)', 'buy' => 17000, 'sell' => 19000],
-                    ['name' => 'Mouro Hazelnut (Ice)', 'buy' => 18000, 'sell' => 20000],
-                    ['name' => 'Mouro Pandan (Ice)', 'buy' => 18000, 'sell' => 20000],
+                    ['name' => 'Mouro Coffee (Ice)', 'buy' => 22000, 'owner_sell' => 25000],
+                    ['name' => 'Mouro Butterscotch (Ice)', 'buy' => 22000, 'owner_sell' => 25000],
+                    ['name' => 'Mouro Caramel Macchiato (Ice)', 'buy' => 21000, 'owner_sell' => 24000],
+                    ['name' => 'Mouro Pistachio (Ice)', 'buy' => 22000, 'owner_sell' => 25000],
+                    ['name' => 'Mouro Aren (Ice)', 'buy' => 18000, 'owner_sell' => 21000],
+                    ['name' => 'Mouro Latte (Ice)', 'buy' => 18000, 'owner_sell' => 21000],
+                    ['name' => 'Mouro Vanila (Ice)', 'buy' => 18000, 'owner_sell' => 21000],
+                    ['name' => 'Mouro Hazelnut (Ice)', 'buy' => 19000, 'owner_sell' => 22000],
+                    ['name' => 'Mouro Pandan (Ice)', 'buy' => 19000, 'owner_sell' => 22000],
                 ],
             ],
             [
                 'group' => 'Black Coffee',
-                'prefix' => 'black-coffee',
-                'modifiers' => [
-                    ['name' => 'Extra shot', 'price' => 4000],
-                    ['name' => 'Palm sugar', 'price' => 2000],
-                    ['name' => 'Oat milk', 'price' => 6000],
-                ],
                 'items' => [
-                    ['name' => 'Espresso (Hot)', 'buy' => 8000, 'sell' => 10000],
-                    ['name' => 'Americano (Ice)', 'buy' => 12000, 'sell' => 14000],
-                    ['name' => 'Long Black (Ice)', 'buy' => 14000, 'sell' => 16000],
-                    ['name' => 'Tubruk (Hot)', 'buy' => 10000, 'sell' => 12000],
-                    ['name' => 'Vietnam Drip (Hot/Ice)', 'buy' => 14000, 'sell' => 16000],
+                    ['name' => 'Espresso', 'buy' => 7000, 'owner_sell' => 10000],
+                    ['name' => 'Americano (Ice)', 'buy' => 12000, 'owner_sell' => 15000],
+                    ['name' => 'Long Black (Ice)', 'buy' => 14000, 'owner_sell' => 17000],
+                    ['name' => 'Tubruk (Hot)', 'buy' => 10000, 'owner_sell' => 13000],
+                    ['name' => 'Vietnam Drip (Hot/Ice)', 'buy' => 14000, 'owner_sell' => 17000],
+                    ['name' => 'Kopi Sanger (Hot)', 'buy' => 14000, 'owner_sell' => 17000],
+                    ['name' => 'Coffee Latte (Hot)', 'buy' => 16000, 'owner_sell' => 19000],
+                    ['name' => 'Affogato (Ice)', 'buy' => 18000, 'owner_sell' => 21000],
                 ],
             ],
             [
                 'group' => 'Frutycano',
-                'prefix' => 'frutycano',
-                'modifiers' => [
-                    ['name' => 'Extra soda', 'price' => 3000],
-                    ['name' => 'Lemon slice', 'price' => 2000],
-                    ['name' => 'Peach syrup', 'price' => 3000],
-                ],
                 'items' => [
-                    ['name' => 'Berrycano (Ice)', 'buy' => 18000, 'sell' => 20000],
-                    ['name' => 'Limepresso (Ice)', 'buy' => 18000, 'sell' => 20000],
-                    ['name' => 'Triple Peach Americano (Ice)', 'buy' => 21000, 'sell' => 23000],
-                    ['name' => 'Sparkling Lecicano (Ice)', 'buy' => 18000, 'sell' => 20000],
+                    ['name' => 'Berrycano (Ice)', 'buy' => 18000, 'owner_sell' => 21000],
+                    ['name' => 'Limepresso (Ice)', 'buy' => 18000, 'owner_sell' => 21000],
+                    ['name' => 'Coconutblack (Ice)', 'buy' => 16000, 'owner_sell' => 19000],
+                    ['name' => 'Triple Peach Americano (Ice)', 'buy' => 21000, 'owner_sell' => 24000],
                 ],
             ],
             [
                 'group' => 'Milk Factory',
-                'prefix' => 'milk-factory',
-                'modifiers' => [
-                    ['name' => 'Boba', 'price' => 4000],
-                    ['name' => 'Ice cream vanilla', 'price' => 5000],
-                    ['name' => 'Cheese foam', 'price' => 5000],
-                ],
                 'items' => [
-                    ['name' => 'Chocolate (Ice)', 'buy' => 18000, 'sell' => 20000],
-                    ['name' => 'Dark Choco (Ice)', 'buy' => 15000, 'sell' => 17000],
-                    ['name' => 'Oreo Creamy Latte (Ice)', 'buy' => 18000, 'sell' => 20000],
-                    ['name' => 'Milosaurus (Ice)', 'buy' => 18000, 'sell' => 20000],
-                    ['name' => 'Red Velvet (Ice)', 'buy' => 16000, 'sell' => 18000],
-                    ['name' => 'White Blue Ocean (Ice)', 'buy' => 15000, 'sell' => 17000],
+                    ['name' => 'Chocolate (Ice)', 'buy' => 17000, 'owner_sell' => 20000],
+                    ['name' => 'Dark Choco (Ice)', 'buy' => 14000, 'owner_sell' => 17000],
+                    ['name' => 'Oreo Creamy Latte (Ice)', 'buy' => 18000, 'owner_sell' => 21000],
+                    ['name' => 'Milosaurus (Ice)', 'buy' => 18000, 'owner_sell' => 21000],
+                    ['name' => 'Redvelvet (Ice)', 'buy' => 15000, 'owner_sell' => 18000],
                 ],
             ],
             [
                 'group' => 'Matcha Base',
-                'prefix' => 'matcha-base',
-                'modifiers' => [
-                    ['name' => 'Extra matcha', 'price' => 5000],
-                    ['name' => 'Ice cream vanilla', 'price' => 5000],
-                    ['name' => 'Cheese foam', 'price' => 5000],
-                ],
                 'items' => [
-                    ['name' => 'Matcha Latte (Ice)', 'buy' => 17000, 'sell' => 19000],
-                    ['name' => 'Matcha Ice Cream Vanilla (Ice)', 'buy' => 21000, 'sell' => 23000],
-                    ['name' => 'Matcha Cream Cheese (Ice)', 'buy' => 21000, 'sell' => 23000],
-                    ['name' => 'Strawberry Matcha (Ice)', 'buy' => 21000, 'sell' => 23000],
-                    ['name' => 'Matcha Pistachio (Ice)', 'buy' => 21000, 'sell' => 23000],
-                    ['name' => 'Coconut Matcha (Ice)', 'buy' => 20000, 'sell' => 22000],
-                ],
-            ],
-            [
-                'group' => 'Taro',
-                'prefix' => 'taro',
-                'modifiers' => [
-                    ['name' => 'Boba', 'price' => 4000],
-                    ['name' => 'Cheese foam', 'price' => 5000],
-                    ['name' => 'Ice cream vanilla', 'price' => 5000],
-                ],
-                'items' => [
-                    ['name' => 'Taro Latte (Ice)', 'buy' => 17000, 'sell' => 19000],
-                    ['name' => 'Taro Cream Cheese (Ice)', 'buy' => 17000, 'sell' => 19000],
-                    ['name' => 'Taro Ice Cream Vanilla (Ice)', 'buy' => 18000, 'sell' => 20000],
+                    ['name' => 'Matcha Latte (Ice)', 'buy' => 16000, 'owner_sell' => 19000],
+                    ['name' => 'Matcha Ice Cream (Ice)', 'buy' => 20000, 'owner_sell' => 23000],
+                    ['name' => 'Matcha Cream Cheese (Ice)', 'buy' => 20000, 'owner_sell' => 23000],
+                    ['name' => 'Strawbery Matcha (Ice)', 'buy' => 20000, 'owner_sell' => 23000],
+                    ['name' => 'Matcha Pistacio (Ice)', 'buy' => 20000, 'owner_sell' => 23000],
+                    ['name' => 'Coconut Matcha (Ice)', 'buy' => 20000, 'owner_sell' => 23000],
                 ],
             ],
             [
                 'group' => 'Other',
-                'prefix' => 'other',
-                'modifiers' => [
-                    ['name' => 'Lemon slice', 'price' => 2000],
-                    ['name' => 'Grass jelly', 'price' => 3000],
-                    ['name' => 'Extra syrup', 'price' => 2000],
-                ],
                 'items' => [
-                    ['name' => 'Es Teh (Hot/Ice)', 'buy' => 4000, 'sell' => 6000],
-                    ['name' => 'Es Jeruk (Hot/Ice)', 'buy' => 6000, 'sell' => 8000],
-                    ['name' => 'Lemon Tea (Hot/Ice)', 'buy' => 6000, 'sell' => 8000],
-                    ['name' => 'Green Tea (Ice)', 'buy' => 10000, 'sell' => 12000],
-                    ['name' => 'Thai Tea (Ice)', 'buy' => 10000, 'sell' => 12000],
-                    ['name' => 'Lemonade (Ice)', 'buy' => 10000, 'sell' => 12000],
-                    ['name' => 'Pink Lava (Ice)', 'buy' => 10000, 'sell' => 12000],
-                    ['name' => 'Orange Sparkling (Ice)', 'buy' => 10000, 'sell' => 12000],
-                    ['name' => 'Blue Sparkling (Ice)', 'buy' => 10000, 'sell' => 12000],
-                    ['name' => 'Red Sparkling (Ice)', 'buy' => 10000, 'sell' => 12000],
-                    ['name' => 'Air Mineral', 'buy' => 4000, 'sell' => 6000],
+                    ['name' => 'Es Teh (Hot/Ice)', 'buy' => 4000, 'owner_sell' => 6000],
+                    ['name' => 'Es Jeruk (Hot/Ice)', 'buy' => 6000, 'owner_sell' => 8000],
+                    ['name' => 'Lemon Tea (Hot/Ice)', 'buy' => 6000, 'owner_sell' => 8000],
+                    ['name' => 'Green Tea (Ice)', 'buy' => 10000, 'owner_sell' => 12000],
+                    ['name' => 'Pink Lava (Ice)', 'buy' => 10000, 'owner_sell' => 12000],
+                    ['name' => 'Thai Tea (Ice)', 'buy' => 10000, 'owner_sell' => 12000],
+                    ['name' => 'Melon Sparkling (Ice)', 'buy' => 10000, 'owner_sell' => 12000],
+                    ['name' => 'Lemon Sparkling (Ice)', 'buy' => 10000, 'owner_sell' => 12000],
+                    ['name' => 'Blue Sparkling (Ice)', 'buy' => 10000, 'owner_sell' => 12000],
+                    ['name' => 'Air Mineral', 'buy' => 5000, 'owner_sell' => 6000],
+                ],
+            ],
+            [
+                'group' => 'Taro',
+                'items' => [
+                    ['name' => 'Taro Latte (Ice)', 'buy' => 15000, 'owner_sell' => 18000],
+                    ['name' => 'Taro Cream Cheese (Ice)', 'buy' => 17000, 'owner_sell' => 20000],
+                    ['name' => 'Taro Ice Cream (Ice)', 'buy' => 17000, 'owner_sell' => 20000],
+                ],
+            ],
+            [
+                'group' => 'Lava Toast',
+                'items' => [
+                    ['name' => 'Toast Milo', 'buy' => 17000, 'owner_sell' => 20000],
+                    ['name' => 'Toast Oreo', 'buy' => 17000, 'owner_sell' => 20000],
+                    ['name' => 'Toast Matcha', 'buy' => 17000, 'owner_sell' => 20000],
+                    ['name' => 'Toast Cheese', 'buy' => 20000, 'owner_sell' => 23000],
+                    ['name' => 'Toast Ice Cream', 'buy' => 20000, 'owner_sell' => 23000],
+                ],
+            ],
+            [
+                'group' => 'Tiramishu',
+                'items' => [
+                    ['name' => 'Original', 'buy' => 27000, 'owner_sell' => 30000],
+                    ['name' => 'Strawbery', 'buy' => 30000, 'owner_sell' => 33000],
+                ],
+            ],
+            [
+                'group' => 'Darkcoco',
+                'items' => [
+                    ['name' => 'LAVA', 'buy' => 22000, 'owner_sell' => 25000],
                 ],
             ],
         ];
+    }
 
+    private function mieSections(): array
+    {
+        return [
+            [
+                'group' => 'Mie V. Manis',
+                'items' => [
+                    ['name' => 'Mie Level V.Manis Lv 1', 'buy' => 11000],
+                    ['name' => 'Mie Level V.Manis Lv 2', 'buy' => 11000],
+                    ['name' => 'Mie Level V.Manis Lv 3', 'buy' => 11000],
+                    ['name' => 'Mie Level V.Manis Lv 4', 'buy' => 11000],
+                    ['name' => 'Mie Level V.Manis Lv 5', 'buy' => 12000],
+                    ['name' => 'Mie Level V.Manis Lv 6', 'buy' => 12000],
+                    ['name' => 'Mie Level V.Manis Lv 7', 'buy' => 12000],
+                    ['name' => 'Mie Level V.Manis Lv 8', 'buy' => 12000],
+                ],
+            ],
+            [
+                'group' => 'Mie V. Asin',
+                'items' => [
+                    ['name' => 'Mie Level V.Asin Lv 1', 'buy' => 11000],
+                    ['name' => 'Mie Level V.Asin Lv 2', 'buy' => 11000],
+                    ['name' => 'Mie Level V.Asin Lv 3', 'buy' => 11000],
+                    ['name' => 'Mie Level V.Asin Lv 4', 'buy' => 11000],
+                    ['name' => 'Mie Level V.Asin Lv 5', 'buy' => 12000],
+                    ['name' => 'Mie Level V.Asin Lv 6', 'buy' => 12000],
+                    ['name' => 'Mie Level V.Asin Lv 7', 'buy' => 12000],
+                    ['name' => 'Mie Level V.Asin Lv 8', 'buy' => 12000],
+                ],
+            ],
+            [
+                'group' => 'Dimsum',
+                'items' => [
+                    ['name' => 'Udang Keju', 'buy' => 10000],
+                    ['name' => 'Udang Rambutan', 'buy' => 10000],
+                    ['name' => 'Lumpia Udang', 'buy' => 10000],
+                    ['name' => 'Siomay', 'buy' => 10000],
+                ],
+            ],
+            [
+                'group' => 'Nasi Daun Jeruk',
+                'items' => [
+                    ['name' => 'Nasi Daun Jeruk Ayam Kriuk Sambal Matah', 'buy' => 20000],
+                    ['name' => 'Nasi Daun Jeruk Ayam Kriuk Sambal Geprek', 'buy' => 20000],
+                    ['name' => 'Nasi Daun Jeruk Kulit Crispy Sambal Matah', 'buy' => 20000],
+                    ['name' => 'Nasi Daun Jeruk Kulit Crispy Sambal Geprek', 'buy' => 20000],
+                ],
+            ],
+            [
+                'group' => 'Spaghetti',
+                'items' => [
+                    ['name' => 'Spaghetti Bolognese', 'buy' => 22000],
+                    ['name' => 'Spaghetti Carbonara', 'buy' => 22000],
+                ],
+            ],
+            [
+                'group' => 'Snack',
+                'items' => [
+                    ['name' => 'Croffle', 'buy' => 13000],
+                    ['name' => 'Risol', 'buy' => 10000],
+                    ['name' => 'Cireng', 'buy' => 10000],
+                    ['name' => 'Singkong Keju', 'buy' => 10000],
+                ],
+            ],
+        ];
+    }
+
+    private function durianSections(): array
+    {
+        return [
+            [
+                'group' => 'Minuman',
+                'items' => [
+                    ['name' => 'Durian Kocok', 'buy' => 13000],
+                    ['name' => 'Alpokat Kocok', 'buy' => 13000],
+                    ['name' => 'Durian / Mix Alpokat', 'buy' => 15000],
+                    ['name' => 'Jus Alpokat', 'buy' => 13000],
+                    ['name' => 'Jus Apel', 'buy' => 13000],
+                    ['name' => 'Jus Anggur', 'buy' => 13000],
+                    ['name' => 'Jus Strawberry', 'buy' => 13000],
+                    ['name' => 'Jus Nanas', 'buy' => 12000],
+                    ['name' => 'Jus B. Naga', 'buy' => 12000],
+                    ['name' => 'Jus Mangga', 'buy' => 12000],
+                    ['name' => 'Jus Sirsak', 'buy' => 12000],
+                    ['name' => 'Jus Melon', 'buy' => 10000],
+                    ['name' => 'Jus Semangka', 'buy' => 10000],
+                    ['name' => 'Jus Tomat', 'buy' => 10000],
+                    ['name' => 'Jus Kiwi', 'buy' => 13000],
+                    ['name' => 'Jus Jambu', 'buy' => 12000],
+                    ['name' => 'Jus Jeruk', 'buy' => 12000],
+                    ['name' => 'Jus Wortel', 'buy' => 12000],
+                    ['name' => 'Es Dawet', 'buy' => 12000],
+                    ['name' => 'Es Dawet Durian', 'buy' => 15000],
+                ],
+            ],
+            [
+                'group' => 'Pempek / Cemilan',
+                'items' => [
+                    ['name' => 'Pempek Palembang', 'buy' => 16000],
+                    ['name' => 'Mix Platter', 'buy' => 15000],
+                    ['name' => 'Kentang Goreng', 'buy' => 12000],
+                    ['name' => 'Bakso Goreng', 'buy' => 10000],
+                    ['name' => 'Cilok Krispi (Ayam Suwir)', 'buy' => 10000],
+                    ['name' => 'Mendoan', 'buy' => 10000],
+                    ['name' => 'Nuget', 'buy' => 12000],
+                    ['name' => 'Sosis', 'buy' => 12000],
+                    ['name' => 'Tahu Bakso', 'buy' => 12000],
+                    ['name' => 'Sempolan', 'buy' => 10000],
+                    ['name' => 'Siomay Goreng', 'buy' => 12000],
+                ],
+            ],
+        ];
+    }
+
+    private function ayamSections(): array
+    {
+        return [
+            [
+                'group' => 'Harga Ayam Pejantan',
+                'items' => [
+                    ['name' => 'Ayam Kremes', 'buy' => 30000],
+                    ['name' => 'Ayam Bumbu Rempah', 'buy' => 31000],
+                    ['name' => 'Ayam Goreng Telur', 'buy' => 31000],
+                    ['name' => 'Ayam Bakar', 'buy' => 30000],
+                ],
+            ],
+            [
+                'group' => 'Paket Hemat',
+                'items' => [
+                    ['name' => 'Ayam Kremes', 'buy' => 15000],
+                    ['name' => 'Ayam Bakar', 'buy' => 15000],
+                ],
+            ],
+            [
+                'group' => 'Menu Lainnya',
+                'items' => [
+                    ['name' => 'Seblak Sultan', 'buy' => 18000],
+                    ['name' => 'Roti Bakar Coklat', 'buy' => 15000],
+                    ['name' => 'Roti Bakar Keju', 'buy' => 15000],
+                    ['name' => 'Roti Bakar Coklat Keju', 'buy' => 16000],
+                ],
+            ],
+        ];
+    }
+
+    private function buahSections(): array
+    {
+        return [
+            [
+                'group' => 'Es Teller',
+                'items' => [
+                    ['name' => 'Es Teller Original', 'buy' => 12000],
+                    ['name' => 'Es Teller Keju', 'buy' => 13000],
+                    ['name' => 'Es Teller Durian', 'buy' => 15000],
+                    ['name' => 'Es Teller Ice Cream', 'buy' => 14000],
+                    ['name' => 'Es Pisang Ijo', 'buy' => 12000],
+                    ['name' => 'Es Pisang Ijo Durian', 'buy' => 15000],
+                ],
+            ],
+            [
+                'group' => 'Smoothie Bowl',
+                'items' => [
+                    ['name' => 'Tropical Island', 'buy' => 14000],
+                    ['name' => 'Golden Mango', 'buy' => 14000],
+                    ['name' => 'Tropical Twist', 'buy' => 14000],
+                    ['name' => 'Banana Fudge', 'buy' => 15000],
+                    ['name' => 'Berry Booster', 'buy' => 15000],
+                    ['name' => 'Tropical Green', 'buy' => 14000],
+                    ['name' => 'Pina Colada', 'buy' => 14000],
+                    ['name' => 'Tropical Mango', 'buy' => 14000],
+                    ['name' => 'Golden Berry Bliss', 'buy' => 15000],
+                ],
+            ],
+            [
+                'group' => 'Dessert',
+                'items' => [
+                    ['name' => 'Dubai Tray', 'buy' => 15000],
+                    ['name' => 'Strawberry Choco Kunafa', 'buy' => 15000],
+                ],
+            ],
+        ];
+    }
+
+    private function ramenSections(): array
+    {
+        return [
+            [
+                'group' => 'Menu Donburi',
+                'items' => [
+                    [
+                        'name' => 'BEEF TERIYAKIDON',
+                        'buy' => 33000,
+                        'description' => 'Nasi daging sapi dengan saus teriyaki, dicampur daun bawang dan telur di atasnya.',
+                    ],
+                    [
+                        'name' => 'CHICKEN KATSUDON',
+                        'buy' => 31000,
+                        'description' => 'Nasi dengan potongan daging ayam tepung saus gurih, dicampur daun bawang dan telur di atasnya.',
+                    ],
+                    [
+                        'name' => 'CHICKEN KATSU CURRYDON',
+                        'buy' => 31000,
+                        'description' => 'Nasi chicken katsu yang disiram dengan bumbu kari dan disajikan dengan nasi dan sayuran.',
+                    ],
+                ],
+            ],
+            [
+                'group' => 'Menu Ramen',
+                'items' => [
+                    ['name' => 'BEEF TERIYAKI RAMEN', 'buy' => 29000, 'description' => 'Ramen dengan kuah pilihan, beef, telur, jagung, jamur, nori, dan daun bawang.'],
+                    ['name' => 'SPICY CHICKEN WINGS RAMEN', 'buy' => 28000, 'description' => 'Ramen dengan kuah pilihan, spicy wings, telur, jagung, jamur, nori, dan daun bawang.'],
+                    ['name' => 'CHICKEN KATSU RAMEN', 'buy' => 27000, 'description' => 'Ramen dengan kuah pilihan, chicken katsu, telur, jagung, jamur, nori, dan daun bawang.'],
+                    ['name' => 'CHICKEN KARAAGE RAMEN', 'buy' => 27000, 'description' => 'Ramen dengan kuah pilihan, chicken karaage, telur, jagung, jamur, nori, dan daun bawang.'],
+                    ['name' => 'TOPPOKI RAMEN', 'buy' => 27000, 'description' => 'Ramen dengan kuah pilihan, toppoki, telur, jagung, jamur, nori, dan daun bawang.'],
+                    ['name' => 'EBI FURAI RAMEN', 'buy' => 27000, 'description' => 'Ramen dengan kuah pilihan, ebi furai, telur, jagung, jamur, nori, dan daun bawang.'],
+                    ['name' => 'CHICKEN NANBAN RAMEN', 'buy' => 29000, 'description' => 'Ramen dengan kuah pilihan, chicken nanban, telur, jagung, jamur, nori, dan daun bawang.'],
+                    ['name' => 'CHICKEN NASHVILLE RAMEN', 'buy' => 28000, 'description' => 'Ramen dengan kuah pilihan, chicken nashville, telur, jagung, jamur, nori, dan daun bawang.'],
+                    ['name' => 'CHICKEN YAKITORI RAMEN', 'buy' => 31000, 'description' => 'Ramen dengan kuah pilihan, chicken yakitori, telur, jagung, jamur, nori, dan daun bawang.'],
+                    ['name' => 'PREMIUM SAIKORO RAMEN', 'buy' => 46000, 'description' => 'Ramen dengan kuah pilihan, beef saikoro, telur, jagung, jamur, nori, dan daun bawang.'],
+                    ['name' => 'PREMIUM WAGYU RAMEN', 'buy' => 49000, 'description' => 'Ramen dengan kuah pilihan, premium wagyu, telur, jagung, jamur, nori, dan daun bawang.'],
+                ],
+            ],
+            [
+                'group' => 'Nasi Salad',
+                'items' => [
+                    [
+                        'name' => 'NASI SALAD',
+                        'buy' => 27000,
+                        'description' => 'Nasi salad start 27K dengan pilihan topping, saus, tingkat pedas, dan varian karbohidrat.',
+                    ],
+                ],
+            ],
+            [
+                'group' => 'Japanese Bento',
+                'items' => [
+                    [
+                        'name' => 'BEEF TERIYAKI BENTO',
+                        'buy' => 39000,
+                        'description' => 'Paket nasi bekal ala Jepang. Nasi, beef teriyaki, pilihan topping, saus, dan salad.',
+                    ],
+                    [
+                        'name' => 'CHICKEN KATSU BENTO',
+                        'buy' => 37000,
+                        'description' => 'Paket nasi bekal ala Jepang. Nasi, chicken katsu, pilihan topping, saus, dan salad.',
+                    ],
+                    [
+                        'name' => 'HAPPY NIKU BENTO',
+                        'buy' => 43000,
+                        'description' => 'Paket nasi bekal ala Jepang. Nasi, beef teriyaki, pilihan topping, dan mix platter.',
+                    ],
+                    [
+                        'name' => 'HAPPY KAWAII BENTO',
+                        'buy' => 39000,
+                        'description' => 'Paket nasi bekal ala Jepang. Nasi, chicken katsu, pilihan topping, dan mix platter.',
+                    ],
+                ],
+            ],
+            [
+                'group' => 'Rempah Nusantara',
+                'items' => [
+                    ['name' => 'Wedang Uwuh', 'buy' => 15000, 'description' => 'Jahe, kayu secang, cengkeh, kayu manis, daun pala, serai, dan gula batu.'],
+                    ['name' => 'Jahe Susu', 'buy' => 15000, 'description' => 'Jahe pilihan, susu creamy, gula atau susu kental manis, dan rempah hangat pilihan.'],
+                    ['name' => 'Sari Jahe', 'buy' => 15000, 'description' => 'Jahe pilihan, gula alami, dan rempah tradisional.'],
+                    ['name' => 'Sari Jahe - Sugar Free', 'buy' => 15000, 'description' => 'Jahe pilihan, rempah alami, tanpa gula tambahan.'],
+                    ['name' => 'Jahe Kencur Jeruk', 'buy' => 15000, 'description' => 'Jahe, kencur, jeruk, gula atau madu.'],
+                    ['name' => 'Beras Kencur', 'buy' => 15000, 'description' => 'Beras, kencur, jahe, gula alami, dan rempah pilihan.'],
+                    ['name' => 'Temulawak', 'buy' => 15000, 'description' => 'Temulawak, jahe, gula batu atau gula aren, serai, dan air.'],
+                    ['name' => 'Temulawak - Sugar Free', 'buy' => 15000, 'description' => 'Temulawak, jahe, serai, sugar free, dan rempah.'],
+                    ['name' => 'Kunyit Asam', 'buy' => 15000, 'description' => 'Kunyit, asam jawa, gula aren atau gula batu, dan air.'],
+                    ['name' => 'Kunyit Asam Sirih Madu', 'buy' => 15000, 'description' => 'Kunyit, asam jawa, daun sirih, madu, dan gula.'],
+                    ['name' => 'Galian Putri', 'buy' => 15000, 'description' => 'Kunyit, asam jawa, sirih, temu ireng, kayu manis, madu, dan rempah pilihan.'],
+                    ['name' => 'STMJ', 'buy' => 15000, 'description' => 'Susu, telur, madu, jahe, gula alami, dan rempah pilihan.'],
+                    ['name' => 'Genmaicha', 'buy' => 15000, 'description' => 'Rempah pilihan dan tanaman herbal khas Jepang.'],
+                ],
+            ],
+        ];
+    }
+
+    private function minumanMenuRows(): array
+    {
         $rows = [];
         $counter = 1;
 
-        foreach ($sections as $section) {
+        foreach ($this->minumanSections() as $section) {
             foreach ($section['items'] as $item) {
                 $rows[] = [
                     'barcode' => sprintf('FC-MIN-%03d', $counter),
@@ -764,13 +1252,13 @@ class DemoInitialSetupSeeder extends Seeder
                         'Menu %s untuk tenant minuman foodcourt demo.',
                         $section['group']
                     ),
-                    'category' => 'Minuman',
+                    'category' => $section['group'],
                     'tenant_slug' => 'dapur-minuman',
                     'station_slug' => 'minuman',
                     'buy_price' => $item['buy'],
-                    'owner_markup' => max(0, $item['sell'] - $item['buy']),
+                    'owner_markup' => max(0, $item['owner_sell'] - $item['buy']),
                     'stock' => max(24, 96 - ($counter % 6) * 7),
-                    'modifier_options' => $section['modifiers'],
+                    'modifier_options' => [],
                 ];
 
                 $counter++;
@@ -778,6 +1266,287 @@ class DemoInitialSetupSeeder extends Seeder
         }
 
         return $rows;
+    }
+
+    private function mieMenuRows(): array
+    {
+        $rows = [];
+        $counter = 1;
+
+        foreach ($this->mieSections() as $section) {
+            foreach ($section['items'] as $item) {
+                $rows[] = [
+                    'barcode' => sprintf('FC-MIE-%03d', $counter),
+                    'title' => $item['name'],
+                    'description' => sprintf(
+                        'Menu %s untuk tenant mie foodcourt demo.',
+                        $section['group']
+                    ),
+                    'category' => $section['group'],
+                    'tenant_slug' => 'dapur-mie',
+                    'station_slug' => 'mie',
+                    'buy_price' => $item['buy'],
+                    'owner_markup' => 3000,
+                    'stock' => max(24, 92 - ($counter % 6) * 6),
+                    'modifier_options' => [],
+                ];
+
+                $counter++;
+            }
+        }
+
+        return $rows;
+    }
+
+    private function durianMenuRows(): array
+    {
+        $rows = [];
+        $counter = 1;
+
+        foreach ($this->durianSections() as $section) {
+            foreach ($section['items'] as $item) {
+                $rows[] = [
+                    'barcode' => sprintf('FC-DRN-%03d', $counter),
+                    'title' => $item['name'],
+                    'description' => sprintf(
+                        'Menu %s untuk tenant durian foodcourt demo.',
+                        $section['group']
+                    ),
+                    'category' => $section['group'],
+                    'tenant_slug' => 'dapur-durian',
+                    'station_slug' => 'durian',
+                    'buy_price' => $item['buy'],
+                    'owner_markup' => 3000,
+                    'stock' => max(24, 90 - ($counter % 6) * 6),
+                    'modifier_options' => [],
+                ];
+
+                $counter++;
+            }
+        }
+
+        return $rows;
+    }
+
+    private function ayamMenuRows(): array
+    {
+        $rows = [];
+        $counter = 1;
+
+        foreach ($this->ayamSections() as $section) {
+            foreach ($section['items'] as $item) {
+                $rows[] = [
+                    'barcode' => sprintf('FC-AYM-%03d', $counter),
+                    'title' => $item['name'],
+                    'description' => sprintf(
+                        'Menu %s untuk tenant ayam foodcourt demo.',
+                        $section['group']
+                    ),
+                    'category' => $section['group'],
+                    'tenant_slug' => 'dapur-ayam',
+                    'station_slug' => 'ayam',
+                    'buy_price' => $item['buy'],
+                    'owner_markup' => 3000,
+                    'stock' => max(24, 88 - ($counter % 6) * 6),
+                    'modifier_options' => [],
+                ];
+
+                $counter++;
+            }
+        }
+
+        return $rows;
+    }
+
+    private function buahMenuRows(): array
+    {
+        $rows = [];
+        $counter = 1;
+
+        foreach ($this->buahSections() as $section) {
+            foreach ($section['items'] as $item) {
+                $rows[] = [
+                    'barcode' => sprintf('FC-BUH-%03d', $counter),
+                    'title' => $item['name'],
+                    'description' => sprintf(
+                        'Menu %s untuk tenant buah foodcourt demo.',
+                        $section['group']
+                    ),
+                    'category' => $section['group'],
+                    'tenant_slug' => 'dapur-buah',
+                    'station_slug' => 'buah',
+                    'buy_price' => $item['buy'],
+                    'owner_markup' => 3000,
+                    'stock' => max(24, 86 - ($counter % 6) * 6),
+                    'modifier_options' => [],
+                ];
+
+                $counter++;
+            }
+        }
+
+        return $rows;
+    }
+
+    private function ramenMenuRows(): array
+    {
+        $rows = [];
+        $counter = 1;
+
+        foreach ($this->ramenSections() as $section) {
+            foreach ($section['items'] as $item) {
+                $rows[] = [
+                    'barcode' => sprintf('FC-RMN-%03d', $counter),
+                    'title' => $item['name'],
+                    'description' => $item['description'] ?? sprintf(
+                        'Menu %s untuk tenant ramen foodcourt demo.',
+                        $section['group']
+                    ),
+                    'category' => $section['group'],
+                    'tenant_slug' => 'dapur-ramen',
+                    'station_slug' => 'ramen',
+                    'buy_price' => $item['buy'],
+                    'owner_markup' => 3000,
+                    'stock' => max(20, 84 - ($counter % 6) * 5),
+                    'modifier_options' => match ($section['group']) {
+                        'Menu Ramen' => $this->ramenMainModifierOptions(),
+                        'Nasi Salad' => $this->ramenNasiSaladModifierOptions(),
+                        'Japanese Bento' => $this->ramenBentoModifierOptions(),
+                        default => [],
+                    },
+                ];
+
+                $counter++;
+            }
+        }
+
+        return $rows;
+    }
+
+    private function purgeLegacyTenantDemoProducts(?Outlet $tenantOutlet, string $barcodePrefix, array $activeBarcodes): void
+    {
+        if (! $tenantOutlet) {
+            return;
+        }
+
+        Product::query()
+            ->where('tenant_outlet_id', $tenantOutlet->id)
+            ->where('barcode', 'like', $barcodePrefix.'%')
+            ->whereNotIn('barcode', $activeBarcodes)
+            ->get()
+            ->each(function (Product $product) {
+                $product->modifierOptions()->delete();
+                $product->kitchenStationMappings()->delete();
+                $product->outletStocks()->delete();
+                $product->delete();
+            });
+
+        Category::query()
+            ->where('tenant_outlet_id', $tenantOutlet->id)
+            ->whereNotIn('name', $this->tenantSectionNamesForSlug($tenantOutlet->slug))
+            ->doesntHave('products')
+            ->delete();
+    }
+
+    private function seedCategoryLookupKey(string $name, ?int $tenantOutletId = null): string
+    {
+        return sprintf('%s:%s', $tenantOutletId ?: 'global', Str::lower($name));
+    }
+
+    private function tenantSectionNamesForSlug(string $tenantSlug): array
+    {
+        return match ($tenantSlug) {
+            'dapur-minuman' => collect($this->minumanSections())->pluck('group')->all(),
+            'dapur-mie' => collect($this->mieSections())->pluck('group')->all(),
+            'dapur-durian' => collect($this->durianSections())->pluck('group')->all(),
+            'dapur-ayam' => collect($this->ayamSections())->pluck('group')->all(),
+            'dapur-buah' => collect($this->buahSections())->pluck('group')->all(),
+            'dapur-ramen' => collect($this->ramenSections())->pluck('group')->all(),
+            default => [],
+        };
+    }
+
+    private function ramenMainModifierOptions(): array
+    {
+        return [
+            ['name' => 'Kuah: Shoyu Ramen', 'price' => 0],
+            ['name' => 'Kuah Premium: Spicy Laksa', 'price' => 4000],
+            ['name' => 'Kuah Premium: Cheese Ramen', 'price' => 4000],
+            ['name' => 'Kuah Premium: Tantanmen Ramen', 'price' => 4000],
+            ['name' => 'Kuah Premium: Curry Ramen', 'price' => 4000],
+            ['name' => 'Kuah Premium: Tomyam Ramen', 'price' => 4000],
+            ['name' => 'Kuah Premium: Keke Dhashi Ramen', 'price' => 4000],
+            ['name' => 'Kuah Premium: Tori Paitan Ramen', 'price' => 4000],
+            ['name' => 'Kuah Premium: Dry Tantanmen', 'price' => 4000],
+            ['name' => 'Kuah Spesial: Cheese Mozarela', 'price' => 8000],
+            ['name' => 'Kuah Spesial: Hot Chicken Mala', 'price' => 8000],
+            ['name' => 'Kuah Spesial: Spicy Bulgogi', 'price' => 8000],
+            ['name' => 'Kuah Signature: Lodeh Ramen', 'price' => 10000],
+            ['name' => 'Kuah Signature: Rendang Ramen', 'price' => 10000],
+            ['name' => 'Kuah Signature: Sakura Creamy Dashi', 'price' => 10000],
+            ['name' => 'Kuah Signature: Thick Spicy Ramen', 'price' => 10000],
+            ['name' => 'Mie: Reguler', 'price' => 0],
+            ['name' => 'Mie: Nasi', 'price' => 0],
+            ['name' => 'Mie: Udon', 'price' => 8000],
+            ['name' => 'Topping: Odeng (1pc)', 'price' => 12000],
+            ['name' => 'Topping: Odeng Crispy (1pc)', 'price' => 12000],
+            ['name' => 'Topping: Gyoza (3pcs)', 'price' => 17000],
+            ['name' => 'Topping: Tempura Gyoza (3pcs)', 'price' => 17000],
+            ['name' => 'Topping: Crispy Enoki (3pcs)', 'price' => 12000],
+            ['name' => 'Topping: Tempura Tamago (1pc)', 'price' => 10000],
+            ['name' => 'Topping: Toppoki (10pcs)', 'price' => 15000],
+            ['name' => 'Topping: Tempura Toppoki (10pcs)', 'price' => 15000],
+            ['name' => 'Topping: Tempura Nori (2pcs)', 'price' => 12000],
+            ['name' => 'Topping: Sosis Bakar/Goreng (3pcs)', 'price' => 12000],
+        ];
+    }
+
+    private function ramenNasiSaladModifierOptions(): array
+    {
+        return [
+            ['name' => 'Topping: Chicken Nashville', 'price' => 0],
+            ['name' => 'Topping: Chicken Katsu', 'price' => 0],
+            ['name' => 'Topping: Chicken Karaage', 'price' => 0],
+            ['name' => 'Topping: Chicken Wings', 'price' => 0],
+            ['name' => 'Topping: Ebi Furai', 'price' => 0],
+            ['name' => 'Topping: Beef Teriyaki', 'price' => 4000],
+            ['name' => 'Saus: Curry', 'price' => 0],
+            ['name' => 'Saus: Mentega', 'price' => 0],
+            ['name' => 'Saus: Bulgogi', 'price' => 0],
+            ['name' => 'Saus: Gochujang', 'price' => 0],
+            ['name' => 'Saus: Samyang', 'price' => 0],
+            ['name' => 'Saus: Keju', 'price' => 0],
+            ['name' => 'Masak: Bakar', 'price' => 0],
+            ['name' => 'Masak: Tidak Bakar', 'price' => 0],
+            ['name' => 'Level: Pedas', 'price' => 0],
+            ['name' => 'Level: Tidak Pedas', 'price' => 0],
+            ['name' => 'Karbohidrat: Nasi Daun Jeruk', 'price' => 2000],
+            ['name' => 'Karbohidrat: Savory Rice', 'price' => 2000],
+            ['name' => 'Karbohidrat: Hainan Rice', 'price' => 2000],
+            ['name' => 'Karbohidrat: Spicy Shiokara Rice', 'price' => 2000],
+            ['name' => 'Karbohidrat: Spicy Shatoru Rice', 'price' => 2000],
+            ['name' => 'Karbohidrat: Nasi Putih', 'price' => 0],
+            ['name' => 'Karbohidrat: Kentang Goreng', 'price' => 0],
+            ['name' => 'Karbohidrat: Spaghetti Bolognese', 'price' => 0],
+            ['name' => 'Tambahan: Telur Mata Sapi', 'price' => 5000],
+            ['name' => 'Tambahan: Tamago Furai', 'price' => 7000],
+            ['name' => 'Tambahan: Scramble Egg', 'price' => 5000],
+            ['name' => 'Tambahan: Crispy Enoki', 'price' => 5000],
+            ['name' => 'Tambahan: Kentang Goreng', 'price' => 10000],
+        ];
+    }
+
+    private function ramenBentoModifierOptions(): array
+    {
+        return [
+            ['name' => 'Topping: Spicy Chicken Wings', 'price' => 0],
+            ['name' => 'Topping: Chicken Karaage', 'price' => 0],
+            ['name' => 'Topping: Gyoza', 'price' => 0],
+            ['name' => 'Topping: Ebi Furai', 'price' => 0],
+            ['name' => 'Topping: Kentang Goreng', 'price' => 2000],
+            ['name' => 'Topping: Tempura Egg', 'price' => 2000],
+            ['name' => 'Topping: Chicken Nanban', 'price' => 3000],
+        ];
     }
 
     private function seedProductOutletStocks(Outlet $mainOutlet, Collection $demoProducts): void
@@ -862,7 +1631,7 @@ class DemoInitialSetupSeeder extends Seeder
                 'outlet_id' => $mainOutlet->id,
                 'customer_id' => null,
                 'order_type' => 'dine_in',
-                'table_id' => $diningTables->get('A3')?->id,
+                'table_id' => $diningTables->get('003')?->id,
                 'waiter_id' => $waiter?->id,
                 'cash' => 100000,
                 'change' => 5000,
@@ -965,7 +1734,7 @@ class DemoInitialSetupSeeder extends Seeder
                 'outlet_id' => $mainOutlet->id,
                 'customer_id' => $customers->get('081200000103')?->id,
                 'order_type' => 'dine_in',
-                'table_id' => $diningTables->get('VIP1')?->id,
+                'table_id' => $diningTables->get('001')?->id,
                 'waiter_id' => $waiter?->id,
                 'cash' => 0,
                 'change' => 0,

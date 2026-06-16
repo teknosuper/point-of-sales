@@ -183,6 +183,24 @@ export default function Index({
     const rows = diningTables?.data ?? [];
     const statuses = meta?.statuses ?? [];
     const perPageOptions = meta?.per_page_options ?? [10, 25, 50, 100];
+    const groupedRows = useMemo(() => {
+        return rows.reduce((groups, table) => {
+            const area = table.area?.trim() || "Tanpa Area";
+            const existingGroup = groups.find((group) => group.area === area);
+
+            if (existingGroup) {
+                existingGroup.tables.push(table);
+                return groups;
+            }
+
+            groups.push({
+                area,
+                tables: [table],
+            });
+
+            return groups;
+        }, []);
+    }, [rows]);
 
     return (
         <>
@@ -470,146 +488,159 @@ export default function Index({
                                 Belum ada meja untuk outlet aktif ini.
                             </div>
                         ) : (
-                            rows.map((table) => (
-                                <div
-                                    key={table.id}
-                                    className="flex flex-col gap-4 px-6 py-5 lg:flex-row lg:items-start lg:justify-between"
-                                >
-                                    <div className="space-y-3">
-                                        <div className="flex flex-wrap items-center gap-2">
-                                            <h3 className="text-base font-semibold text-slate-900 dark:text-white">
-                                                {table.name}
-                                            </h3>
-                                            <span
-                                                className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${
-                                                    table.status === "active"
-                                                        ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"
-                                                        : "bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200"
-                                                }`}
-                                            >
-                                                {table.status === "active" ? "Aktif" : "Nonaktif"}
-                                            </span>
-                                        </div>
+                            groupedRows.map((group) => (
+                                <div key={group.area}>
+                                    <div className="border-b border-slate-100 bg-slate-50/70 px-6 py-3 dark:border-slate-800 dark:bg-slate-800/40">
+                                        <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                                            {group.area}
+                                        </p>
+                                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                                            {group.tables.length} meja
+                                        </p>
+                                    </div>
 
-                                        <div className="flex flex-wrap gap-4 text-sm text-slate-500 dark:text-slate-400">
-                                            <span className="inline-flex items-center gap-2">
-                                                <IconHash size={15} />
-                                                {table.code || "-"}
-                                            </span>
-                                            <span className="inline-flex items-center gap-2">
-                                                <IconUsers size={15} />
-                                                {table.capacity} kursi
-                                            </span>
-                                            <span className="inline-flex items-center gap-2">
-                                                <IconInfoCircle size={15} />
-                                                Dipakai {table.transactions_count} transaksi
-                                            </span>
-                                        </div>
-
-                                        {table.notes ? (
-                                            <p className="max-w-2xl text-sm text-slate-600 dark:text-slate-300">
-                                                {table.notes}
-                                            </p>
-                                        ) : null}
-
-                                        {table.self_order_enabled ? (
-                                            <div className="flex flex-col gap-3 rounded-2xl bg-slate-50 p-3 text-xs text-slate-600 dark:bg-slate-800/60 dark:text-slate-300 sm:flex-row sm:items-center">
-                                                <img
-                                                    src={`https://api.qrserver.com/v1/create-qr-code/?size=96x96&data=${encodeURIComponent(
-                                                        table.order_url
-                                                    )}`}
-                                                    alt={`QR ${table.name}`}
-                                                    className="h-24 w-24 rounded-xl border border-slate-200 bg-white p-2"
-                                                />
-                                                <div>
-                                                    <p className="font-semibold text-slate-800 dark:text-slate-100">
-                                                        Self-order meja aktif
-                                                    </p>
-                                                    <p className="mt-1 break-all">
-                                                        {table.order_url}
-                                                    </p>
+                                    {group.tables.map((table) => (
+                                        <div
+                                            key={table.id}
+                                            className="flex flex-col gap-4 px-6 py-5 lg:flex-row lg:items-start lg:justify-between"
+                                        >
+                                            <div className="space-y-3">
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    <h3 className="text-base font-semibold text-slate-900 dark:text-white">
+                                                        {table.name}
+                                                    </h3>
+                                                    <span
+                                                        className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${
+                                                            table.status === "active"
+                                                                ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"
+                                                                : "bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200"
+                                                        }`}
+                                                    >
+                                                        {table.status === "active" ? "Aktif" : "Nonaktif"}
+                                                    </span>
                                                 </div>
-                                            </div>
-                                        ) : null}
-                                    </div>
 
-                                    <div className="flex flex-wrap gap-2">
-                                        {table.self_order_enabled ? (
-                                            <>
-                                                <a
-                                                    href={table.order_url}
-                                                    target="_blank"
-                                                    rel="noreferrer"
-                                                    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
-                                                >
-                                                    Buka Link Order
-                                                </a>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => copyOrderUrl(table)}
-                                                    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
-                                                >
-                                                    Copy Link
-                                                </button>
-                                                <a
-                                                    href={route("dining-tables.print", table.id)}
-                                                    target="_blank"
-                                                    rel="noreferrer"
-                                                    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
-                                                >
-                                                    <IconPrinter size={15} />
-                                                    Print QR
-                                                </a>
-                                                <a
-                                                    href={route("dining-tables.print-v2", table.id)}
-                                                    target="_blank"
-                                                    rel="noreferrer"
-                                                    className="inline-flex items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-700 dark:border-sky-800 dark:bg-sky-900/30 dark:text-sky-300"
-                                                >
-                                                    <IconPrinter size={15} />
-                                                    Print QR V2
-                                                </a>
-                                                <a
-                                                    href={route("dining-tables.print-image", table.id)}
-                                                    target="_blank"
-                                                    rel="noreferrer"
-                                                    className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300"
-                                                >
-                                                    <IconPrinter size={15} />
-                                                    Versi Gambar
-                                                </a>
-                                                <a
-                                                    href={route("dining-tables.print-pdf", table.id)}
-                                                    target="_blank"
-                                                    rel="noreferrer"
-                                                    className="inline-flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-800 dark:bg-rose-900/30 dark:text-rose-300"
-                                                >
-                                                    <IconPrinter size={15} />
-                                                    Versi PDF
-                                                </a>
-                                            </>
-                                        ) : null}
-                                        {canUpdate ? (
-                                            <button
-                                                type="button"
-                                                onClick={() => openEdit(table)}
-                                                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
-                                            >
-                                                <IconEdit size={15} />
-                                                Edit
-                                            </button>
-                                        ) : null}
-                                        {canDelete ? (
-                                            <button
-                                                type="button"
-                                                onClick={() => destroyTable(table)}
-                                                className="inline-flex items-center gap-2 rounded-xl border border-rose-200 px-3 py-2 text-sm text-rose-600 dark:border-rose-900/60 dark:text-rose-300"
-                                            >
-                                                <IconTrash size={15} />
-                                                Hapus
-                                            </button>
-                                        ) : null}
-                                    </div>
+                                                <div className="flex flex-wrap gap-4 text-sm text-slate-500 dark:text-slate-400">
+                                                    <span className="inline-flex items-center gap-2">
+                                                        <IconHash size={15} />
+                                                        {table.code || "-"}
+                                                    </span>
+                                                    <span className="inline-flex items-center gap-2">
+                                                        <IconUsers size={15} />
+                                                        {table.capacity} kursi
+                                                    </span>
+                                                    <span className="inline-flex items-center gap-2">
+                                                        <IconInfoCircle size={15} />
+                                                        Dipakai {table.transactions_count} transaksi
+                                                    </span>
+                                                </div>
+
+                                                {table.notes ? (
+                                                    <p className="max-w-2xl text-sm text-slate-600 dark:text-slate-300">
+                                                        {table.notes}
+                                                    </p>
+                                                ) : null}
+
+                                                {table.self_order_enabled ? (
+                                                    <div className="flex flex-col gap-3 rounded-2xl bg-slate-50 p-3 text-xs text-slate-600 dark:bg-slate-800/60 dark:text-slate-300 sm:flex-row sm:items-center">
+                                                        <img
+                                                            src={`https://api.qrserver.com/v1/create-qr-code/?size=96x96&data=${encodeURIComponent(
+                                                                table.order_url
+                                                            )}`}
+                                                            alt={`QR ${table.name}`}
+                                                            className="h-24 w-24 rounded-xl border border-slate-200 bg-white p-2"
+                                                        />
+                                                        <div>
+                                                            <p className="font-semibold text-slate-800 dark:text-slate-100">
+                                                                Self-order meja aktif
+                                                            </p>
+                                                            <p className="mt-1 break-all">
+                                                                {table.order_url}
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                ) : null}
+                                            </div>
+
+                                            <div className="flex flex-wrap gap-2">
+                                                {table.self_order_enabled ? (
+                                                    <>
+                                                        <a
+                                                            href={table.order_url}
+                                                            target="_blank"
+                                                            rel="noreferrer"
+                                                            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                                                        >
+                                                            Buka Link Order
+                                                        </a>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => copyOrderUrl(table)}
+                                                            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                                                        >
+                                                            Copy Link
+                                                        </button>
+                                                        <a
+                                                            href={route("dining-tables.print", table.id)}
+                                                            target="_blank"
+                                                            rel="noreferrer"
+                                                            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                                                        >
+                                                            <IconPrinter size={15} />
+                                                            Print QR
+                                                        </a>
+                                                        <a
+                                                            href={route("dining-tables.print-v2", table.id)}
+                                                            target="_blank"
+                                                            rel="noreferrer"
+                                                            className="inline-flex items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-700 dark:border-sky-800 dark:bg-sky-900/30 dark:text-sky-300"
+                                                        >
+                                                            <IconPrinter size={15} />
+                                                            Print QR V2
+                                                        </a>
+                                                        <a
+                                                            href={route("dining-tables.print-image", table.id)}
+                                                            target="_blank"
+                                                            rel="noreferrer"
+                                                            className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300"
+                                                        >
+                                                            <IconPrinter size={15} />
+                                                            Versi Gambar
+                                                        </a>
+                                                        <a
+                                                            href={route("dining-tables.print-pdf", table.id)}
+                                                            target="_blank"
+                                                            rel="noreferrer"
+                                                            className="inline-flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-800 dark:bg-rose-900/30 dark:text-rose-300"
+                                                        >
+                                                            <IconPrinter size={15} />
+                                                            Versi PDF
+                                                        </a>
+                                                    </>
+                                                ) : null}
+                                                {canUpdate ? (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => openEdit(table)}
+                                                        className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                                                    >
+                                                        <IconEdit size={15} />
+                                                        Edit
+                                                    </button>
+                                                ) : null}
+                                                {canDelete ? (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => destroyTable(table)}
+                                                        className="inline-flex items-center gap-2 rounded-xl border border-rose-200 px-3 py-2 text-sm text-rose-600 dark:border-rose-900/60 dark:text-rose-300"
+                                                    >
+                                                        <IconTrash size={15} />
+                                                        Hapus
+                                                    </button>
+                                                ) : null}
+                                            </div>
+                                        </div>
+                                    ))}
                                 </div>
                             ))
                         )}
