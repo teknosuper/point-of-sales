@@ -54,6 +54,8 @@ class NotificationController extends Controller
                 || $user->can('table-orders-approve')
             );
 
+        $lowStockNotifications = collect();
+
         if ($canSeeStockNotifications && $activeOutlet && Schema::hasTable('product_outlet_stocks')) {
             $lowStockNotifications = ProductOutletStock::query()
                 ->with('product:id,title')
