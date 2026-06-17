@@ -140,15 +140,23 @@ class KitchenTicketService
 
         $sequence = 1;
 
-        if ($latestTodayTicket && preg_match('/(\d{3,})$/', $latestTodayTicket, $matches)) {
+        if ($latestTodayTicket && preg_match('/(\d{3})$/', $latestTodayTicket, $matches)) {
             $sequence = ((int) $matches[1]) + 1;
+            if ($sequence > 999) {
+                $sequence = 1;
+            }
         }
+
+        $maxAttempts = 100;
+        $attempt = 0;
 
         do {
             $ticketNumber = sprintf('%s%03d', $prefix, $sequence);
             $sequence++;
+            $attempt++;
         } while (
-            KitchenTicket::query()
+            $attempt < $maxAttempts
+            && KitchenTicket::query()
                 ->where('ticket_number', $ticketNumber)
                 ->exists()
         );
