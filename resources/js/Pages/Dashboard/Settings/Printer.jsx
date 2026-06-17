@@ -106,6 +106,49 @@ export default function Printer({ queueUrls = {}, stationUrls = [], deviceUrls =
                     </div>
                 </div>
 
+                {/* Aplikasi GTC Printer */}
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50/80 p-4 dark:border-emerald-900/40 dark:bg-emerald-950/20">
+                    <div className="flex gap-3">
+                        <IconPrinter size={20} className="mt-0.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                        <div className="w-full space-y-2 text-sm text-emerald-900 dark:text-emerald-100">
+                            <p className="font-semibold">📱 Aplikasi GTC Printer Thermal</p>
+                            <p className="text-xs">
+                                Download dan install aplikasi Android <strong>GTC Printer</strong> untuk menghubungkan printer thermal Bluetooth/ USB ke sistem GTC KASIR.
+                            </p>
+                            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                                <a
+                                    href="/media/printer/gtcprinter.apk"
+                                    download
+                                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700"
+                                >
+                                    <IconPrinter size={18} />
+                                    Download GTC Printer APK
+                                </a>
+                                <div className="rounded-xl bg-white px-3 py-2.5 text-xs text-slate-600 shadow-sm dark:bg-slate-900 dark:text-slate-300">
+                                    <p className="font-semibold text-slate-900 dark:text-white">Info Aplikasi:</p>
+                                    <ul className="mt-1 list-inside list-disc space-y-0.5">
+                                        <li>Ukuran: ~6.2 MB</li>
+                                        <li>Koneksi: Bluetooth / USB (OTG)</li>
+                                        <li>Support: ESC/POS thermal printer 58mm & 80mm</li>
+                                        <li>Cocok untuk: struk kasir dan tiket dapur</li>
+                                    </ul>
+                                </div>
+                            </div>
+                            <div className="mt-2 rounded-xl bg-white/80 px-3 py-2 text-xs text-slate-600 dark:bg-slate-900/40 dark:text-slate-300">
+                                <p className="font-semibold text-slate-900 dark:text-white">Cara Konfigurasi:</p>
+                                <ol className="mt-1 list-inside list-decimal space-y-0.5">
+                                    <li>Download APK di atas dan install di perangkat Android</li>
+                                    <li>Hubungkan printer thermal via Bluetooth atau USB OTG</li>
+                                    <li>Buka menu <strong>Settings / Printer</strong> di sidebar GTC KASIR dashboard</li>
+                                    <li>Copy <strong>URL Print Client</strong> yang sesuai (struk kasir atau tiket dapur)</li>
+                                    <li>Paste URL ke kolom yang tersedia di aplikasi GTC Printer</li>
+                                    <li>Printer siap mencetak secara otomatis</li>
+                                </ol>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 {/* Print Client URLs - Main CTA */}
                 <div>
                     <h2 className="mb-3 text-lg font-semibold text-slate-900 dark:text-white">🚀 URL Print Client (Buka di ESC/POS Web Direct)</h2>

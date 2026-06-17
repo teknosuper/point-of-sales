@@ -134,6 +134,35 @@ export default function OutletKitchen() {
             <Head title="Panduan Outlet, Tenant & Dapur" />
 
             <div className="space-y-6">
+                {/* Aplikasi GTC Printer Thermal */}
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50/80 p-5 dark:border-emerald-900/40 dark:bg-emerald-950/20">
+                    <div className="flex items-start gap-3">
+                        <div className="rounded-xl bg-emerald-100 p-2.5 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400">
+                            <IconToolsKitchen2 size={20} />
+                        </div>
+                        <div className="w-full space-y-3 text-sm text-emerald-900 dark:text-emerald-100">
+                            <div>
+                                <p className="font-semibold">📱 Aplikasi GTC Printer Thermal</p>
+                                <p className="mt-1 text-xs text-emerald-700 dark:text-emerald-200">
+                                    Download dan install aplikasi Android <strong>GTC Printer</strong> untuk menghubungkan printer thermal Bluetooth/USB ke dapur atau kasir.
+                                </p>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2">
+                                <a
+                                    href="/media/printer/gtcprinter.apk"
+                                    download
+                                    className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700"
+                                >
+                                    <IconToolsKitchen2 size={16} />
+                                    Download APK (~6.2 MB)
+                                </a>
+                                <span className="text-xs text-emerald-600 dark:text-emerald-300">
+                                    Support ESC/POS 58mm & 80mm • Bluetooth / USB OTG
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
                 <div className="rounded-2xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
                     <div className="flex items-start gap-3">
                         <div className="rounded-2xl bg-primary-50 p-3 text-primary-600 dark:bg-primary-950/30 dark:text-primary-300">
