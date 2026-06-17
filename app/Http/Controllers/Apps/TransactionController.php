@@ -1548,9 +1548,10 @@ class TransactionController extends Controller
         }
 
         $syncStartNs = hrtime(true);
+        $supportsDetailRewardMeta = Schema::hasColumn('transaction_details', 'is_promo_reward');
 
         try {
-            $transaction = DB::transaction(function () use ($validated, $outlet, $orderType, $tableId, $customer) {
+            $transaction = DB::transaction(function () use ($validated, $outlet, $orderType, $tableId, $customer, $supportsDetailRewardMeta) {
                 $activeShift = $this->cashierShiftService->requireActiveShiftForUser(
                     auth()->id(),
                     $outlet?->id
