@@ -403,17 +403,6 @@ class TableOrderService
                 );
             }
 
-            $transaction->refresh();
-            $transaction->load(['details.product.kitchenStationMappings', 'details.modifiers']);
-
-            $customer = $tableOrder->customer?->fresh();
-            if ($customer) {
-                $this->loyaltyService->finalizeTransaction($transaction, $customer, []);
-            }
-
-            $this->foodcourtTenantAllocationService->rebuildForTransaction($transaction->fresh(['details']));
-            $this->kitchenTicketService->createForTransaction($transaction, 'table_qr');
-
             $tableOrder->update([
                 'status' => 'paid',
                 'approved_by' => $cashier->id,
@@ -421,8 +410,19 @@ class TableOrderService
                 'transaction_id' => $transaction->id,
             ]);
 
-            return $transaction->fresh(['diningTable', 'details.product']);
+            return $transaction;
         });
+
+        // --- Heavy side-effects moved OUTSIDE DB::transaction to release row locks ASAP ---
+        $transaction = $transaction->fresh(['customer', 'details.product.kitchenStationMappings', 'details.modifiers', 'diningTable', 'details.product']);
+
+        $customer = $tableOrder->customer?->fresh();
+        if ($customer) {
+            $this->loyaltyService->finalizeTransaction($transaction, $customer, []);
+        }
+
+        $this->foodcourtTenantAllocationService->rebuildForTransaction($transaction->fresh(['details']));
+        $this->kitchenTicketService->createForTransaction($transaction, 'table_qr');
 
         $this->auditLogService->log(
             event: 'table_order.cash_payment_approved',

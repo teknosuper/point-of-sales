@@ -1109,6 +1109,7 @@ class TransactionController extends Controller
         $redeemedPoints = (int) data_get($checkoutPreview, 'summary.applied_redeem_points', 0);
         $changeAmount = $isCashPayment ? max(0, $cashAmount - $grandTotal) : 0;
 
+            $stockAuditPayloads = [];
             $transaction = DB::transaction(function () use (
                 $request,
             $invoice,
@@ -1138,7 +1139,8 @@ class TransactionController extends Controller
                 $changeAmount,
                 &$perfMarks,
                 $markPerf,
-                $shouldPerfLog
+                $shouldPerfLog,
+                &$stockAuditPayloads
             ) {
                 $shiftStart = hrtime(true);
                 $activeShift = $this->cashierShiftService->requireActiveShiftForUser(
@@ -1299,14 +1301,22 @@ class TransactionController extends Controller
                 ]);
 
                 $product = $cart->product;
-                    $this->stockMutationService->decrementForTransactionDetail(
-                        $product,
-                        $transaction,
-                        $detail,
-                        (int) $cart->qty,
-                        auth()->id()
-                    );
+                if (! isset($stockMutationItems)) {
+                    $stockMutationItems = [];
                 }
+                    $stockMutationItems[] = [
+                        'product' => $product,
+                        'detail' => $detail,
+                        'qty' => (int) $cart->qty,
+                    ];
+                }
+                
+                // Batch decrement stock - returns audit payloads to log AFTER transaction
+                $stockAuditPayloads = $this->stockMutationService->decrementBatchForTransaction(
+                    $stockMutationItems,
+                    $transaction,
+                    auth()->id()
+                );
                 $markPerf('details_saved');
 
                 Cart::where('cashier_id', auth()->user()->id)
@@ -1334,6 +1344,12 @@ class TransactionController extends Controller
                 return $transaction->fresh(['customer', 'waiter', 'diningTable']);
             });
             $markPerf('db_transaction_committed');
+
+            // Batch audit log AFTER DB::transaction commits — single INSERT, no lock contention
+            if (! empty($stockAuditPayloads)) {
+                $this->auditLogService->logBatch($stockAuditPayloads);
+                $markPerf('audit_logs_batched');
+            }
 
             $sideEffectTransaction = $transaction->fresh(['details.product.kitchenStationMappings', 'details.modifiers']);
             $this->foodcourtTenantAllocationService->rebuildForTransaction($sideEffectTransaction);

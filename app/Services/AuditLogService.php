@@ -15,31 +15,69 @@ class AuditLogService
     public function log(
         string $event,
         string $module,
-        Model|array|null $auditable,
-        string $description,
+        ?Model $auditable = null,
+        ?string $description = null,
         ?array $before = null,
         ?array $after = null,
-        ?array $meta = null,
-        ?Authenticatable $actor = null
-    ): AuditLog {
-        $request = request();
-        $resolvedActor = $actor ?? auth()->user();
+        ?array $meta = null
+    ): ?AuditLog {
+        $user = auth()->user();
+        $ip = request()->ip();
+        $userAgent = request()->userAgent();
 
         return AuditLog::create([
-            'user_id' => $resolvedActor?->getAuthIdentifier(),
+            'user_id' => $user?->id,
             'event' => $event,
             'module' => $module,
-            'auditable_type' => $auditable instanceof Model ? $auditable->getMorphClass() : null,
-            'auditable_id' => $auditable instanceof Model ? $auditable->getKey() : null,
-            'target_label' => $this->resolveTargetLabel($auditable),
+            'auditable_type' => $auditable ? get_class($auditable) : null,
+            'auditable_id' => $auditable?->getKey(),
             'description' => $description,
-            'before' => $this->normalizePayload($before),
-            'after' => $this->normalizePayload($after),
-            'meta' => $this->normalizePayload($meta),
-            'ip_address' => $request?->ip(),
-            'user_agent' => $request?->userAgent(),
+            'before' => $before,
+            'after' => $after,
+            'meta' => $meta,
+            'ip_address' => $ip,
+            'user_agent' => $userAgent,
             'created_at' => now(),
         ]);
+    }
+
+    /**
+     * Batch insert multiple audit logs in a single query.
+     * Much more efficient than calling log() N times in a loop.
+     *
+     * @param  array<int, array{event: string, module: string, auditable?: Model|null, description?: string|null, before?: array|null, after?: array|null, meta?: array|null}>  $payloads
+     */
+    public function logBatch(array $payloads): int
+    {
+        if (empty($payloads)) {
+            return 0;
+        }
+
+        $user = auth()->user();
+        $ip = request()->ip();
+        $userAgent = request()->userAgent();
+        $now = now();
+
+        $rows = [];
+        foreach ($payloads as $payload) {
+            $auditable = $payload['auditable'] ?? null;
+            $rows[] = [
+                'user_id' => $user?->id,
+                'event' => $payload['event'] ?? 'unknown',
+                'module' => $payload['module'] ?? 'unknown',
+                'auditable_type' => $auditable ? get_class($auditable) : null,
+                'auditable_id' => $auditable?->getKey(),
+                'description' => $payload['description'] ?? null,
+                'before' => isset($payload['before']) ? json_encode($payload['before']) : null,
+                'after' => isset($payload['after']) ? json_encode($payload['after']) : null,
+                'meta' => isset($payload['meta']) ? json_encode($payload['meta']) : null,
+                'ip_address' => $ip,
+                'user_agent' => $userAgent,
+                'created_at' => $now,
+            ];
+        }
+
+        return AuditLog::insert($rows) ? count($rows) : 0;
     }
 
     public function only(array $source, array $keys): array

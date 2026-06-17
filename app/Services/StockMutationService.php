@@ -373,6 +373,110 @@ class StockMutationService
         return $mutation;
     }
 
+    /**
+     * Batch decrement stock for all transaction details at once.
+     * Returns audit log payloads to be logged AFTER the transaction commits,
+     * avoiding N audit_log INSERTs inside the DB::transaction.
+     *
+     * @param  array<array{product: Product, detail: TransactionDetail, qty: int}>  $items
+     * @return array<int, array{event: string, module: string, auditable: Product, description: string, before: array, after: array, meta: array}>
+     */
+    public function decrementBatchForTransaction(
+        array $items,
+        Transaction $transaction,
+        ?int $userId = null
+    ): array {
+        $outletId = (int) $transaction->outlet_id;
+        $auditPayloads = [];
+
+        // Pre-load all ProductOutletStock rows for the products in this transaction
+        $productIds = array_map(fn (array $item) => $item['product']->id, $items);
+        $existingStocks = ProductOutletStock::query()
+            ->where('outlet_id', $outletId)
+            ->whereIn('product_id', $productIds)
+            ->get()
+            ->keyBy('product_id');
+
+        foreach ($items as $item) {
+            /** @var Product $product */
+            $product = $item['product'];
+            /** @var TransactionDetail $detail */
+            $detail = $item['detail'];
+            $qty = (int) $item['qty'];
+
+            $outletStock = $existingStocks->get($product->id);
+
+            if (! $outletStock) {
+                $outletStock = ProductOutletStock::create([
+                    'outlet_id' => $outletId,
+                    'product_id' => $product->id,
+                    'stock' => (int) $product->stock,
+                    'reorder_level' => 0,
+                ]);
+                $existingStocks->put($product->id, $outletStock);
+            }
+
+            $stockBefore = (int) $outletStock->stock;
+            $stockAfter = $stockBefore - $qty;
+
+            if ($stockAfter < 0) {
+                throw ValidationException::withMessages([
+                    'stock' => "Stok outlet tidak mencukupi untuk produk {$product->title}.",
+                ]);
+            }
+
+            $outletStock->forceFill(['stock' => $stockAfter])->save();
+
+            $product->forceFill([
+                'stock' => max(0, (int) $product->stock - $qty),
+            ])->save();
+
+            $mutation = StockMutation::create([
+                'outlet_id' => $outletId,
+                'product_id' => $product->id,
+                'reference_type' => 'transaction',
+                'reference_id' => $transaction->id,
+                'mutation_type' => 'out',
+                'qty' => $qty,
+                'stock_before' => $stockBefore,
+                'stock_after' => $stockAfter,
+                'notes' => 'Stok keluar dari transaksi '.$transaction->invoice.'.',
+                'created_by' => $userId,
+            ]);
+
+            // Collect audit payload instead of logging immediately
+            $auditPayloads[] = [
+                'event' => 'stock.decremented',
+                'module' => 'stock',
+                'auditable' => $product,
+                'description' => 'Stok produk dikurangi dari transaksi '.$transaction->invoice.'.',
+                'before' => [
+                    'product_id' => $product->id,
+                    'stock_before' => $stockBefore,
+                    'stock_after' => $stockBefore,
+                    'difference' => 0,
+                    'reference' => $transaction->invoice,
+                ],
+                'after' => [
+                    'product_id' => $product->id,
+                    'stock_before' => $stockBefore,
+                    'stock_after' => $stockAfter,
+                    'difference' => $stockAfter - $stockBefore,
+                    'reference' => $transaction->invoice,
+                ],
+                'meta' => [
+                    'stock_mutation_id' => $mutation->id,
+                    'transaction_id' => $transaction->id,
+                    'invoice' => $transaction->invoice,
+                    'mutation_type' => 'out',
+                    'qty' => $qty,
+                ],
+            ];
+        }
+
+        return $auditPayloads;
+    }
+
     public function stockForOutlet(Product $product, int $outletId): int
     {
         $stock = ProductOutletStock::query()
