@@ -780,23 +780,12 @@ export default function Menu({
 
     const handleAddProduct = useCallback(
         (product) => {
-            const hasPresetModifiers =
-                Array.isArray(product?.modifier_options) &&
-                product.modifier_options.length > 0;
-
-            if (hasPresetModifiers) {
-                setModifierModalProduct(product);
-                setModifierModalQuantity(1);
-                setSelectedModifierOptionIds([]);
-                setIsModifierPromoDetailOpen(false);
-                return;
-            }
-
-            addProductToCart(product).then(() => {
-                toast.success(`${product.title} ditambahkan`);
-            });
+            setModifierModalProduct(product);
+            setModifierModalQuantity(1);
+            setSelectedModifierOptionIds([]);
+            setIsModifierPromoDetailOpen(false);
         },
-        [addProductToCart]
+        []
     );
 
     const handleUpdateQty = useCallback((lineId, nextQty) => {
