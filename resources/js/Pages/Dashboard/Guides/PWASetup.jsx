@@ -41,6 +41,7 @@ export default function PWASetup({
         isIos,
         isStandalone,
         promptInstall,
+        syncInstalledState,
         shouldShowInstallEntry,
     } = usePwaInstall();
     const [diagnostics, setDiagnostics] = useState({
@@ -54,6 +55,9 @@ export default function PWASetup({
     const [isWarmingAllProfiles, setIsWarmingAllProfiles] = useState(false);
     const [isCheckingAppUpdate, setIsCheckingAppUpdate] = useState(false);
     const [isResettingAppCache, setIsResettingAppCache] = useState(false);
+    const [isRefreshingInstallState, setIsRefreshingInstallState] = useState(
+        false
+    );
     const [showUninstallGuide, setShowUninstallGuide] = useState(false);
     const [pushState, setPushState] = useState({
         isSupported: false,
@@ -621,6 +625,29 @@ export default function PWASetup({
         }
     };
 
+    const handleRefreshInstallState = async () => {
+        setIsRefreshingInstallState(true);
+
+        try {
+            const installed = await syncInstalledState();
+
+            if (installed) {
+                toast.success("Status install perangkat sudah diperbarui.");
+            } else {
+                toast("Aplikasi tidak lagi terdeteksi sebagai terpasang di perangkat ini.", {
+                    duration: 3500,
+                    icon: "ℹ️",
+                });
+            }
+        } catch (error) {
+            toast.error(
+                error?.message || "Gagal memeriksa ulang status install."
+            );
+        } finally {
+            setIsRefreshingInstallState(false);
+        }
+    };
+
     const handleEnablePush = async () => {
         setPushHelpMessage("");
 
@@ -853,6 +880,17 @@ export default function PWASetup({
                                     </button>
                                     <button
                                         type="button"
+                                        onClick={handleRefreshInstallState}
+                                        disabled={isRefreshingInstallState}
+                                        className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                                    >
+                                        <IconRefresh size={18} />
+                                        {isRefreshingInstallState
+                                            ? "Memeriksa Status..."
+                                            : "Perbarui Status Install"}
+                                    </button>
+                                    <button
+                                        type="button"
                                         onClick={handleResetAppCache}
                                         disabled={isResettingAppCache}
                                         className="inline-flex items-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-5 py-3 text-sm font-semibold text-rose-700 transition hover:bg-rose-100 disabled:opacity-60 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-200"
@@ -967,7 +1005,7 @@ export default function PWASetup({
                             <div className="rounded-2xl bg-slate-50 px-4 py-3 text-xs leading-6 text-slate-500 dark:bg-slate-950/40 dark:text-slate-400">
                                 Install bisa dipicu dari halaman ini jika browser mengirim dialog install. Uninstall tetap dikelola oleh perangkat atau jendela aplikasi terpasang. Gunakan
                                 {" "}`Reset Cache Aplikasi`{" "}
-                                jika Anda hanya ingin membangun ulang shell dan cache tanpa melepas aplikasi dari perangkat.
+                                jika Anda hanya ingin membangun ulang shell dan cache tanpa melepas aplikasi dari perangkat. Jika app sudah di-uninstall tapi status masih tertinggal, gunakan `Perbarui Status Install`.
                             </div>
                         </div>
                     </div>

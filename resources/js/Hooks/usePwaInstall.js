@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+    clearPersistedPwaInstalled,
     detectPwaInstalled,
     persistPwaInstalled,
     probePwaInstalled,
@@ -24,40 +25,46 @@ export default function usePwaInstall() {
         typeof window !== "undefined"
             ? window.__PWA_CONFIG?.kind || "default"
             : "default";
+    const syncInstalledState = useCallback(async () => {
+        if (typeof window === "undefined") {
+            return false;
+        }
+
+        setIsCheckingInstallState(true);
+        const standalone =
+            Boolean(
+                window.matchMedia?.("(display-mode: standalone)")?.matches
+            ) ||
+            Boolean(
+                window.matchMedia?.("(display-mode: window-controls-overlay)")?.matches
+            ) ||
+            Boolean(
+                window.matchMedia?.("(display-mode: minimal-ui)")?.matches
+            ) ||
+            window.navigator.standalone === true;
+        let installed = standalone || detectPwaInstalled();
+
+        if (!installed) {
+            installed = await probePwaInstalled();
+        }
+
+        setIsStandalone(standalone);
+        setIsInstalled(installed);
+
+        if (installed) {
+            persistPwaInstalled();
+        } else {
+            clearPersistedPwaInstalled();
+        }
+
+        setIsCheckingInstallState(false);
+        return installed;
+    }, []);
 
     useEffect(() => {
         if (typeof window === "undefined") {
             return undefined;
         }
-
-        const syncInstalledState = async () => {
-            setIsCheckingInstallState(true);
-            const standalone =
-                Boolean(
-                    window.matchMedia?.("(display-mode: standalone)")?.matches
-                ) ||
-                Boolean(
-                    window.matchMedia?.("(display-mode: window-controls-overlay)")?.matches
-                ) ||
-                Boolean(
-                    window.matchMedia?.("(display-mode: minimal-ui)")?.matches
-                ) ||
-                window.navigator.standalone === true;
-            let installed = detectPwaInstalled();
-
-            if (!installed) {
-                installed = await probePwaInstalled();
-            }
-
-            setIsStandalone(standalone);
-            setIsInstalled(installed);
-
-            if (installed) {
-                persistPwaInstalled();
-            }
-
-            setIsCheckingInstallState(false);
-        };
 
         const ua = window.navigator.userAgent || "";
         setIsIos(/iphone|ipad|ipod/i.test(ua));
@@ -104,7 +111,7 @@ export default function usePwaInstall() {
             window.removeEventListener("focus", handleFocus);
             window.removeEventListener("pageshow", handlePageShow);
         };
-    }, []);
+    }, [syncInstalledState]);
 
     const canPromptInstall = Boolean(deferredPrompt);
     const shouldShowInstallEntry = isPwaEnabled && !isInstalled && !isStandalone;
@@ -166,6 +173,7 @@ export default function usePwaInstall() {
         isPwaEnabled,
         isStandalone,
         promptInstall,
+        syncInstalledState,
         shouldShowInstallEntry,
     };
 }

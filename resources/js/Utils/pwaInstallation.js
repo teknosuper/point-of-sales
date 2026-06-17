@@ -15,8 +15,7 @@ export function detectPwaInstalled() {
         window.matchMedia?.("(display-mode: standalone)")?.matches ||
             window.matchMedia?.("(display-mode: window-controls-overlay)")?.matches ||
             window.matchMedia?.("(display-mode: minimal-ui)")?.matches ||
-            window.navigator.standalone === true ||
-            window.localStorage.getItem(getInstallStorageKey()) === "true"
+            window.navigator.standalone === true
     );
 }
 
@@ -80,4 +79,12 @@ export function persistPwaInstalled() {
     }
 
     window.localStorage.setItem(getInstallStorageKey(), "true");
+}
+
+export function clearPersistedPwaInstalled() {
+    if (typeof window === "undefined") {
+        return;
+    }
+
+    window.localStorage.removeItem(getInstallStorageKey());
 }

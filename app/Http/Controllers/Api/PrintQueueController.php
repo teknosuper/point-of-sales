@@ -200,7 +200,7 @@ class PrintQueueController extends Controller
         $paidAmount = $paymentMethod === 'cash'
             ? (int) ($transaction->cash ?? 0)
             : max((int) ($transaction->cash ?? 0), $grandTotal);
-        $paperWidth = (string) data_get($job->payload, 'paper_width', '58mm');
+        $paperWidth = data_get($job->payload, 'paper_width');
         $layout = $transaction
             ? $this->receiptLayoutService->build(
                 $transaction,
@@ -209,7 +209,7 @@ class PrintQueueController extends Controller
                     'address' => $storeProfile['address'] ?? '',
                     'phone' => $storeProfile['phone'] ?? '',
                 ],
-                $paperWidth
+                $paperWidth === '80mm' ? '80mm' : '58mm'
             )
             : null;
 

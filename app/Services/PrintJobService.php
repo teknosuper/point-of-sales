@@ -46,7 +46,9 @@ class PrintJobService
                 'invoice' => $transaction->invoice,
                 'device_name' => $receiptDevice?->name,
                 'device_type' => $receiptDevice?->device_type,
-                'paper_width' => $receiptDevice ? data_get($receiptDevice->meta, 'paper_width', '58mm') : '58mm',
+                // If no dedicated receipt device is configured, let the print client
+                // use its own local paper width setting instead of forcing 58mm.
+                'paper_width' => $receiptDevice ? data_get($receiptDevice->meta, 'paper_width', '58mm') : null,
             ],
             'queued_at' => now(),
             'created_by' => $userId,

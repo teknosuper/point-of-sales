@@ -273,7 +273,7 @@ class WaiterFulfillmentService
             ->where('transaction_id', $transactionId)
             ->where('status', 'ready')
             ->get()
-            ->each(function (KitchenTicket $ticket) use ($deliveredDetailIds, $waiterId) {
+            ->each(function (KitchenTicket $ticket) use ($deliveredDetailIds, $waiterId, $transactionId) {
                 $ticketDetailIds = $ticket->items
                     ->pluck('transaction_detail_id')
                     ->filter()

@@ -557,6 +557,42 @@ const resolveKitchenSelectionState = (ticket, selectedItemIds = []) => {
     };
 };
 
+const reconcileSelectedItemsByTicket = (currentSelections = {}, ticketList = []) => {
+    const nextSelections = {};
+
+    Object.entries(currentSelections).forEach(([ticketId, selectedIds]) => {
+        const ticket = ticketList.find(
+            (candidate) => Number(candidate.id) === Number(ticketId)
+        );
+
+        if (!ticket) {
+            return;
+        }
+
+        const selectedItems = (ticket.items || []).filter((item) =>
+            (selectedIds || []).map(Number).includes(Number(item.id))
+        );
+        const actionableItems = selectedItems.filter((item) =>
+            isKitchenItemSelectable(item)
+        );
+
+        if (actionableItems.length === 0) {
+            return;
+        }
+
+        const targetGroup = kitchenActionGroupForItem(actionableItems[0]);
+        const normalizedIds = actionableItems
+            .filter((item) => kitchenActionGroupForItem(item) === targetGroup)
+            .map((item) => Number(item.id));
+
+        if (normalizedIds.length > 0) {
+            nextSelections[ticketId] = normalizedIds;
+        }
+    });
+
+    return nextSelections;
+};
+
 const buildBoardFilters = (filters = {}, selectedDevice = null) => ({
     status: filters?.status || "active",
     q: filters?.q || "",
@@ -604,6 +640,7 @@ export default function KitchenIndex({
     const [previewTicket, setPreviewTicket] = useState(null);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [selectedItemIdsByTicket, setSelectedItemIdsByTicket] = useState({});
+    const [submittingActionByTicket, setSubmittingActionByTicket] = useState({});
     const [boardState, setBoardState] = useState(
         buildBoardState({ activeStation, tickets, refreshMeta, filters, selectedDevice })
     );
@@ -646,6 +683,9 @@ export default function KitchenIndex({
         setDraftFilters(nextBoardState.filters);
         seenTicketIdsRef.current = new Set(
             (nextBoardState.tickets?.data || []).map((ticket) => ticket.id)
+        );
+        setSelectedItemIdsByTicket((current) =>
+            reconcileSelectedItemsByTicket(current, nextBoardState.tickets?.data || [])
         );
     }, [activeStation, tickets, refreshMeta, filters, selectedDevice]);
 
@@ -876,6 +916,10 @@ export default function KitchenIndex({
     };
 
     const handleAcknowledge = async (ticketId) => {
+        if (submittingActionByTicket[ticketId]) {
+            return;
+        }
+
         if ((boardState.activeStation?.processing_mode || "auto") === "manual") {
             const confirmed = await confirmTicketAction({
                 ticketId,
@@ -890,12 +934,25 @@ export default function KitchenIndex({
             }
         }
 
+        setSubmittingActionByTicket((current) => ({
+            ...current,
+            [ticketId]: true,
+        }));
         router.post(route("kitchen.tickets.acknowledge", ticketId), {}, {
             preserveScroll: true,
+            onFinish: () =>
+                setSubmittingActionByTicket((current) => ({
+                    ...current,
+                    [ticketId]: false,
+                })),
         });
     };
 
     const handleComplete = async (ticketId) => {
+        if (submittingActionByTicket[ticketId]) {
+            return;
+        }
+
         const ticket = findTicketById(ticketId);
         const selectedItemIds = (selectedItemIdsByTicket[ticketId] || []).map(Number);
         const selectionState = resolveKitchenSelectionState(ticket, selectedItemIds);
@@ -929,17 +986,30 @@ export default function KitchenIndex({
             return;
         }
 
+        setSubmittingActionByTicket((current) => ({
+            ...current,
+            [ticketId]: true,
+        }));
         router.post(
             route("kitchen.tickets.complete", ticketId),
             { item_ids: itemIds },
             {
                 preserveScroll: true,
                 onSuccess: () => setSelectedItems(ticketId, []),
+                onFinish: () =>
+                    setSubmittingActionByTicket((current) => ({
+                        ...current,
+                        [ticketId]: false,
+                    })),
             }
         );
     };
 
     const handleDeliver = async (ticketId) => {
+        if (submittingActionByTicket[ticketId]) {
+            return;
+        }
+
         const ticket = findTicketById(ticketId);
         const selectedItemIds = (selectedItemIdsByTicket[ticketId] || []).map(Number);
         const selectionState = resolveKitchenSelectionState(ticket, selectedItemIds);
@@ -974,12 +1044,21 @@ export default function KitchenIndex({
             return;
         }
 
+        setSubmittingActionByTicket((current) => ({
+            ...current,
+            [ticketId]: true,
+        }));
         router.post(
             route("kitchen.tickets.deliver", ticketId),
             { item_ids: itemIds },
             {
                 preserveScroll: true,
                 onSuccess: () => setSelectedItems(ticketId, []),
+                onFinish: () =>
+                    setSubmittingActionByTicket((current) => ({
+                        ...current,
+                        [ticketId]: false,
+                    })),
             }
         );
     };
@@ -1228,6 +1307,9 @@ export default function KitchenIndex({
                 ...payload,
                 filters: buildBoardFilters(payload.filters, payload.selectedDevice),
             }));
+            setSelectedItemIdsByTicket((current) =>
+                reconcileSelectedItemsByTicket(current, payload.tickets?.data || [])
+            );
             setDraftFilters((current) => ({
                 ...current,
                 status: payload.filters?.status || current.status,
@@ -1751,6 +1833,9 @@ export default function KitchenIndex({
                                                           !selectionState.hasMixedAction &&
                                                           selectionState.readyToMark === 0
                                                         : actionCounts.readyToDeliver > 0;
+                                                const actionBusy = Boolean(
+                                                    submittingActionByTicket[ticket.id]
+                                                );
                                                 const readyButtonClass =
                                                     selectionMode === "ready"
                                                         ? "bg-emerald-700 ring-2 ring-emerald-200 dark:ring-emerald-900/40"
@@ -1927,7 +2012,8 @@ export default function KitchenIndex({
                                                     <button
                                                         type="button"
                                                         onClick={() => handleAcknowledge(ticket.id)}
-                                                        className="col-span-2 inline-flex h-9 items-center justify-center gap-1.5 rounded-xl bg-sky-600 px-3 text-xs font-semibold text-white transition hover:bg-sky-700"
+                                                        disabled={actionBusy}
+                                                        className="col-span-2 inline-flex h-9 items-center justify-center gap-1.5 rounded-xl bg-sky-600 px-3 text-xs font-semibold text-white transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-40"
                                                     >
                                                         <IconChefHat size={14} />
                                                         Mulai Proses
@@ -1937,7 +2023,7 @@ export default function KitchenIndex({
                                                 <button
                                                     type="button"
                                                     onClick={() => handleComplete(ticket.id)}
-                                                    disabled={!canMarkReady}
+                                                    disabled={!canMarkReady || actionBusy}
                                                     className={`inline-flex h-9 items-center justify-center gap-1.5 rounded-xl px-3 text-xs font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 ${readyButtonClass}`}
                                                 >
                                                     <IconCheck size={14} />
@@ -1947,7 +2033,7 @@ export default function KitchenIndex({
                                                 <button
                                                     type="button"
                                                     onClick={() => handleDeliver(ticket.id)}
-                                                    disabled={!canDeliver}
+                                                    disabled={!canDeliver || actionBusy}
                                                     className={`inline-flex h-9 items-center justify-center gap-1.5 rounded-xl px-3 text-xs font-semibold text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-40 ${deliverButtonClass}`}
                                                 >
                                                     <IconCheck size={14} />
@@ -2033,6 +2119,9 @@ export default function KitchenIndex({
                                                                       !selectionState.hasMixedAction &&
                                                                       selectionState.readyToMark === 0
                                                                     : actionCounts.readyToDeliver > 0;
+                                                            const actionBusy = Boolean(
+                                                                submittingActionByTicket[ticket.id]
+                                                            );
                                                             const readyButtonClass =
                                                                 selectionMode === "ready"
                                                                     ? "bg-emerald-700 ring-2 ring-emerald-200 dark:ring-emerald-900/40"
@@ -2220,7 +2309,8 @@ export default function KitchenIndex({
                                                                     <button
                                                                         type="button"
                                                                         onClick={() => handleAcknowledge(ticket.id)}
-                                                                        className="inline-flex items-center justify-center gap-2 rounded-xl bg-sky-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-sky-700"
+                                                                        disabled={actionBusy}
+                                                                        className="inline-flex items-center justify-center gap-2 rounded-xl bg-sky-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-40"
                                                                     >
                                                                         <IconChefHat size={16} />
                                                                         Mulai Proses
@@ -2230,7 +2320,7 @@ export default function KitchenIndex({
                                                                 <button
                                                                     type="button"
                                                                     onClick={() => handleComplete(ticket.id)}
-                                                                    disabled={!canMarkReady}
+                                                                    disabled={!canMarkReady || actionBusy}
                                                                     className={`inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 ${readyButtonClass}`}
                                                                 >
                                                                     <IconCheck size={16} />
@@ -2240,7 +2330,7 @@ export default function KitchenIndex({
                                                                 <button
                                                                     type="button"
                                                                     onClick={() => handleDeliver(ticket.id)}
-                                                                    disabled={!canDeliver}
+                                                                    disabled={!canDeliver || actionBusy}
                                                                     className={`inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-40 ${deliverButtonClass}`}
                                                                 >
                                                                     <IconCheck size={16} />

@@ -17,6 +17,8 @@ export default function ModifierOptionsModal({
     product = null,
     cartTargetId = null,
     quantity = 1,
+    notesValue = "",
+    onNotesChange,
     onQuantityChange,
     selectedModifierOptionIds = [],
     onToggleModifierOption,
@@ -337,6 +339,26 @@ export default function ModifierOptionsModal({
                             </div>
                         </div>
                     )}
+
+                    <div className="px-5 pb-4">
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/30">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                Catatan Item
+                            </p>
+                            <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+                                Tambahkan keterangan khusus untuk item ini sebelum masuk ke keranjang.
+                            </p>
+                            <textarea
+                                rows={3}
+                                value={notesValue || ""}
+                                onChange={(event) =>
+                                    onNotesChange?.(event.target.value)
+                                }
+                                placeholder="Contoh: jangan pedas, kuah dipisah, tanpa bawang"
+                                className="mt-3 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                            />
+                        </div>
+                    </div>
                 </div>
 
                 <div className="border-t border-slate-200 bg-slate-50 px-5 py-4 dark:border-slate-800 dark:bg-slate-950/40">

@@ -199,6 +199,7 @@ export default function Index({
     const [modifierModalCartTargetId, setModifierModalCartTargetId] =
         useState(null);
     const [modifierModalQuantity, setModifierModalQuantity] = useState(1);
+    const [modifierModalNotes, setModifierModalNotes] = useState("");
     const [isModifierPromoDetailOpen, setIsModifierPromoDetailOpen] =
         useState(false);
     const [selectedModifierOptionIds, setSelectedModifierOptionIds] = useState(
@@ -1904,8 +1905,12 @@ export default function Index({
             ? options.modifiers.filter((item) => item?.name)
             : [];
         const quantity = Math.max(1, Number(options.qty || 1));
+        const normalizedNotes = String(options.notes || "").trim();
         const rewardPromoMeta = options.rewardPromoMeta || null;
-        const shouldForceNew = modifiers.length > 0 || Boolean(rewardPromoMeta);
+        const shouldForceNew =
+            modifiers.length > 0 ||
+            Boolean(rewardPromoMeta) ||
+            normalizedNotes.length > 0;
 
         if (isOfflineMode) {
             const tempId = `offline-${product.id}-${Date.now()}`;
@@ -1942,7 +1947,7 @@ export default function Index({
                         product_id: product.id,
                         qty: quantity,
                         price: resolvedProductDisplayPrice(product) * quantity,
-                        notes: "",
+                        notes: normalizedNotes,
                         product: { ...product },
                         tenant_outlet_id: product.tenant_outlet_id || null,
                         promo_reward_meta: rewardPromoMeta,
@@ -2009,6 +2014,7 @@ export default function Index({
                         product_id: product.id,
                         qty: quantity,
                         price: resolvedProductDisplayPrice(product) * quantity,
+                        notes: normalizedNotes || null,
                         product: {
                             ...product,
                         },
@@ -2053,6 +2059,17 @@ export default function Index({
                     }
                 }
 
+                if (serverCart && normalizedNotes) {
+                    const notesResponse = await axios.patch(
+                        route("transactions.updateCartNotes", serverCart.id),
+                        {
+                            notes: normalizedNotes,
+                        }
+                    );
+
+                    serverCart = notesResponse.data?.data?.cart || serverCart;
+                }
+
                 if (serverCart) {
                     setLocalCarts((currentCarts) => {
                         const withoutTemp = currentCarts.filter(
@@ -2095,7 +2112,7 @@ export default function Index({
                                 product_id: product.id,
                                 qty: quantity,
                                 price: resolvedProductDisplayPrice(product) * quantity,
-                                notes: "",
+                                notes: normalizedNotes || null,
                                 product: {
                                     ...product,
                                 },
@@ -2552,6 +2569,7 @@ export default function Index({
 
             setModifierModalProduct(product);
             setModifierModalCartTargetId(null);
+            setModifierModalNotes("");
             setIsModifierPromoDetailOpen(false);
             setSelectedModifierOptionIds([]);
             setModifierModalQuantity(1);
@@ -2575,6 +2593,7 @@ export default function Index({
         setModifierModalProduct(null);
         setModifierModalCartTargetId(null);
         setModifierModalQuantity(1);
+        setModifierModalNotes("");
         setIsModifierPromoDetailOpen(false);
         setSelectedModifierOptionIds([]);
     }, [isModifierModalSubmitting]);
@@ -2603,6 +2622,7 @@ export default function Index({
         setModifierModalProduct(item.product);
         setModifierModalCartTargetId(item.id);
         setModifierModalQuantity(Math.max(1, Number(item.qty || 1)));
+        setModifierModalNotes(item.notes || "");
         setIsModifierPromoDetailOpen(false);
         setSelectedModifierOptionIds(activeOptionIds);
     }, []);
@@ -2619,6 +2639,7 @@ export default function Index({
                           selectedModifierOptionIds.includes(option.id)
                   )
                 : [];
+            const normalizedNotes = modifierModalNotes.trim() || null;
 
             setIsModifierModalSubmitting(true);
 
@@ -2650,6 +2671,7 @@ export default function Index({
                             item.id === modifierModalCartTargetId
                                 ? {
                                       ...item,
+                                      notes: normalizedNotes,
                                       modifiers: Array.from(
                                           selectedModifierMap.values()
                                       ),
@@ -2701,6 +2723,21 @@ export default function Index({
                     }
 
                     if (updatedCart) {
+                        if ((updatedCart.notes || null) !== normalizedNotes) {
+                            const notesResponse = await axios.patch(
+                                route(
+                                    "transactions.updateCartNotes",
+                                    modifierModalCartTargetId
+                                ),
+                                {
+                                    notes: normalizedNotes,
+                                }
+                            );
+
+                            updatedCart =
+                                notesResponse.data?.data?.cart || updatedCart;
+                        }
+
                         setLocalCarts((currentCarts) =>
                             currentCarts.map((item) =>
                                 item.id === modifierModalCartTargetId
@@ -2716,6 +2753,7 @@ export default function Index({
                     success = await addProductToCart(modifierModalProduct, {
                         qty: modifierModalQuantity,
                         modifiers: selectedModifiers,
+                        notes: normalizedNotes,
                     });
 
                     if (success) {
@@ -2739,6 +2777,7 @@ export default function Index({
                     setModifierModalProduct(null);
                     setModifierModalCartTargetId(null);
                     setModifierModalQuantity(1);
+                    setModifierModalNotes("");
                     setIsModifierPromoDetailOpen(false);
                     setSelectedModifierOptionIds([]);
                 }
@@ -2757,6 +2796,7 @@ export default function Index({
             isOfflineMode,
             localCarts,
             modifierModalCartTargetId,
+            modifierModalNotes,
             modifierModalProduct,
             modifierModalQuantity,
             selectedModifierOptionIds,
@@ -6147,6 +6187,8 @@ export default function Index({
                 product={modifierModalProduct}
                 cartTargetId={modifierModalCartTargetId}
                 quantity={modifierModalQuantity}
+                notesValue={modifierModalNotes}
+                onNotesChange={setModifierModalNotes}
                 onQuantityChange={setModifierModalQuantity}
                 selectedModifierOptionIds={selectedModifierOptionIds}
                 onToggleModifierOption={handleToggleModifierOption}
