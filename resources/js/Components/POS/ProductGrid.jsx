@@ -420,9 +420,19 @@ export default function ProductGrid({
             array.findIndex((item) => Number(item?.id) === Number(tenant.id)) ===
                 index
         )
-        .sort((a, b) =>
-            String(a?.name || "").localeCompare(String(b?.name || ""), "id")
-        );
+        .sort((a, b) => {
+            const sortOrderDiff =
+                Number(a?.sort_order || 0) - Number(b?.sort_order || 0);
+
+            if (sortOrderDiff !== 0) {
+                return sortOrderDiff;
+            }
+
+            return String(a?.name || "").localeCompare(
+                String(b?.name || ""),
+                "id"
+            );
+        });
 
     // Filter products by tenant and search
     const filteredProducts = products.filter((product) => {

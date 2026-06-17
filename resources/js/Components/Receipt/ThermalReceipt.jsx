@@ -537,7 +537,12 @@ export function ThermalReceipt58mm({
     return (
         <div
             className="thermal-receipt-58 font-mono text-xs"
-            style={{ width: "58mm", padding: "2mm" }}
+            style={{
+                width: "58mm",
+                padding: "2mm",
+                backgroundColor: "#ffffff",
+                color: "#000000",
+            }}
         >
             <div className="text-center">
                 <p className="font-bold">{storeName}</p>
@@ -579,10 +584,18 @@ export function ThermalReceipt58mm({
             <SimpleBarcode value={transaction?.invoice} compact />
 
             <style>{`
+                .thermal-receipt-58,
+                .thermal-receipt-58 * {
+                    color: #000 !important;
+                    background: transparent !important;
+                }
+
                 @media print {
                     .thermal-receipt-58 {
                         width: 58mm !important;
                         font-size: 9pt !important;
+                        background: #fff !important;
+                        color: #000 !important;
                     }
                     @page { size: 58mm auto; margin: 0; }
                 }

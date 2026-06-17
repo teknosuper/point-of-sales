@@ -45,7 +45,7 @@ class PublicTableOrderController extends Controller
             ->with([
                 'category:id,name',
                 'modifierOptions',
-                'tenantOutlet:id,name,code,slug',
+                'tenantOutlet:id,name,code,slug,sort_order',
                 'kitchenStationMappings.kitchenStation:id,name,code',
             ])
             ->select(

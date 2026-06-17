@@ -7643,7 +7643,7 @@ export default function Index({
                             </button>
                         </div>
                         <div className="flex-1 overflow-y-auto px-4 py-4">
-                            <div className="mx-auto flex max-w-[280px] justify-center rounded-lg bg-slate-950 px-2 py-4 shadow-inner">
+                            <div className="mx-auto flex max-w-[280px] justify-center rounded-lg bg-white px-2 py-4 shadow-inner ring-1 ring-slate-200">
                                 <ThermalReceipt58mm
                                     transaction={selectedHistoryTransaction}
                                     layout={selectedHistoryTransaction.receiptLayout}

@@ -29,6 +29,7 @@ use App\Services\ProductCatalogService;
 use App\Services\PrintJobService;
 use App\Services\ReceiptLayoutService;
 use App\Services\StockMutationService;
+use App\Services\TransactionInvoiceService;
 use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -54,7 +55,8 @@ class TransactionController extends Controller
         private readonly KitchenTicketService $kitchenTicketService,
         private readonly FoodcourtTenantAllocationService $foodcourtTenantAllocationService,
         private readonly PrintJobService $printJobService,
-        private readonly ReceiptLayoutService $receiptLayoutService
+        private readonly ReceiptLayoutService $receiptLayoutService,
+        private readonly TransactionInvoiceService $transactionInvoiceService
     ) {}
 
     /**
@@ -137,7 +139,7 @@ class TransactionController extends Controller
             ->values();
 
         // get all products with categories for product grid
-        $productsQuery = Product::with(['category:id,name', 'modifierOptions', 'tenantOutlet:id,name,code'])
+        $productsQuery = Product::with(['category:id,name', 'modifierOptions', 'tenantOutlet:id,name,code,slug,sort_order'])
             ->select('id', 'barcode', 'title', 'description', 'image', 'buy_price', 'sell_price', 'stock', 'category_id', 'tenant_outlet_id', 'supports_modifiers')
             ->orderBy('title')
             ->when($outlet && Schema::hasTable('product_outlet_stocks'), function ($query) use ($outlet) {
@@ -1031,13 +1033,7 @@ class TransactionController extends Controller
             }
         }
 
-        $length = 10;
-        $random = '';
-        for ($i = 0; $i < $length; $i++) {
-            $random .= rand(0, 1) ? rand(0, 9) : chr(rand(ord('a'), ord('z')));
-        }
-
-        $invoice = 'TRX-'.Str::upper($random);
+        $invoice = $this->transactionInvoiceService->generate();
         $isCashPayment = empty($paymentGateway) && ! $isPayLater;
         $isManualQrisPayment = $paymentGateway === PaymentSetting::GATEWAY_QRIS;
         $manualDiscount = max(0, (int) $request->input('discount', 0));

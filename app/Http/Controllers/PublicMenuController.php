@@ -51,8 +51,9 @@ class PublicMenuController extends Controller
         }
 
         $tenants = Outlet::whereIn('id', Product::whereNotNull('tenant_outlet_id')->distinct()->pluck('tenant_outlet_id'))
+            ->orderBy('sort_order')
             ->orderBy('name')
-            ->get(['id', 'name']);
+            ->get(['id', 'name', 'sort_order']);
 
         return inertia('Public/MenuCatalog', [
             'categories' => $categories,
@@ -61,6 +62,7 @@ class PublicMenuController extends Controller
                 'id' => $outlet->id,
                 'name' => $outlet->name,
                 'code' => $outlet->code,
+                'sort_order' => (int) $outlet->sort_order,
             ] : null,
             'store' => [
                 'name' => $storeName,
@@ -78,7 +80,7 @@ class PublicMenuController extends Controller
         $query = Product::query()
             ->with([
                 'category:id,name,description,image',
-                'tenantOutlet:id,code,slug,name',
+                'tenantOutlet:id,code,slug,name,sort_order',
                 'modifierOptions',
             ])
             ->select([

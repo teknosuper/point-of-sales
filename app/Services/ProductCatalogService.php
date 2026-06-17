@@ -57,6 +57,7 @@ class ProductCatalogService
                     'name' => $product->tenantOutlet->name,
                     'code' => $product->tenantOutlet->code,
                     'slug' => $product->tenantOutlet->slug,
+                    'sort_order' => (int) ($product->tenantOutlet->sort_order ?? 0),
                 ] : null,
                 'modifier_options' => $product->modifierOptions
                     ->where('is_active', true)
