@@ -535,9 +535,16 @@ class LoyaltyService
 
     private function generateMemberCode(): string
     {
+        $maxAttempts = 10;
+        $attempt = 0;
+
         do {
             $code = 'MEM-'.Str::upper(Str::random(8));
-        } while (Customer::query()->where('member_code', $code)->exists());
+            $attempt++;
+        } while (
+            $attempt < $maxAttempts
+            && Customer::query()->where('member_code', $code)->exists()
+        );
 
         return $code;
     }
