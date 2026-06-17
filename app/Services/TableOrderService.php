@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use App\Services\TransactionInvoiceService;
 
 class TableOrderService
 {
@@ -28,7 +29,8 @@ class TableOrderService
         private readonly AuditLogService $auditLogService,
         private readonly LoyaltyService $loyaltyService,
         private readonly PricingService $pricingService,
-        private readonly PrintJobService $printJobService
+        private readonly PrintJobService $printJobService,
+        private readonly TransactionInvoiceService $transactionInvoiceService
     ) {}
 
     public function createFromPublicMenu(DiningTable $table, Customer $customer, array $payload): TableOrder
@@ -439,7 +441,6 @@ class TableOrderService
                 'invoice' => $transaction->invoice,
                 'payment_method' => $paymentMethod,
             ],
-            actor: $cashier
         );
 
         $this->printJobService->queueReceipt($transaction, userId: $cashier->id);
@@ -475,7 +476,6 @@ class TableOrderService
                 'status' => 'cancelled',
                 'reason' => $reason,
             ],
-            actor: $actor
         );
 
         return $tableOrder;
@@ -502,7 +502,7 @@ class TableOrderService
 
     private function generateInvoiceNumber(): string
     {
-        return 'TRX-'.Str::upper(Str::random(10));
+        return $this->transactionInvoiceService->generate();
     }
 
     private function sanitizeTableOrderItemAttributes(array $attributes): array

@@ -11,7 +11,7 @@ class TransactionInvoiceService
     {
         $issuedAt ??= now();
 
-        $prefix = 'TRX-'.$issuedAt->format('d-m-y');
+        $prefix = 'TRX-'.$issuedAt->format('dmy');
         $lockKey = 'transaction-invoice:'.$prefix;
         $nextInvoice = null;
 
@@ -45,6 +45,6 @@ class TransactionInvoiceService
 
         $nextSequence = $lastSequence + 1;
 
-        return sprintf('%s-%s', $prefix, str_pad((string) $nextSequence, 3, '0', STR_PAD_LEFT));
+        return sprintf('%s-%s', $prefix, str_pad((string) $nextSequence, 4, '0', STR_PAD_LEFT));
     }
 }
