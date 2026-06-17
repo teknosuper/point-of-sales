@@ -17,6 +17,7 @@ use App\Http\Controllers\Apps\MemberController;
 use App\Http\Controllers\Apps\OperationsGuideController;
 use App\Http\Controllers\Apps\OutletManagementController;
 use App\Http\Controllers\Apps\PaymentSettingController;
+use App\Http\Controllers\Apps\PwaPushSubscriptionController;
 use App\Http\Controllers\Apps\PricingRuleController;
 use App\Http\Controllers\Apps\ProductController;
 use App\Http\Controllers\Apps\PurchaseOrderController;
@@ -94,6 +95,9 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
     Route::get('/guides/outlet-kitchen', [OperationsGuideController::class, 'outletKitchen'])->middleware('permission:dashboard-access')->name('guides.outlet-kitchen');
     Route::get('/guides/setup-wizard', [OperationsGuideController::class, 'setupWizard'])->middleware('permission:dashboard-access')->name('guides.setup-wizard');
     Route::get('/guides/pwa-setup', [OperationsGuideController::class, 'pwaSetup'])->middleware('permission:dashboard-access')->name('guides.pwa-setup');
+    Route::post('/pwa/push-subscriptions', [PwaPushSubscriptionController::class, 'store'])->middleware('permission:dashboard-access')->name('pwa.push-subscriptions.store');
+    Route::delete('/pwa/push-subscriptions', [PwaPushSubscriptionController::class, 'destroy'])->middleware('permission:dashboard-access')->name('pwa.push-subscriptions.destroy');
+    Route::post('/pwa/push-subscriptions/test', [PwaPushSubscriptionController::class, 'test'])->middleware('permission:dashboard-access')->name('pwa.push-subscriptions.test');
     // roles route
     Route::resource('/roles', RoleController::class)
         ->except(['create', 'edit', 'show'])

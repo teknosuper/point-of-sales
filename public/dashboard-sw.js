@@ -98,3 +98,59 @@ self.addEventListener("fetch", (event) => {
     })
   );
 });
+
+self.addEventListener("push", (event) => {
+  const payload = (() => {
+    try {
+      return event.data ? event.data.json() : {};
+    } catch {
+      return {
+        title: "GTC KASIR",
+        body: event.data ? event.data.text() : "",
+      };
+    }
+  })();
+
+  const title = payload.title || "GTC KASIR";
+  const options = {
+    body: payload.body || "",
+    icon: payload.icon || "/pwa-icon.svg",
+    badge: payload.badge || "/pwa-icon.svg",
+    tag: payload.tag || "gtc-dashboard",
+    data: {
+      url: payload.url || "/dashboard",
+      ...(payload.data || {}),
+    },
+  };
+
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+
+  const targetUrl = new URL(event.notification.data?.url || "/dashboard", self.location.origin).toString();
+
+  event.waitUntil(
+    clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientList) => {
+      for (const client of clientList) {
+        if (client.url === targetUrl && "focus" in client) {
+          return client.focus();
+        }
+      }
+
+      for (const client of clientList) {
+        if (client.url.startsWith(self.location.origin + "/dashboard") && "focus" in client) {
+          client.navigate?.(targetUrl);
+          return client.focus();
+        }
+      }
+
+      if (clients.openWindow) {
+        return clients.openWindow(targetUrl);
+      }
+
+      return undefined;
+    })
+  );
+});

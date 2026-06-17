@@ -4,6 +4,8 @@ import PWAInstallButton from "@/Components/PWAInstallButton";
 import { Head, Link } from "@inertiajs/react";
 import toast from "react-hot-toast";
 import {
+    IconBell,
+    IconBellRinging,
     IconBolt,
     IconChecklist,
     IconCloudDown,
@@ -27,6 +29,7 @@ export default function PWASetup({
     recommendedRoutes = [],
     offlineShellProfiles = [],
     buildInfo = null,
+    pushConfig = null,
 }) {
     const {
         appLabel,
@@ -52,6 +55,16 @@ export default function PWASetup({
     const [isCheckingAppUpdate, setIsCheckingAppUpdate] = useState(false);
     const [isResettingAppCache, setIsResettingAppCache] = useState(false);
     const [showUninstallGuide, setShowUninstallGuide] = useState(false);
+    const [pushState, setPushState] = useState({
+        isSupported: false,
+        permission: "default",
+        isSubscribed: false,
+        endpoint: pushConfig?.existingSubscription?.endpoint || null,
+    });
+    const [isEnablingPush, setIsEnablingPush] = useState(false);
+    const [isDisablingPush, setIsDisablingPush] = useState(false);
+    const [isSendingPushTest, setIsSendingPushTest] = useState(false);
+    const [pushHelpMessage, setPushHelpMessage] = useState("");
     const [offlineShellStatus, setOfflineShellStatus] = useState(() => {
         if (typeof window === "undefined") {
             return {};
@@ -66,6 +79,91 @@ export default function PWASetup({
         }
     });
     const shouldReloadAfterUpdateRef = useRef(false);
+
+    const syncPushState = async () => {
+        if (typeof window === "undefined") {
+            return;
+        }
+
+        const permission =
+            typeof window.Notification !== "undefined"
+                ? window.Notification.permission
+                : "default";
+
+        const isSupported =
+            Boolean(window.isSecureContext) &&
+            "serviceWorker" in navigator &&
+            "PushManager" in window &&
+            typeof window.Notification !== "undefined";
+
+        if (!isSupported) {
+            setPushState({
+                isSupported: false,
+                permission,
+                isSubscribed: false,
+                endpoint: null,
+            });
+            return;
+        }
+
+        try {
+            const registration = await navigator.serviceWorker.ready;
+            const subscription = await registration.pushManager.getSubscription();
+
+            setPushState({
+                isSupported: true,
+                permission,
+                isSubscribed: Boolean(subscription),
+                endpoint: subscription?.endpoint || null,
+            });
+        } catch {
+            setPushState({
+                isSupported: true,
+                permission,
+                isSubscribed: false,
+                endpoint: null,
+            });
+        }
+    };
+
+    const urlBase64ToUint8Array = (base64String) => {
+        const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+        const base64 = (base64String + padding)
+            .replace(/-/g, "+")
+            .replace(/_/g, "/");
+        const rawData = window.atob(base64);
+        const outputArray = new Uint8Array(rawData.length);
+
+        for (let index = 0; index < rawData.length; index += 1) {
+            outputArray[index] = rawData.charCodeAt(index);
+        }
+
+        return outputArray;
+    };
+
+    const resolvePushDeniedHelp = () => {
+        if (isIos) {
+            return "Buka app GTC KASIR dari home screen, lalu cek Settings iPhone/iPad > Notifications > GTC KASIR dan izinkan notifikasi.";
+        }
+
+        if (isChromeLike) {
+            return "Buka ikon gembok atau info situs di address bar, masuk ke Site settings, lalu ubah Notifications menjadi Allow. Setelah itu reload halaman ini.";
+        }
+
+        return "Buka pengaturan izin situs di browser ini, ubah Notifications menjadi Allow, lalu muat ulang halaman Setup PWA.";
+    };
+
+    const resolvePushUnavailableHelp = () => {
+        if (isIos) {
+            return "Web push di iPhone/iPad hanya tersedia jika GTC KASIR sudah dipasang ke home screen dan dibuka sebagai app, bukan dari tab browser biasa.";
+        }
+
+        if (isChromeLike) {
+            return "Pastikan perangkat memakai Chrome atau Edge modern dengan HTTPS atau localhost, dan service worker dashboard sudah aktif.";
+        }
+
+        return "Browser atau mode perangkat ini belum memenuhi syarat web push. Coba Chrome/Edge terbaru atau pasang PWA dashboard lebih dulu.";
+    };
 
     useEffect(() => {
         if (typeof window === "undefined") return;
@@ -111,6 +209,28 @@ export default function PWASetup({
         return () => {
             window.removeEventListener("online", sync);
             window.removeEventListener("offline", sync);
+        };
+    }, []);
+
+    useEffect(() => {
+        syncPushState();
+
+        if (typeof window === "undefined") {
+            return undefined;
+        }
+
+        const handleVisibility = () => {
+            if (document.visibilityState === "visible") {
+                syncPushState();
+            }
+        };
+
+        window.addEventListener("focus", syncPushState);
+        document.addEventListener("visibilitychange", handleVisibility);
+
+        return () => {
+            window.removeEventListener("focus", syncPushState);
+            document.removeEventListener("visibilitychange", handleVisibility);
         };
     }, []);
 
@@ -501,6 +621,164 @@ export default function PWASetup({
         }
     };
 
+    const handleEnablePush = async () => {
+        setPushHelpMessage("");
+
+        if (!pushConfig?.enabled) {
+            toast.error("Web push belum dikonfigurasi di server.");
+            return;
+        }
+
+        if (!pushState.isSupported) {
+            const help = resolvePushUnavailableHelp();
+            setPushHelpMessage(help);
+            toast.error("Browser atau mode perangkat ini belum mendukung web push.");
+            return;
+        }
+
+        if (!pushConfig?.vapidPublicKey) {
+            toast.error("Public VAPID key belum tersedia.");
+            return;
+        }
+
+        setIsEnablingPush(true);
+
+        try {
+            const permission = await window.Notification.requestPermission();
+
+            if (permission !== "granted") {
+                if (permission === "denied") {
+                    const help = resolvePushDeniedHelp();
+                    setPushHelpMessage(help);
+                    throw new Error("Izin notifikasi sedang diblokir di perangkat ini.");
+                }
+
+                const help = isIos
+                    ? "Izinkan notifikasi saat diminta sistem, lalu coba aktifkan lagi dari halaman ini."
+                    : "Setujui dialog izin notifikasi browser agar perangkat bisa menerima push GTC KASIR.";
+                setPushHelpMessage(help);
+                throw new Error("Izin notifikasi belum diberikan di perangkat ini.");
+            }
+
+            const registration = await navigator.serviceWorker.ready;
+            const existingSubscription =
+                await registration.pushManager.getSubscription();
+
+            const subscription =
+                existingSubscription ||
+                (await registration.pushManager.subscribe({
+                    userVisibleOnly: true,
+                    applicationServerKey: urlBase64ToUint8Array(
+                        pushConfig.vapidPublicKey
+                    ),
+                }));
+
+            await window.axios.post(
+                route("pwa.push-subscriptions.store"),
+                subscription.toJSON()
+            );
+
+            await syncPushState();
+            setPushHelpMessage("");
+            toast.success("Push notification GTC KASIR berhasil diaktifkan.");
+        } catch (error) {
+            toast.error(
+                error?.response?.data?.message ||
+                    error?.message ||
+                    "Gagal mengaktifkan push notification."
+            );
+        } finally {
+            setIsEnablingPush(false);
+        }
+    };
+
+    const handleDisablePush = async () => {
+        if (!pushState.isSupported) {
+            toast.error("Browser ini belum mendukung web push.");
+            return;
+        }
+
+        setIsDisablingPush(true);
+
+        try {
+            const registration = await navigator.serviceWorker.ready;
+            const subscription = await registration.pushManager.getSubscription();
+
+            if (subscription) {
+                await window.axios.delete(route("pwa.push-subscriptions.destroy"), {
+                    data: {
+                        endpoint: subscription.endpoint,
+                    },
+                });
+                await subscription.unsubscribe();
+            } else {
+                await window.axios.delete(route("pwa.push-subscriptions.destroy"));
+            }
+
+            await syncPushState();
+            setPushHelpMessage("");
+            toast.success("Push notification GTC KASIR dimatikan.");
+        } catch (error) {
+            toast.error(
+                error?.response?.data?.message ||
+                    error?.message ||
+                    "Gagal mematikan push notification."
+            );
+        } finally {
+            setIsDisablingPush(false);
+        }
+    };
+
+    const handleSendPushTest = async () => {
+        setIsSendingPushTest(true);
+
+        try {
+            const response = await window.axios.post(
+                route("pwa.push-subscriptions.test")
+            );
+
+            const sent = Number(response?.data?.sent || 0);
+
+            if (sent > 0) {
+                toast.success("Notifikasi uji berhasil dikirim ke perangkat ini.");
+            } else {
+                toast.error("Tidak ada subscription aktif yang bisa menerima notifikasi uji.");
+            }
+        } catch (error) {
+            toast.error(
+                error?.response?.data?.message ||
+                    error?.message ||
+                    "Gagal mengirim notifikasi uji."
+            );
+        } finally {
+            setIsSendingPushTest(false);
+        }
+    };
+
+    const pushDiagnosticItems = [
+        {
+            label: "Web push server",
+            value: pushConfig?.enabled ? "Siap" : "Belum dikonfigurasi",
+        },
+        {
+            label: "Browser support",
+            value: pushState.isSupported ? "Didukung" : "Belum didukung",
+        },
+        {
+            label: "Izin notifikasi",
+            value:
+                pushState.permission === "granted"
+                    ? "Diizinkan"
+                    : pushState.permission === "denied"
+                      ? "Diblokir"
+                      : "Belum diminta",
+        },
+        {
+            label: "Subscription aktif",
+            value: pushState.isSubscribed ? "Aktif" : "Belum ada",
+        },
+    ];
+
     return (
         <>
             <Head title="Setup PWA & Perangkat" />
@@ -690,6 +968,108 @@ export default function PWASetup({
                                 Install bisa dipicu dari halaman ini jika browser mengirim dialog install. Uninstall tetap dikelola oleh perangkat atau jendela aplikasi terpasang. Gunakan
                                 {" "}`Reset Cache Aplikasi`{" "}
                                 jika Anda hanya ingin membangun ulang shell dan cache tanpa melepas aplikasi dari perangkat.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="grid gap-6 lg:grid-cols-[1.1fr,0.9fr]">
+                    <div className="rounded-3xl border border-emerald-200 bg-white p-6 dark:border-emerald-900/40 dark:bg-slate-900">
+                        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-600 dark:text-emerald-300">
+                            Push Notification
+                        </p>
+                        <h2 className="mt-2 text-xl font-bold text-slate-900 dark:text-white">
+                            Aktifkan notifikasi native untuk GTC KASIR
+                        </h2>
+                        <p className="mt-2 max-w-2xl text-sm text-slate-500 dark:text-slate-400">
+                            Dipakai untuk alert operasional langsung ke perangkat kasir tanpa SaaS tambahan. Tahap awal ini fokus ke subscribe, unsubscribe, dan notifikasi uji dari dashboard.
+                        </p>
+
+                        <div className="mt-5 flex flex-wrap gap-3">
+                            {!pushState.isSubscribed ? (
+                                <button
+                                    type="button"
+                                    onClick={handleEnablePush}
+                                    disabled={isEnablingPush || !pushConfig?.enabled}
+                                    className="inline-flex items-center gap-2 rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-60"
+                                >
+                                    <IconBellRinging size={18} />
+                                    {isEnablingPush
+                                        ? "Mengaktifkan Push..."
+                                        : "Aktifkan Push Notification"}
+                                </button>
+                            ) : (
+                                <>
+                                    <button
+                                        type="button"
+                                        onClick={handleSendPushTest}
+                                        disabled={isSendingPushTest}
+                                        className="inline-flex items-center gap-2 rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-60"
+                                    >
+                                        <IconBell size={18} />
+                                        {isSendingPushTest
+                                            ? "Mengirim Notifikasi Uji..."
+                                            : "Kirim Notifikasi Uji"}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={handleDisablePush}
+                                        disabled={isDisablingPush}
+                                        className="inline-flex items-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-5 py-3 text-sm font-semibold text-rose-700 transition hover:bg-rose-100 disabled:opacity-60 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-200"
+                                    >
+                                        <IconTrash size={18} />
+                                        {isDisablingPush
+                                            ? "Mematikan Push..."
+                                            : "Matikan Push"}
+                                    </button>
+                                </>
+                            )}
+                        </div>
+
+                        <div className="mt-4 rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600 dark:bg-slate-950/40 dark:text-slate-300">
+                            {pushState.isSubscribed
+                                ? `Perangkat ini sudah tersubscribe${pushState.endpoint ? " dan siap menerima notifikasi." : "."}`
+                                : "Aktifkan push setelah PWA dan service worker dashboard siap di perangkat ini."}
+                        </div>
+
+                        {pushHelpMessage ? (
+                            <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100">
+                                {pushHelpMessage}
+                            </div>
+                        ) : null}
+                    </div>
+
+                    <div className="rounded-3xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
+                        <div className="flex items-center gap-2">
+                            <IconBell size={18} className="text-emerald-600" />
+                            <p className="font-semibold text-slate-900 dark:text-white">
+                                Status Push Perangkat
+                            </p>
+                        </div>
+                        <div className="mt-4 space-y-3 text-sm">
+                            {pushDiagnosticItems.map((item) => (
+                                <div
+                                    key={item.label}
+                                    className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3 dark:bg-slate-950/40"
+                                >
+                                    <span className="text-slate-500 dark:text-slate-400">
+                                        {item.label}
+                                    </span>
+                                    <span className="text-right font-semibold text-slate-900 dark:text-white">
+                                        {item.value}
+                                    </span>
+                                </div>
+                            ))}
+                            <div className="rounded-2xl bg-slate-50 px-4 py-3 dark:bg-slate-950/40">
+                                <p className="text-slate-500 dark:text-slate-400">
+                                    Endpoint subscription
+                                </p>
+                                <p className="mt-1 break-all text-xs font-medium text-slate-900 dark:text-white">
+                                    {pushState.endpoint || "Belum ada endpoint aktif di perangkat ini."}
+                                </p>
+                            </div>
+                            <div className="rounded-2xl bg-slate-50 px-4 py-3 text-xs leading-6 text-slate-500 dark:bg-slate-950/40 dark:text-slate-400">
+                                Chrome, Edge, dan browser Android modern biasanya mendukung web push. Untuk iPhone/iPad, push hanya tersedia saat web app dipasang ke home screen dan OS mengizinkan notifikasi.
                             </div>
                         </div>
                     </div>

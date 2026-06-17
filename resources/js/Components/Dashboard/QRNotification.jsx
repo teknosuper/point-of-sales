@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import { Link, usePage } from "@inertiajs/react";
 import axios from "axios";
 import { IconQrcode, IconX } from "@/Utils/icons";
@@ -11,9 +11,22 @@ export default function QRNotification() {
         pendingTableOrders
     );
     const dropdownRef = useRef(null);
+    const lastSyncedSignatureRef = useRef("");
 
     const pendingOrders = livePendingOrders.length;
     const canSeeQrNotifications = notificationAccess?.qrOrders === true;
+    const pendingTableOrdersSignature = useMemo(
+        () =>
+            JSON.stringify(
+                (pendingTableOrders || []).map((order) => ({
+                    id: order.id,
+                    updated_at: order.updated_at || null,
+                    status: order.status || null,
+                    grand_total: Number(order.grand_total || 0),
+                }))
+            ),
+        [pendingTableOrders]
+    );
 
     useEffect(() => {
         const handleResize = () => {
@@ -40,8 +53,13 @@ export default function QRNotification() {
     }, [isOpen]);
 
     useEffect(() => {
+        if (lastSyncedSignatureRef.current === pendingTableOrdersSignature) {
+            return;
+        }
+
+        lastSyncedSignatureRef.current = pendingTableOrdersSignature;
         setLivePendingOrders(pendingTableOrders);
-    }, [pendingTableOrders]);
+    }, [pendingTableOrders, pendingTableOrdersSignature]);
 
     useEffect(() => {
         if (!canSeeQrNotifications) {
@@ -58,7 +76,22 @@ export default function QRNotification() {
                     return;
                 }
 
-                setLivePendingOrders(response.data?.pendingTableOrders || []);
+                const nextOrders = response.data?.pendingTableOrders || [];
+                const nextSignature = JSON.stringify(
+                    nextOrders.map((order) => ({
+                        id: order.id,
+                        updated_at: order.updated_at || null,
+                        status: order.status || null,
+                        grand_total: Number(order.grand_total || 0),
+                    }))
+                );
+
+                if (lastSyncedSignatureRef.current === nextSignature) {
+                    return;
+                }
+
+                lastSyncedSignatureRef.current = nextSignature;
+                setLivePendingOrders(nextOrders);
             } catch (error) {
                 console.debug("Gagal sinkron pesanan QR meja", error);
             }

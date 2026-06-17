@@ -5,15 +5,22 @@ namespace App\Http\Controllers\Apps;
 use App\Http\Controllers\Controller;
 use App\Models\KitchenStation;
 use App\Models\KitchenStationDevice;
+use App\Models\PwaPushSubscription;
 use App\Models\Outlet;
 use App\Models\Product;
 use App\Models\ProductKitchenStationMapping;
 use App\Models\Transaction;
+use App\Services\WebPushService;
 use Illuminate\Support\Facades\File;
 use Inertia\Inertia;
 
 class OperationsGuideController extends Controller
 {
+    public function __construct(
+        private readonly WebPushService $webPushService,
+    ) {
+    }
+
     public function outletKitchen()
     {
         return Inertia::render('Dashboard/Guides/OutletKitchen', [
@@ -113,6 +120,14 @@ class OperationsGuideController extends Controller
         }
 
         $user = auth()->user();
+        $dashboardPushSubscription = $user
+            ? PwaPushSubscription::query()
+                ->where('user_id', $user->id)
+                ->where('kind', PwaPushSubscription::KIND_DASHBOARD)
+                ->latest('last_used_at')
+                ->latest('updated_at')
+                ->first(['id', 'endpoint', 'last_used_at', 'updated_at'])
+            : null;
         $optionalRoute = static function (?string $permission, string $routeName) use ($user) {
             if (!$user) {
                 return null;
@@ -236,6 +251,15 @@ class OperationsGuideController extends Controller
             'buildInfo' => [
                 'version' => $buildVersion,
                 'generated_at' => $buildGeneratedAt,
+            ],
+            'pushConfig' => [
+                'enabled' => $this->webPushService->isConfigured(),
+                'vapidPublicKey' => $this->webPushService->publicKey(),
+                'existingSubscription' => $dashboardPushSubscription ? [
+                    'endpoint' => $dashboardPushSubscription->endpoint,
+                    'last_used_at' => optional($dashboardPushSubscription->last_used_at)?->toAtomString(),
+                    'updated_at' => optional($dashboardPushSubscription->updated_at)?->toAtomString(),
+                ] : null,
             ],
         ]);
     }
