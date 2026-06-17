@@ -6,7 +6,7 @@
   "start_url": "/daftarmenu",
   "scope": "/daftarmenu",
   "display": "standalone",
-  "orientation": "portrait-primary",
+  "orientation": "any",
   "background_color": "#f8fafc",
   "theme_color": "#0f172a",
   "categories": ["food", "shopping", "business"],

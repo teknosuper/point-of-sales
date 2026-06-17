@@ -34,6 +34,10 @@ export default function ModifierOptionsModal({
         return null;
     }
 
+    const hasModifierOptions =
+        Array.isArray(product?.modifier_options) &&
+        product.modifier_options.length > 0;
+
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <div
@@ -52,7 +56,9 @@ export default function ModifierOptionsModal({
                         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                             {cartTargetId
                                 ? "Pilih topping / extra untuk item yang sudah ada di keranjang."
-                                : "Pilih topping / extra sebelum item dimasukkan ke keranjang."}
+                                : hasModifierOptions
+                                  ? "Pilih topping / extra sebelum item dimasukkan ke keranjang."
+                                  : "Periksa jumlah item sebelum dimasukkan ke keranjang."}
                         </p>
                     </div>
                     <button
@@ -287,42 +293,50 @@ export default function ModifierOptionsModal({
                         </div>
                     ) : null}
 
-                    <div className="space-y-3 px-5 py-4">
-                        {(product.modifier_options || []).map((option) => {
-                            const active = selectedModifierOptionIds.includes(
-                                option.id
-                            );
+                    {hasModifierOptions ? (
+                        <div className="space-y-3 px-5 py-4">
+                            {(product.modifier_options || []).map((option) => {
+                                const active = selectedModifierOptionIds.includes(
+                                    option.id
+                                );
 
-                            return (
-                                <button
-                                    key={option.id}
-                                    type="button"
-                                    onClick={() => onToggleModifierOption?.(option.id)}
-                                    className={`flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left transition ${
-                                        active
-                                            ? "border-primary-500 bg-primary-50 dark:border-primary-400 dark:bg-primary-950/30"
-                                            : "border-slate-200 bg-white hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-slate-600"
-                                    }`}
-                                >
-                                    <div>
-                                        <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
-                                            {option.name}
-                                        </p>
-                                        <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                                            Tambahan {formatPrice(option.price)}
-                                        </p>
-                                    </div>
-                                    <div
-                                        className={`h-5 w-5 rounded-md border ${
+                                return (
+                                    <button
+                                        key={option.id}
+                                        type="button"
+                                        onClick={() => onToggleModifierOption?.(option.id)}
+                                        className={`flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left transition ${
                                             active
-                                                ? "border-primary-500 bg-primary-500"
-                                                : "border-slate-300 dark:border-slate-600"
+                                                ? "border-primary-500 bg-primary-50 dark:border-primary-400 dark:bg-primary-950/30"
+                                                : "border-slate-200 bg-white hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-slate-600"
                                         }`}
-                                    />
-                                </button>
-                            );
-                        })}
-                    </div>
+                                    >
+                                        <div>
+                                            <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                                                {option.name}
+                                            </p>
+                                            <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                                                Tambahan {formatPrice(option.price)}
+                                            </p>
+                                        </div>
+                                        <div
+                                            className={`h-5 w-5 rounded-md border ${
+                                                active
+                                                    ? "border-primary-500 bg-primary-500"
+                                                    : "border-slate-300 dark:border-slate-600"
+                                            }`}
+                                        />
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    ) : (
+                        <div className="px-5 py-4">
+                            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-950/30 dark:text-slate-300">
+                                Produk ini tidak memiliki topping atau extra. Tekan tombol tambah untuk memasukkan item ke keranjang.
+                            </div>
+                        </div>
+                    )}
                 </div>
 
                 <div className="border-t border-slate-200 bg-slate-50 px-5 py-4 dark:border-slate-800 dark:bg-slate-950/40">
@@ -340,11 +354,15 @@ export default function ModifierOptionsModal({
                     <div className="grid grid-cols-2 gap-3">
                         <button
                             type="button"
-                            onClick={() => onSubmit?.(false)}
+                            onClick={hasModifierOptions ? () => onSubmit?.(false) : onClose}
                             disabled={isSubmitting}
                             className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
                         >
-                            {cartTargetId ? "Tutup" : "Tanpa topping"}
+                            {cartTargetId
+                                ? "Tutup"
+                                : hasModifierOptions
+                                  ? "Tanpa topping"
+                                  : "Batal"}
                         </button>
                         <button
                             type="button"

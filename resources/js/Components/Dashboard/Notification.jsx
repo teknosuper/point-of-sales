@@ -8,10 +8,8 @@ import {
     IconPackage,
     IconReceipt,
     IconCurrencyDollar,
-    IconDeviceMobile,
-    IconArrowRight,
 } from "@/Utils/icons";
-import { usePage, router, Link } from "@inertiajs/react";
+import { usePage, router } from "@inertiajs/react";
 import toast from "react-hot-toast";
 
 export default function Notification() {
@@ -19,7 +17,7 @@ export default function Notification() {
         lowStockNotifications = [],
         receivableNotifications = [],
         payableNotifications = [],
-        pendingTableOrders = [],
+        notificationAccess = {},
     } = usePage().props;
 
     const mapItems = (items) =>
@@ -79,7 +77,6 @@ export default function Notification() {
         lowStockNotifications,
         receivableNotifications,
         payableNotifications,
-        pendingTableOrders,
     });
     const [data, setData] = useState(
         mergeData(
@@ -88,10 +85,6 @@ export default function Notification() {
             payableNotifications
         )
     );
-    const [livePendingTableOrders, setLivePendingTableOrders] = useState(
-        pendingTableOrders
-    );
-
     const [isMobile, setIsMobile] = useState(false);
     const [isOpen, setIsOpen] = useState(false);
     const notificationRef = useRef(null);
@@ -99,10 +92,10 @@ export default function Notification() {
         total:
             lowStockNotifications.length +
             receivableNotifications.length +
-            payableNotifications.length +
-            pendingTableOrders.length,
-        pendingTableOrders: pendingTableOrders.length,
+            payableNotifications.length,
     });
+    const canSeeStockNotifications = notificationAccess?.stock === true;
+    const canSeeFinanceNotifications = notificationAccess?.finance === true;
 
     const handleClickOutside = (event) => {
         if (notificationRef.current && !notificationRef.current.contains(event.target)) {
@@ -150,7 +143,6 @@ export default function Notification() {
                         response.data?.receivableNotifications || [],
                     payableNotifications:
                         response.data?.payableNotifications || [],
-                    pendingTableOrders: response.data?.pendingTableOrders || [],
                 };
 
                 const mergedData = mergeData(
@@ -158,35 +150,22 @@ export default function Notification() {
                     nextSnapshot.receivableNotifications,
                     nextSnapshot.payableNotifications
                 );
-                const nextTotal =
-                    mergedData.length + nextSnapshot.pendingTableOrders.length;
+                const nextTotal = mergedData.length;
                 const previousCounts = previousCountsRef.current;
 
                 if (nextTotal > previousCounts.total) {
-                    if (
-                        nextSnapshot.pendingTableOrders.length >
-                        previousCounts.pendingTableOrders
-                    ) {
-                        toast("Ada pesanan QR meja baru menunggu pembayaran.", {
-                            icon: "🔔",
-                            duration: 3500,
-                        });
-                    } else {
-                        toast("Ada notifikasi baru.", {
-                            icon: "🔔",
-                            duration: 3000,
-                        });
-                    }
+                    toast("Ada notifikasi baru.", {
+                        icon: "🔔",
+                        duration: 3000,
+                    });
                 }
 
                 previousCountsRef.current = {
                     total: nextTotal,
-                    pendingTableOrders: nextSnapshot.pendingTableOrders.length,
                 };
 
                 setSnapshot(nextSnapshot);
                 setData(mergedData);
-                setLivePendingTableOrders(nextSnapshot.pendingTableOrders);
             } catch (error) {
                 // Silent fail: notifications should not break the navbar.
                 console.debug("Gagal sinkron notifikasi", error);
@@ -256,65 +235,10 @@ export default function Notification() {
         }
     };
 
-    const badgeCount = data.length + livePendingTableOrders.length;
-    const hasPendingTableOrders = livePendingTableOrders.length > 0;
+    const badgeCount = data.length;
 
     const NotificationList = () => (
         <div className="flex flex-col gap-3 items-start max-h-80 overflow-y-auto pr-1">
-            {livePendingTableOrders.length > 0 && (
-                <div className="w-full rounded-2xl border border-[#eadac3] bg-[linear-gradient(180deg,_#fffaf4_0%,_#fff4e8_100%)] p-4">
-                    <div className="mb-3 flex items-start justify-between gap-3">
-                        <div>
-                            <div className="flex items-center gap-2 text-sm font-semibold text-slate-800">
-                                <IconDeviceMobile size={16} className="text-[#b8572f]" />
-                                Pesanan QR Meja
-                            </div>
-                            <div className="mt-1 text-xs text-slate-500">
-                                {livePendingTableOrders.length} order menunggu pembayaran kasir
-                            </div>
-                        </div>
-                        <Link
-                            href={route("transactions.index", {
-                                open_table_order: livePendingTableOrders[0]?.id,
-                            })}
-                            className="inline-flex items-center gap-1 rounded-xl border border-[#e5d3bf] bg-white px-3 py-2 text-[11px] font-semibold text-[#9b4b2e]"
-                        >
-                            Lihat
-                            <IconArrowRight size={14} />
-                        </Link>
-                    </div>
-                    <div className="space-y-2">
-                        {livePendingTableOrders.slice(0, 3).map((order) => (
-                            <Link
-                                key={order.id}
-                                href={route("transactions.index", {
-                                    open_table_order: order.id,
-                                })}
-                                className="flex items-start justify-between gap-3 rounded-2xl border border-white/80 bg-white/90 px-3 py-2.5 shadow-sm"
-                            >
-                                <div className="min-w-0">
-                                    <div className="truncate text-sm font-semibold text-slate-800">
-                                        {order.order_number}
-                                    </div>
-                                    <div className="mt-1 text-xs text-slate-500">
-                                        Meja {order.table?.code || order.table?.name}
-                                        {order.customer_name
-                                            ? ` • ${order.customer_name}`
-                                            : ""}
-                                    </div>
-                                </div>
-                                <div className="shrink-0 text-xs font-bold text-[#b8572f]">
-                                    {Number(order.grand_total || 0).toLocaleString("id-ID", {
-                                        style: "currency",
-                                        currency: "IDR",
-                                        minimumFractionDigits: 0,
-                                    })}
-                                </div>
-                            </Link>
-                        ))}
-                    </div>
-                </div>
-            )}
             {badgeCount === 0 && (
                 <div className="text-sm text-gray-500 dark:text-gray-400">
                     Tidak ada notifikasi
@@ -348,33 +272,26 @@ export default function Notification() {
         </div>
     );
 
+    if (!canSeeStockNotifications && !canSeeFinanceNotifications) {
+        return null;
+    }
+
     return (
         <>
             {isMobile === false ? (
                 <Menu className="relative z-50" as="div">
                     <Menu.Button
                         className={`flex items-center rounded-2xl group px-3 py-2.5 border hover:shadow transition ${
-                            hasPendingTableOrders
-                                ? "border-[#e5d3bf] bg-[linear-gradient(180deg,_#fffaf4_0%,_#fff4e8_100%)] dark:border-amber-900/40 dark:bg-amber-950/20"
-                                : "border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900"
+                            "border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900"
                         }`}
                     >
                         <div className="absolute text-[11px] font-semibold border border-rose-500/40 bg-rose-500/10 text-rose-500 hover:bg-rose-500/20 top-0 -right-2 rounded-md px-2 py-0.5 group-hover:scale-110 duration-200 ease-in">
                             {badgeCount}
                         </div>
-                        {hasPendingTableOrders && (
-                            <div className="absolute -left-1 -top-1 rounded-md bg-[#b8572f] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">
-                                QR
-                            </div>
-                        )}
                         <IconBell
                             strokeWidth={1.5}
                             size={22}
-                            className={
-                                hasPendingTableOrders
-                                    ? "text-[#9b4b2e] dark:text-amber-200"
-                                    : "text-gray-700 dark:text-gray-400"
-                            }
+                            className="text-gray-700 dark:text-gray-400"
                         />
                     </Menu.Button>
                     <Transition
@@ -412,28 +329,17 @@ export default function Notification() {
                 <div ref={notificationRef}>
                     <button
                         className={`flex items-center rounded-xl group p-2 relative border ${
-                            hasPendingTableOrders
-                                ? "border-[#e5d3bf] bg-[linear-gradient(180deg,_#fffaf4_0%,_#fff4e8_100%)] dark:border-amber-900/40 dark:bg-amber-950/20"
-                                : "border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900"
+                            "border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900"
                         }`}
                         onClick={() => setIsOpen(!isOpen)}
                     >
                         <div className="absolute text-[10px] font-semibold border border-rose-500/40 bg-rose-500/10 text-rose-500 hover:bg-rose-500/20 top-0 -right-2 rounded-md px-1.5 py-0.5 group-hover:scale-110 duration-200 ease-in">
                             {badgeCount}
                         </div>
-                        {hasPendingTableOrders && (
-                            <div className="absolute -left-1 -top-1 rounded-md bg-[#b8572f] px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide text-white">
-                                QR
-                            </div>
-                        )}
                         <IconBell
                             strokeWidth={1.5}
                             size={20}
-                            className={
-                                hasPendingTableOrders
-                                    ? "text-[#9b4b2e] dark:text-amber-200"
-                                    : "text-gray-500 dark:text-gray-400"
-                            }
+                            className="text-gray-500 dark:text-gray-400"
                         />
                     </button>
                     <div

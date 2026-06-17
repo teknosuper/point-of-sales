@@ -423,21 +423,71 @@ export default function Index({
                 .reduce((sum, option) => sum + Number(option.price || 0), 0),
         [modifierModalProduct, selectedModifierOptionIds]
     );
+    const modifierModalSelectedModifiers = useMemo(
+        () =>
+            (modifierModalProduct?.modifier_options || [])
+                .filter((option) => selectedModifierOptionIds.includes(option.id))
+                .map((option) => {
+                    const unitPrice = Math.max(0, Number(option.price || 0));
+
+                    return {
+                        id: `preview-${option.id}`,
+                        name: option.name,
+                        qty: 1,
+                        unit_price: unitPrice,
+                        total_price: unitPrice,
+                    };
+                }),
+        [modifierModalProduct, selectedModifierOptionIds]
+    );
+    const modifierModalPricingLine = useMemo(() => {
+        if (!modifierModalProduct?.id) {
+            return null;
+        }
+
+        const previewCartItem = {
+            id: "preview-item",
+            product_id: modifierModalProduct.id,
+            qty: Math.max(1, Number(modifierModalQuantity || 1)),
+            product: modifierModalProduct,
+            modifiers: modifierModalSelectedModifiers,
+        };
+        const previewPricing = buildLocalPricingPreview([previewCartItem]);
+        const previewPricingItem =
+            buildPricingItemsByCartId(previewPricing)?.["preview-item"] || null;
+
+        return resolveCartPricingLine(previewCartItem, previewPricingItem);
+    }, [
+        modifierModalProduct,
+        modifierModalQuantity,
+        modifierModalSelectedModifiers,
+    ]);
     const modifierModalPromo = useMemo(() => {
         const badge = modifierModalProduct?.pricing_badge;
-        const rule = badge?.pricing_rule || null;
+        const rule =
+            modifierModalPricingLine?.pricingRule || badge?.pricing_rule || null;
         const quantity = Math.max(1, Number(modifierModalQuantity || 1));
-        const baseUnitPrice = Number(badge?.base_price || modifierModalProduct?.sell_price || 0);
-        const promoUnitPrice = Number(badge?.promo_price || 0);
+        const baseUnitPrice = Number(
+            modifierModalPricingLine?.baseUnitPrice ??
+                badge?.base_price ??
+                modifierModalProduct?.sell_price ??
+                0
+        );
+        const effectiveUnitPrice = Number(
+            modifierModalPricingLine?.effectiveUnitPrice ??
+                badge?.promo_price ??
+                modifierModalProduct?.sell_price ??
+                0
+        );
         const minimumQuantity = Math.max(
             1,
             Number(rule?.minimum_quantity || rule?.preview_quantity || 1)
         );
         const promoEligible =
             Boolean(rule) &&
-            (rule.kind !== "qty_break" || quantity >= minimumQuantity);
-        const effectiveUnitPrice =
-            promoEligible && promoUnitPrice > 0 ? promoUnitPrice : baseUnitPrice;
+            (rule.kind !== "qty_break" ||
+                quantity >= minimumQuantity ||
+                Number(modifierModalPricingLine?.discountTotal || 0) > 0);
         const summary = promoBadgeSummary(rule, badge?.label || badge?.rule_name || null);
 
         return {
@@ -450,18 +500,26 @@ export default function Index({
             baseLineTotal: baseUnitPrice * quantity,
             effectiveLineTotal: effectiveUnitPrice * quantity,
         };
-    }, [modifierModalProduct, modifierModalQuantity]);
+    }, [modifierModalPricingLine, modifierModalProduct, modifierModalQuantity]);
     const modifierModalPromoBenefit = useMemo(
         () =>
             promoBenefitPreview({
-                rule: modifierModalProduct?.pricing_badge?.pricing_rule || null,
+                rule:
+                    modifierModalPricingLine?.pricingRule ||
+                    modifierModalProduct?.pricing_badge?.pricing_rule ||
+                    null,
                 quantity: modifierModalQuantity,
                 baseUnitPrice: modifierModalPromo.baseUnitPrice,
                 effectiveUnitPrice: modifierModalPromo.effectiveUnitPrice,
                 productId: modifierModalProduct?.id,
                 formatPrice,
             }),
-        [modifierModalProduct, modifierModalPromo, modifierModalQuantity]
+        [
+            modifierModalPricingLine,
+            modifierModalProduct,
+            modifierModalPromo,
+            modifierModalQuantity,
+        ]
     );
 
     // Ref for search input to enable keyboard focus
@@ -1840,11 +1898,6 @@ export default function Index({
         };
     }, [isHistoryModalOpen, historyFilters]);
 
-    const hasPresetModifiers = useCallback(
-        (product) => Array.isArray(product?.modifier_options) && product.modifier_options.length > 0,
-        []
-    );
-
     const addProductToCart = useCallback(async (product, options = {}) => {
         if (!product?.id) return;
         const modifiers = Array.isArray(options.modifiers)
@@ -2497,33 +2550,13 @@ export default function Index({
         async (product) => {
             if (!product?.id) return;
 
-            if (hasPresetModifiers(product)) {
-                setModifierModalProduct(product);
-                setIsModifierPromoDetailOpen(false);
-                setSelectedModifierOptionIds([]);
-                setModifierModalQuantity(1);
-                return;
-            }
-
-            const success = await addProductToCart(product);
-
-            if (!success) {
-                return;
-            }
-
-            await handleAddRewardProducts(
-                product?.pricing_badge?.pricing_rule || null,
-                {
-                    buyAdjustments: [
-                        {
-                            product_id: product.id,
-                            qty: 1,
-                        },
-                    ],
-                }
-            );
+            setModifierModalProduct(product);
+            setModifierModalCartTargetId(null);
+            setIsModifierPromoDetailOpen(false);
+            setSelectedModifierOptionIds([]);
+            setModifierModalQuantity(1);
         },
-        [addProductToCart, handleAddRewardProducts, hasPresetModifiers]
+        []
     );
 
     const handleToggleModifierOption = useCallback((optionId) => {
@@ -4611,7 +4644,7 @@ export default function Index({
 
                     {/* Payment Tab */}
                 <div
-                    className={`flex h-full flex-col overflow-hidden bg-white dark:bg-slate-900 ${
+                    className={`flex h-full min-h-0 flex-col overflow-y-auto overscroll-contain bg-white dark:bg-slate-900 ${
                         mobileView !== "payment" ? "hidden" : "flex"
                     } ${(isOfflineMode || offlineQueueCount > 0) ? "lg:pt-[76px]" : ""}`}
                 >
@@ -7633,18 +7666,6 @@ export default function Index({
                         </button>
                     </div>
                 </div>
-            )}
-            
-            {/* Floating Close Shift Button */}
-            {activeCashierShift && (
-                <Link
-                    href={route("cashier-shifts.show", activeCashierShift.id)}
-                    className="fixed bottom-6 right-6 z-40 flex items-center gap-2 rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-emerald-600 hover:shadow-xl"
-                    title="Tutup Shift"
-                >
-                    <IconWallet size={20} strokeWidth={2} />
-                    <span className="hidden sm:inline">Tutup Shift</span>
-                </Link>
             )}
         </>
     );

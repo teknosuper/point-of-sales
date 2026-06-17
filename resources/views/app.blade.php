@@ -31,7 +31,7 @@
                     'icon' => '/pwa-icon.svg',
                     'apple_icon' => '/apple-touch-icon.svg',
                     'sw' => '/dashboard-sw.js',
-                    'scope' => '/dashboard/',
+                    'scope' => '/dashboard',
                     'splash_title' => 'Menyiapkan workspace',
                     'splash_description' => 'Memuat aplikasi, sesi perangkat, dan komponen kerja utama.',
                 ]

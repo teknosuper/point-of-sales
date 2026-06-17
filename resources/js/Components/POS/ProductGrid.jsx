@@ -10,7 +10,8 @@ import {
     IconLayoutGrid,
     IconList,
 } from "@/Utils/icons";
-import { getProductImageUrl } from "@/Utils/imageUrl";
+import { getProductImageUrl, getProductThumbUrl } from "@/Utils/imageUrl";
+import LazyImage from "@/Components/Dashboard/LazyImage";
 import CameraBarcodeScanner from "./CameraBarcodeScanner";
 
 const formatPrice = (value = 0) =>
@@ -103,18 +104,23 @@ function ProductCard({
             {!isListMode && (
                 <div className="relative aspect-square overflow-hidden bg-slate-100 dark:bg-slate-800">
                     {product.image ? (
-                        <img
-                            src={getProductImageUrl(product.image, product.title)}
+                        <LazyImage
+                            src={getProductThumbUrl(product.image, product.title)}
+                            fallbackSrc={getProductImageUrl(
+                                product.image,
+                                product.title
+                            )}
                             alt={product.title}
-                            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-                            loading="lazy"
-                            onError={(event) => {
-                                event.currentTarget.onerror = null;
-                                event.currentTarget.src = getProductImageUrl(
-                                    null,
-                                    product.title
-                                );
-                            }}
+                            className="h-full w-full"
+                            imgClassName="object-cover transition-transform duration-300 group-hover:scale-105"
+                            fallback={
+                                <div className="flex h-full w-full items-center justify-center">
+                                    <IconPhoto
+                                        size={isListMode ? 18 : 24}
+                                        className="text-slate-400"
+                                    />
+                                </div>
+                            }
                         />
                     ) : (
                         <div className="flex h-full w-full items-center justify-center">
@@ -399,6 +405,7 @@ export default function ProductGrid({
             "alphabetical"
         );
     });
+    const [isCompactLandscape, setIsCompactLandscape] = useState(false);
     const sortOptions = [
         { value: "alphabetical", label: "Urutan A-Z" },
         { value: "cheapest", label: "Harga Termurah" },
@@ -534,11 +541,51 @@ export default function ProductGrid({
         }
     }, [filterPanelCollapsible]);
 
+    useEffect(() => {
+        if (typeof window === "undefined") {
+            return;
+        }
+
+        const syncViewportMode = () => {
+            const width = window.innerWidth || 0;
+            const height = window.innerHeight || 0;
+            const coarsePointer = window.matchMedia?.("(pointer: coarse)")?.matches;
+            const compactLandscape =
+                width >= 640 &&
+                width > height &&
+                height <= 560 &&
+                Boolean(coarsePointer);
+
+            setIsCompactLandscape(compactLandscape);
+        };
+
+        syncViewportMode();
+        window.addEventListener("resize", syncViewportMode);
+        window.addEventListener("orientationchange", syncViewportMode);
+
+        return () => {
+            window.removeEventListener("resize", syncViewportMode);
+            window.removeEventListener("orientationchange", syncViewportMode);
+        };
+    }, []);
+
     return (
         <div className="flex h-full min-h-0 flex-col">
             {/* Search Bar */}
-            <div className="border-b border-slate-200 p-4 dark:border-slate-800">
-                <div className={`flex gap-3 ${compactHeaderLayout ? "items-center" : "flex-col"}`}>
+            <div
+                className={`border-b border-slate-200 dark:border-slate-800 ${
+                    isCompactLandscape ? "p-3" : "p-4"
+                }`}
+            >
+                <div
+                    className={`flex gap-3 ${
+                        compactHeaderLayout
+                            ? isCompactLandscape
+                                ? "items-center"
+                                : "flex-col items-stretch sm:flex-row sm:items-center"
+                            : "flex-col"
+                    }`}
+                >
                     <div className="min-w-0 flex-1">
                         <SearchInput
                             value={searchQuery}
@@ -555,7 +602,11 @@ export default function ProductGrid({
                         />
                     </div>
                     {compactHeaderLayout && (
-                        <div className="inline-flex shrink-0 rounded-xl border border-slate-200 bg-white p-1 dark:border-slate-700 dark:bg-slate-900">
+                        <div
+                            className={`inline-flex shrink-0 rounded-xl border border-slate-200 bg-white p-1 dark:border-slate-700 dark:bg-slate-900 ${
+                                isCompactLandscape ? "self-start" : ""
+                            }`}
+                        >
                             <button
                                 type="button"
                                 onClick={() => setViewMode("list")}
@@ -586,7 +637,11 @@ export default function ProductGrid({
             </div>
 
             <div className="border-b border-slate-200 dark:border-slate-800">
-                <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+                <div
+                    className={`flex flex-wrap items-center justify-between gap-3 px-4 ${
+                        isCompactLandscape ? "py-2.5" : "py-3"
+                    }`}
+                >
                     <div className="min-w-0">
                         {showFilterSummary && (
                             <>
@@ -664,7 +719,13 @@ export default function ProductGrid({
                 </div>
 
                 {isFilterPanelExpanded && (
-                    <div className="space-y-3 px-4 pb-3">
+                    <div
+                        className={`px-4 pb-3 ${
+                            isCompactLandscape && sortControlVariant === "chips"
+                                ? "grid gap-3 sm:grid-cols-[minmax(0,1fr),minmax(0,1.1fr)]"
+                                : "space-y-3"
+                        }`}
+                    >
                         {sortControlVariant === "chips" && (
                             <div>
                                 <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400 dark:text-slate-500">
@@ -728,7 +789,11 @@ export default function ProductGrid({
             </div>
 
             {/* Products Grid */}
-            <div className="min-h-0 flex-1 overflow-y-auto p-4 scrollbar-thin">
+            <div
+                className={`min-h-0 flex-1 overflow-y-auto scrollbar-thin ${
+                    isCompactLandscape ? "p-3" : "p-4"
+                }`}
+            >
                 {sortedProducts.length > 0 ? (
                     groupedCategorySections.length > 0 ? (
                         <div className="space-y-5">

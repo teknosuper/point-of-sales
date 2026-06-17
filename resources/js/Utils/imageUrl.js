@@ -25,6 +25,45 @@ export function getImageUrl(image, folder = "products") {
     return `/storage/${folder}/${image}`;
 }
 
+export function getImageVariantUrl(image, folder = "products", variant = "thumbs") {
+    const original = getImageUrl(image, folder);
+    if (!original || original.startsWith("data:")) {
+        return original;
+    }
+
+    if (
+        original.startsWith("http://") ||
+        original.startsWith("https://")
+    ) {
+        try {
+            const url = new URL(original);
+            url.pathname = deriveVariantPath(url.pathname, folder, variant);
+            return url.toString();
+        } catch {
+            return original;
+        }
+    }
+
+    return deriveVariantPath(original, folder, variant);
+}
+
+function deriveVariantPath(path, folder, variant) {
+    const normalizedFolder = String(folder || "products").replace(/^\/+|\/+$/g, "");
+    const normalizedVariant = String(variant || "thumbs").replace(/^\/+|\/+$/g, "");
+    const marker = `/storage/${normalizedFolder}/`;
+
+    if (!path.startsWith(marker)) {
+        return path;
+    }
+
+    const remainder = path.slice(marker.length);
+    if (remainder.startsWith(`${normalizedVariant}/`)) {
+        return path;
+    }
+
+    return `${marker}${normalizedVariant}/${remainder}`;
+}
+
 /**
  * Get product image URL
  * @param {string} image - Product image
@@ -33,6 +72,15 @@ export function getImageUrl(image, folder = "products") {
  */
 export function getProductImageUrl(image, title = "Produk") {
     return resolveProductImageSrc(image, title);
+}
+
+export function getProductThumbUrl(image, title = "Produk") {
+    const resolved = resolveProductImageSrc(image, title);
+    if (!resolved || resolved.startsWith("data:")) {
+        return resolved;
+    }
+
+    return getImageVariantUrl(resolved, "products", "thumbs");
 }
 
 /**
@@ -45,4 +93,10 @@ export function getCategoryImageUrl(image, name = "Kategori") {
     return resolveCategoryImageSrc(image, name);
 }
 
-export default { getImageUrl, getProductImageUrl, getCategoryImageUrl };
+export default {
+    getImageUrl,
+    getImageVariantUrl,
+    getProductImageUrl,
+    getProductThumbUrl,
+    getCategoryImageUrl,
+};

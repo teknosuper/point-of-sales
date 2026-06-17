@@ -3,17 +3,21 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\ProfileUpdateRequest;
+use App\Services\ImageUploadService;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Redirect;
-use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use Inertia\Response;
 
 class ProfileController extends Controller
 {
+    public function __construct(
+        private readonly ImageUploadService $imageUploadService
+    ) {}
+
     /**
      * Display the user's profile form.
      */
@@ -35,10 +39,19 @@ class ProfileController extends Controller
 
         if ($request->file('avatar')) {
             if ($user->getRawOriginal('avatar')) {
-                Storage::disk('public')->delete($user->getRawOriginal('avatar'));
+                $this->imageUploadService->deletePublicImage($user->getRawOriginal('avatar'));
             }
 
-            $data['avatar'] = $request->file('avatar')->store('avatars', 'public');
+            $data['avatar'] = $this->imageUploadService->storePublicImage(
+                $request->file('avatar'),
+                'avatars',
+                [
+                    'max_width' => 640,
+                    'max_height' => 640,
+                    'thumb_width' => 240,
+                    'thumb_height' => 240,
+                ]
+            )['path'];
         } else {
             unset($data['avatar']);
         }

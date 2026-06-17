@@ -10,6 +10,7 @@ use App\Models\Product;
 use App\Models\ProductKitchenStationMapping;
 use App\Models\ProductOutletStock;
 use App\Services\AuditLogService;
+use App\Services\ImageUploadService;
 use App\Services\OutletResolver;
 use App\Services\PricingService;
 use App\Services\StockMutationService;
@@ -26,6 +27,7 @@ class ProductController extends Controller
     public function __construct(
         private readonly StockMutationService $stockMutationService,
         private readonly AuditLogService $auditLogService,
+        private readonly ImageUploadService $imageUploadService,
         private readonly OutletResolver $outletResolver,
         private readonly PricingService $pricingService
     ) {}
@@ -393,12 +395,20 @@ class ProductController extends Controller
         }
 
         // upload image
-        $image = $request->file('image');
-        $image->storeAs('public/products', $image->hashName());
+        $storedImage = $this->imageUploadService->storePublicImage(
+            $request->file('image'),
+            'products',
+            [
+                'max_width' => 1600,
+                'max_height' => 1600,
+                'thumb_width' => 480,
+                'thumb_height' => 480,
+            ]
+        );
 
         // create product
         $product = Product::create([
-            'image' => $image->hashName(),
+            'image' => $storedImage['basename'],
             'barcode' => $validated['barcode'],
             'sku' => $validated['sku'],
             'title' => $validated['title'],
@@ -751,16 +761,27 @@ class ProductController extends Controller
         if ($request->hasFile('image') && $canManageProductImage) {
 
             // remove old image
-            Storage::disk('local')->delete('public/products/'.basename($product->image));
+            $this->imageUploadService->deletePublicImage(
+                $product->getRawOriginal('image'),
+                ['products']
+            );
 
             // upload new image
-            $image = $request->file('image');
-            $image->storeAs('public/products', $image->hashName());
+            $storedImage = $this->imageUploadService->storePublicImage(
+                $request->file('image'),
+                'products',
+                [
+                    'max_width' => 1600,
+                    'max_height' => 1600,
+                    'thumb_width' => 480,
+                    'thumb_height' => 480,
+                ]
+            );
 
             // update product with new image
             $product->update([
                 ...$attributes,
-                'image' => $image->hashName(),
+                'image' => $storedImage['basename'],
             ]);
 
             $this->logProductUpdate($product, $before);
@@ -866,7 +887,10 @@ class ProductController extends Controller
         $before = $this->productAuditPayload($product);
 
         // remove image
-        Storage::disk('local')->delete('public/products/'.basename($product->image));
+        $this->imageUploadService->deletePublicImage(
+            $product->getRawOriginal('image'),
+            ['products']
+        );
 
         // delete
         $product->delete();

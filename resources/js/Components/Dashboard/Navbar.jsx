@@ -19,8 +19,11 @@ export default function Navbar({
     formatDate = null,
     activeCashierShift = null
 }) {
-    const { auth, activeOutlet, availableOutlets, storeProfile } = usePage().props;
+    const { auth, activeOutlet, availableOutlets, storeProfile, notificationAccess } = usePage().props;
     const menuNavigation = Menu();
+    const showQrNotification = notificationAccess?.qrOrders === true;
+    const showGeneralNotification =
+        notificationAccess?.stock === true || notificationAccess?.finance === true;
 
     // Get current page title
     const links = menuNavigation.flatMap((item) => item.details);
@@ -48,6 +51,22 @@ export default function Navbar({
         handleResize();
         return () => window.removeEventListener("resize", handleResize);
     }, []);
+
+    const formatShiftCash = (value = 0) =>
+        new Intl.NumberFormat("id-ID").format(Number(value || 0));
+
+    const formatCompactShiftCash = (value = 0) => {
+        const amount = Math.max(0, Number(value || 0));
+
+        if (amount >= 1000) {
+            return new Intl.NumberFormat("id-ID", {
+                notation: "compact",
+                maximumFractionDigits: 1,
+            }).format(amount);
+        }
+
+        return String(amount);
+    };
 
     return (
         <header
@@ -118,24 +137,31 @@ export default function Navbar({
                 {activeCashierShift && (
                     <Link
                         href={route("cashier-shifts.show", activeCashierShift.id)}
-                        className="hidden lg:flex items-center gap-1.5 rounded-lg bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-950/60"
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-50 px-2 py-1.5 text-[11px] font-semibold text-emerald-700 transition hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-950/60 sm:px-2.5 sm:text-xs"
                         title="Shift Aktif"
                     >
                         <IconWallet size={14} />
-                        <span>
-                            {new Intl.NumberFormat("id-ID").format(
+                        <span className="lg:hidden">
+                            {formatCompactShiftCash(
+                                activeCashierShift.expected_cash || 0
+                            )}
+                        </span>
+                        <span className="hidden lg:inline">
+                            {formatShiftCash(
                                 activeCashierShift.expected_cash || 0
                             )}
                         </span>
                     </Link>
                 )}
-                <QRNotification />
+                {showQrNotification ? <QRNotification /> : null}
 
                 {/* Notifications */}
-                <Notification />
+                {showGeneralNotification ? <Notification /> : null}
 
                 {/* Divider */}
-                <div className="w-px h-8 bg-slate-200 dark:bg-slate-700 mx-1" />
+                {(showQrNotification || showGeneralNotification) ? (
+                    <div className="w-px h-8 bg-slate-200 dark:bg-slate-700 mx-1" />
+                ) : null}
 
                 {/* User Dropdown */}
                 <AuthDropdown auth={auth} isMobile={isMobile} />

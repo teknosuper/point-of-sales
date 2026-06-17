@@ -44,6 +44,7 @@ class KitchenDisplayController extends Controller
             'activeStation' => $activeStation ? $this->stationPayload($activeStation) : null,
             'tickets' => $activeStation ? $this->ticketPayloads($activeStation, $filters) : $this->emptyTicketPayload(),
             'refreshMeta' => $this->refreshMeta(),
+            'printClient' => $this->printClientPayload($outlet),
             'kioskMode' => $kioskMode,
             'filters' => [
                 ...$filters,
@@ -105,6 +106,7 @@ class KitchenDisplayController extends Controller
             'activeStation' => $this->stationPayload($kitchenStation),
             'tickets' => $this->ticketPayloads($kitchenStation, $filters),
             'refreshMeta' => $this->refreshMeta(),
+            'printClient' => $this->printClientPayload($outlet),
             'kioskMode' => $kioskMode,
             'filters' => [
                 ...$filters,
@@ -141,6 +143,7 @@ class KitchenDisplayController extends Controller
             'activeStation' => $this->stationPayload($station),
             'tickets' => $this->ticketPayloads($station, $filters),
             'refreshMeta' => $this->refreshMeta(),
+            'printClient' => $this->printClientPayload($outlet),
             'filters' => [
                 ...$filters,
                 'device_id' => $selectedDevice?->id,
@@ -753,6 +756,18 @@ class KitchenDisplayController extends Controller
         ];
     }
 
+    private function printClientPayload(Outlet $outlet): array
+    {
+        $baseUrl = rtrim((string) config('app.url'), '/');
+
+        return [
+            'base_url' => $baseUrl,
+            'outlet_id' => (int) $outlet->id,
+            'token' => (string) config('services.print_bridge.token', '0000'),
+            'version' => $this->resolvePrintClientVersion(),
+        ];
+    }
+
     private function resolveDevice(KitchenStation $station, ?int $deviceId = null): ?KitchenStationDevice
     {
         if ($deviceId) {
@@ -858,5 +873,26 @@ class KitchenDisplayController extends Controller
             ->where('kitchen_station_id', $device->kitchen_station_id)
             ->where('is_active', true)
             ->find($fallbackDeviceId);
+    }
+
+    private function resolvePrintClientVersion(): string
+    {
+        $paths = [
+            public_path('print-client.html'),
+            app_path('Http/Controllers/Api/PrintQueueController.php'),
+            app_path('Services/ReceiptLayoutService.php'),
+            app_path('Services/PrintJobService.php'),
+        ];
+
+        $signature = collect($paths)
+            ->filter(fn ($path) => file_exists($path))
+            ->map(fn ($path) => basename($path).':'.filemtime($path))
+            ->implode('|');
+
+        if ($signature === '') {
+            return now()->format('YmdHis');
+        }
+
+        return substr(sha1($signature), 0, 12);
     }
 }

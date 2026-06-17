@@ -71,6 +71,8 @@ export default function CartLineItem({
                         )}
                         alt={item.product.title}
                         className="h-full w-full object-cover"
+                        loading="lazy"
+                        decoding="async"
                         onError={(event) => {
                             event.currentTarget.onerror = null;
                             event.currentTarget.src = getProductImageUrl(

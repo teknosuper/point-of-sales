@@ -5,14 +5,18 @@ namespace App\Http\Controllers\Apps;
 use App\Http\Controllers\Controller;
 use App\Models\Category;
 use App\Models\Outlet;
+use App\Services\ImageUploadService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 
 class CategoryController extends Controller
 {
     private const IMAGE_DIRECTORY = 'public/categories';
     private const DEFAULT_IMAGE = 'default.jpg';
+
+    public function __construct(
+        private readonly ImageUploadService $imageUploadService
+    ) {}
 
     /**
      * Display a listing of the resource.
@@ -124,8 +128,17 @@ class CategoryController extends Controller
         $imageName = self::DEFAULT_IMAGE;
 
         if ($image) {
-            $image->storeAs(self::IMAGE_DIRECTORY, $image->hashName());
-            $imageName = $image->hashName();
+            $storedImage = $this->imageUploadService->storePublicImage(
+                $image,
+                'categories',
+                [
+                    'max_width' => 1440,
+                    'max_height' => 960,
+                    'thumb_width' => 480,
+                    'thumb_height' => 320,
+                ]
+            );
+            $imageName = $storedImage['basename'];
         }
 
         Category::create([
@@ -176,10 +189,19 @@ class CategoryController extends Controller
         if ($request->file('image')) {
             $this->deleteCategoryImage($category->getRawOriginal('image'));
             $image = $request->file('image');
-            $image->storeAs(self::IMAGE_DIRECTORY, $image->hashName());
+            $storedImage = $this->imageUploadService->storePublicImage(
+                $image,
+                'categories',
+                [
+                    'max_width' => 1440,
+                    'max_height' => 960,
+                    'thumb_width' => 480,
+                    'thumb_height' => 320,
+                ]
+            );
 
             $category->update([
-                'image' => $image->hashName(),
+                'image' => $storedImage['basename'],
                 'name' => $validated['name'],
                 'description' => $validated['description'],
                 'tenant_outlet_id' => $request->integer('tenant_outlet_id') ?: null,
@@ -215,11 +237,6 @@ class CategoryController extends Controller
             return;
         }
 
-        $filename = basename($image);
-
-        Storage::disk('local')->delete([
-            'public/category/'.$filename,
-            'public/categories/'.$filename,
-        ]);
+        $this->imageUploadService->deletePublicImage($image, ['category', 'categories']);
     }
 }

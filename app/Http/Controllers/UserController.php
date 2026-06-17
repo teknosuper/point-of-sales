@@ -7,9 +7,9 @@ use App\Models\KitchenStation;
 use App\Models\Outlet;
 use App\Models\User;
 use App\Services\AuditLogService;
+use App\Services\ImageUploadService;
 use App\Support\RbacPresetCatalog;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Spatie\Permission\Models\Role;
@@ -17,7 +17,8 @@ use Spatie\Permission\Models\Role;
 class UserController extends Controller
 {
     public function __construct(
-        private readonly AuditLogService $auditLogService
+        private readonly AuditLogService $auditLogService,
+        private readonly ImageUploadService $imageUploadService
     ) {}
 
     /**
@@ -140,7 +141,16 @@ class UserController extends Controller
         $avatarPath = null;
 
         if ($request->file('avatar')) {
-            $avatarPath = $request->file('avatar')->store('avatars', 'public');
+            $avatarPath = $this->imageUploadService->storePublicImage(
+                $request->file('avatar'),
+                'avatars',
+                [
+                    'max_width' => 640,
+                    'max_height' => 640,
+                    'thumb_width' => 240,
+                    'thumb_height' => 240,
+                ]
+            )['path'];
         }
 
         $this->ensurePreferredKitchenStationIsAccessible(
@@ -247,10 +257,19 @@ class UserController extends Controller
 
         if ($request->file('avatar')) {
             if ($avatarPath) {
-                Storage::disk('public')->delete($avatarPath);
+                $this->imageUploadService->deletePublicImage($avatarPath);
             }
 
-            $avatarPath = $request->file('avatar')->store('avatars', 'public');
+            $avatarPath = $this->imageUploadService->storePublicImage(
+                $request->file('avatar'),
+                'avatars',
+                [
+                    'max_width' => 640,
+                    'max_height' => 640,
+                    'thumb_width' => 240,
+                    'thumb_height' => 240,
+                ]
+            )['path'];
             $avatarChanged = true;
         }
 

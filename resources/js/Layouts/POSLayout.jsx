@@ -127,7 +127,7 @@ export default function POSLayout({ children }) {
     const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
 
     return (
-        <div className="flex h-screen overflow-hidden bg-slate-100 dark:bg-slate-950 transition-colors duration-200">
+        <div className="flex h-screen min-h-dvh overflow-hidden bg-slate-100 transition-colors duration-200 dark:bg-slate-950">
             <Sidebar sidebarOpen={sidebarOpen} />
             {/* Mobile overlay */}
             <div

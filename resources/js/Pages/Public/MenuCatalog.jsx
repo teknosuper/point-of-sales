@@ -39,6 +39,7 @@ export default function MenuCatalog({
     const [lastUpdatedAt, setLastUpdatedAt] = useState(null);
     const [usingCachedData, setUsingCachedData] = useState(false);
     const [syncError, setSyncError] = useState("");
+    const [isShortLandscape, setIsShortLandscape] = useState(false);
     const searchInputRef = useRef(null);
     const cacheKey = `public-menu:catalog:${outlet?.code || store?.name || "default"}`;
 
@@ -226,6 +227,31 @@ export default function MenuCatalog({
         return () => window.removeEventListener("keydown", handleShortcut);
     }, []);
 
+    useEffect(() => {
+        if (typeof window === "undefined") {
+            return;
+        }
+
+        const syncViewportMode = () => {
+            const width = window.innerWidth || 0;
+            const height = window.innerHeight || 0;
+            const coarsePointer = window.matchMedia?.("(pointer: coarse)")?.matches;
+
+            setIsShortLandscape(
+                Boolean(coarsePointer) && width >= 640 && width > height && height <= 560
+            );
+        };
+
+        syncViewportMode();
+        window.addEventListener("resize", syncViewportMode);
+        window.addEventListener("orientationchange", syncViewportMode);
+
+        return () => {
+            window.removeEventListener("resize", syncViewportMode);
+            window.removeEventListener("orientationchange", syncViewportMode);
+        };
+    }, []);
+
     const handleInstallApp = useCallback(async () => {
         if (canPromptInstall) {
             await promptInstall();
@@ -257,10 +283,22 @@ export default function MenuCatalog({
         <>
             <Head title={store?.name ? `Daftar Menu ${store.name}` : "Daftar Menu"} />
 
-            <div className="min-h-screen bg-slate-100">
-                <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-3 py-4 sm:px-4 lg:px-6">
+            <div className="min-h-screen min-h-dvh bg-slate-100">
+                <div
+                    className={`mx-auto flex w-full max-w-7xl flex-col px-3 sm:px-4 lg:px-6 ${
+                        isShortLandscape
+                            ? "min-h-dvh py-3"
+                            : "min-h-screen min-h-dvh py-4"
+                    }`}
+                >
                     <div className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm">
-                        <div className="min-h-[calc(100vh-2rem)] bg-slate-100">
+                        <div
+                            className={`bg-slate-100 ${
+                                isShortLandscape
+                                    ? "min-h-[calc(100dvh-1.5rem)]"
+                                    : "min-h-[calc(100dvh-2rem)]"
+                            }`}
+                        >
                             {loading ? (
                                 <div className="grid grid-cols-1 gap-3 p-4 md:grid-cols-2">
                                     {Array.from({ length: 10 }).map((_, index) => (
@@ -310,7 +348,11 @@ export default function MenuCatalog({
                                 />
 
                                     <div className="border-t border-slate-200 bg-white px-4 py-3">
-                                        <div className="flex flex-wrap items-center justify-between gap-3">
+                                        <div
+                                            className={`flex flex-wrap items-center justify-between gap-3 ${
+                                                isShortLandscape ? "text-[11px]" : ""
+                                            }`}
+                                        >
                                             <div className="min-w-0 text-xs text-slate-500">
                                                 <span>
                                                     Update terakhir {formatSyncTime(lastUpdatedAt)} • {products.length} menu
@@ -402,7 +444,13 @@ export default function MenuCatalog({
             ) : null}
 
             {shouldShowInstallEntry && !isCheckingInstallState ? (
-                <div className="fixed inset-x-0 bottom-0 z-[90] px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] sm:px-4 print:hidden">
+                <div
+                    className={`fixed z-[90] print:hidden ${
+                        isShortLandscape
+                            ? "bottom-3 right-3 left-auto w-[min(22rem,calc(100vw-1.5rem))]"
+                            : "inset-x-0 bottom-0 px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] sm:px-4"
+                    }`}
+                >
                     <div className="mx-auto w-full max-w-md rounded-[24px] border border-slate-200 bg-white/95 p-3 shadow-[0_20px_60px_-30px_rgba(15,23,42,0.45)] backdrop-blur">
                         <button
                             type="button"

@@ -13,8 +13,10 @@ import { resolveProductImageSrc } from "@/Utils/imagePlaceholder";
  */
 export default function LazyImage({
     src,
+    fallbackSrc = null,
     alt = "",
     className = "",
+    imgClassName = "",
     placeholderClass = "",
     fallback = null,
     ...props
@@ -22,10 +24,17 @@ export default function LazyImage({
     const [isLoaded, setIsLoaded] = useState(false);
     const [isInView, setIsInView] = useState(false);
     const [error, setError] = useState(false);
+    const [activeSrc, setActiveSrc] = useState(src);
     const imgRef = useRef(null);
 
     useEffect(() => {
-        if (!src) return;
+        setActiveSrc(src);
+        setError(false);
+        setIsLoaded(false);
+    }, [src]);
+
+    useEffect(() => {
+        if (!activeSrc) return;
 
         const observer = new IntersectionObserver(
             ([entry]) => {
@@ -45,19 +54,24 @@ export default function LazyImage({
         }
 
         return () => observer.disconnect();
-    }, [src]);
+    }, [activeSrc]);
 
     const handleLoad = () => {
         setIsLoaded(true);
     };
 
     const handleError = () => {
+        if (fallbackSrc && activeSrc !== fallbackSrc) {
+            setActiveSrc(fallbackSrc);
+            return;
+        }
+
         setError(true);
         setIsLoaded(true);
     };
 
     // No source provided
-    if (!src || error) {
+    if (!activeSrc || error) {
         return (
             <div
                 ref={imgRef}
@@ -85,11 +99,13 @@ export default function LazyImage({
             {/* Actual Image (only load when in view) */}
             {isInView && (
                 <img
-                    src={src}
+                    src={activeSrc}
                     alt={alt}
                     onLoad={handleLoad}
                     onError={handleError}
-                    className={`w-full h-full object-cover transition-opacity duration-300 ${
+                    loading="lazy"
+                    decoding="async"
+                    className={`w-full h-full object-cover transition-opacity duration-300 ${imgClassName} ${
                         isLoaded ? "opacity-100" : "opacity-0"
                     }`}
                 />

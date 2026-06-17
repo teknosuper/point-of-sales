@@ -1,5 +1,6 @@
-const STATIC_CACHE = "gtc-dashboard-static-v1";
-const RUNTIME_CACHE = "gtc-dashboard-runtime-v1";
+const STATIC_CACHE = "gtc-dashboard-static-v2";
+const RUNTIME_CACHE = "gtc-dashboard-runtime-v2";
+const IMAGE_CACHE = "gtc-dashboard-images-v2";
 const APP_SHELL = [
   "/dashboard-manifest.webmanifest",
   "/media/gtclogo.png",
@@ -23,7 +24,7 @@ self.addEventListener("activate", (event) => {
         keys
           .filter((key) =>
             key.startsWith("gtc-dashboard-") &&
-            ![STATIC_CACHE, RUNTIME_CACHE].includes(key)
+            ![STATIC_CACHE, RUNTIME_CACHE, IMAGE_CACHE].includes(key)
           )
           .map((key) => caches.delete(key))
       )
@@ -58,7 +59,27 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  const cacheableDestinations = ["style", "script", "image", "font", "manifest"];
+  if (request.destination === "image") {
+    event.respondWith(
+      caches.open(IMAGE_CACHE).then(async (cache) => {
+        const cached = await cache.match(request);
+        const networkFetch = fetch(request)
+          .then((response) => {
+            if (response && response.status === 200) {
+              cache.put(request, response.clone());
+            }
+
+            return response;
+          })
+          .catch(() => cached);
+
+        return cached || networkFetch;
+      })
+    );
+    return;
+  }
+
+  const cacheableDestinations = ["style", "script", "font", "manifest"];
   if (!cacheableDestinations.includes(request.destination)) return;
 
   event.respondWith(

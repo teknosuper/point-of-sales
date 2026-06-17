@@ -33,6 +33,11 @@ class HandleInertiaRequests extends Middleware
         $lowStockNotifications = [];
         $receivableNotifications = [];
         $payableNotifications = [];
+        $notificationAccess = [
+            'stock' => false,
+            'finance' => false,
+            'qrOrders' => false,
+        ];
         $activeCashierShift = null;
         $availableOutlets = collect();
         $securityWarnings = [];
@@ -40,6 +45,7 @@ class HandleInertiaRequests extends Middleware
         $payableAgingSummary = null;
         $receivableAgingSummary = null;
         $activeOutlet = app(OutletResolver::class)->resolve($request);
+        $isTenantScopedAccount = false;
         $manifestPath = public_path('build/manifest.json');
         $buildVersion = null;
         $buildGeneratedAt = null;
@@ -50,7 +56,9 @@ class HandleInertiaRequests extends Middleware
         }
 
         if ($request->user()) {
-            $userId = $request->user()->id;
+            $user = $request->user();
+            $userId = $user->id;
+            $isKitchenWorkspace = $user->isKitchenWorkspace();
 
             if (Schema::hasTable('outlets')) {
                 $availableOutletsQuery = $request->user()
@@ -78,44 +86,59 @@ class HandleInertiaRequests extends Middleware
                     ])
                     ->values();
                 $availableOutlets = $availableOutlets->all();
+                $availableOutletCollection = collect($availableOutlets);
+                $isTenantScopedAccount = $availableOutletCollection->isNotEmpty()
+                    && $availableOutletCollection->every(
+                        fn (array $outlet) => ($outlet['outlet_type'] ?? 'main') === 'tenant'
+                    );
             }
 
-            if ($activeOutlet && Schema::hasTable('product_outlet_stocks')) {
-                $lowStockNotifications = ProductOutletStock::query()
-                    ->with('product:id,title')
-                    ->where('outlet_id', $activeOutlet->id)
-                    ->where('stock', '<=', 0)
-                    ->orderByDesc('updated_at')
-                    ->limit(10)
-                    ->get()
-                    ->map(function ($stock) {
-                        return [
-                            'id' => $stock->product_id,
-                            'title' => $stock->product?->title ?? 'Produk',
-                            'stock' => (int) $stock->stock,
-                            'time' => optional($stock->updated_at)->diffForHumans(),
-                        ];
-                    });
-            } else {
-                $lowStockNotifications = Product::where('stock', '<=', 0)
-                    ->whereNotExists(function ($query) use ($userId) {
-                        $query->selectRaw('1')
-                            ->from('product_notification_reads as pr')
-                            ->whereColumn('pr.product_id', 'products.id')
-                            ->where('pr.user_id', $userId)
-                            ->whereColumn('pr.updated_at', '>=', 'products.updated_at');
-                    })
-                    ->orderByDesc('updated_at')
-                    ->limit(10)
-                    ->get(['id', 'title', 'stock', 'updated_at'])
-                    ->map(function ($product) {
-                        return [
-                            'id' => $product->id,
-                            'title' => $product->title,
-                            'stock' => (int) $product->stock,
-                            'time' => optional($product->updated_at)->diffForHumans(),
-                        ];
-                    });
+            if (
+                ! $isKitchenWorkspace
+                && ! $isTenantScopedAccount
+                && (
+                    $user->can('products-stock-update')
+                    || $user->can('stock-opnames-access')
+                    || $user->can('stock-mutations-access')
+                )
+            ) {
+                if ($activeOutlet && Schema::hasTable('product_outlet_stocks')) {
+                    $lowStockNotifications = ProductOutletStock::query()
+                        ->with('product:id,title')
+                        ->where('outlet_id', $activeOutlet->id)
+                        ->where('stock', '<=', 0)
+                        ->orderByDesc('updated_at')
+                        ->limit(10)
+                        ->get()
+                        ->map(function ($stock) {
+                            return [
+                                'id' => $stock->product_id,
+                                'title' => $stock->product?->title ?? 'Produk',
+                                'stock' => (int) $stock->stock,
+                                'time' => optional($stock->updated_at)->diffForHumans(),
+                            ];
+                        });
+                } else {
+                    $lowStockNotifications = Product::where('stock', '<=', 0)
+                        ->whereNotExists(function ($query) use ($userId) {
+                            $query->selectRaw('1')
+                                ->from('product_notification_reads as pr')
+                                ->whereColumn('pr.product_id', 'products.id')
+                                ->where('pr.user_id', $userId)
+                                ->whereColumn('pr.updated_at', '>=', 'products.updated_at');
+                        })
+                        ->orderByDesc('updated_at')
+                        ->limit(10)
+                        ->get(['id', 'title', 'stock', 'updated_at'])
+                        ->map(function ($product) {
+                            return [
+                                'id' => $product->id,
+                                'title' => $product->title,
+                                'stock' => (int) $product->stock,
+                                'time' => optional($product->updated_at)->diffForHumans(),
+                            ];
+                        });
+                }
             }
 
             $payableAgingService = new PayableAgingService;
@@ -138,55 +161,65 @@ class HandleInertiaRequests extends Middleware
                 $payableQuery->where('outlet_id', $activeOutlet->id);
             }
 
-            $receivableNotifications = $receivableQuery
-                ->when(Schema::hasTable('notification_reads'), function ($query) use ($userId) {
-                    $query->whereNotExists(function ($subQuery) use ($userId) {
-                        $subQuery->selectRaw('1')
-                            ->from('notification_reads as nr')
-                            ->where('nr.user_id', $userId)
-                            ->where('nr.type', 'receivable')
-                            ->whereColumn('nr.reference_id', 'receivables.id');
-                    });
-                })
-                ->whereDate('due_date', '<=', now()->addDays(3))
-                ->orderBy('due_date')
-                ->limit(5)
-                ->get(['id', 'invoice', 'customer_id', 'due_date', 'total', 'paid', 'status'])
-                ->map(function ($item) {
-                    return [
-                        'id' => $item->id,
-                        'title' => "Piutang: {$item->invoice}",
-                        'subtitle' => 'Sisa '.number_format(max(0, ($item->total ?? 0) - ($item->paid ?? 0)), 0, ',', '.'),
-                        'time' => optional($item->due_date)->diffForHumans(),
-                        'status' => $item->status,
-                        'aging_bucket' => $item->aging_bucket,
-                    ];
-                });
+            if (
+                ! $isKitchenWorkspace
+                && ! $isTenantScopedAccount
+                && ($user->can('receivables-access') || $user->can('payables-access'))
+            ) {
+                if ($user->can('receivables-access')) {
+                    $receivableNotifications = $receivableQuery
+                        ->when(Schema::hasTable('notification_reads'), function ($query) use ($userId) {
+                            $query->whereNotExists(function ($subQuery) use ($userId) {
+                                $subQuery->selectRaw('1')
+                                    ->from('notification_reads as nr')
+                                    ->where('nr.user_id', $userId)
+                                    ->where('nr.type', 'receivable')
+                                    ->whereColumn('nr.reference_id', 'receivables.id');
+                            });
+                        })
+                        ->whereDate('due_date', '<=', now()->addDays(3))
+                        ->orderBy('due_date')
+                        ->limit(5)
+                        ->get(['id', 'invoice', 'customer_id', 'due_date', 'total', 'paid', 'status'])
+                        ->map(function ($item) {
+                            return [
+                                'id' => $item->id,
+                                'title' => "Piutang: {$item->invoice}",
+                                'subtitle' => 'Sisa '.number_format(max(0, ($item->total ?? 0) - ($item->paid ?? 0)), 0, ',', '.'),
+                                'time' => optional($item->due_date)->diffForHumans(),
+                                'status' => $item->status,
+                                'aging_bucket' => $item->aging_bucket,
+                            ];
+                        });
+                }
 
-            $payableNotifications = $payableQuery
-                ->when(Schema::hasTable('notification_reads'), function ($query) use ($userId) {
-                    $query->whereNotExists(function ($subQuery) use ($userId) {
-                        $subQuery->selectRaw('1')
-                            ->from('notification_reads as nr')
-                            ->where('nr.user_id', $userId)
-                            ->where('nr.type', 'payable')
-                            ->whereColumn('nr.reference_id', 'payables.id');
-                    });
-                })
-                ->whereDate('due_date', '<=', now()->addDays(3))
-                ->orderBy('due_date')
-                ->limit(5)
-                ->get(['id', 'document_number', 'due_date', 'total', 'paid', 'status'])
-                ->map(function ($item) {
-                    return [
-                        'id' => $item->id,
-                        'title' => "Hutang: {$item->document_number}",
-                        'subtitle' => 'Sisa '.number_format(max(0, ($item->total ?? 0) - ($item->paid ?? 0)), 0, ',', '.'),
-                        'time' => optional($item->due_date)->diffForHumans(),
-                        'status' => $item->status,
-                        'aging_bucket' => $item->aging_bucket,
-                    ];
-                });
+                if ($user->can('payables-access')) {
+                    $payableNotifications = $payableQuery
+                        ->when(Schema::hasTable('notification_reads'), function ($query) use ($userId) {
+                            $query->whereNotExists(function ($subQuery) use ($userId) {
+                                $subQuery->selectRaw('1')
+                                    ->from('notification_reads as nr')
+                                    ->where('nr.user_id', $userId)
+                                    ->where('nr.type', 'payable')
+                                    ->whereColumn('nr.reference_id', 'payables.id');
+                            });
+                        })
+                        ->whereDate('due_date', '<=', now()->addDays(3))
+                        ->orderBy('due_date')
+                        ->limit(5)
+                        ->get(['id', 'document_number', 'due_date', 'total', 'paid', 'status'])
+                        ->map(function ($item) {
+                            return [
+                                'id' => $item->id,
+                                'title' => "Hutang: {$item->document_number}",
+                                'subtitle' => 'Sisa '.number_format(max(0, ($item->total ?? 0) - ($item->paid ?? 0)), 0, ',', '.'),
+                                'time' => optional($item->due_date)->diffForHumans(),
+                                'status' => $item->status,
+                                'aging_bucket' => $item->aging_bucket,
+                            ];
+                        });
+                }
+            }
 
             $activeShift = app(CashierShiftService::class)->getActiveShiftForUser(
                 $userId,
@@ -215,12 +248,29 @@ class HandleInertiaRequests extends Middleware
             ->unique()
             ->values()
             ->all();
-        $isTenantScopedAccount = $request->user()
-            ? $availableOutletCollection->isNotEmpty()
-                && $availableOutletCollection->every(
-                    fn (array $outlet) => ($outlet['outlet_type'] ?? 'main') === 'tenant'
-                )
-            : false;
+
+        if ($request->user()) {
+            $user = $request->user();
+            $isKitchenWorkspace = $user->isKitchenWorkspace();
+            $operationalNotificationAudience = ! $isKitchenWorkspace && ! $isTenantScopedAccount;
+
+            $notificationAccess = [
+                'stock' => $operationalNotificationAudience && (
+                    $user->can('products-stock-update')
+                    || $user->can('stock-opnames-access')
+                    || $user->can('stock-mutations-access')
+                ),
+                'finance' => $operationalNotificationAudience && (
+                    $user->can('receivables-access')
+                    || $user->can('payables-access')
+                ),
+                'qrOrders' => $operationalNotificationAudience && (
+                    $user->can('transactions-access')
+                    || $user->can('table-orders-access')
+                    || $user->can('table-orders-approve')
+                ),
+            ];
+        }
 
         return [
             ...parent::share($request),
@@ -266,6 +316,7 @@ class HandleInertiaRequests extends Middleware
             ] : null,
             'availableOutlets' => $availableOutlets,
             'storeProfile' => $storeProfile,
+            'notificationAccess' => $notificationAccess,
             'security' => [
                 'warnings' => $securityWarnings,
                 'publicRegistrationEnabled' => config('security.auth.public_registration'),

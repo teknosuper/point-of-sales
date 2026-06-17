@@ -42,6 +42,8 @@ function CartItem({ item, onUpdateQty, onRemove, isRemoving }) {
                         )}
                         alt={item.product.title}
                         className="w-full h-full object-cover"
+                        loading="lazy"
+                        decoding="async"
                         onError={(event) => {
                             event.currentTarget.onerror = null;
                             event.currentTarget.src = getProductImageUrl(

@@ -5,15 +5,16 @@ namespace App\Http\Controllers\Apps;
 use App\Http\Controllers\Controller;
 use App\Models\BankAccount;
 use App\Services\AuditLogService;
+use App\Services\ImageUploadService;
 use App\Services\OutletResolver;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 
 class BankAccountController extends Controller
 {
     public function __construct(
         private readonly AuditLogService $auditLogService,
+        private readonly ImageUploadService $imageUploadService,
         private readonly OutletResolver $outletResolver
     ) {}
 
@@ -74,7 +75,16 @@ class BankAccountController extends Controller
         ]);
 
         if ($request->hasFile('logo')) {
-            $validated['logo'] = $request->file('logo')->store('bank-logos', 'public');
+            $validated['logo'] = $this->imageUploadService->storePublicImage(
+                $request->file('logo'),
+                'bank-logos',
+                [
+                    'max_width' => 800,
+                    'max_height' => 400,
+                    'thumb_width' => 320,
+                    'thumb_height' => 160,
+                ]
+            )['path'];
         }
 
         $validated['is_active'] = $request->boolean('is_active');
@@ -120,9 +130,18 @@ class BankAccountController extends Controller
 
         if ($request->hasFile('logo')) {
             if ($bankAccount->logo) {
-                Storage::disk('public')->delete($bankAccount->logo);
+                $this->imageUploadService->deletePublicImage($bankAccount->logo);
             }
-            $validated['logo'] = $request->file('logo')->store('bank-logos', 'public');
+            $validated['logo'] = $this->imageUploadService->storePublicImage(
+                $request->file('logo'),
+                'bank-logos',
+                [
+                    'max_width' => 800,
+                    'max_height' => 400,
+                    'thumb_width' => 320,
+                    'thumb_height' => 160,
+                ]
+            )['path'];
         }
 
         $validated['is_active'] = $request->boolean('is_active');
@@ -160,7 +179,7 @@ class BankAccountController extends Controller
 
         // Delete logo
         if ($bankAccount->logo) {
-            Storage::disk('public')->delete($bankAccount->logo);
+            $this->imageUploadService->deletePublicImage($bankAccount->logo);
         }
 
         $bankAccount->delete();

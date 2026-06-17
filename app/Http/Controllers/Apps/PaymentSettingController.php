@@ -5,9 +5,9 @@ namespace App\Http\Controllers\Apps;
 use App\Http\Controllers\Controller;
 use App\Models\PaymentSetting;
 use App\Services\AuditLogService;
+use App\Services\ImageUploadService;
 use App\Services\OutletResolver;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
@@ -16,6 +16,7 @@ class PaymentSettingController extends Controller
 {
     public function __construct(
         private readonly AuditLogService $auditLogService,
+        private readonly ImageUploadService $imageUploadService,
         private readonly OutletResolver $outletResolver
     ) {}
 
@@ -169,14 +170,23 @@ class PaymentSettingController extends Controller
         $qrisImage = $setting->getRawOriginal('qris_static_image') ?? $setting->qris_static_image;
         if ($request->boolean('remove_qris_image')) {
             if ($qrisImage) {
-                Storage::disk('public')->delete($this->normalizeStoragePath($qrisImage));
+                $this->imageUploadService->deletePublicImage($qrisImage, ['qris']);
             }
             $qrisImage = null;
         } elseif ($request->file('qris_static_image')) {
             if ($qrisImage) {
-                Storage::disk('public')->delete($this->normalizeStoragePath($qrisImage));
+                $this->imageUploadService->deletePublicImage($qrisImage, ['qris']);
             }
-            $qrisImage = $request->file('qris_static_image')->store('qris', 'public');
+            $qrisImage = $this->imageUploadService->storePublicImage(
+                $request->file('qris_static_image'),
+                'qris',
+                [
+                    'max_width' => 1200,
+                    'max_height' => 1200,
+                    'thumb_width' => 480,
+                    'thumb_height' => 480,
+                ]
+            )['path'];
         }
 
         $setting->update([

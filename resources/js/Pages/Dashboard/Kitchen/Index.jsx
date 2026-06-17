@@ -1,6 +1,7 @@
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import KitchenLayout from "@/Layouts/KitchenLayout";
 import KitchenTicketPreview from "@/Components/Dashboard/KitchenTicketPreview";
+import Modal from "@/Components/Dashboard/Modal";
 import { Head, Link, router, usePage } from "@inertiajs/react";
 import { useEffect, useRef, useState } from "react";
 import Swal from "sweetalert2";
@@ -10,9 +11,11 @@ import {
     IconChevronDown,
     IconChevronUp,
     IconClockHour4,
+    IconCopy,
     IconDeviceDesktop,
     IconDeviceIpad,
     IconEye,
+    IconExternalLink,
     IconFilter,
     IconInfoCircle,
     IconMaximize,
@@ -353,12 +356,14 @@ export default function KitchenIndex({
     selectedDevice = null,
     kioskMode = false,
 }) {
-    const { flash, activeOutlet } = usePage().props;
+    const { flash, activeOutlet, printClient } = usePage().props;
     const [isFullscreenActive, setIsFullscreenActive] = useState(false);
     const [selectedPrinterId, setSelectedPrinterId] = useState(null);
     const [showAdvancedFilter, setShowAdvancedFilter] = useState(false);
     const [showGuideModal, setShowGuideModal] = useState(false);
     const [showPreviewModal, setShowPreviewModal] = useState(false);
+    const [showPrinterLinkModal, setShowPrinterLinkModal] = useState(false);
+    const [printerLinkDevice, setPrinterLinkDevice] = useState(null);
     const [previewTicket, setPreviewTicket] = useState(null);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [selectedItemIdsByTicket, setSelectedItemIdsByTicket] = useState({});
@@ -804,6 +809,66 @@ export default function KitchenIndex({
     const handlePreview = (ticket) => {
         setPreviewTicket(ticket);
         setShowPreviewModal(true);
+    };
+
+    const buildKitchenPrintClientUrl = (station) => {
+        if (!station?.id) {
+            return "";
+        }
+
+        const fallbackBaseUrl =
+            typeof window !== "undefined"
+                ? window.location.origin
+                : "";
+        const baseUrl = printClient?.base_url || fallbackBaseUrl;
+        const version = printClient?.version || "latest";
+        const token = printClient?.token || "0000";
+        const outletId = Number(printClient?.outlet_id || activeOutlet?.id || 0);
+
+        const params = new URLSearchParams({
+            v: version,
+            base_url: baseUrl,
+            token,
+            outlet_id: String(outletId),
+            type: "kitchen",
+            station_id: String(station.id),
+            autostart: "1",
+        });
+
+        return `${baseUrl}/print-client.html?${params.toString()}`;
+    };
+
+    const handleOpenPrinterLinkModal = (device) => {
+        setSelectedPrinterId(device.id);
+        setPrinterLinkDevice(device);
+        setShowPrinterLinkModal(true);
+    };
+
+    const handleCopyPrinterLink = async () => {
+        const printClientUrl = buildKitchenPrintClientUrl(selectedStation);
+
+        if (!printClientUrl) {
+            toast.error("Link print client belum tersedia.");
+            return;
+        }
+
+        try {
+            await navigator.clipboard.writeText(printClientUrl);
+            toast.success("Link print client berhasil disalin.");
+        } catch (error) {
+            toast.error("Gagal menyalin link print client.");
+        }
+    };
+
+    const handleOpenPrinterLink = () => {
+        const printClientUrl = buildKitchenPrintClientUrl(selectedStation);
+
+        if (!printClientUrl) {
+            toast.error("Link print client belum tersedia.");
+            return;
+        }
+
+        window.open(printClientUrl, "_blank", "noopener,noreferrer");
     };
 
     const handleDispatchFailed = (ticketId) => {
@@ -1364,7 +1429,7 @@ export default function KitchenIndex({
                                             <button
                                                 type="button"
                                                 key={device.id}
-                                                onClick={() => setSelectedPrinterId(device.id)}
+                                                onClick={() => handleOpenPrinterLinkModal(device)}
                                                 className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs transition ${
                                                     selectedPrinterId === device.id
                                                         ? "border-primary-500 bg-primary-50 text-primary-700 dark:border-primary-400 dark:bg-primary-950/40 dark:text-primary-300"
@@ -2242,6 +2307,80 @@ export default function KitchenIndex({
                     </div>
                 </div>
             ) : null}
+
+            <Modal
+                title="Link Printer Dapur"
+                show={showPrinterLinkModal}
+                maxWidth="2xl"
+                onClose={() => {
+                    setShowPrinterLinkModal(false);
+                    setPrinterLinkDevice(null);
+                }}
+            >
+                <div className="space-y-4">
+                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/40">
+                        <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                            {printerLinkDevice?.name || "Printer dapur"}
+                        </p>
+                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                            Station: {selectedStation?.name || "-"} • Outlet: {activeOutlet?.name || "-"}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                            Profile: {printerLinkDevice?.meta?.print_profile || "browser_manual"} • Paper: {printerLinkDevice?.meta?.paper_width || "80mm"} • Template: {printerLinkDevice?.meta?.template_style || "standard"}
+                        </p>
+                        {printerLinkDevice?.meta?.bridge_device_key ? (
+                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                Bridge Key: {printerLinkDevice.meta.bridge_device_key}
+                            </p>
+                        ) : null}
+                    </div>
+
+                    <div>
+                        <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
+                            Link Print Client
+                        </label>
+                        <textarea
+                            readOnly
+                            rows={5}
+                            value={buildKitchenPrintClientUrl(selectedStation)}
+                            className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"
+                        />
+                    </div>
+
+                    <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-xs text-blue-800 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-200">
+                        Gunakan link ini di device printer untuk station {selectedStation?.name || "-"} agar polling tiket dapur langsung terikat ke dapur tenant yang sedang aktif.
+                    </div>
+
+                    <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setShowPrinterLinkModal(false);
+                                setPrinterLinkDevice(null);
+                            }}
+                            className="inline-flex h-11 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                        >
+                            Tutup
+                        </button>
+                        <button
+                            type="button"
+                            onClick={handleCopyPrinterLink}
+                            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                        >
+                            <IconCopy size={16} />
+                            Salin Link
+                        </button>
+                        <button
+                            type="button"
+                            onClick={handleOpenPrinterLink}
+                            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-primary-600 px-4 text-sm font-medium text-white transition hover:bg-primary-700"
+                        >
+                            <IconExternalLink size={16} />
+                            Buka Print Client
+                        </button>
+                    </div>
+                </div>
+            </Modal>
 
             {showPreviewModal && previewTicket ? (
                 <KitchenTicketPreview

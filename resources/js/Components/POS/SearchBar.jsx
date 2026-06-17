@@ -170,6 +170,8 @@ export default function SearchBar({
                                                 )}
                                                 alt={product.title}
                                                 className="w-full h-full object-cover"
+                                                loading="lazy"
+                                                decoding="async"
                                                 onError={(event) => {
                                                     event.currentTarget.onerror =
                                                         null;

@@ -1,15 +1,19 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Link, usePage } from "@inertiajs/react";
-import { IconQrcode, IconBell, IconX } from "@/Utils/icons";
+import axios from "axios";
+import { IconQrcode, IconX } from "@/Utils/icons";
 
 export default function QRNotification() {
-    const { qrOrders } = usePage().props;
+    const { pendingTableOrders = [], notificationAccess = {} } = usePage().props;
     const [isOpen, setIsOpen] = useState(false);
     const [isMobile, setIsMobile] = useState(false);
+    const [livePendingOrders, setLivePendingOrders] = useState(
+        pendingTableOrders
+    );
     const dropdownRef = useRef(null);
-    
-    // Mock QR orders count - replace with actual data from props
-    const pendingOrders = qrOrders?.pending || 0;
+
+    const pendingOrders = livePendingOrders.length;
+    const canSeeQrNotifications = notificationAccess?.qrOrders === true;
 
     useEffect(() => {
         const handleResize = () => {
@@ -34,6 +38,44 @@ export default function QRNotification() {
             document.removeEventListener("mousedown", handleClickOutside);
         };
     }, [isOpen]);
+
+    useEffect(() => {
+        setLivePendingOrders(pendingTableOrders);
+    }, [pendingTableOrders]);
+
+    useEffect(() => {
+        if (!canSeeQrNotifications) {
+            return undefined;
+        }
+
+        let cancelled = false;
+
+        const syncPendingOrders = async () => {
+            try {
+                const response = await axios.get(route("notifications.snapshot"));
+
+                if (cancelled) {
+                    return;
+                }
+
+                setLivePendingOrders(response.data?.pendingTableOrders || []);
+            } catch (error) {
+                console.debug("Gagal sinkron pesanan QR meja", error);
+            }
+        };
+
+        syncPendingOrders();
+        const timer = window.setInterval(syncPendingOrders, 10000);
+
+        return () => {
+            cancelled = true;
+            window.clearInterval(timer);
+        };
+    }, [canSeeQrNotifications]);
+
+    if (!canSeeQrNotifications) {
+        return null;
+    }
 
     return (
         <div className="relative" ref={dropdownRef}>
@@ -67,22 +109,40 @@ export default function QRNotification() {
                         <div className="p-4">
                             {pendingOrders > 0 ? (
                                 <div className="space-y-3">
-                                    <Link
-                                        href={route('table-orders.index')}
-                                        className="block px-4 py-3 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors border border-slate-200 dark:border-slate-700"
-                                    >
-                                        <div className="flex items-center justify-between">
-                                            <div>
-                                                <p className="text-sm font-medium text-slate-900 dark:text-white">
-                                                    {pendingOrders} pesanan baru
-                                                </p>
-                                                <p className="text-xs text-slate-500 dark:text-slate-400">
-                                                    Menunggu konfirmasi
-                                                </p>
+                                    {livePendingOrders.map((order) => (
+                                        <Link
+                                            key={order.id}
+                                            href={route("transactions.index", {
+                                                open_table_order: order.id,
+                                            })}
+                                            className="block rounded-xl border border-slate-200 px-4 py-3 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"
+                                        >
+                                            <div className="flex items-start justify-between gap-3">
+                                                <div className="min-w-0">
+                                                    <p className="text-sm font-medium text-slate-900 dark:text-white">
+                                                        {order.customer_name || order.order_number}
+                                                    </p>
+                                                    <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                                                        {order.table?.code
+                                                            ? `${order.table.code} - ${order.table.name || "Meja"}`
+                                                            : order.table?.name || "QR Meja"}
+                                                    </p>
+                                                    <p className="mt-1 text-xs font-semibold text-primary-600 dark:text-primary-400">
+                                                        Rp{" "}
+                                                        {new Intl.NumberFormat("id-ID").format(
+                                                            Number(order.grand_total || 0)
+                                                        )}
+                                                    </p>
+                                                </div>
+                                                <div className="shrink-0 text-right">
+                                                    <div className="mt-1 h-2 w-2 rounded-full bg-primary-600" />
+                                                    <p className="mt-2 text-[11px] text-slate-400 dark:text-slate-500">
+                                                        {order.created_at_label}
+                                                    </p>
+                                                </div>
                                             </div>
-                                            <div className="w-2 h-2 rounded-full bg-primary-600"></div>
-                                        </div>
-                                    </Link>
+                                        </Link>
+                                    ))}
                                 </div>
                             ) : (
                                 <div className="py-8 text-center">
@@ -104,22 +164,40 @@ export default function QRNotification() {
                         
                         {pendingOrders > 0 ? (
                             <div className="max-h-96 overflow-y-auto">
-                                <Link
-                                    href={route('table-orders.index')}
-                                    className="block px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors border-b border-slate-100 dark:border-slate-700"
-                                >
-                                    <div className="flex items-center justify-between">
-                                        <div>
-                                            <p className="text-sm font-medium text-slate-900 dark:text-white">
-                                                {pendingOrders} pesanan baru
-                                            </p>
-                                            <p className="text-xs text-slate-500 dark:text-slate-400">
-                                                Menunggu konfirmasi
-                                            </p>
+                                {livePendingOrders.map((order) => (
+                                    <Link
+                                        key={order.id}
+                                        href={route("transactions.index", {
+                                            open_table_order: order.id,
+                                        })}
+                                        className="block border-b border-slate-100 px-4 py-3 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-700/50"
+                                    >
+                                        <div className="flex items-start justify-between gap-3">
+                                            <div className="min-w-0">
+                                                <p className="text-sm font-medium text-slate-900 dark:text-white">
+                                                    {order.customer_name || order.order_number}
+                                                </p>
+                                                <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                                                    {order.table?.code
+                                                        ? `${order.table.code} - ${order.table.name || "Meja"}`
+                                                        : order.table?.name || "QR Meja"}
+                                                </p>
+                                                <p className="mt-1 text-xs font-semibold text-primary-600 dark:text-primary-400">
+                                                    Rp{" "}
+                                                    {new Intl.NumberFormat("id-ID").format(
+                                                        Number(order.grand_total || 0)
+                                                    )}
+                                                </p>
+                                            </div>
+                                            <div className="shrink-0 text-right">
+                                                <div className="mt-1 h-2 w-2 rounded-full bg-primary-600" />
+                                                <p className="mt-2 text-[11px] text-slate-400 dark:text-slate-500">
+                                                    {order.created_at_label}
+                                                </p>
+                                            </div>
                                         </div>
-                                        <div className="w-2 h-2 rounded-full bg-primary-600"></div>
-                                    </div>
-                                </Link>
+                                    </Link>
+                                ))}
                             </div>
                         ) : (
                             <div className="px-4 py-8 text-center">

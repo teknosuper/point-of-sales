@@ -8,12 +8,12 @@ use App\Models\Product;
 use App\Models\Setting;
 use App\Models\TransactionDetail;
 use App\Services\AuditLogService;
+use App\Services\ImageUploadService;
 use App\Services\LoyaltyService;
 use App\Services\OutletResolver;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
 
@@ -21,6 +21,7 @@ class SettingController extends Controller
 {
     public function __construct(
         private readonly AuditLogService $auditLogService,
+        private readonly ImageUploadService $imageUploadService,
         private readonly LoyaltyService $loyaltyService,
         private readonly OutletResolver $outletResolver
     ) {}
@@ -357,9 +358,18 @@ class SettingController extends Controller
 
         if ($request->file('store_logo')) {
             if ($logoPath) {
-                Storage::disk('public')->delete($this->normalizePublicStoragePath($logoPath));
+                $this->imageUploadService->deletePublicImage($logoPath, ['store']);
             }
-            $logoPath = $request->file('store_logo')->store('store', 'public');
+            $logoPath = $this->imageUploadService->storePublicImage(
+                $request->file('store_logo'),
+                'store',
+                [
+                    'max_width' => 1200,
+                    'max_height' => 1200,
+                    'thumb_width' => 320,
+                    'thumb_height' => 320,
+                ]
+            )['path'];
             $logoChanged = true;
         }
 
