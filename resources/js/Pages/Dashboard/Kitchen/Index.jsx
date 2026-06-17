@@ -270,6 +270,239 @@ const countKitchenActionableItems = (ticket) => {
     };
 };
 
+const countKitchenItemNotes = (ticket) =>
+    (ticket?.items || []).filter((item) => Boolean(item?.notes)).length;
+
+function KitchenTicketSummaryDetail({ ticket }) {
+    if (!ticket) {
+        return null;
+    }
+
+    return (
+        <div className="space-y-4">
+            <div className="grid gap-3 md:grid-cols-2">
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/40">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                        Waktu
+                    </p>
+                    <div className="mt-2 space-y-2 text-xs text-slate-600 dark:text-slate-300">
+                        <div className="flex items-start gap-2">
+                            <IconClockHour4 size={14} className="mt-0.5 shrink-0" />
+                            <span>Masuk {formatDateTime(ticket.fired_at)}</span>
+                        </div>
+                        {ticket.acknowledged_at ? (
+                            <div className="flex items-start gap-2">
+                                <IconChefHat size={14} className="mt-0.5 shrink-0" />
+                                <span>Proses {formatDateTime(ticket.acknowledged_at)}</span>
+                            </div>
+                        ) : null}
+                        {ticket.ready_at ? (
+                            <div className="flex items-start gap-2">
+                                <IconCheck size={14} className="mt-0.5 shrink-0" />
+                                <span>Siap {formatDateTime(ticket.ready_at)}</span>
+                            </div>
+                        ) : null}
+                        {ticket.completed_at ? (
+                            <div className="flex items-start gap-2">
+                                <IconCheck size={14} className="mt-0.5 shrink-0" />
+                                <span>Diserahkan {formatDateTime(ticket.completed_at)}</span>
+                            </div>
+                        ) : null}
+                    </div>
+                </div>
+
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/40">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                        Detail Order
+                    </p>
+                    <div className="mt-2 space-y-2 text-xs text-slate-600 dark:text-slate-300">
+                        {kitchenProgressLabel(ticket) ? (
+                            <div className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-2 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300">
+                                {kitchenProgressLabel(ticket)}
+                            </div>
+                        ) : null}
+                        <div>
+                            <span className="font-semibold text-slate-700 dark:text-slate-200">
+                                Jenis:
+                            </span>{" "}
+                            {ticket.order_type_label || "Bawa Pulang"}
+                        </div>
+                        <div>
+                            <span className="font-semibold text-slate-700 dark:text-slate-200">
+                                Lokasi:
+                            </span>{" "}
+                            {formatOrderLocation(ticket)}
+                        </div>
+                        <div>
+                            <span className="font-semibold text-slate-700 dark:text-slate-200">
+                                Pelanggan:
+                            </span>{" "}
+                            {ticket.customer_name || "Pelanggan umum"}
+                        </div>
+                        <div>
+                            <span className="font-semibold text-slate-700 dark:text-slate-200">
+                                No. HP:
+                            </span>{" "}
+                            {ticket.customer_phone || "-"}
+                        </div>
+                        {ticket.notes ? (
+                            <div className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-2 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300">
+                                {ticket.notes}
+                            </div>
+                        ) : null}
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function KitchenTicketItemsDetail({
+    ticket,
+    selectedItemIds = [],
+    selectionMode = null,
+    setSelectedItems,
+    toggleItemSelection,
+}) {
+    if (!ticket) {
+        return null;
+    }
+
+    return (
+        <div className="space-y-4">
+            <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                <button
+                    type="button"
+                    onClick={() =>
+                        setSelectedItems(
+                            ticket.id,
+                            ticket.status === "ready"
+                                ? resolveEligibleKitchenDeliveredItemIds(ticket)
+                                : resolveEligibleKitchenItemIds(ticket, ["pending", "acknowledged"])
+                        )
+                    }
+                    className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-slate-600 transition hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                >
+                    Pilih item aktif
+                </button>
+                <button
+                    type="button"
+                    onClick={() => setSelectedItems(ticket.id, [])}
+                    className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-slate-500 transition hover:border-rose-300 hover:text-rose-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400"
+                >
+                    Kosongkan pilihan
+                </button>
+                <span className="text-slate-400 dark:text-slate-500">
+                    {selectedItemIds.length} item dipilih
+                </span>
+                <span className="text-slate-400 dark:text-slate-500">
+                    Hanya item aktif yang bisa dicentang
+                </span>
+                <span className="text-slate-400 dark:text-slate-500">
+                    Pilihan beda aksi akan diganti otomatis
+                </span>
+                {selectionMode ? (
+                    <span
+                        className={`rounded-full px-2.5 py-1 font-semibold ${
+                            selectionMode === "ready"
+                                ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
+                                : "bg-violet-100 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300"
+                        }`}
+                    >
+                        Mode: {selectionMode === "ready" ? "Tandai Siap" : "Antar / Serahkan"}
+                    </span>
+                ) : null}
+            </div>
+
+            <div className="space-y-2">
+                {ticket.items.map((item) => (
+                    <div
+                        key={`detail-item-${ticket.id}-${item.id}`}
+                        className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 dark:border-slate-800 dark:bg-slate-950/40"
+                    >
+                        <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <p className="break-words font-medium text-slate-900 dark:text-white">
+                                        {item.product_title}
+                                    </p>
+                                    <span
+                                        className={`rounded-full px-2 py-1 text-[11px] font-semibold ${
+                                            resolveKitchenItemBadge(item).badge
+                                        }`}
+                                    >
+                                        {resolveKitchenItemBadge(item).label}
+                                    </span>
+                                </div>
+                                {item.notes ? (
+                                    <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                                        {item.notes}
+                                    </p>
+                                ) : null}
+                                {item.ready_at || item.completed_at ? (
+                                    <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
+                                        Siap: {formatDateTime(item.ready_at || item.completed_at)}
+                                    </p>
+                                ) : null}
+                                {item.picked_up_at ? (
+                                    <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
+                                        Dibawa: {formatDateTime(item.picked_up_at)}
+                                    </p>
+                                ) : null}
+                                {item.delivered_at ? (
+                                    <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
+                                        Diserahkan: {formatDateTime(item.delivered_at)}
+                                    </p>
+                                ) : null}
+                            </div>
+                            <div className="flex shrink-0 items-start gap-3">
+                                <span className="rounded-lg bg-white px-2 py-1 text-xs font-semibold text-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                                    x{item.qty}
+                                </span>
+                                <div
+                                    className={`min-w-[112px] rounded-2xl border px-2.5 py-2 text-center ${
+                                        isKitchenItemSelectable(item)
+                                            ? kitchenActionGroupForItem(item) === "ready"
+                                                ? "border-emerald-300 bg-emerald-50 shadow-sm dark:border-emerald-700 dark:bg-emerald-950/30"
+                                                : "border-violet-300 bg-violet-50 shadow-sm dark:border-violet-700 dark:bg-violet-950/30"
+                                            : "border-slate-200 bg-white opacity-75 dark:border-slate-700 dark:bg-slate-900/60"
+                                    }`}
+                                >
+                                    {isKitchenItemSelectable(item) ? (
+                                        <label
+                                            className={`flex cursor-pointer items-center justify-center gap-2 text-[11px] font-semibold ${
+                                                kitchenActionGroupForItem(item) === "ready"
+                                                    ? "text-emerald-700 dark:text-emerald-300"
+                                                    : "text-violet-700 dark:text-violet-300"
+                                            }`}
+                                        >
+                                            <input
+                                                type="checkbox"
+                                                checked={selectedItemIds.includes(item.id)}
+                                                onChange={() => toggleItemSelection(ticket.id, item.id)}
+                                                className={`h-5 w-5 rounded-md border-2 focus:ring-2 ${
+                                                    kitchenActionGroupForItem(item) === "ready"
+                                                        ? "border-emerald-400 text-emerald-600 focus:ring-emerald-500"
+                                                        : "border-violet-400 text-violet-600 focus:ring-violet-500"
+                                                }`}
+                                            />
+                                            <span>{kitchenItemSelectionLabel(item)}</span>
+                                        </label>
+                                    ) : (
+                                        <div className="text-[11px] font-semibold text-slate-400 dark:text-slate-500">
+                                            {kitchenItemSelectionLabel(item)}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+}
+
 const kitchenActionGroupForItem = (item) => {
     if (["pending", "acknowledged"].includes(item?.status)) {
         return "ready";
@@ -359,10 +592,14 @@ export default function KitchenIndex({
     const { flash, activeOutlet, printClient } = usePage().props;
     const [isFullscreenActive, setIsFullscreenActive] = useState(false);
     const [selectedPrinterId, setSelectedPrinterId] = useState(null);
+    const [showPageHeader, setShowPageHeader] = useState(false);
+    const [showStationControls, setShowStationControls] = useState(false);
     const [showAdvancedFilter, setShowAdvancedFilter] = useState(false);
     const [showGuideModal, setShowGuideModal] = useState(false);
     const [showPreviewModal, setShowPreviewModal] = useState(false);
     const [showPrinterLinkModal, setShowPrinterLinkModal] = useState(false);
+    const [ticketDetailModal, setTicketDetailModal] = useState(null);
+    const [ticketDetailTab, setTicketDetailTab] = useState("items");
     const [printerLinkDevice, setPrinterLinkDevice] = useState(null);
     const [previewTicket, setPreviewTicket] = useState(null);
     const [isRefreshing, setIsRefreshing] = useState(false);
@@ -1111,72 +1348,90 @@ export default function KitchenIndex({
             <Head title="Layar Dapur" />
 
             <div className="space-y-4">
-                <div
-                    className={`flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between ${
-                        kioskMode
-                            ? "rounded-3xl border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-slate-800 dark:bg-slate-900"
-                            : ""
-                    }`}
-                >
-                    <div>
-                        <h1 className="text-xl font-bold text-slate-900 dark:text-white">
-                            {kioskMode ? "Antrean Dapur" : "Layar Dapur"}
-                        </h1>
-                        <p className="text-xs text-slate-500 dark:text-slate-400">
-                            Pantau tiket dapur dan selesaikan pesanan yang sedang berjalan.
-                        </p>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                        {kioskMode && isFullscreenSupported ? (
-                            <button
-                                type="button"
-                                onClick={toggleFullscreen}
-                                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-                            >
-                                {isFullscreenActive ? (
-                                    <IconMinimize size={16} />
-                                ) : (
-                                    <IconMaximize size={16} />
-                                )}
-                                {isFullscreenActive ? "Keluar Fullscreen" : "Fullscreen"}
-                            </button>
-                        ) : null}
-                        <div className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                            Auto refresh {boardState.refreshMeta?.interval_seconds || 15} dtk
+                <div className="rounded-2xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
+                    <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                            <h1 className="text-base font-bold text-slate-900 dark:text-white">
+                                {kioskMode ? "Antrean Dapur" : "Layar Dapur"}
+                            </h1>
+                            <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                                {selectedStation?.name || "Pilih station dapur"} • {ticketMeta.total || 0} tiket
+                            </p>
                         </div>
-                        {!kioskMode && selectedStation ? (
-                            <button
-                                type="button"
-                                onClick={handleToggleProcessingMode}
-                                className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-medium transition ${
-                                    (selectedStation.processing_mode || "auto") === "manual"
-                                        ? "border-amber-200 bg-amber-50 text-amber-700 hover:border-amber-300 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300"
-                                        : "border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-300 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-300"
-                                }`}
-                            >
-                                {(selectedStation.processing_mode || "auto") === "manual"
-                                    ? "Ubah ke Auto"
-                                    : "Ubah ke Manual"}
-                            </button>
-                        ) : null}
                         <button
                             type="button"
-                            onClick={() => setShowGuideModal(true)}
-                            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                            onClick={() => setShowPageHeader((current) => !current)}
+                            className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
                         >
-                            <IconInfoCircle size={15} />
-                            Panduan
-                        </button>
-                        <button
-                            type="button"
-                            onClick={handleRefresh}
-                            disabled={isRefreshing}
-                            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-                        >
-                            <IconRefresh size={15} />
-                            {isRefreshing ? "Memuat..." : "Muat Ulang"}
+                            {showPageHeader ? "Sembunyikan header" : "Buka header"}
+                            {showPageHeader ? <IconChevronUp size={14} /> : <IconChevronDown size={14} />}
                         </button>
                     </div>
+
+                    {showPageHeader ? (
+                        <div
+                            className={`mt-3 flex flex-col gap-2 border-t border-slate-100 pt-3 lg:flex-row lg:items-center lg:justify-between dark:border-slate-800 ${
+                                kioskMode ? "lg:border-0 lg:pt-0" : ""
+                            }`}
+                        >
+                            <div>
+                                <p className="text-xs text-slate-500 dark:text-slate-400">
+                                    Pantau tiket dapur dan selesaikan pesanan yang sedang berjalan.
+                                </p>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2">
+                                {kioskMode && isFullscreenSupported ? (
+                                    <button
+                                        type="button"
+                                        onClick={toggleFullscreen}
+                                        className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                    >
+                                        {isFullscreenActive ? (
+                                            <IconMinimize size={16} />
+                                        ) : (
+                                            <IconMaximize size={16} />
+                                        )}
+                                        {isFullscreenActive ? "Keluar Fullscreen" : "Fullscreen"}
+                                    </button>
+                                ) : null}
+                                <div className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                                    Auto refresh {boardState.refreshMeta?.interval_seconds || 15} dtk
+                                </div>
+                                {!kioskMode && selectedStation ? (
+                                    <button
+                                        type="button"
+                                        onClick={handleToggleProcessingMode}
+                                        className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-medium transition ${
+                                            (selectedStation.processing_mode || "auto") === "manual"
+                                                ? "border-amber-200 bg-amber-50 text-amber-700 hover:border-amber-300 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300"
+                                                : "border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-300 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-300"
+                                        }`}
+                                    >
+                                        {(selectedStation.processing_mode || "auto") === "manual"
+                                            ? "Ubah ke Auto"
+                                            : "Ubah ke Manual"}
+                                    </button>
+                                ) : null}
+                                <button
+                                    type="button"
+                                    onClick={() => setShowGuideModal(true)}
+                                    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                >
+                                    <IconInfoCircle size={15} />
+                                    Panduan
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleRefresh}
+                                    disabled={isRefreshing}
+                                    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                >
+                                    <IconRefresh size={15} />
+                                    {isRefreshing ? "Memuat..." : "Muat Ulang"}
+                                </button>
+                            </div>
+                        </div>
+                    ) : null}
                 </div>
 
                 {selectedStation ? (
@@ -1214,23 +1469,35 @@ export default function KitchenIndex({
                                         ? "Mode proses manual"
                                         : "Mode proses otomatis"}
                                 </span>
-                                <span className="text-xs text-slate-500 dark:text-slate-400">
+                                <span className="hidden text-xs text-slate-500 dark:text-slate-400 md:inline">
                                     {(selectedStation.processing_mode || "auto") === "manual"
                                         ? "Ticket menunggu perlu diklik dan dikonfirmasi sebelum masuk proses."
                                         : "Ticket menunggu akan otomatis masuk ke status diproses saat board aktif."}
                                 </span>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowStationControls((current) => !current)}
+                                    className="ml-auto inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                                >
+                                    <IconFilter size={14} />
+                                    {showStationControls ? "Sembunyikan kontrol" : "Buka kontrol"}
+                                    {showStationControls ? <IconChevronUp size={14} /> : <IconChevronDown size={14} />}
+                                </button>
                             </div>
 
-                            {(selectedStation.processing_mode || "auto") === "manual" ? (
-                                <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200">
+                            {showStationControls && (selectedStation.processing_mode || "auto") === "manual" ? (
+                                <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200 md:px-4 md:py-3 md:text-xs">
                                     Station ini sedang memakai mode manual. Ticket baru tidak akan otomatis diproses sampai tombol
                                     <span className="mx-1 font-semibold">Mulai Proses</span>
                                     ditekan.
                                 </div>
                             ) : null}
 
-                            <div className="flex flex-wrap gap-2">
-                                {[
+                            {showStationControls ? (
+                            <div className="space-y-2">
+                                <div className="-mx-1 overflow-x-auto pb-1">
+                                    <div className="flex w-max min-w-full items-center gap-2 px-1">
+                                        {[
                                     {
                                         value: "active",
                                         label: "Semua aktif",
@@ -1259,30 +1526,33 @@ export default function KitchenIndex({
                                         label: "Selesai",
                                         count: selectedStationStats.completed,
                                     },
-                                ].map((option) => (
+                                        ].map((option) => (
+                                            <button
+                                                key={option.value}
+                                                type="button"
+                                                onClick={() => applyStatusFilter(option.value)}
+                                                className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                                                    selectedStatus === option.value
+                                                        ? "bg-primary-600 text-white"
+                                                        : "border border-slate-200 bg-white text-slate-600 hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                                                }`}
+                                            >
+                                                {option.label} ({option.count})
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                <div className="flex flex-wrap items-center gap-2">
                                     <button
-                                        key={option.value}
                                         type="button"
-                                        onClick={() => applyStatusFilter(option.value)}
-                                        className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
-                                            selectedStatus === option.value
-                                                ? "bg-primary-600 text-white"
-                                                : "border border-slate-200 bg-white text-slate-600 hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
-                                        }`}
+                                        onClick={() => setShowAdvancedFilter((current) => !current)}
+                                        className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
                                     >
-                                        {option.label} ({option.count})
+                                        <IconFilter size={14} />
+                                        {showAdvancedFilter ? "Sembunyikan filter" : "Buka filter"}
+                                        {showAdvancedFilter ? <IconChevronUp size={14} /> : <IconChevronDown size={14} />}
                                     </button>
-                                ))}
-                                <button
-                                    type="button"
-                                    onClick={() => setShowAdvancedFilter((current) => !current)}
-                                    className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
-                                >
-                                    <IconFilter size={14} />
-                                    {showAdvancedFilter ? "Sembunyikan filter" : "Buka filter"}
-                                    {showAdvancedFilter ? <IconChevronUp size={14} /> : <IconChevronDown size={14} />}
-                                </button>
-                                <div className="ml-auto flex flex-wrap gap-2">
                                     {[
                                         { value: "oldest", label: "Terlama" },
                                         { value: "newest", label: "Terbaru" },
@@ -1310,6 +1580,11 @@ export default function KitchenIndex({
                                     ))}
                                 </div>
                             </div>
+                            ) : (
+                                <div className="text-xs text-slate-400 dark:text-slate-500">
+                                    Filter status, urutan tiket, dan kontrol mode disembunyikan agar area daftar pesanan lebih luas.
+                                </div>
+                            )}
                         </div>
 
                         {showAdvancedFilter ? (
@@ -1457,7 +1732,7 @@ export default function KitchenIndex({
                                     {selectedTickets.map((ticket) => (
                                         <div
                                             key={`mobile-${ticket.id}`}
-                                            className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900"
+                                            className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900"
                                         >
                                             {(() => {
                                                 const actionCounts = countKitchenActionableItems(ticket);
@@ -1495,25 +1770,25 @@ export default function KitchenIndex({
                                                 const ticketStatus = resolveKitchenTicketStatusMeta(ticket);
 
                                                 return (
-                                            <div className="flex items-start justify-between gap-3">
+                                            <div className="flex items-start justify-between gap-2.5">
                                                 <div className="min-w-0">
                                                     <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
                                                         {ticket.ticket_number}
                                                     </p>
-                                                    <p className="mt-1 break-words text-base font-semibold text-slate-900 dark:text-white">
+                                                    <p className="mt-0.5 break-words text-sm font-semibold text-slate-900 dark:text-white">
                                                         {ticket.invoice || "Tanpa nomor nota"}
                                                     </p>
-                                                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                    <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
                                                         {ticket.customer_name || "Pelanggan umum"}
                                                     </p>
                                                     {kitchenProgressLabel(ticket) ? (
-                                                        <p className="mt-2 inline-flex rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">
+                                                        <p className="mt-1.5 inline-flex rounded-full bg-amber-50 px-2 py-1 text-[10px] font-semibold text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">
                                                             {kitchenProgressLabel(ticket)}
                                                         </p>
                                                     ) : null}
                                                 </div>
                                                 <span
-                                                    className={`shrink-0 rounded-full px-3 py-1 text-[11px] font-semibold ${
+                                                    className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-semibold ${
                                                         ticketStatus.badge
                                                     }`}
                                                 >
@@ -1523,218 +1798,122 @@ export default function KitchenIndex({
                                                 );
                                             })()}
 
-                                            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                                                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/40">
-                                                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
-                                                        Waktu
-                                                    </p>
-                                                    <div className="mt-2 space-y-2 text-xs text-slate-600 dark:text-slate-300">
-                                                        <div className="flex items-start gap-2">
-                                                            <IconClockHour4 size={14} className="mt-0.5 shrink-0" />
-                                                            <span>Masuk {formatDateTime(ticket.fired_at)}</span>
+                                            <div className="mt-3 -mx-1 overflow-x-auto pb-1">
+                                                <div className="flex w-max min-w-full gap-2 px-1">
+                                                    <div className="w-[230px] shrink-0 rounded-xl border border-slate-200 bg-slate-50 p-2.5 dark:border-slate-800 dark:bg-slate-950/40">
+                                                        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                                                            Waktu
+                                                        </p>
+                                                        <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-slate-600 dark:text-slate-300">
+                                                            <div className="inline-flex items-center gap-1.5 rounded-full bg-white px-2 py-1 dark:bg-slate-900">
+                                                                <IconClockHour4 size={14} className="mt-0.5 shrink-0" />
+                                                                <span>Masuk {formatTime(ticket.fired_at)}</span>
+                                                            </div>
+                                                            {ticket.acknowledged_at ? (
+                                                                <div className="inline-flex items-center gap-1.5 rounded-full bg-white px-2 py-1 dark:bg-slate-900">
+                                                                    <IconChefHat size={14} className="mt-0.5 shrink-0" />
+                                                                    <span>Proses {formatTime(ticket.acknowledged_at)}</span>
+                                                                </div>
+                                                            ) : null}
+                                                            {ticket.ready_at ? (
+                                                                <div className="inline-flex items-center gap-1.5 rounded-full bg-white px-2 py-1 dark:bg-slate-900">
+                                                                    <IconCheck size={14} className="mt-0.5 shrink-0" />
+                                                                    <span>Siap {formatTime(ticket.ready_at)}</span>
+                                                                </div>
+                                                            ) : null}
+                                                            {ticket.completed_at ? (
+                                                                <div className="inline-flex items-center gap-1.5 rounded-full bg-white px-2 py-1 dark:bg-slate-900">
+                                                                    <IconCheck size={14} className="mt-0.5 shrink-0" />
+                                                                    <span>Serah {formatTime(ticket.completed_at)}</span>
+                                                                </div>
+                                                            ) : null}
                                                         </div>
-                                                        {ticket.acknowledged_at ? (
-                                                            <div className="flex items-start gap-2">
-                                                                <IconChefHat size={14} className="mt-0.5 shrink-0" />
-                                                                <span>Proses {formatDateTime(ticket.acknowledged_at)}</span>
-                                                            </div>
-                                                        ) : null}
-                                                        {ticket.ready_at ? (
-                                                            <div className="flex items-start gap-2">
-                                                                <IconCheck size={14} className="mt-0.5 shrink-0" />
-                                                                <span>Siap {formatDateTime(ticket.ready_at)}</span>
-                                                            </div>
-                                                        ) : null}
-                                                        {ticket.completed_at ? (
-                                                            <div className="flex items-start gap-2">
-                                                                <IconCheck size={14} className="mt-0.5 shrink-0" />
-                                                                <span>Diserahkan {formatDateTime(ticket.completed_at)}</span>
-                                                            </div>
-                                                        ) : null}
                                                     </div>
-                                                </div>
 
-                                                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/40">
-                                                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
-                                                        Detail order
-                                                    </p>
-                                                    <div className="mt-2 space-y-2 text-xs text-slate-600 dark:text-slate-300">
-                                                        {kitchenProgressLabel(ticket) ? (
-                                                            <div className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-2 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300">
-                                                                {kitchenProgressLabel(ticket)}
+                                                    <div className="w-[250px] shrink-0 rounded-xl border border-slate-200 bg-slate-50 p-2.5 dark:border-slate-800 dark:bg-slate-950/40">
+                                                        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                                                            Detail order
+                                                        </p>
+                                                        <div className="mt-1.5 space-y-1.5 text-[11px] text-slate-600 dark:text-slate-300">
+                                                            {kitchenProgressLabel(ticket) ? (
+                                                                <div className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300">
+                                                                    {kitchenProgressLabel(ticket)}
+                                                                </div>
+                                                            ) : null}
+                                                            <div className="flex flex-wrap items-center gap-2">
+                                                                <span className="rounded-full bg-white px-2 py-1 font-semibold text-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                                                                    {ticket.order_type_label || "Bawa Pulang"}
+                                                                </span>
+                                                                <span className="rounded-full bg-white px-2 py-1 text-slate-600 dark:bg-slate-900 dark:text-slate-300">
+                                                                    {formatOrderLocation(ticket)}
+                                                                </span>
                                                             </div>
-                                                        ) : null}
-                                                        <div>
-                                                            <span className="font-semibold text-slate-700 dark:text-slate-200">
-                                                                Jenis:
-                                                            </span>{" "}
-                                                            {ticket.order_type_label || "Bawa Pulang"}
-                                                        </div>
-                                                        <div>
-                                                            <span className="font-semibold text-slate-700 dark:text-slate-200">
-                                                                Lokasi:
-                                                            </span>{" "}
-                                                            {formatOrderLocation(ticket)}
-                                                        </div>
-                                                        <div>
-                                                            <span className="font-semibold text-slate-700 dark:text-slate-200">
-                                                                Pelanggan:
-                                                            </span>{" "}
-                                                            {ticket.customer_name || "Pelanggan umum"}
-                                                        </div>
-                                                        <div>
-                                                            <span className="font-semibold text-slate-700 dark:text-slate-200">
-                                                                No. HP:
-                                                            </span>{" "}
-                                                            {ticket.customer_phone || "-"}
-                                                        </div>
-                                                        {ticket.notes ? (
-                                                            <div className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-2 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300">
-                                                                {ticket.notes}
+                                                            <div className="truncate">
+                                                                <span className="font-semibold text-slate-700 dark:text-slate-200">
+                                                                    Pelanggan:
+                                                                </span>{" "}
+                                                                {ticket.customer_name || "Pelanggan umum"}
                                                             </div>
-                                                        ) : null}
+                                                            {ticket.notes ? (
+                                                                <div className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300">
+                                                                    Ada catatan pesanan. Buka detail untuk lihat isi lengkap.
+                                                                </div>
+                                                            ) : null}
+                                                        </div>
                                                     </div>
                                                 </div>
                                             </div>
 
-                                            <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/40">
+                                            <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-2.5 dark:border-slate-800 dark:bg-slate-950/40">
                                                 <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
                                                     Pesanan
                                                 </p>
-                                                    <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
-                                                    <button
-                                                        type="button"
-                                                        onClick={() =>
-                                                            setSelectedItems(
-                                                                ticket.id,
-                                                                ticket.status === "ready"
-                                                                    ? resolveEligibleKitchenDeliveredItemIds(ticket)
-                                                                    : resolveEligibleKitchenItemIds(ticket, ["pending", "acknowledged"])
-                                                            )
-                                                        }
-                                                        className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-slate-600 transition hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
-                                                    >
-                                                        Pilih item aktif
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setSelectedItems(ticket.id, [])}
-                                                        className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-slate-500 transition hover:border-rose-300 hover:text-rose-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400"
-                                                    >
-                                                        Kosongkan pilihan
-                                                    </button>
-                                                    <span className="text-slate-400 dark:text-slate-500">
-                                                        {(selectedItemIdsByTicket[ticket.id] || []).length} item dipilih
-                                                    </span>
-                                                    <span className="text-slate-400 dark:text-slate-500">
-                                                        Hanya item aktif yang bisa dicentang
-                                                    </span>
-                                                    <span className="text-slate-400 dark:text-slate-500">
-                                                        Pilihan beda aksi akan diganti otomatis
-                                                    </span>
-                                                    {selectionMode ? (
-                                                        <span
-                                                            className={`rounded-full px-2.5 py-1 font-semibold ${
-                                                                selectionMode === "ready"
-                                                                    ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
-                                                                    : "bg-violet-100 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300"
-                                                            }`}
-                                                        >
-                                                            Mode: {selectionMode === "ready" ? "Tandai Siap" : "Antar / Serahkan"}
+                                                <div className="mt-1.5 space-y-2 text-[11px] text-slate-600 dark:text-slate-300">
+                                                    <div className="flex flex-wrap items-center gap-2">
+                                                        <span className="rounded-full bg-white px-2.5 py-1 font-semibold text-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                                                            {ticket.items.length} item
                                                         </span>
-                                                    ) : null}
-                                                </div>
-                                                <div className="mt-2 space-y-2">
-                                                    {ticket.items.map((item) => (
-                                                        <div
-                                                            key={`mobile-item-${item.id}`}
-                                                            className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 dark:border-slate-700 dark:bg-slate-900"
-                                                        >
-                                                            <div className="flex items-start justify-between gap-3">
-                                                                <div className="min-w-0">
-                                                                    <div className="flex flex-wrap items-center gap-2">
-                                                                        <p className="break-words font-medium text-slate-900 dark:text-white">
-                                                                            {item.product_title}
-                                                                        </p>
-                                                                        <span
-                                                                            className={`rounded-full px-2 py-1 text-[11px] font-semibold ${
-                                                                                resolveKitchenItemBadge(item).badge
-                                                                            }`}
-                                                                        >
-                                                                            {resolveKitchenItemBadge(item).label}
-                                                                        </span>
-                                                                    </div>
-                                                                    {item.notes ? (
-                                                                        <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
-                                                                            {item.notes}
-                                                                        </p>
-                                                                    ) : null}
-                                                                    {item.ready_at || item.completed_at ? (
-                                                                        <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
-                                                                            Siap: {formatDateTime(item.ready_at || item.completed_at)}
-                                                                        </p>
-                                                                    ) : null}
-                                                                    {item.picked_up_at ? (
-                                                                        <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
-                                                                            Dibawa: {formatDateTime(item.picked_up_at)}
-                                                                        </p>
-                                                                    ) : null}
-                                                                    {item.delivered_at ? (
-                                                                        <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
-                                                                            Diserahkan: {formatDateTime(item.delivered_at)}
-                                                                        </p>
-                                                                    ) : null}
-                                                                </div>
-                                                                <div className="flex shrink-0 items-start gap-3">
-                                                                    <span className="rounded-lg bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">
-                                                                        x{item.qty}
-                                                                    </span>
-                                                                    <div
-                                                                        className={`min-w-[104px] rounded-2xl border px-2.5 py-2 text-center ${
-                                                                            isKitchenItemSelectable(item)
-                                                                                ? kitchenActionGroupForItem(item) === "ready"
-                                                                                    ? "border-emerald-300 bg-emerald-50 shadow-sm dark:border-emerald-700 dark:bg-emerald-950/30"
-                                                                                    : "border-violet-300 bg-violet-50 shadow-sm dark:border-violet-700 dark:bg-violet-950/30"
-                                                                                : "border-slate-200 bg-slate-50 opacity-75 dark:border-slate-700 dark:bg-slate-900/60"
-                                                                        }`}
-                                                                    >
-                                                                        {isKitchenItemSelectable(item) ? (
-                                                                            <label
-                                                                                className={`flex cursor-pointer items-center justify-center gap-2 text-[11px] font-semibold ${
-                                                                                    kitchenActionGroupForItem(item) === "ready"
-                                                                                        ? "text-emerald-700 dark:text-emerald-300"
-                                                                                        : "text-violet-700 dark:text-violet-300"
-                                                                                }`}
-                                                                            >
-                                                                                <input
-                                                                                    type="checkbox"
-                                                                                    checked={(selectedItemIdsByTicket[ticket.id] || []).includes(item.id)}
-                                                                                    onChange={() => toggleItemSelection(ticket.id, item.id)}
-                                                                                    className={`h-5 w-5 rounded-md border-2 focus:ring-2 ${
-                                                                                        kitchenActionGroupForItem(item) === "ready"
-                                                                                            ? "border-emerald-400 text-emerald-600 focus:ring-emerald-500"
-                                                                                            : "border-violet-400 text-violet-600 focus:ring-violet-500"
-                                                                                    }`}
-                                                                                />
-                                                                                <span>{kitchenItemSelectionLabel(item)}</span>
-                                                                            </label>
-                                                                        ) : (
-                                                                            <div className="text-[11px] font-semibold text-slate-400 dark:text-slate-500">
-                                                                                {kitchenItemSelectionLabel(item)}
-                                                                            </div>
-                                                                        )}
-                                                                    </div>
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    ))}
+                                                        <span className="rounded-full bg-white px-2.5 py-1 font-semibold text-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                                                            {(selectedItemIdsByTicket[ticket.id] || []).length} dipilih
+                                                        </span>
+                                                        {countKitchenItemNotes(ticket) > 0 ? (
+                                                            <span className="rounded-full bg-amber-50 px-2.5 py-1 font-semibold text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">
+                                                                {countKitchenItemNotes(ticket)} catatan
+                                                            </span>
+                                                        ) : null}
+                                                        {selectionMode ? (
+                                                            <span
+                                                                className={`rounded-full px-2.5 py-1 font-semibold ${
+                                                                    selectionMode === "ready"
+                                                                        ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
+                                                                        : "bg-violet-100 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300"
+                                                                }`}
+                                                            >
+                                                                Mode: {selectionMode === "ready" ? "Tandai Siap" : "Antar / Serahkan"}
+                                                            </span>
+                                                        ) : null}
+                                                    </div>
+                                                    <div className="rounded-xl border border-dashed border-slate-200 bg-white px-3 py-3 dark:border-slate-700 dark:bg-slate-900">
+                                                        Lihat detail item, catatan, dan checklist aksi di popup agar tampilan tetap ringkas saat order banyak.
+                                                    </div>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setTicketDetailModal(ticket);
+                                                            setTicketDetailTab("items");
+                                                        }}
+                                                        className="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                                    >
+                                                        <IconEye size={16} />
+                                                        Detail Pesanan
+                                                    </button>
                                                 </div>
                                             </div>
 
-                                            <div className="mt-4 grid gap-2">
+                                            <div className="mt-3 grid grid-cols-2 gap-2">
                                                 {selectionMode ? (
                                                     <div
-                                                        className={`rounded-xl border px-3 py-2 text-center text-xs font-semibold ${
+                                                        className={`col-span-2 rounded-xl border px-3 py-1.5 text-center text-[11px] font-semibold ${
                                                             selectionMode === "ready"
                                                                 ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-300"
                                                                 : "border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-900/40 dark:bg-violet-950/30 dark:text-violet-300"
@@ -1748,9 +1927,9 @@ export default function KitchenIndex({
                                                     <button
                                                         type="button"
                                                         onClick={() => handleAcknowledge(ticket.id)}
-                                                        className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-sky-600 px-4 py-3 text-sm font-medium text-white transition hover:bg-sky-700"
+                                                        className="col-span-2 inline-flex h-9 items-center justify-center gap-1.5 rounded-xl bg-sky-600 px-3 text-xs font-semibold text-white transition hover:bg-sky-700"
                                                     >
-                                                        <IconChefHat size={16} />
+                                                        <IconChefHat size={14} />
                                                         Mulai Proses
                                                     </button>
                                                 ) : null}
@@ -1759,20 +1938,20 @@ export default function KitchenIndex({
                                                     type="button"
                                                     onClick={() => handleComplete(ticket.id)}
                                                     disabled={!canMarkReady}
-                                                    className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 ${readyButtonClass}`}
+                                                    className={`inline-flex h-9 items-center justify-center gap-1.5 rounded-xl px-3 text-xs font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 ${readyButtonClass}`}
                                                 >
-                                                    <IconCheck size={16} />
-                                                    Tandai Item Siap
+                                                    <IconCheck size={14} />
+                                                    Tandai Siap
                                                 </button>
 
                                                 <button
                                                     type="button"
                                                     onClick={() => handleDeliver(ticket.id)}
                                                     disabled={!canDeliver}
-                                                    className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-medium text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-40 ${deliverButtonClass}`}
+                                                    className={`inline-flex h-9 items-center justify-center gap-1.5 rounded-xl px-3 text-xs font-semibold text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-40 ${deliverButtonClass}`}
                                                 >
-                                                    <IconCheck size={16} />
-                                                    Antar / Serahkan Item
+                                                    <IconCheck size={14} />
+                                                    Antar / Serah
                                                 </button>
 
                                                 {printerDevices.length > 0 &&
@@ -1780,23 +1959,23 @@ export default function KitchenIndex({
                                                     <button
                                                         type="button"
                                                         onClick={() => handleQueueDispatch(ticket.id)}
-                                                        className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-primary-600 px-4 py-3 text-sm font-medium text-white transition hover:bg-primary-700"
+                                                        className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl bg-primary-600 px-3 text-xs font-semibold text-white transition hover:bg-primary-700"
                                                     >
-                                                        <IconPrinter size={16} />
-                                                        Kirim ke Printer
+                                                        <IconPrinter size={14} />
+                                                        Kirim Print
                                                     </button>
                                                 ) : null}
 
                                                 <button
                                                     type="button"
                                                     onClick={() => handlePreview(ticket)}
-                                                    className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                                    className={`${printerDevices.length > 0 && ticket.status !== "completed" ? "" : "col-span-2"} inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200`}
                                                 >
-                                                    <IconEye size={16} />
+                                                    <IconEye size={14} />
                                                     Preview
                                                 </button>
                                             </div>
-                                            <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-950/40 dark:text-slate-400">
+                                            <div className="mt-2.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-[11px] text-slate-500 dark:border-slate-700 dark:bg-slate-950/40 dark:text-slate-400">
                                                 {selectionState.totalSelected > 0
                                                     ? selectionState.hasMixedAction
                                                         ? "Pilihan bercampur. Pilih hanya item diproses atau hanya item siap antar."
@@ -1931,35 +2110,19 @@ export default function KitchenIndex({
                                                         <td className="px-4 py-4">
                                                             <div className="min-w-[260px] space-y-2">
                                                                 <div className="flex flex-wrap items-center gap-2 text-[11px]">
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={() =>
-                                                                            setSelectedItems(
-                                                                                ticket.id,
-                                                                                ticket.status === "ready"
-                                                                                    ? resolveEligibleKitchenDeliveredItemIds(ticket)
-                                                                                    : resolveEligibleKitchenItemIds(ticket, ["pending", "acknowledged"])
-                                                                            )
-                                                                        }
-                                                                        className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-slate-600 transition hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
-                                                                    >
-                                                                        Pilih item aktif
-                                                                    </button>
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={() => setSelectedItems(ticket.id, [])}
-                                                                        className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-slate-500 transition hover:border-rose-300 hover:text-rose-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400"
-                                                                    >
-                                                                        Kosongkan pilihan
-                                                                    </button>
-                                                                    <span className="text-slate-400 dark:text-slate-500">
-                                                                        {(selectedItemIdsByTicket[ticket.id] || []).length} item dipilih
+                                                                    <span className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+                                                                        {ticket.items.length} item
                                                                     </span>
-                                                                    <span className="text-slate-400 dark:text-slate-500">
-                                                                        Hanya item aktif yang bisa dicentang
+                                                                    <span className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+                                                                        {(selectedItemIdsByTicket[ticket.id] || []).length} dipilih
                                                                     </span>
+                                                                    {countKitchenItemNotes(ticket) > 0 ? (
+                                                                        <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300">
+                                                                            {countKitchenItemNotes(ticket)} catatan
+                                                                        </span>
+                                                                    ) : null}
                                                                     <span className="text-slate-400 dark:text-slate-500">
-                                                                        Pilihan beda aksi akan diganti otomatis
+                                                                        Detail item dan checklist aksi dibuka di popup
                                                                     </span>
                                                                     {selectionMode ? (
                                                                         <span
@@ -1973,89 +2136,17 @@ export default function KitchenIndex({
                                                                         </span>
                                                                     ) : null}
                                                                 </div>
-                                                                {ticket.items.map((item) => (
-                                                                    <div
-                                                                        key={item.id}
-                                                                        className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-950/40"
-                                                                    >
-                                                                        <div className="flex items-start justify-between gap-3">
-                                                                            <div className="min-w-0">
-                                                                                <div className="flex flex-wrap items-center gap-2">
-                                                                                    <p className="font-medium text-slate-900 dark:text-white">
-                                                                                        {item.product_title}
-                                                                                    </p>
-                                                                                    <span
-                                                                                        className={`rounded-full px-2 py-1 text-[11px] font-semibold ${
-                                                                                resolveKitchenItemBadge(item).badge
-                                                                                        }`}
-                                                                                    >
-                                                                                        {resolveKitchenItemBadge(item).label}
-                                                                                    </span>
-                                                                                </div>
-                                                                                {item.notes ? (
-                                                                                    <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
-                                                                                        {item.notes}
-                                                                                    </p>
-                                                                                ) : null}
-                                                                                {item.ready_at || item.completed_at ? (
-                                                                                    <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
-                                                                                        Siap: {formatDateTime(item.ready_at || item.completed_at)}
-                                                                                    </p>
-                                                                                ) : null}
-                                                                                {item.picked_up_at ? (
-                                                                                    <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
-                                                                                        Dibawa: {formatDateTime(item.picked_up_at)}
-                                                                                    </p>
-                                                                                ) : null}
-                                                                                {item.delivered_at ? (
-                                                                                    <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
-                                                                                        Diserahkan: {formatDateTime(item.delivered_at)}
-                                                                                    </p>
-                                                                                ) : null}
-                                                                            </div>
-                                                                            <div className="flex shrink-0 items-start gap-3">
-                                                                                <span className="rounded-lg bg-white px-2 py-1 text-xs font-semibold text-slate-700 dark:bg-slate-900 dark:text-slate-200">
-                                                                                    x{item.qty}
-                                                                                </span>
-                                                                                <div
-                                                                                    className={`min-w-[124px] rounded-2xl border px-3 py-2 text-center ${
-                                                                                        isKitchenItemSelectable(item)
-                                                                                            ? kitchenActionGroupForItem(item) === "ready"
-                                                                                                ? "border-emerald-300 bg-emerald-50 shadow-sm dark:border-emerald-700 dark:bg-emerald-950/30"
-                                                                                                : "border-violet-300 bg-violet-50 shadow-sm dark:border-violet-700 dark:bg-violet-950/30"
-                                                                                            : "border-slate-200 bg-white opacity-75 dark:border-slate-700 dark:bg-slate-900/60"
-                                                                                    }`}
-                                                                                >
-                                                                                    {isKitchenItemSelectable(item) ? (
-                                                                                        <label
-                                                                                            className={`flex cursor-pointer items-center justify-center gap-2 text-[11px] font-semibold ${
-                                                                                                kitchenActionGroupForItem(item) === "ready"
-                                                                                                    ? "text-emerald-700 dark:text-emerald-300"
-                                                                                                    : "text-violet-700 dark:text-violet-300"
-                                                                                            }`}
-                                                                                        >
-                                                                                            <input
-                                                                                                type="checkbox"
-                                                                                                checked={(selectedItemIdsByTicket[ticket.id] || []).includes(item.id)}
-                                                                                                onChange={() => toggleItemSelection(ticket.id, item.id)}
-                                                                                                className={`h-5 w-5 rounded-md border-2 focus:ring-2 ${
-                                                                                                    kitchenActionGroupForItem(item) === "ready"
-                                                                                                        ? "border-emerald-400 text-emerald-600 focus:ring-emerald-500"
-                                                                                                        : "border-violet-400 text-violet-600 focus:ring-violet-500"
-                                                                                                }`}
-                                                                                            />
-                                                                                            <span>{kitchenItemSelectionLabel(item)}</span>
-                                                                                        </label>
-                                                                                    ) : (
-                                                                                        <div className="text-[11px] font-semibold text-slate-400 dark:text-slate-500">
-                                                                                            {kitchenItemSelectionLabel(item)}
-                                                                                        </div>
-                                                                                    )}
-                                                                                </div>
-                                                                            </div>
-                                                                        </div>
-                                                                    </div>
-                                                                ))}
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => {
+                                                                        setTicketDetailModal(ticket);
+                                                                        setTicketDetailTab("items");
+                                                                    }}
+                                                                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                                                >
+                                                                    <IconEye size={16} />
+                                                                    Detail Pesanan
+                                                                </button>
                                                             </div>
                                                         </td>
                                                         <td className="px-4 py-4 text-xs text-slate-500 dark:text-slate-400">
@@ -2381,6 +2472,99 @@ export default function KitchenIndex({
                     </div>
                 </div>
             </Modal>
+
+            {ticketDetailModal ? (
+                <div className="fixed inset-0 z-[130] bg-slate-950/60">
+                    <div className="flex min-h-dvh items-end justify-center md:items-center md:p-4">
+                        <div className="flex h-dvh w-full flex-col overflow-hidden bg-white shadow-2xl dark:bg-slate-950 md:h-auto md:max-h-[calc(100vh-3rem)] md:max-w-3xl md:rounded-3xl md:border md:border-slate-200 dark:md:border-slate-800">
+                            <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-4 py-4 dark:border-slate-800">
+                                <div className="min-w-0">
+                                    <h2 className="truncate text-base font-semibold text-slate-900 dark:text-white md:text-lg">
+                                        Detail Pesanan {ticketDetailModal.ticket_number}
+                                    </h2>
+                                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                        {ticketDetailModal.invoice || "Tanpa nomor nota"} •{" "}
+                                        {ticketDetailModal.customer_name || "Pelanggan umum"}
+                                    </p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setTicketDetailModal(null);
+                                        setTicketDetailTab("items");
+                                    }}
+                                    className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 text-slate-500 transition hover:border-rose-300 hover:text-rose-600 dark:border-slate-700 dark:text-slate-300"
+                                >
+                                    <IconX size={18} />
+                                </button>
+                            </div>
+
+                            <div className="border-b border-slate-200 px-4 py-3 dark:border-slate-800">
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setTicketDetailTab("summary")}
+                                        className={`rounded-full px-3 py-2 text-xs font-semibold transition ${
+                                            ticketDetailTab === "summary"
+                                                ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900"
+                                                : "border border-slate-200 bg-white text-slate-600 hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                                        }`}
+                                    >
+                                        Ringkasan Order
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setTicketDetailTab("items")}
+                                        className={`rounded-full px-3 py-2 text-xs font-semibold transition ${
+                                            ticketDetailTab === "items"
+                                                ? "bg-primary-600 text-white"
+                                                : "border border-slate-200 bg-white text-slate-600 hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                                        }`}
+                                    >
+                                        Item & Checklist
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+                                {ticketDetailTab === "summary" ? (
+                                    <KitchenTicketSummaryDetail ticket={ticketDetailModal} />
+                                ) : (
+                                    <KitchenTicketItemsDetail
+                                        ticket={ticketDetailModal}
+                                        selectedItemIds={(selectedItemIdsByTicket[ticketDetailModal.id] || []).map(Number)}
+                                        selectionMode={resolveKitchenSelectionMode(
+                                            ticketDetailModal,
+                                            (selectedItemIdsByTicket[ticketDetailModal.id] || []).map(Number)
+                                        )}
+                                        setSelectedItems={setSelectedItems}
+                                        toggleItemSelection={toggleItemSelection}
+                                    />
+                                )}
+                            </div>
+
+                            <div className="border-t border-slate-200 px-4 py-3 dark:border-slate-800">
+                                <div className="flex items-center justify-between gap-3">
+                                    <div className="text-xs text-slate-500 dark:text-slate-400">
+                                        {ticketDetailModal.items?.length || 0} item •{" "}
+                                        {(selectedItemIdsByTicket[ticketDetailModal.id] || []).length} dipilih
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setTicketDetailModal(null);
+                                            setTicketDetailTab("items");
+                                        }}
+                                        className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                    >
+                                        Tutup
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            ) : null}
 
             {showPreviewModal && previewTicket ? (
                 <KitchenTicketPreview
