@@ -11,10 +11,115 @@ const formatDateTime = (value) =>
           })
         : "-";
 
+const resolvePaperWidth = (station) => {
+    const primaryDevice =
+        station?.devices?.find((device) => device?.is_primary) ||
+        station?.devices?.[0];
+    const paperWidth = String(primaryDevice?.meta?.paper_width || "80mm").toLowerCase();
+
+    return paperWidth === "58mm" ? "58mm" : "80mm";
+};
+
+const resolveColumns = (station) =>
+    resolvePaperWidth(station) === "58mm" ? 32 : 48;
+
+const wrapText = (text, width) => {
+    const value = String(text || "").trim();
+    if (!value) return [];
+
+    const words = value.split(/\s+/);
+    const lines = [];
+    let current = "";
+
+    words.forEach((word) => {
+        const candidate = current ? `${current} ${word}` : word;
+
+        if (candidate.length <= width) {
+            current = candidate;
+            return;
+        }
+
+        if (current) {
+            lines.push(current);
+            current = "";
+        }
+
+        if (word.length <= width) {
+            current = word;
+            return;
+        }
+
+        for (let index = 0; index < word.length; index += width) {
+            lines.push(word.slice(index, index + width));
+        }
+    });
+
+    if (current) lines.push(current);
+
+    return lines;
+};
+
+const buildThermalLines = (ticket, station) => {
+    const cols = resolveColumns(station);
+    const sep = "=".repeat(cols);
+    const lines = [
+        { text: "KITCHEN ORDER", align: "center", bold: true },
+        { text: station?.name || "Stasiun Dapur", align: "center", bold: true },
+        { text: sep, align: "left" },
+    ];
+
+    if (ticket?.ticket_number) lines.push({ text: `Ticket: ${ticket.ticket_number}` });
+    if (ticket?.invoice) lines.push({ text: `Invoice: ${ticket.invoice}` });
+    if (ticket?.order_type) lines.push({ text: `Order: ${ticket.order_type}` });
+    if (ticket?.table_name || ticket?.table_code) {
+        lines.push({
+            text: `Meja: ${ticket.table_name || ticket.table_code}`,
+        });
+    }
+
+    lines.push({
+        text: `Customer: ${ticket?.customer_name || "Pelanggan Umum"}`,
+    });
+
+    if (ticket?.fired_at) {
+        lines.push({ text: `Waktu: ${formatDateTime(ticket.fired_at)}` });
+    }
+
+    lines.push({ text: sep, align: "left" });
+
+    (ticket?.items || []).forEach((item) => {
+        lines.push({
+            text: `${item?.qty || 0}x ${item?.product_title || item?.name || "Item"}`,
+            bold: true,
+        });
+
+        if (item?.notes) {
+            wrapText(item.notes, Math.max(8, cols - 6)).forEach((line, index) => {
+                lines.push({
+                    text: index === 0 ? `   >> ${line}` : `      ${line}`,
+                });
+            });
+        }
+    });
+
+    if (ticket?.notes) {
+        lines.push({ text: sep, align: "left" });
+        wrapText(`Catatan: ${ticket.notes}`, cols).forEach((line) => {
+            lines.push({ text: line });
+        });
+    }
+
+    return {
+        cols,
+        paperWidth: resolvePaperWidth(station),
+        lines,
+    };
+};
+
 export default function KitchenTicketPreview({ ticket, station, onClose }) {
     if (!ticket) return null;
 
-    const items = ticket.items || [];
+    const thermal = buildThermalLines(ticket, station);
 
     return (
         <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/60 p-4">
@@ -38,83 +143,33 @@ export default function KitchenTicketPreview({ ticket, station, onClose }) {
 
                 {/* Preview Content - Styled like printed ticket */}
                 <div className="flex-1 overflow-y-auto p-4">
-                    <div className="rounded-lg border-2 border-dashed border-slate-300 bg-white p-4 font-mono text-sm dark:border-slate-600 dark:bg-slate-950">
-                        {/* Store Header */}
-                        <div className="mb-3 text-center">
-                            <div className="text-lg font-bold">KITCHEN ORDER</div>
-                            <div className="text-base font-bold">{station?.name || "Stasiun Dapur"}</div>
-                            <div className="mt-1 text-xs text-slate-500">{"=".repeat(32)}</div>
+                    <div className="mx-auto rounded-lg border-2 border-dashed border-slate-300 bg-white p-4 font-mono text-sm dark:border-slate-600 dark:bg-slate-950">
+                        <div className="mb-3 flex items-center justify-between text-[11px] text-slate-500">
+                            <span>Mode thermal</span>
+                            <span>{thermal.paperWidth}</span>
                         </div>
 
-                        {/* Ticket Info */}
-                        <div className="space-y-1 text-xs">
-                            <div className="flex justify-between">
-                                <span className="text-slate-600">Ticket:</span>
-                                <span className="font-semibold">{ticket.ticket_number}</span>
-                            </div>
-                            <div className="flex justify-between">
-                                <span className="text-slate-600">Invoice:</span>
-                                <span>{ticket.invoice || "-"}</span>
-                            </div>
-                            {ticket.table_name && (
-                                <div className="flex justify-between">
-                                    <span className="text-slate-600">Meja:</span>
-                                    <span className="font-semibold">{ticket.table_name}</span>
-                                </div>
-                            )}
-                            <div className="flex justify-between">
-                                <span className="text-slate-600">Pelanggan:</span>
-                                <span>{ticket.customer_name || "Pelanggan Umum"}</span>
-                            </div>
-                            <div className="flex justify-between">
-                                <span className="text-slate-600">Masuk:</span>
-                                <span>{formatDateTime(ticket.fired_at)}</span>
-                            </div>
-                            {ticket.acknowledged_at && (
-                                <div className="flex justify-between">
-                                    <span className="text-slate-600">Proses:</span>
-                                    <span>{formatDateTime(ticket.acknowledged_at)}</span>
-                                </div>
-                            )}
-                        </div>
-
-                        <div className="mt-2 text-xs text-slate-500">{"=".repeat(32)}</div>
-
-                        {/* Items */}
-                        <div className="mt-3 space-y-2">
-                            {items.map((item) => (
-                                <div key={item.id}>
-                                    <div className="font-bold">
-                                        {item.qty}x {item.product_title || item.name}
-                                    </div>
-                                    {item.notes && (
-                                        <div className="ml-3 text-slate-600">
-                                            {"   >> "}{item.notes}
-                                        </div>
-                                    )}
+                        <div
+                            className="space-y-1 text-xs leading-5 text-slate-900 dark:text-slate-100"
+                            style={{
+                                width: thermal.cols === 48 ? "100%" : "32ch",
+                                maxWidth: "100%",
+                            }}
+                        >
+                            {thermal.lines.map((line, index) => (
+                                <div
+                                    key={`${index}-${line.text}`}
+                                    className={[
+                                        "whitespace-pre-wrap break-words",
+                                        line.align === "center" ? "text-center" : "text-left",
+                                        line.bold ? "font-bold" : "",
+                                    ]
+                                        .filter(Boolean)
+                                        .join(" ")}
+                                >
+                                    {line.text}
                                 </div>
                             ))}
-                        </div>
-
-                        {/* Ticket Notes */}
-                        {ticket.notes && (
-                            <>
-                                <div className="mt-3 text-xs text-slate-500">{"=".repeat(32)}</div>
-                                <div className="mt-2 text-xs">
-                                    <span className="font-semibold">Catatan: </span>
-                                    <span>{ticket.notes}</span>
-                                </div>
-                            </>
-                        )}
-
-                        {/* Status */}
-                        <div className="mt-4 text-center">
-                            <div className="inline-flex rounded-full bg-primary-100 px-3 py-1 text-xs font-semibold text-primary-700 dark:bg-primary-900/40 dark:text-primary-300">
-                                {ticket.status === "pending" && "Menunggu"}
-                                {ticket.status === "acknowledged" && "Diproses"}
-                                {ticket.status === "ready" && "Siap Diantar / Diambil"}
-                                {ticket.status === "completed" && "Selesai"}
-                            </div>
                         </div>
                     </div>
                 </div>
@@ -122,7 +177,7 @@ export default function KitchenTicketPreview({ ticket, station, onClose }) {
                 {/* Footer */}
                 <div className="border-t border-slate-200 px-4 py-3 dark:border-slate-700">
                     <p className="text-center text-xs text-slate-500">
-                        Preview ini menampilkan tampilan tiket dapur sesuai pengaturan printer station.
+                        Preview mengikuti format thermal dapur yang dipakai `print-client`.
                     </p>
                 </div>
             </div>
