@@ -84,7 +84,7 @@ class PrintQueueController extends Controller
 
         $query = PrintJob::query()
             ->with([
-                'transaction:id,invoice,order_type,customer_id,dining_table_id,created_at',
+                'transaction:id,invoice,order_type,customer_id,table_id,created_at',
                 'transaction.customer:id,name',
                 'transaction.diningTable:id,name,code',
                 'kitchenTicket:id,kitchen_station_id,transaction_id,ticket_number,status,notes,created_at',
