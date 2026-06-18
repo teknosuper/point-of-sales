@@ -122,6 +122,7 @@ class RbacPresetCatalog
                 'suggested_role_name' => 'admin-stok',
                 'permissions' => [
                     'products-access',
+                    'products-stock-update',
                     'stock-opnames-access',
                     'stock-opnames-create',
                     'stock-opnames-finalize',

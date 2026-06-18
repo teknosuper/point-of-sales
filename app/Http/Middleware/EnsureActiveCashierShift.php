@@ -29,7 +29,7 @@ class EnsureActiveCashierShift
                 ], 422);
             }
 
-            return to_route('transactions.index')->with('error', $message);
+            return back()->with('error', $message);
         }
 
         return $next($request);
