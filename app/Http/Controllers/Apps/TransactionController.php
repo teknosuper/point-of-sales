@@ -81,6 +81,27 @@ class TransactionController extends Controller
             ->active()
             ->latest()
             ->get();
+        
+        // Filter out cart items with insufficient stock
+        $cartsToRemove = [];
+        foreach ($carts as $cart) {
+            if ($cart->product) {
+                $availableStock = $outlet
+                    ? $this->stockMutationService->stockForOutlet($cart->product, $outlet->id)
+                    : (int) $cart->product->stock;
+                
+                if ($availableStock < $cart->qty) {
+                    $cartsToRemove[] = $cart->id;
+                }
+            }
+        }
+        
+        // Remove cart items with insufficient stock
+        if (!empty($cartsToRemove)) {
+            Cart::whereIn('id', $cartsToRemove)->delete();
+            $carts = $carts->filter(fn($cart) => !in_array($cart->id, $cartsToRemove));
+        }
+        
         $activePricingRules = $this->pricingService->getActiveRules(outletId: $outlet?->id);
         $carts = $this->pricingService->normalizeRewardCarts(
             $carts,
@@ -141,12 +162,7 @@ class TransactionController extends Controller
         // get all products with categories for product grid
         $productsQuery = Product::with(['category:id,name', 'modifierOptions', 'tenantOutlet:id,name,code,slug,sort_order'])
             ->select('id', 'barcode', 'title', 'description', 'image', 'buy_price', 'sell_price', 'stock', 'category_id', 'tenant_outlet_id', 'supports_modifiers')
-            ->orderBy('title')
-            ->when($outlet && Schema::hasTable('product_outlet_stocks'), function ($query) use ($outlet) {
-                $query->whereHas('outletStocks', fn ($stockQuery) => $stockQuery
-                    ->where('outlet_id', $outlet->id)
-                    ->where('stock', '>', 0));
-            }, fn ($query) => $query->where('stock', '>', 0));
+            ->orderBy('title');
 
         $soldQtyByProduct = TransactionDetail::query()
             ->selectRaw('product_id, SUM(qty) as sold_qty')
@@ -169,7 +185,11 @@ class TransactionController extends Controller
             $product->setAttribute('stock', (int) ($stock ?? 0));
 
             return $product;
+        })->filter(function (Product $product) {
+            // Filter out products with stock <= 0 BEFORE mapping
+            return $product->stock > 0;
         });
+        
         $products = $this->productCatalogService->mapProductsForPosGrid(
             $products,
             null,

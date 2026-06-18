@@ -146,7 +146,9 @@ class PrintJobService
     {
         $jobs = PrintJob::query()
             ->with([
-                'transaction:id,invoice,customer_name,customer_phone,customer_address',
+                'transaction:id,invoice,customer_id,table_id,order_type,customer_name,customer_phone,customer_address',
+                'transaction.customer:id,name,no_telp',
+                'transaction.diningTable:id,name,code',
                 'kitchenTicket.items:id,kitchen_ticket_id,product_name,qty,notes',
                 'kitchenTicket.station:id,name,slug,code',
                 'device:id,kitchen_station_id,name,device_type,connection_driver,endpoint,meta',

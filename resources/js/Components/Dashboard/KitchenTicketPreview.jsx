@@ -56,6 +56,12 @@ export default function KitchenTicketPreview({ ticket, station, onClose }) {
                                 <span className="text-slate-600">Invoice:</span>
                                 <span>{ticket.invoice || "-"}</span>
                             </div>
+                            {ticket.table_name && (
+                                <div className="flex justify-between">
+                                    <span className="text-slate-600">Meja:</span>
+                                    <span className="font-semibold">{ticket.table_name}</span>
+                                </div>
+                            )}
                             <div className="flex justify-between">
                                 <span className="text-slate-600">Pelanggan:</span>
                                 <span>{ticket.customer_name || "Pelanggan Umum"}</span>
