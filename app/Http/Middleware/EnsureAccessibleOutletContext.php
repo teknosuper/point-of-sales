@@ -4,6 +4,7 @@ namespace App\Http\Middleware;
 
 use App\Models\KitchenStation;
 use App\Models\KitchenStationDevice;
+use App\Models\KitchenTicket;
 use App\Models\Outlet;
 use Closure;
 use Illuminate\Database\Eloquent\Model;
@@ -17,6 +18,11 @@ class EnsureAccessibleOutletContext
         $user = $request->user();
 
         if (! $user || $user->isSuperAdmin()) {
+            return $next($request);
+        }
+
+        $kitchenTicket = $request->route('kitchenTicket');
+        if ($kitchenTicket instanceof KitchenTicket && $this->canAccessKitchenTicketAsTenant($user, $kitchenTicket)) {
             return $next($request);
         }
 
@@ -35,6 +41,28 @@ class EnsureAccessibleOutletContext
         }
 
         return $next($request);
+    }
+
+    private function canAccessKitchenTicketAsTenant($user, KitchenTicket $kitchenTicket): bool
+    {
+        if ($user->hasAccessToOutlet((int) $kitchenTicket->outlet_id)) {
+            return false;
+        }
+
+        $tenantOutletIds = $kitchenTicket->items()
+            ->with('transactionDetail:id,tenant_outlet_id')
+            ->get()
+            ->pluck('transactionDetail.tenant_outlet_id')
+            ->filter()
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values();
+
+        if ($tenantOutletIds->isEmpty()) {
+            return false;
+        }
+
+        return $tenantOutletIds->every(fn (int $tenantOutletId) => $user->hasAccessToOutlet($tenantOutletId));
     }
 
     private function resolveRouteOutletId(Request $request): ?int

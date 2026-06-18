@@ -288,7 +288,7 @@ class KitchenDisplayController extends Controller
             ->values();
 
         $itemsQuery = $kitchenTicket->items()
-            ->where('status', 'completed');
+            ->whereIn('status', ['pending', 'acknowledged', 'completed']);
 
         if ($selectedItemIds->isNotEmpty()) {
             $itemsQuery->whereIn('id', $selectedItemIds->all());
@@ -297,7 +297,18 @@ class KitchenDisplayController extends Controller
         $itemsToDeliver = $itemsQuery->get();
 
         if ($itemsToDeliver->isEmpty()) {
-            return back()->with('success', 'Tidak ada item siap antar yang perlu ditandai diserahkan.');
+            return back()->with('success', 'Tidak ada item yang bisa langsung ditandai diserahkan.');
+        }
+
+        $timestamp = now();
+
+        foreach ($itemsToDeliver as $item) {
+            if ($item->status !== 'completed') {
+                $item->forceFill([
+                    'status' => 'completed',
+                    'completed_at' => $item->completed_at ?? $timestamp,
+                ])->save();
+            }
         }
 
         $detailIds = $itemsToDeliver
@@ -328,8 +339,6 @@ class KitchenDisplayController extends Controller
 
         $allDelivered = $ticketDetailIds->isNotEmpty()
             && $ticketDetailIds->every(fn (int $detailId) => $deliveredDetailIds->contains($detailId));
-
-        $timestamp = now();
 
         $kitchenTicket->forceFill([
             'status' => $allDelivered ? 'completed' : 'ready',

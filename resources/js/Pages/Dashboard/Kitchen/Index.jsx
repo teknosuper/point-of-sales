@@ -262,10 +262,11 @@ const countKitchenActionableItems = (ticket) => {
         ).length,
         readyToDeliver: items.filter(
             (item) =>
-                item.status === "completed" &&
-                ["ready", "picked_up"].includes(
-                    normalizeKitchenServiceStatus(item)
-                )
+                ["pending", "acknowledged"].includes(item.status) ||
+                (item.status === "completed" &&
+                    ["ready", "picked_up"].includes(
+                        normalizeKitchenServiceStatus(item)
+                    ))
         ).length,
     };
 };
@@ -820,16 +821,17 @@ export default function KitchenIndex({
             .filter((item) => allowedStatuses.includes(item.status))
             .map((item) => Number(item.id));
 
-    const resolveEligibleKitchenDeliveredItemIds = (ticket) =>
-        (ticket?.items || [])
-            .filter(
-                (item) =>
-                    item.status === "completed" &&
+const resolveEligibleKitchenDeliveredItemIds = (ticket) =>
+    (ticket?.items || [])
+        .filter(
+            (item) =>
+                ["pending", "acknowledged"].includes(item.status) ||
+                (item.status === "completed" &&
                     ["ready", "picked_up"].includes(
                         normalizeKitchenServiceStatus(item)
-                    )
-            )
-            .map((item) => Number(item.id));
+                    ))
+        )
+        .map((item) => Number(item.id));
 
     const resolveSelectedKitchenActionItemIds = (ticket, allowedStatuses = []) => {
         const eligibleItemIds = resolveEligibleKitchenItemIds(ticket, allowedStatuses);
@@ -1022,19 +1024,14 @@ export default function KitchenIndex({
         })();
 
         if (itemIds.length === 0) {
-            toast.error("Tidak ada item siap yang bisa ditandai diserahkan.");
-            return;
-        }
-
-        if (selectionState.hasMixedAction) {
-            toast.error("Pilihan item bercampur. Pilih hanya item yang siap antar untuk aksi ini.");
+            toast.error("Tidak ada item yang bisa langsung ditandai diserahkan.");
             return;
         }
 
         const confirmed = await confirmTicketAction({
             ticketId,
             title: "Tandai pesanan sudah diserahkan?",
-            text: "Gunakan aksi ini hanya jika pesanan benar-benar sudah diambil pelanggan atau diserahkan waiter.",
+            text: "Item yang belum ditandai siap akan otomatis diproses sebagai siap lalu langsung diserahkan.",
             confirmButtonText: "Ya, sudah diserahkan",
             itemIds,
             itemSectionTitle: "Item yang akan ditandai diserahkan",
@@ -1829,9 +1826,7 @@ export default function KitchenIndex({
                                                         : actionCounts.readyToMark > 0;
                                                 const canDeliver =
                                                     selectionState.totalSelected > 0
-                                                        ? selectionState.readyToDeliver > 0 &&
-                                                          !selectionState.hasMixedAction &&
-                                                          selectionState.readyToMark === 0
+                                                        ? selectionState.readyToDeliver > 0
                                                         : actionCounts.readyToDeliver > 0;
                                                 const actionBusy = Boolean(
                                                     submittingActionByTicket[ticket.id]
@@ -2115,9 +2110,7 @@ export default function KitchenIndex({
                                                                     : actionCounts.readyToMark > 0;
                                                             const canDeliver =
                                                                 selectionState.totalSelected > 0
-                                                                    ? selectionState.readyToDeliver > 0 &&
-                                                                      !selectionState.hasMixedAction &&
-                                                                      selectionState.readyToMark === 0
+                                                                    ? selectionState.readyToDeliver > 0
                                                                     : actionCounts.readyToDeliver > 0;
                                                             const actionBusy = Boolean(
                                                                 submittingActionByTicket[ticket.id]
