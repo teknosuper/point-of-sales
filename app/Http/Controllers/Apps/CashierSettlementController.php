@@ -5,9 +5,11 @@ namespace App\Http\Controllers\Apps;
 use App\Http\Controllers\Controller;
 use App\Models\CashierSettlementRequest;
 use App\Models\CashierShift;
+use App\Models\Outlet;
 use App\Models\Product;
 use App\Models\Setting;
 use App\Models\TransactionTenantAllocation;
+use App\Models\TransactionTenantAllocationItem;
 use App\Models\User;
 use App\Services\AuditLogService;
 use App\Services\CashierShiftService;
@@ -72,7 +74,7 @@ class CashierSettlementController extends Controller
             ->latest('created_at');
 
         $requests = (clone $query)
-            ->paginate(15)
+            ->paginate(15, ['*'], 'requests_page')
             ->withQueryString()
             ->through(fn (CashierSettlementRequest $settlement) => $this->transformSettlement($settlement));
 
@@ -112,7 +114,10 @@ class CashierSettlementController extends Controller
 
         $defaultRecipientId = Setting::getInt('cashier_base_settlement_recipient_user_id', 0, $outlet->id);
         $wallet = $isTenantRequestWorkspace
-            ? $this->buildKitchenWalletSummary($user, $outlet->id)
+            ? $this->buildKitchenWalletSummary($user, $outlet)
+            : null;
+        $walletTransactions = $isTenantRequestWorkspace
+            ? $this->buildTenantWalletTransactions($user, $outlet, $filters)
             : null;
 
         return Inertia::render('Dashboard/CashierSettlements/Index', [
@@ -126,6 +131,7 @@ class CashierSettlementController extends Controller
             'canApprove' => $canApprove,
             'canCreateRequest' => $isTenantRequestWorkspace,
             'wallet' => $wallet,
+            'walletTransactions' => $walletTransactions,
         ]);
     }
 
@@ -169,7 +175,7 @@ class CashierSettlementController extends Controller
             'status' => CashierSettlementRequest::STATUS_PENDING,
         ];
 
-        $wallet = $this->buildKitchenWalletSummary($user, $outlet->id);
+        $wallet = $this->buildKitchenWalletSummary($user, $outlet);
         $requestedAmount = (int) round((float) ($data['requested_amount'] ?? 0));
 
         abort_if($requestedAmount <= 0, 422, 'Nominal penarikan harus lebih dari nol.');
@@ -179,9 +185,9 @@ class CashierSettlementController extends Controller
             ...$settlementAttributes,
             'cashier_shift_id' => null,
             'business_date' => now()->toDateString(),
-            'gross_sales_total' => (int) ($wallet['tenant_sales_total'] ?? 0),
-            'base_sales_total' => (int) ($wallet['base_total'] ?? 0),
-            'markup_total' => (int) ($wallet['pricing_discount_total'] ?? 0),
+            'gross_sales_total' => (int) ($wallet['gross_sales_total'] ?? 0),
+            'base_sales_total' => (int) ($wallet['tenant_sales_total'] ?? 0),
+            'markup_total' => (int) ($wallet['owner_markup_total'] ?? 0),
             'requested_amount' => $requestedAmount,
         ]);
 
@@ -486,12 +492,137 @@ class CashierSettlementController extends Controller
             ->all();
     }
 
-    private function buildKitchenWalletSummary(User $user, int $outletId): array
+    private function buildKitchenWalletSummary(User $user, Outlet $activeOutlet): array
     {
-        $tenantOutletIds = $this->resolveKitchenTenantOutletIds($user, $outletId);
+        $allocationQuery = $this->buildTenantWalletAllocationQuery($user, $activeOutlet);
 
-        $allocationQuery = TransactionTenantAllocation::query()
-            ->where('outlet_id', $outletId)
+        $allocationIds = (clone $allocationQuery)->pluck('id');
+        $grossSalesTotal = $allocationIds->isNotEmpty()
+            ? (int) ((clone $allocationQuery)->sum('subtotal') ?? 0)
+            : 0;
+        $tenantNetTotal = $this->sumTenantNetValueForAllocationIds($allocationIds);
+        $ownerMarkupTotal = $this->sumOwnerMarkupValueForAllocationIds($allocationIds);
+        $prePromoReferenceTotal = $allocationIds->isNotEmpty()
+            ? (int) ((clone $allocationQuery)->sum('subtotal') + (clone $allocationQuery)->sum('promo_discount_total'))
+            : 0;
+
+        $approvedTotal = (int) CashierSettlementRequest::query()
+            ->where('outlet_id', $activeOutlet->id)
+            ->where('cashier_id', $user->id)
+            ->whereNull('cashier_shift_id')
+            ->where('status', CashierSettlementRequest::STATUS_APPROVED)
+            ->sum('approved_amount');
+
+        $pendingTotal = (int) CashierSettlementRequest::query()
+            ->where('outlet_id', $activeOutlet->id)
+            ->where('cashier_id', $user->id)
+            ->whereNull('cashier_shift_id')
+            ->where('status', CashierSettlementRequest::STATUS_PENDING)
+            ->sum('requested_amount');
+
+        $receivableTotal = max(0, $tenantNetTotal - $approvedTotal);
+        $availableBalance = max(0, $tenantNetTotal - $approvedTotal - $pendingTotal);
+
+        return [
+            'tenant_sales_total' => $tenantNetTotal,
+            'gross_sales_total' => $grossSalesTotal,
+            'base_total' => $prePromoReferenceTotal,
+            'pricing_discount_total' => max(0, $prePromoReferenceTotal - $grossSalesTotal),
+            'owner_markup_total' => $ownerMarkupTotal,
+            'approved_total' => $approvedTotal,
+            'pending_total' => $pendingTotal,
+            'receivable_total' => $receivableTotal,
+            'available_balance' => $availableBalance,
+        ];
+    }
+
+    private function buildTenantWalletTransactions(User $user, Outlet $activeOutlet, array $filters)
+    {
+        $paginator = $this->applyTenantWalletFilters(
+            $this->buildTenantWalletAllocationQuery($user, $activeOutlet),
+            $filters
+        )
+            ->with([
+                'transaction.customer:id,name',
+                'transaction.cashier:id,name',
+                'tenantOutlet:id,name,code',
+                'items.transactionDetail.product:id,title',
+                'items.transactionDetail.modifiers',
+            ])
+            ->latest('delivered_at')
+            ->paginate(15, ['*'], 'wallet_page')
+            ->withQueryString();
+
+        $tenantNetTotals = $this->tenantNetTotalsByAllocationIds($paginator->getCollection()->pluck('id'));
+        $ownerMarkupTotals = $this->ownerMarkupTotalsByAllocationIds($paginator->getCollection()->pluck('id'));
+
+        $paginator->setCollection(
+            $paginator->getCollection()->map(function (TransactionTenantAllocation $allocation) use ($tenantNetTotals, $ownerMarkupTotals) {
+                $tenantNetTotal = (int) ($tenantNetTotals->get($allocation->id, 0) ?? 0);
+                $grossAfterPromo = (int) ($allocation->subtotal ?? 0);
+                $ownerMarkupTotal = (int) ($ownerMarkupTotals->get($allocation->id, 0) ?? 0);
+
+                return [
+                    'id' => $allocation->id,
+                    'allocation_number' => $allocation->allocation_number,
+                    'invoice' => $allocation->transaction?->invoice ?? $allocation->allocation_number,
+                    'customer_name' => $allocation->transaction?->customer?->name ?? 'Pelanggan umum',
+                    'cashier_name' => $allocation->transaction?->cashier?->name ?? '-',
+                    'tenant_outlet' => $allocation->tenantOutlet ? [
+                        'id' => $allocation->tenantOutlet->id,
+                        'name' => $allocation->tenantOutlet->name,
+                        'code' => $allocation->tenantOutlet->code,
+                    ] : null,
+                    'payment_method' => $allocation->transaction?->payment_method,
+                    'payment_status' => $allocation->transaction?->payment_status ?? $allocation->payment_status,
+                    'gross_sales_total' => $grossAfterPromo,
+                    'tenant_sales_total' => $tenantNetTotal,
+                    'owner_markup_total' => $ownerMarkupTotal,
+                    'pricing_discount_total' => (int) ($allocation->promo_discount_total ?? 0),
+                    'delivered_at' => optional($allocation->delivered_at)?->toIso8601String(),
+                    'created_at' => optional($allocation->transaction?->created_at)?->toIso8601String(),
+                    'details' => $allocation->items->map(function ($item) {
+                        $detail = $item->transactionDetail;
+
+                        return [
+                            'id' => $detail?->id ?? $item->transaction_detail_id,
+                            'product_title' => $detail?->product?->title ?? 'Produk terhapus',
+                            'qty' => (int) ($detail?->qty ?? $item->qty ?? 0),
+                            'customer_unit_price' => (int) ($detail?->customer_base_unit_price ?? $detail?->unit_price ?? 0),
+                            'line_total' => (int) ($detail?->price ?? $item->line_total ?? 0),
+                            'tenant_base_unit_price' => (int) ($detail?->tenant_base_unit_price ?? 0),
+                            'tenant_net_total' => (int) ($detail?->tenant_net_total ?? 0),
+                            'owner_markup_unit_price' => (int) ($detail?->owner_markup_unit_price ?? 0),
+                            'owner_net_total' => (int) ($detail?->owner_net_total ?? 0),
+                            'discount_total' => (int) ($detail?->discount_total ?? $item->discount_total ?? 0),
+                            'notes' => $detail?->notes,
+                            'modifiers' => $detail?->modifiers
+                                ? $detail->modifiers->map(fn ($modifier) => [
+                                    'id' => $modifier->id,
+                                    'name' => $modifier->name,
+                                    'qty' => (int) $modifier->qty,
+                                    'unit_price' => (int) $modifier->unit_price,
+                                    'total_price' => (int) $modifier->total_price,
+                                ])->values()->all()
+                                : [],
+                        ];
+                    })->values()->all(),
+                ];
+            })
+        );
+
+        return $paginator;
+    }
+
+    private function buildTenantWalletAllocationQuery(User $user, Outlet $activeOutlet): Builder
+    {
+        $tenantOutletIds = $this->resolveKitchenTenantOutletIds($user, $activeOutlet->id);
+        $allocationOutletId = (string) ($activeOutlet->outlet_type ?? '') === 'tenant'
+            ? 0
+            : $activeOutlet->id;
+
+        return TransactionTenantAllocation::query()
+            ->when($allocationOutletId > 0, fn (Builder $builder) => $builder->where('outlet_id', $allocationOutletId))
             ->where('waiter_status', 'delivered')
             ->whereNotNull('delivered_at')
             ->when(
@@ -499,42 +630,74 @@ class CashierSettlementController extends Controller
                 fn (Builder $builder) => $builder->whereIn('tenant_outlet_id', $tenantOutletIds->all()),
                 fn (Builder $builder) => $builder->whereRaw('1 = 0')
             );
+    }
 
-        $allocationIds = (clone $allocationQuery)->pluck('id');
-        $pricingReferenceTotal = $allocationIds->isNotEmpty()
-            ? (int) ((clone $allocationQuery)->sum('subtotal') ?? 0)
-            : 0;
-        $baseTotal = $allocationIds->isNotEmpty()
-            ? (int) ((clone $allocationQuery)->sum('subtotal') + (clone $allocationQuery)->sum('promo_discount_total'))
-            : 0;
-        $pricingDiscountTotal = max(0, $baseTotal - $pricingReferenceTotal);
+    private function applyTenantWalletFilters(Builder $query, array $filters): Builder
+    {
+        return $query
+            ->when($filters['q'] !== '', function (Builder $builder) use ($filters) {
+                $builder->where(function (Builder $nested) use ($filters) {
+                    $nested
+                        ->where('allocation_number', 'like', '%'.$filters['q'].'%')
+                        ->orWhereHas('transaction', function (Builder $transactionQuery) use ($filters) {
+                            $transactionQuery
+                                ->where('invoice', 'like', '%'.$filters['q'].'%')
+                                ->orWhereHas('customer', fn (Builder $customerQuery) => $customerQuery->where('name', 'like', '%'.$filters['q'].'%'))
+                                ->orWhereHas('cashier', fn (Builder $cashierQuery) => $cashierQuery->where('name', 'like', '%'.$filters['q'].'%'));
+                        });
+                });
+            })
+            ->when($filters['cashier_id'] !== '', fn (Builder $builder) => $builder->where('cashier_id', (int) $filters['cashier_id']))
+            ->when($filters['date_from'] !== '', fn (Builder $builder) => $builder->whereDate('delivered_at', '>=', $filters['date_from']))
+            ->when($filters['date_to'] !== '', fn (Builder $builder) => $builder->whereDate('delivered_at', '<=', $filters['date_to']));
+    }
 
-        $approvedTotal = (int) CashierSettlementRequest::query()
-            ->where('outlet_id', $outletId)
-            ->where('cashier_id', $user->id)
-            ->whereNull('cashier_shift_id')
-            ->where('status', CashierSettlementRequest::STATUS_APPROVED)
-            ->sum('approved_amount');
+    private function sumTenantNetValueForAllocationIds(\Illuminate\Support\Collection $allocationIds): int
+    {
+        if ($allocationIds->isEmpty()) {
+            return 0;
+        }
 
-        $pendingTotal = (int) CashierSettlementRequest::query()
-            ->where('outlet_id', $outletId)
-            ->where('cashier_id', $user->id)
-            ->whereNull('cashier_shift_id')
-            ->where('status', CashierSettlementRequest::STATUS_PENDING)
-            ->sum('requested_amount');
+        return (int) ($this->tenantNetTotalsByAllocationIds($allocationIds)->sum() ?? 0);
+    }
 
-        $receivableTotal = max(0, $pricingReferenceTotal - $approvedTotal);
-        $availableBalance = max(0, $pricingReferenceTotal - $approvedTotal - $pendingTotal);
+    private function sumOwnerMarkupValueForAllocationIds(\Illuminate\Support\Collection $allocationIds): int
+    {
+        if ($allocationIds->isEmpty()) {
+            return 0;
+        }
 
-        return [
-            'tenant_sales_total' => $pricingReferenceTotal,
-            'base_total' => $baseTotal,
-            'pricing_discount_total' => $pricingDiscountTotal,
-            'approved_total' => $approvedTotal,
-            'pending_total' => $pendingTotal,
-            'receivable_total' => $receivableTotal,
-            'available_balance' => $availableBalance,
-        ];
+        return (int) ($this->ownerMarkupTotalsByAllocationIds($allocationIds)->sum() ?? 0);
+    }
+
+    private function tenantNetTotalsByAllocationIds(\Illuminate\Support\Collection $allocationIds): \Illuminate\Support\Collection
+    {
+        if ($allocationIds->isEmpty()) {
+            return collect();
+        }
+
+        return TransactionTenantAllocationItem::query()
+            ->join('transaction_details', 'transaction_details.id', '=', 'transaction_tenant_allocation_items.transaction_detail_id')
+            ->whereIn('transaction_tenant_allocation_id', $allocationIds->all())
+            ->selectRaw('transaction_tenant_allocation_id, COALESCE(SUM(CASE WHEN transaction_details.tenant_net_total > 0 THEN transaction_details.tenant_net_total ELSE transaction_details.tenant_base_unit_price * transaction_details.qty END), 0) as total_tenant_net_value')
+            ->groupBy('transaction_tenant_allocation_id')
+            ->pluck('total_tenant_net_value', 'transaction_tenant_allocation_id')
+            ->map(fn ($value) => (int) $value);
+    }
+
+    private function ownerMarkupTotalsByAllocationIds(\Illuminate\Support\Collection $allocationIds): \Illuminate\Support\Collection
+    {
+        if ($allocationIds->isEmpty()) {
+            return collect();
+        }
+
+        return TransactionTenantAllocationItem::query()
+            ->join('transaction_details', 'transaction_details.id', '=', 'transaction_tenant_allocation_items.transaction_detail_id')
+            ->whereIn('transaction_tenant_allocation_id', $allocationIds->all())
+            ->selectRaw('transaction_tenant_allocation_id, COALESCE(SUM(CASE WHEN transaction_details.owner_net_total > 0 THEN transaction_details.owner_net_total ELSE transaction_details.owner_markup_unit_price * transaction_details.qty END), 0) as total_owner_markup_value')
+            ->groupBy('transaction_tenant_allocation_id')
+            ->pluck('total_owner_markup_value', 'transaction_tenant_allocation_id')
+            ->map(fn ($value) => (int) $value);
     }
 
     private function resolveKitchenTenantOutletIds(User $user, int $activeOutletId): \Illuminate\Support\Collection

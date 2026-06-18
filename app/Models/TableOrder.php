@@ -65,4 +65,22 @@ class TableOrder extends Model
     {
         return $this->belongsTo(Transaction::class);
     }
+
+    public function resolvedSubtotal(): int
+    {
+        $itemsTotal = $this->relationLoaded('items')
+            ? (int) $this->items->sum('line_total')
+            : (int) $this->items()->sum('line_total');
+
+        return $itemsTotal > 0 ? $itemsTotal : (int) ($this->subtotal ?? 0);
+    }
+
+    public function resolvedGrandTotal(): int
+    {
+        $itemsTotal = $this->relationLoaded('items')
+            ? (int) $this->items->sum('line_total')
+            : (int) $this->items()->sum('line_total');
+
+        return $itemsTotal > 0 ? $itemsTotal : (int) ($this->grand_total ?? 0);
+    }
 }

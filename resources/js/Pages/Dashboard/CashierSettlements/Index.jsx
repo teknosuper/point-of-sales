@@ -72,6 +72,19 @@ const statusLabel = {
     cancelled: "Dibatalkan",
 };
 
+const paymentMethodLabel = (value) => {
+    const labels = {
+        cash: "Tunai",
+        qris: "QRIS",
+        transfer: "Transfer",
+        card: "Kartu",
+        midtrans: "Midtrans",
+        xendit: "Xendit",
+    };
+
+    return labels[value] || value || "-";
+};
+
 function SummaryCard({ title, value, description, icon, tone = "slate" }) {
     const tones = {
         slate: "border-slate-200 bg-white text-slate-900 dark:border-slate-800 dark:bg-slate-900 dark:text-white",
@@ -106,6 +119,7 @@ export default function Index({
     canApprove = false,
     canCreateRequest = false,
     wallet = null,
+    walletTransactions = {},
 }) {
     const { auth, errors, flash } = usePage().props;
     const isKitchenWorkspace = auth?.user?.preferred_workspace === "kitchen";
@@ -113,7 +127,6 @@ export default function Index({
     const [showRequestPanel, setShowRequestPanel] = useState(
         () => isTenantRequestMode
     );
-    const [showFilters, setShowFilters] = useState(false);
     const [showHelpModal, setShowHelpModal] = useState(false);
 
     useEffect(() => {
@@ -164,6 +177,10 @@ export default function Index({
         request: null,
         mode: "approve",
     });
+    const [walletDetailModal, setWalletDetailModal] = useState({
+        open: false,
+        transaction: null,
+    });
     const [approvalForm, setApprovalForm] = useState(defaultApprovalForm);
     const [rejectionReason, setRejectionReason] = useState("");
     const [rejectionPassword, setRejectionPassword] = useState("");
@@ -181,6 +198,8 @@ export default function Index({
 
     const rows = requests?.data ?? [];
     const links = requests?.links ?? [];
+    const walletRows = walletTransactions?.data ?? [];
+    const walletLinks = walletTransactions?.links ?? [];
     const selectedShift = useMemo(
         () =>
             shiftOptions.find(
@@ -342,6 +361,20 @@ export default function Index({
         );
     };
 
+    const openWalletDetailModal = (transaction) => {
+        setWalletDetailModal({
+            open: true,
+            transaction,
+        });
+    };
+
+    const closeWalletDetailModal = () => {
+        setWalletDetailModal({
+            open: false,
+            transaction: null,
+        });
+    };
+
     return (
         <>
             <Head title={isTenantRequestMode ? "Penarikan Dana Tenant" : "Approval Penarikan Tenant"} />
@@ -375,15 +408,123 @@ export default function Index({
                             {showRequestPanel ? <IconChevronUp size={18} /> : <IconChevronDown size={18} />}
                             {showRequestPanel ? "Sembunyikan panel" : "Buka panel"}
                         </button>
-                        <button
-                            type="button"
-                            onClick={() => setShowFilters((value) => !value)}
-                            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-                        >
-                            {showFilters ? <IconChevronUp size={18} /> : <IconChevronDown size={18} />}
-                            {showFilters ? "Sembunyikan filter" : "Buka filter"}
-                        </button>
                     </div>
+                </div>
+
+                <div className="rounded-3xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+                    <div className="mb-4">
+                        <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+                            Filter Data
+                        </h2>
+                        <p className="text-sm text-slate-500 dark:text-slate-400">
+                            Kata kunci, pengaju, dan rentang tanggal berlaku untuk riwayat pengajuan dan transaksi masuk ke saldo. Filter status hanya berlaku untuk riwayat pengajuan.
+                        </p>
+                    </div>
+                    <form onSubmit={applyFilters} className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+                        <div className="xl:col-span-2">
+                            <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                Cari
+                            </label>
+                            <div className="relative">
+                                <input
+                                    value={filterData.q}
+                                    onChange={(event) =>
+                                        setFilterData((prev) => ({
+                                            ...prev,
+                                            q: event.target.value,
+                                        }))
+                                    }
+                                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 pr-10 text-sm dark:border-slate-700 dark:bg-slate-800"
+                                    placeholder={canCreateRequest ? "Invoice, request, customer, kasir..." : "Nomor request, pengaju, penerima..."}
+                                />
+                                <span className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-4 text-slate-400">
+                                    <IconSearch size={16} />
+                                </span>
+                            </div>
+                        </div>
+                        <div>
+                            <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                Status Pengajuan
+                            </label>
+                            <select
+                                value={filterData.status}
+                                onChange={(event) =>
+                                    setFilterData((prev) => ({
+                                        ...prev,
+                                        status: event.target.value,
+                                    }))
+                                }
+                                className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
+                            >
+                                <option value="">Semua</option>
+                                <option value="pending">Pending</option>
+                                <option value="approved">Approved</option>
+                                <option value="rejected">Rejected</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                {canCreateRequest ? "Akun / Kasir" : "Pengaju"}
+                            </label>
+                            <select
+                                value={filterData.cashier_id}
+                                onChange={(event) =>
+                                    setFilterData((prev) => ({
+                                        ...prev,
+                                        cashier_id: event.target.value,
+                                    }))
+                                }
+                                className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
+                            >
+                                <option value="">Semua</option>
+                                {cashiers.map((cashier) => (
+                                    <option key={cashier.id} value={String(cashier.id)}>
+                                        {cashier.name}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                        <div className="flex items-end gap-2">
+                            <button type="submit" className="rounded-xl bg-primary-600 px-4 py-3 text-sm font-semibold text-white">
+                                Terapkan
+                            </button>
+                            <button type="button" onClick={resetFilters} className="rounded-xl border border-slate-200 px-4 py-3 text-sm font-medium text-slate-600 dark:border-slate-700 dark:text-slate-300">
+                                Reset
+                            </button>
+                        </div>
+                        <div>
+                            <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                Dari
+                            </label>
+                            <input
+                                type="date"
+                                value={filterData.date_from}
+                                onChange={(event) =>
+                                    setFilterData((prev) => ({
+                                        ...prev,
+                                        date_from: event.target.value,
+                                    }))
+                                }
+                                className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
+                            />
+                        </div>
+                        <div>
+                            <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                Sampai
+                            </label>
+                            <input
+                                type="date"
+                                value={filterData.date_to}
+                                onChange={(event) =>
+                                    setFilterData((prev) => ({
+                                        ...prev,
+                                        date_to: event.target.value,
+                                    }))
+                                }
+                                className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
+                            />
+                        </div>
+                    </form>
                 </div>
 
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -395,7 +536,7 @@ export default function Index({
 
                 {isTenantRequestMode && wallet ? (
                     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                        <SummaryCard title="Saldo Masuk Tenant" value={formatCurrency(wallet.tenant_sales_total ?? 0)} description="Penjualan tenant setelah promo pricing rules" icon={<IconReceipt2 size={20} />} tone="emerald" />
+                        <SummaryCard title="Saldo Masuk Tenant" value={formatCurrency(wallet.tenant_sales_total ?? 0)} description="Hak tenant setelah markup owner dipisahkan" icon={<IconReceipt2 size={20} />} tone="emerald" />
                         <SummaryCard title="Piutang ke Owner" value={formatCurrency(wallet.receivable_total ?? 0)} description="Hak tenant yang belum dicairkan penuh" icon={<IconClockHour4 size={20} />} tone="amber" />
                         <SummaryCard title="Menunggu Approval" value={formatCurrency(wallet.pending_total ?? 0)} description="Pengajuan penarikan yang masih diproses" icon={<IconShieldCheck size={20} />} tone="blue" />
                         <SummaryCard title="Saldo Tersedia" value={formatCurrency(wallet.available_balance ?? 0)} description="Batas nominal yang bisa diajukan saat ini" icon={<IconCashBanknote size={20} />} tone="slate" />
@@ -419,13 +560,13 @@ export default function Index({
                                 <div className="grid gap-3 md:grid-cols-2">
                                     <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-800/60">
                                         <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                                            Penjualan Setelah Promo
+                                            Hak Tenant Setelah Markup
                                         </p>
                                         <p className="mt-2 text-lg font-bold text-slate-900 dark:text-white">
                                             {formatCurrency(wallet?.tenant_sales_total ?? 0)}
                                         </p>
                                         <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                            Dasar sebelum promo {formatCurrency(wallet?.base_total ?? 0)}
+                                            Omzet setelah promo {formatCurrency(wallet?.gross_sales_total ?? 0)}
                                         </p>
                                     </div>
                                     <div className="rounded-2xl bg-emerald-50 p-4 dark:bg-emerald-950/20">
@@ -436,7 +577,7 @@ export default function Index({
                                             {formatCurrency(wallet?.available_balance ?? 0)}
                                         </p>
                                         <p className="mt-1 text-xs text-emerald-600/80 dark:text-emerald-300/70">
-                                            Diskon pricing rules {formatCurrency(wallet?.pricing_discount_total ?? 0)}
+                                            Promo pricing rules {formatCurrency(wallet?.pricing_discount_total ?? 0)}
                                         </p>
                                     </div>
                                 </div>
@@ -699,119 +840,6 @@ export default function Index({
                     </div>
                     ) : null}
 
-                    <div className="rounded-3xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
-                        {showFilters ? (
-                        <form onSubmit={applyFilters} className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-                            <div className="xl:col-span-2">
-                                <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                    Cari
-                                </label>
-                                <div className="relative">
-                                    <input
-                                        value={filterData.q}
-                                        onChange={(event) =>
-                                            setFilterData((prev) => ({
-                                                ...prev,
-                                                q: event.target.value,
-                                            }))
-                                        }
-                                        className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 pr-10 text-sm dark:border-slate-700 dark:bg-slate-800"
-                                        placeholder={canCreateRequest ? "Nomor request, penerima..." : "Nomor request, pengaju, penerima..."}
-                                    />
-                                    <span className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-4 text-slate-400">
-                                        <IconSearch size={16} />
-                                    </span>
-                                </div>
-                            </div>
-                            <div>
-                                <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                    Status
-                                </label>
-                                <select
-                                    value={filterData.status}
-                                    onChange={(event) =>
-                                        setFilterData((prev) => ({
-                                            ...prev,
-                                            status: event.target.value,
-                                        }))
-                                    }
-                                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
-                                >
-                                    <option value="">Semua</option>
-                                    <option value="pending">Pending</option>
-                                    <option value="approved">Approved</option>
-                                    <option value="rejected">Rejected</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                    {canCreateRequest ? "Akun" : "Pengaju"}
-                                </label>
-                                <select
-                                    value={filterData.cashier_id}
-                                    onChange={(event) =>
-                                        setFilterData((prev) => ({
-                                            ...prev,
-                                            cashier_id: event.target.value,
-                                        }))
-                                    }
-                                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
-                                >
-                                    <option value="">Semua</option>
-                                    {cashiers.map((cashier) => (
-                                        <option key={cashier.id} value={String(cashier.id)}>
-                                            {cashier.name}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
-                            <div className="flex items-end gap-2">
-                                <button type="submit" className="rounded-xl bg-primary-600 px-4 py-3 text-sm font-semibold text-white">
-                                    Terapkan
-                                </button>
-                                <button type="button" onClick={resetFilters} className="rounded-xl border border-slate-200 px-4 py-3 text-sm font-medium text-slate-600 dark:border-slate-700 dark:text-slate-300">
-                                    Reset
-                                </button>
-                            </div>
-                            <div>
-                                <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                    Dari
-                                </label>
-                                <input
-                                    type="date"
-                                    value={filterData.date_from}
-                                    onChange={(event) =>
-                                        setFilterData((prev) => ({
-                                            ...prev,
-                                            date_from: event.target.value,
-                                        }))
-                                    }
-                                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
-                                />
-                            </div>
-                            <div>
-                                <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                    Sampai
-                                </label>
-                                <input
-                                    type="date"
-                                    value={filterData.date_to}
-                                    onChange={(event) =>
-                                        setFilterData((prev) => ({
-                                            ...prev,
-                                            date_to: event.target.value,
-                                        }))
-                                    }
-                                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
-                                />
-                            </div>
-                        </form>
-                        ) : (
-                            <div className="mb-4 rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600 dark:bg-slate-800/60 dark:text-slate-300">
-                                Gunakan filter hanya saat perlu mencari pengajuan tertentu.
-                            </div>
-                        )}
-                    </div>
                 </div>
 
                 <div className="rounded-3xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
@@ -958,6 +986,197 @@ export default function Index({
                         </div>
                     )}
                 </div>
+
+                {isTenantRequestMode ? (
+                    <div className="rounded-3xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+                        <div className="mb-4">
+                            <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+                                Transaksi Masuk ke Saldo
+                            </h2>
+                            <p className="text-sm text-slate-500 dark:text-slate-400">
+                                Menampilkan {walletTransactions?.from || 0}-{walletTransactions?.to || 0} dari {walletTransactions?.total || 0} transaksi delivered. Tabel ini menjadi dasar saldo tenant, markup owner, dan nominal yang bisa diajukan.
+                            </p>
+                        </div>
+
+                        {walletRows.length > 0 ? (
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-sm">
+                                    <thead>
+                                        <tr className="border-b border-slate-100 dark:border-slate-800">
+                                            <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Transaksi</th>
+                                            <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Kasir</th>
+                                            <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Omzet Setelah Promo</th>
+                                            <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Hak Tenant</th>
+                                            <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Promo</th>
+                                            <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Selesai</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                        {walletRows.map((row) => (
+                                            <tr key={row.id}>
+                                                <td className="px-4 py-3">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => openWalletDetailModal(row)}
+                                                        className="font-semibold text-left text-primary-700 hover:underline dark:text-primary-300"
+                                                    >
+                                                        {row.invoice}
+                                                    </button>
+                                                    <div className="text-xs text-slate-500 dark:text-slate-400">
+                                                        {row.allocation_number} • {row.customer_name}
+                                                    </div>
+                                                    <div className="text-xs text-slate-500 dark:text-slate-400">
+                                                        {paymentMethodLabel(row.payment_method)} • {row.payment_status || "-"}
+                                                    </div>
+                                                </td>
+                                                <td className="px-4 py-3 text-slate-700 dark:text-slate-300">
+                                                    <div>{row.cashier_name}</div>
+                                                    {row.tenant_outlet?.name ? (
+                                                        <div className="text-xs text-slate-500 dark:text-slate-400">
+                                                            {row.tenant_outlet.name}
+                                                        </div>
+                                                    ) : null}
+                                                </td>
+                                                <td className="px-4 py-3 text-right font-semibold text-slate-900 dark:text-white">
+                                                    {formatCurrency(row.gross_sales_total)}
+                                                </td>
+                                                <td className="px-4 py-3 text-right font-semibold text-emerald-600 dark:text-emerald-300">
+                                                    {formatCurrency(row.tenant_sales_total)}
+                                                </td>
+                                                <td className="px-4 py-3 text-right text-slate-700 dark:text-slate-300">
+                                                    {formatCurrency(row.pricing_discount_total || 0)}
+                                                </td>
+                                                <td className="px-4 py-3 text-slate-700 dark:text-slate-300">
+                                                    <div>{formatDateTime(row.delivered_at)}</div>
+                                                    <div className="text-xs text-slate-500 dark:text-slate-400">
+                                                        Dibuat {formatDateTime(row.created_at)}
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                                {walletTransactions?.last_page > 1 ? <Pagination links={walletLinks} /> : null}
+                            </div>
+                        ) : (
+                            <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-10 text-center text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
+                                Belum ada transaksi delivered yang masuk ke saldo tenant.
+                            </div>
+                        )}
+                    </div>
+                ) : null}
+
+                {walletDetailModal.open ? (
+                    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/55 p-4">
+                        <div className="flex min-h-full items-center justify-center py-2">
+                            <div className="flex w-full max-w-4xl max-h-[calc(100vh-2rem)] flex-col overflow-hidden rounded-3xl bg-white shadow-2xl dark:bg-slate-900">
+                                <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-6 py-5 dark:border-slate-800">
+                                    <div>
+                                        <h2 className="text-xl font-semibold text-slate-900 dark:text-white">
+                                            Detail Transaksi Tenant
+                                        </h2>
+                                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                            {walletDetailModal.transaction?.invoice} • {walletDetailModal.transaction?.customer_name}
+                                        </p>
+                                    </div>
+                                    <button type="button" onClick={closeWalletDetailModal} className="rounded-xl border border-slate-200 px-3 py-2 text-sm dark:border-slate-700">
+                                        Tutup
+                                    </button>
+                                </div>
+                                <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+                                    <div className="grid gap-3 md:grid-cols-4">
+                                        <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-800/60">
+                                            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Omzet Setelah Promo</p>
+                                            <p className="mt-2 text-lg font-bold text-slate-900 dark:text-white">
+                                                {formatCurrency(walletDetailModal.transaction?.gross_sales_total ?? 0)}
+                                            </p>
+                                        </div>
+                                        <div className="rounded-2xl bg-emerald-50 p-4 dark:bg-emerald-950/20">
+                                            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-500">Hak Tenant</p>
+                                            <p className="mt-2 text-lg font-bold text-emerald-700 dark:text-emerald-300">
+                                                {formatCurrency(walletDetailModal.transaction?.tenant_sales_total ?? 0)}
+                                            </p>
+                                        </div>
+                                        <div className="rounded-2xl bg-amber-50 p-4 dark:bg-amber-950/20">
+                                            <p className="text-xs font-semibold uppercase tracking-wide text-amber-500">Markup Owner</p>
+                                            <p className="mt-2 text-lg font-bold text-amber-700 dark:text-amber-300">
+                                                {formatCurrency(walletDetailModal.transaction?.owner_markup_total ?? 0)}
+                                            </p>
+                                        </div>
+                                        <div className="rounded-2xl bg-blue-50 p-4 dark:bg-blue-950/20">
+                                            <p className="text-xs font-semibold uppercase tracking-wide text-blue-500">Promo</p>
+                                            <p className="mt-2 text-lg font-bold text-blue-700 dark:text-blue-300">
+                                                {formatCurrency(walletDetailModal.transaction?.pricing_discount_total ?? 0)}
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    <div className="mt-5 overflow-x-auto">
+                                        <table className="w-full text-sm">
+                                            <thead>
+                                                <tr className="border-b border-slate-100 dark:border-slate-800">
+                                                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Item</th>
+                                                    <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Qty</th>
+                                                    <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Harga Customer</th>
+                                                    <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Hak Tenant</th>
+                                                    <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Markup Owner</th>
+                                                    <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Diskon</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                                {(walletDetailModal.transaction?.details || []).map((detail) => (
+                                                    <tr key={detail.id}>
+                                                        <td className="px-4 py-3">
+                                                            <div className="font-medium text-slate-900 dark:text-white">{detail.product_title}</div>
+                                                            {detail.notes ? (
+                                                                <div className="text-xs text-slate-500 dark:text-slate-400">
+                                                                    Catatan: {detail.notes}
+                                                                </div>
+                                                            ) : null}
+                                                            {detail.modifiers?.length ? (
+                                                                <div className="mt-2 space-y-1">
+                                                                    {detail.modifiers.map((modifier) => (
+                                                                        <div key={modifier.id} className="text-xs text-slate-500 dark:text-slate-400">
+                                                                            {modifier.name} x{modifier.qty} • {formatCurrency(modifier.total_price)}
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            ) : null}
+                                                        </td>
+                                                        <td className="px-4 py-3 text-right text-slate-700 dark:text-slate-300">
+                                                            {detail.qty}
+                                                        </td>
+                                                        <td className="px-4 py-3 text-right text-slate-700 dark:text-slate-300">
+                                                            <div>{formatCurrency(detail.line_total)}</div>
+                                                            <div className="text-xs text-slate-500 dark:text-slate-400">
+                                                                Unit {formatCurrency(detail.customer_unit_price)}
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-4 py-3 text-right font-semibold text-emerald-600 dark:text-emerald-300">
+                                                            <div>{formatCurrency(detail.tenant_net_total)}</div>
+                                                            <div className="text-xs font-normal text-slate-500 dark:text-slate-400">
+                                                                Unit {formatCurrency(detail.tenant_base_unit_price)}
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-4 py-3 text-right font-semibold text-amber-600 dark:text-amber-300">
+                                                            <div>{formatCurrency(detail.owner_net_total)}</div>
+                                                            <div className="text-xs font-normal text-slate-500 dark:text-slate-400">
+                                                                Unit {formatCurrency(detail.owner_markup_unit_price)}
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-4 py-3 text-right text-slate-700 dark:text-slate-300">
+                                                            {formatCurrency(detail.discount_total || 0)}
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                ) : null}
 
                 {approvalModal.open ? (
                     <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/55 p-4">

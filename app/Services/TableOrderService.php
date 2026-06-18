@@ -208,7 +208,6 @@ class TableOrderService
         $pricingPreview = $this->pricingService->previewCart(
             $orderItems->map(function (array $item) use ($products) {
                 $cart = new \App\Models\Cart([
-                    'id' => (int) $item['cart_id'],
                     'product_id' => (int) $item['product_id'],
                     'qty' => (int) $item['qty'],
                     'price' => (int) $item['line_total'],
@@ -216,6 +215,7 @@ class TableOrderService
                     'promo_reward_rule_name' => $item['promo_reward_rule_name'] ?? null,
                     'promo_reward_label' => $item['promo_reward_label'] ?? null,
                 ]);
+                $cart->setAttribute('id', (int) $item['cart_id']);
 
                 $cart->setRelation('product', $products->get($item['product_id']));
                 $cart->setRelation('modifiers', collect($item['modifiers'] ?? [])->map(
@@ -307,7 +307,9 @@ class TableOrderService
             ]);
         }
 
-        if ($cashAmount < (int) $tableOrder->grand_total) {
+        $resolvedGrandTotal = $tableOrder->resolvedGrandTotal();
+
+        if ($cashAmount < $resolvedGrandTotal) {
             throw ValidationException::withMessages([
                 'cash' => $paymentMethod === 'cash'
                     ? 'Nominal tunai kurang dari total order.'
@@ -323,9 +325,10 @@ class TableOrderService
         );
 
         $transaction = DB::transaction(function () use ($tableOrder, $cashier, $activeShift, $cashAmount, $paymentMethod) {
+            $resolvedGrandTotal = $tableOrder->resolvedGrandTotal();
             $invoice = $this->generateInvoiceNumber();
             $changeAmount = $paymentMethod === 'cash'
-                ? max(0, $cashAmount - (int) $tableOrder->grand_total)
+                ? max(0, $cashAmount - $resolvedGrandTotal)
                 : 0;
 
             $transaction = Transaction::create([
@@ -340,7 +343,7 @@ class TableOrderService
                 'change' => $changeAmount,
                 'discount' => 0,
                 'shipping_cost' => 0,
-                'grand_total' => (int) $tableOrder->grand_total,
+                'grand_total' => $resolvedGrandTotal,
                 'payment_method' => $paymentMethod,
                 'payment_status' => 'paid',
             ]);
@@ -406,6 +409,8 @@ class TableOrderService
             }
 
             $tableOrder->update([
+                'subtotal' => $resolvedGrandTotal,
+                'grand_total' => $resolvedGrandTotal,
                 'status' => 'paid',
                 'approved_by' => $cashier->id,
                 'approved_at' => now(),

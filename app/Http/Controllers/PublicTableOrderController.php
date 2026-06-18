@@ -262,10 +262,10 @@ class PublicTableOrderController extends Controller
                 'notes' => $order->notes,
                 'payment_method' => $order->payment_method,
                 'status' => $order->status,
-                'subtotal' => (int) $order->subtotal,
+                'subtotal' => $order->resolvedSubtotal(),
                 'base_subtotal' => (int) $order->items->sum(fn ($item) => ((int) ($item->base_unit_price ?? $item->unit_price) * (int) $item->qty) + (int) $item->modifiers->sum('total_price')),
                 'discount_total' => (int) $order->items->sum('discount_total'),
-                'grand_total' => (int) $order->grand_total,
+                'grand_total' => $order->resolvedGrandTotal(),
                 'approved_at' => optional($order->approved_at)->toISOString(),
                 'created_at' => optional($order->created_at)->toISOString(),
                 'created_at_label' => optional($order->created_at)->format('d M Y H:i'),
@@ -376,6 +376,7 @@ class PublicTableOrderController extends Controller
     {
         $metrics = $this->customerOutletMetricService->metricsForCustomer($customer, $outletId);
         $recentTableOrders = TableOrder::query()
+            ->with('items:id,table_order_id,line_total')
             ->select('id', 'order_number', 'grand_total', 'status', 'created_at', 'access_token')
             ->where('customer_id', $customer->id)
             ->where('outlet_id', $outletId)
@@ -406,7 +407,7 @@ class PublicTableOrderController extends Controller
             'recent_orders' => $recentTableOrders->map(fn ($order) => [
                 'id' => $order->id,
                 'order_number' => $order->order_number,
-                'grand_total' => (int) $order->grand_total,
+                'grand_total' => $order->resolvedGrandTotal(),
                 'status' => $order->status,
                 'created_at' => optional($order->created_at)->toIso8601String(),
                 'access_token' => $order->access_token,

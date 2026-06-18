@@ -237,13 +237,16 @@ class TransactionController extends Controller
             ->latest('created_at')
             ->limit(6)
             ->get()
-            ->map(fn (TableOrder $order) => [
+            ->map(function (TableOrder $order) {
+                $resolvedGrandTotal = $order->resolvedGrandTotal();
+
+                return [
                 'id' => $order->id,
                 'order_number' => $order->order_number,
                 'customer_name' => $order->customer_name,
                 'customer_phone' => $order->customer_phone,
                 'notes' => $order->notes,
-                'grand_total' => (int) $order->grand_total,
+                'grand_total' => $resolvedGrandTotal,
                 'created_at' => optional($order->created_at)->toISOString(),
                 'created_at_label' => optional($order->created_at)->format('d M Y H:i'),
                 'table' => [
@@ -269,7 +272,8 @@ class TransactionController extends Controller
                         'total_price' => (int) $modifier->total_price,
                     ])->values(),
                 ])->values(),
-            ])
+                ];
+            })
             ->values();
 
         return Inertia::render('Dashboard/Transactions/Index', [

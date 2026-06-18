@@ -108,6 +108,74 @@ class TableOrderFlowTest extends TestCase
         ]);
     }
 
+    public function test_public_table_order_grand_total_sums_multiple_items_with_modifiers(): void
+    {
+        $outlet = $this->createOutlet();
+        $table = DiningTable::create([
+            'outlet_id' => $outlet->id,
+            'name' => 'Meja 07',
+            'code' => 'A7',
+            'qr_token' => 'table-07-token',
+            'capacity' => 4,
+            'status' => 'active',
+            'self_order_enabled' => true,
+            'sort_order' => 7,
+        ]);
+
+        $firstProduct = $this->createProduct($outlet, [
+            'barcode' => '8990002',
+            'sku' => 'SKU-002',
+            'title' => 'Alpokat Kocok',
+            'sell_price' => 16000,
+        ]);
+        $secondProduct = $this->createProduct($outlet, [
+            'barcode' => '8990003',
+            'sku' => 'SKU-003',
+            'title' => 'Chicken Katsu Ramen',
+            'sell_price' => 30000,
+        ]);
+        $modifier = ProductModifierOption::create([
+            'product_id' => $secondProduct->id,
+            'name' => 'Kuah Premium: Spicy Laksa',
+            'price' => 4000,
+            'is_active' => true,
+            'sort_order' => 1,
+        ]);
+        $customer = Customer::create([
+            'name' => 'Diah',
+            'no_telp' => '085742255079',
+            'email' => 'diah@example.com',
+            'address' => 'Jl. Kenanga No. 7',
+            'is_loyalty_member' => false,
+            'loyalty_tier' => 'regular',
+            'loyalty_points' => 0,
+        ]);
+
+        $this->withSession([
+            "public_table_order.customer_id.{$outlet->id}" => $customer->id,
+        ])->post(route('table-order.store', $table->qr_token), [
+            'items' => [
+                [
+                    'product_id' => $firstProduct->id,
+                    'qty' => 1,
+                    'modifiers' => [],
+                ],
+                [
+                    'product_id' => $secondProduct->id,
+                    'qty' => 1,
+                    'modifiers' => [
+                        ['id' => $modifier->id],
+                    ],
+                ],
+            ],
+        ])->assertRedirect();
+
+        $order = TableOrder::query()->latest('id')->firstOrFail();
+
+        $this->assertSame(50000, (int) $order->grand_total);
+        $this->assertSame(50000, (int) $order->items()->sum('line_total'));
+    }
+
     public function test_public_table_order_can_register_new_customer_from_pending_phone(): void
     {
         $outlet = $this->createOutlet();
@@ -281,7 +349,7 @@ class TableOrderFlowTest extends TestCase
         ]);
     }
 
-    private function createProduct(Outlet $outlet): Product
+    private function createProduct(Outlet $outlet, array $overrides = []): Product
     {
         $category = Category::create([
             'image' => 'placeholder.jpg',
@@ -289,7 +357,7 @@ class TableOrderFlowTest extends TestCase
             'description' => 'Kategori makanan',
         ]);
 
-        $product = Product::create([
+        $product = Product::create(array_merge([
             'image' => 'placeholder.jpg',
             'barcode' => '8990001',
             'sku' => 'SKU-001',
@@ -301,7 +369,7 @@ class TableOrderFlowTest extends TestCase
             'tenant_outlet_id' => $outlet->id,
             'supports_modifiers' => false,
             'stock' => 10,
-        ]);
+        ], $overrides));
 
         ProductOutletStock::create([
             'outlet_id' => $outlet->id,
