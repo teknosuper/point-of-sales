@@ -737,7 +737,8 @@
         if (ticket.number) bytes.push(...escLine('Ticket: ' + ticket.number));
         if (tx.invoice) bytes.push(...escLine('Invoice: ' + tx.invoice));
         if (tx.order_type) bytes.push(...escLine('Order: ' + tx.order_type));
-        if (tx.customer && tx.customer !== 'Pelanggan Umum') bytes.push(...escLine('Customer: ' + tx.customer));
+        if (tx.table) bytes.push(...escLine('Meja: ' + tx.table));
+        if (tx.customer) bytes.push(...escLine('Customer: ' + tx.customer));
         if (ticket.created_at) bytes.push(...escLine('Waktu: ' + ticket.created_at));
         bytes.push(...escLine(sep));
 
@@ -874,6 +875,7 @@
         if (ticket.number) encoder.text('Ticket: ' + ticket.number).newline();
         if (tx.invoice) encoder.text('Invoice: ' + tx.invoice).newline();
         if (tx.order_type) encoder.text('Order: ' + tx.order_type).newline();
+        if (tx.table) encoder.text('Meja: ' + tx.table).newline();
         if (tx.customer) encoder.text('Customer: ' + tx.customer).newline();
         if (ticket.created_at) encoder.text('Waktu: ' + ticket.created_at).newline();
         encoder.text(sep).newline();

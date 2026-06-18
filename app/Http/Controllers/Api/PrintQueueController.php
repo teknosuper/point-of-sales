@@ -84,8 +84,9 @@ class PrintQueueController extends Controller
 
         $query = PrintJob::query()
             ->with([
-                'transaction:id,invoice,order_type,customer_id,created_at',
+                'transaction:id,invoice,order_type,customer_id,dining_table_id,created_at',
                 'transaction.customer:id,name',
+                'transaction.diningTable:id,name,code',
                 'kitchenTicket:id,kitchen_station_id,transaction_id,ticket_number,status,notes,created_at',
                 'kitchenTicket.items:id,kitchen_ticket_id,product_title,qty,notes',
                 'kitchenTicket.kitchenStation:id,name,slug,code',
@@ -400,6 +401,7 @@ class PrintQueueController extends Controller
             'transaction' => $transaction ? [
                 'invoice' => $transaction->invoice,
                 'order_type' => $transaction->order_type,
+                'table' => $transaction->diningTable?->name ?? $transaction->diningTable?->code ?? null,
                 'customer' => $transaction->customer?->name ?? 'Pelanggan Umum',
                 'date' => $transaction->created_at ? \Carbon\Carbon::parse($transaction->created_at)->format('d/m/Y H:i') : null,
             ] : null,
