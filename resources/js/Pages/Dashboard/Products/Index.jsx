@@ -14,6 +14,7 @@ import {
     IconLayoutGrid,
     IconList,
     IconPackage,
+    IconPencilCheck,
     IconPencilCog,
     IconPhoto,
     IconPrinter,
@@ -676,6 +677,60 @@ export default function Index({
         );
     };
 
+    const [showBulkStockModal, setShowBulkStockModal] = useState(false);
+    const [bulkStockEntries, setBulkStockEntries] = useState([]);
+    const [bulkStockNotes, setBulkStockNotes] = useState("");
+
+    const openBulkStockModal = () => {
+        const allRows = products?.data ?? [];
+
+        if (allRows.length === 0) {
+            return;
+        }
+
+        setBulkStockEntries(
+            allRows.map((product) => ({
+                product_id: product.id,
+                title: product.title,
+                barcode: product.barcode || "—",
+                current_stock: String(
+                    product.active_outlet_stock ?? product.stock ?? 0
+                ),
+                stock: String(
+                    product.active_outlet_stock ?? product.stock ?? 0
+                ),
+            }))
+        );
+        setBulkStockNotes("");
+        setShowBulkStockModal(true);
+    };
+
+    const closeBulkStockModal = () => {
+        setShowBulkStockModal(false);
+        setBulkStockEntries([]);
+        setBulkStockNotes("");
+    };
+
+    const submitBulkStockUpdate = (event) => {
+        event.preventDefault();
+        router.post(
+            route("products.bulk-stock.update"),
+            {
+                notes: bulkStockNotes,
+                stocks: bulkStockEntries.map((entry) => ({
+                    product_id: entry.product_id,
+                    stock: Number(entry.stock || 0),
+                })),
+            },
+            {
+                preserveScroll: true,
+                onSuccess: () => {
+                    closeBulkStockModal();
+                },
+            }
+        );
+    };
+
     return (
         <>
             <Head title="Produk" />
@@ -704,6 +759,17 @@ export default function Index({
                             <IconInfoCircle size={16} />
                             Bantuan
                         </button>
+
+                        {canUpdateProductStock && activeOutlet?.id ? (
+                            <button
+                                onClick={openBulkStockModal}
+                                className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 transition-colors hover:bg-emerald-100 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-300 dark:hover:bg-emerald-950/50 sm:w-auto"
+                                type="button"
+                            >
+                                <IconPencilCheck size={18} />
+                                Update Stok Massal
+                            </button>
+                        ) : null}
 
                         {!isKitchenWorkspace && !isTenantWorkspace ? (
                             <button
@@ -1710,6 +1776,119 @@ export default function Index({
                                     >
                                         Simpan Stok Hari Ini
                                     </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                ) : null}
+
+                {showBulkStockModal ? (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 px-4 py-6">
+                        <div className="w-full max-w-4xl max-h-[85vh] flex flex-col rounded-3xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-900">
+                            <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-5 dark:border-slate-800">
+                                <div>
+                                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-500">
+                                        Update Stok Massal
+                                    </p>
+                                    <h3 className="mt-1 text-lg font-semibold text-slate-900 dark:text-white">
+                                        {bulkStockEntries.length} produk • Outlet {activeOutletName}
+                                    </h3>
+                                    <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                        Sesuaikan stok banyak produk sekaligus untuk outlet aktif.
+                                    </p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={closeBulkStockModal}
+                                    className="rounded-xl border border-slate-200 p-2 text-slate-500 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                                >
+                                    <IconX size={18} />
+                                </button>
+                            </div>
+
+                            <form onSubmit={submitBulkStockUpdate} className="flex flex-col min-h-0 flex-1">
+                                <div className="flex-1 overflow-y-auto px-6 py-4">
+                                    <div className="space-y-1">
+                                        {bulkStockEntries.map((entry, index) => (
+                                            <div
+                                                key={entry.product_id}
+                                                className="grid grid-cols-12 gap-3 items-center rounded-xl px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-800/50"
+                                            >
+                                                <div className="col-span-1 text-center text-xs font-medium text-slate-400 dark:text-slate-500">
+                                                    {index + 1}
+                                                </div>
+                                                <div className="col-span-5 min-w-0">
+                                                    <p className="truncate text-sm font-medium text-slate-800 dark:text-slate-200">
+                                                        {entry.title}
+                                                    </p>
+                                                    <p className="truncate text-xs text-slate-400 dark:text-slate-500">
+                                                        {entry.barcode}
+                                                    </p>
+                                                </div>
+                                                <div className="col-span-2 text-center">
+                                                    <span className="text-xs text-slate-400 dark:text-slate-500">
+                                                        Stok saat ini
+                                                    </span>
+                                                    <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+                                                        {entry.current_stock}
+                                                    </p>
+                                                </div>
+                                                <div className="col-span-4">
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        value={entry.stock}
+                                                        onChange={(event) =>
+                                                            setBulkStockEntries((prev) =>
+                                                                prev.map((item) =>
+                                                                    item.product_id === entry.product_id
+                                                                        ? { ...item, stock: event.target.value }
+                                                                        : item
+                                                                )
+                                                            )
+                                                        }
+                                                        className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 text-center outline-none transition focus:border-emerald-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                                    />
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                <div className="border-t border-slate-200 px-6 py-4 dark:border-slate-800 space-y-4">
+                                    <div>
+                                        <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                            Catatan (opsional)
+                                        </label>
+                                        <textarea
+                                            value={bulkStockNotes}
+                                            onChange={(event) => setBulkStockNotes(event.target.value)}
+                                            rows={2}
+                                            className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-emerald-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                            placeholder="Contoh: stok opname pagi, restock massal, atau koreksi stok outlet."
+                                        />
+                                    </div>
+
+                                    <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-between sm:items-center">
+                                        <p className="text-xs text-slate-400 dark:text-slate-500">
+                                            Perubahan akan disimpan dengan mutasi stok dan audit log.
+                                        </p>
+                                        <div className="flex gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={closeBulkStockModal}
+                                                className="inline-flex items-center justify-center rounded-2xl border border-slate-200 px-4 py-3 text-sm font-medium text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                                            >
+                                                Batal
+                                            </button>
+                                            <button
+                                                type="submit"
+                                                className="inline-flex items-center justify-center rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-600"
+                                            >
+                                                Simpan Semua Stok
+                                            </button>
+                                        </div>
+                                    </div>
                                 </div>
                             </form>
                         </div>

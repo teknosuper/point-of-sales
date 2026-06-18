@@ -621,6 +621,69 @@ class ProductController extends Controller
         return back()->with('success', 'Stok harian produk berhasil diperbarui.');
     }
 
+    public function bulkStockUpdate(Request $request): RedirectResponse
+    {
+        $user = $request->user();
+        $activeOutlet = $this->outletResolver->resolve($request, $user);
+
+        if (! $activeOutlet) {
+            return back()->with('error', 'Outlet aktif tidak ditemukan.');
+        }
+
+        $data = $request->validate([
+            'stocks' => ['required', 'array', 'min:1'],
+            'stocks.*.product_id' => ['required', 'integer', 'exists:products,id'],
+            'stocks.*.stock' => ['required', 'integer', 'min:0'],
+            'notes' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $outletId = (int) $activeOutlet->id;
+        $updated = 0;
+
+        foreach ($data['stocks'] as $entry) {
+            $product = Product::find($entry['product_id']);
+
+            if (! $product) {
+                continue;
+            }
+
+            $this->resolveWorkspaceProduct($product, $request);
+
+            $existingStock = ProductOutletStock::query()->firstWhere([
+                'outlet_id' => $outletId,
+                'product_id' => $product->id,
+            ]);
+
+            $this->stockMutationService->setPhysicalStockForOutlet(
+                product: $product,
+                outletId: $outletId,
+                stockAfter: (int) $entry['stock'],
+                referenceType: 'product_bulk_adjustment',
+                referenceId: $product->id,
+                notes: $data['notes'] ?: 'Adjustment stok massal dari daftar produk.',
+                userId: $user->id,
+            );
+
+            ProductOutletStock::query()->updateOrCreate(
+                [
+                    'outlet_id' => $outletId,
+                    'product_id' => $product->id,
+                ],
+                [
+                    'stock' => (int) $entry['stock'],
+                    'reorder_level' => $existingStock?->reorder_level !== null
+                        ? (int) $existingStock->reorder_level
+                        : 0,
+                    'last_counted_at' => now(),
+                ]
+            );
+
+            $updated++;
+        }
+
+        return back()->with('success', "{$updated} produk berhasil diperbarui stoknya di {$activeOutlet->name}.");
+    }
+
     /**
      * Update the specified resource in storage.
      *
