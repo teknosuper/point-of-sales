@@ -378,6 +378,8 @@ class PrintQueueController extends Controller
     {
         $ticket = $job->kitchenTicket;
         $transaction = $job->transaction;
+        $tableCode = $transaction?->diningTable?->code;
+        $tableName = $transaction?->diningTable?->name;
 
         return [
             'id' => $job->id,
@@ -401,7 +403,10 @@ class PrintQueueController extends Controller
             'transaction' => $transaction ? [
                 'invoice' => $transaction->invoice,
                 'order_type' => $transaction->order_type,
-                'table' => $transaction->diningTable?->name ?? $transaction->diningTable?->code ?? null,
+                'order_type_label' => $this->orderTypeLabel($transaction->order_type),
+                'table' => $this->tableLabel($tableCode, $tableName),
+                'table_code' => $tableCode,
+                'table_name' => $tableName,
                 'customer' => $transaction->customer?->name ?? 'Pelanggan Umum',
                 'date' => $transaction->created_at ? \Carbon\Carbon::parse($transaction->created_at)->format('d/m/Y H:i') : null,
             ] : null,
@@ -719,5 +724,26 @@ class PrintQueueController extends Controller
         }, $parts);
 
         return implode("\n", $parts);
+    }
+
+    private function orderTypeLabel(?string $orderType): string
+    {
+        return match ($orderType) {
+            'dine_in' => 'Makan di Tempat',
+            'take_away', 'takeaway' => 'Bawa Pulang',
+            default => \Illuminate\Support\Str::headline(str_replace('_', ' ', (string) $orderType)),
+        };
+    }
+
+    private function tableLabel(?string $tableCode, ?string $tableName): ?string
+    {
+        $tableCode = trim((string) $tableCode);
+        $tableName = trim((string) $tableName);
+
+        if ($tableCode !== '' && $tableName !== '') {
+            return "{$tableCode} - {$tableName}";
+        }
+
+        return $tableCode !== '' ? $tableCode : ($tableName !== '' ? $tableName : null);
     }
 }

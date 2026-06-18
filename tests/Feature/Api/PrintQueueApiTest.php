@@ -4,6 +4,11 @@ namespace Tests\Feature\Api;
 
 use App\Models\BankAccount;
 use App\Models\Category;
+use App\Models\DiningTable;
+use App\Models\KitchenStation;
+use App\Models\KitchenStationDevice;
+use App\Models\KitchenTicket;
+use App\Models\KitchenTicketItem;
 use App\Models\Outlet;
 use App\Models\PrintJob;
 use App\Models\Product;
@@ -114,6 +119,105 @@ class PrintQueueApiTest extends TestCase
             'Promo Paket Hemat',
             (string) data_get($response->json(), 'jobs.0.transaction.items.0.promo_summary')
         );
+    }
+
+    public function test_kitchen_print_queue_returns_table_label_and_order_type_label(): void
+    {
+        config(['services.print_bridge.token' => 'test-token']);
+
+        $outlet = $this->createOutlet('PRINT-KITCHEN', 'Outlet Kitchen');
+        $station = KitchenStation::create([
+            'outlet_id' => $outlet->id,
+            'name' => 'Dapur Utama',
+            'slug' => 'dapur-utama',
+            'code' => 'DPR',
+            'station_type' => 'kitchen',
+            'display_mode' => 'screen',
+            'processing_mode' => 'auto',
+            'is_active' => true,
+            'sort_order' => 1,
+        ]);
+        $device = KitchenStationDevice::create([
+            'kitchen_station_id' => $station->id,
+            'name' => 'Printer Dapur',
+            'device_type' => 'printer',
+            'connection_driver' => 'web',
+            'endpoint' => null,
+            'is_primary' => true,
+            'is_active' => true,
+            'meta' => ['paper_width' => '80mm'],
+        ]);
+        $table = DiningTable::create([
+            'outlet_id' => $outlet->id,
+            'name' => 'Meja Teras',
+            'code' => 'A01',
+            'capacity' => 4,
+            'status' => 'active',
+            'self_order_enabled' => true,
+            'sort_order' => 1,
+        ]);
+
+        $transaction = Transaction::create([
+            'outlet_id' => $outlet->id,
+            'table_id' => $table->id,
+            'order_type' => 'dine_in',
+            'invoice' => 'INV-KITCHEN-001',
+            'cash' => 0,
+            'change' => 0,
+            'discount' => 0,
+            'customer_voucher_discount' => 0,
+            'loyalty_discount_total' => 0,
+            'shipping_cost' => 0,
+            'grand_total' => 25000,
+            'payment_method' => 'cash',
+            'payment_status' => 'paid',
+        ]);
+
+        $ticket = KitchenTicket::create([
+            'outlet_id' => $outlet->id,
+            'transaction_id' => $transaction->id,
+            'kitchen_station_id' => $station->id,
+            'ticket_number' => 'KT-0001',
+            'status' => 'pending',
+            'notes' => 'Tanpa sambal',
+            'fired_at' => now(),
+        ]);
+
+        KitchenTicketItem::create([
+            'kitchen_ticket_id' => $ticket->id,
+            'product_title' => 'Nasi Goreng',
+            'qty' => 2,
+            'status' => 'pending',
+            'notes' => 'Pedas sedang',
+        ]);
+
+        PrintJob::create([
+            'outlet_id' => $outlet->id,
+            'transaction_id' => $transaction->id,
+            'kitchen_ticket_id' => $ticket->id,
+            'kitchen_station_device_id' => $device->id,
+            'job_type' => PrintJob::TYPE_KITCHEN_TICKET,
+            'status' => PrintJob::STATUS_QUEUED,
+            'copies' => 1,
+            'payload' => ['paper_width' => '80mm'],
+            'queued_at' => now(),
+        ]);
+
+        $response = $this->getJson(route('print-queue.kitchen', [
+            'token' => 'test-token',
+            'outlet_id' => $outlet->id,
+            'station_id' => $station->id,
+        ]));
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('count', 1)
+            ->assertJsonPath('jobs.0.transaction.invoice', 'INV-KITCHEN-001')
+            ->assertJsonPath('jobs.0.transaction.table', 'A01 - Meja Teras')
+            ->assertJsonPath('jobs.0.transaction.table_code', 'A01')
+            ->assertJsonPath('jobs.0.transaction.table_name', 'Meja Teras')
+            ->assertJsonPath('jobs.0.transaction.order_type', 'dine_in')
+            ->assertJsonPath('jobs.0.transaction.order_type_label', 'Makan di Tempat');
     }
 
     private function createOutlet(string $code, string $name): Outlet

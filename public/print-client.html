@@ -468,6 +468,14 @@
         return Number(value || 0).toLocaleString('id-ID');
     }
 
+    function formatKitchenOrderType(tx) {
+        return tx.order_type_label || tx.order_type || '';
+    }
+
+    function formatKitchenTable(tx) {
+        return tx.table || tx.table_label || '';
+    }
+
     function printWrappedLinesRaw(bytes, text, cols, indent = '') {
         wrapText(text, Math.max(8, cols - indent.length)).forEach(line => {
             bytes.push(...escLine(indent + line));
@@ -736,10 +744,10 @@
         bytes.push(...escAlignLeft());
         if (ticket.number) bytes.push(...escLine('Ticket: ' + ticket.number));
         if (tx.invoice) bytes.push(...escLine('Invoice: ' + tx.invoice));
-        if (tx.order_type) bytes.push(...escLine('Order: ' + tx.order_type));
-        if (tx.table) bytes.push(...escLine('Meja: ' + tx.table));
         if (tx.customer) bytes.push(...escLine('Customer: ' + tx.customer));
         if (ticket.created_at) bytes.push(...escLine('Waktu: ' + ticket.created_at));
+        if (formatKitchenTable(tx)) bytes.push(...escLine('Meja: ' + formatKitchenTable(tx)));
+        if (formatKitchenOrderType(tx)) bytes.push(...escLine('Tipe: ' + formatKitchenOrderType(tx)));
         bytes.push(...escLine(sep));
 
         bytes.push(...escBoldOn());
@@ -874,10 +882,10 @@
         encoder.align('left');
         if (ticket.number) encoder.text('Ticket: ' + ticket.number).newline();
         if (tx.invoice) encoder.text('Invoice: ' + tx.invoice).newline();
-        if (tx.order_type) encoder.text('Order: ' + tx.order_type).newline();
-        if (tx.table) encoder.text('Meja: ' + tx.table).newline();
         if (tx.customer) encoder.text('Customer: ' + tx.customer).newline();
         if (ticket.created_at) encoder.text('Waktu: ' + ticket.created_at).newline();
+        if (formatKitchenTable(tx)) encoder.text('Meja: ' + formatKitchenTable(tx)).newline();
+        if (formatKitchenOrderType(tx)) encoder.text('Tipe: ' + formatKitchenOrderType(tx)).newline();
         encoder.text(sep).newline();
 
         encoder.bold(true);

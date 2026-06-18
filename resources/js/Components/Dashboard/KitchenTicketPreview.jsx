@@ -62,6 +62,10 @@ const wrapText = (text, width) => {
 const buildThermalLines = (ticket, station) => {
     const cols = resolveColumns(station);
     const sep = "=".repeat(cols);
+    const tableLabel =
+        ticket?.table_code && ticket?.table_name
+            ? `${ticket.table_code} - ${ticket.table_name}`
+            : ticket?.table_code || ticket?.table_name || "";
     const lines = [
         { text: "KITCHEN ORDER", align: "center", bold: true },
         { text: station?.name || "Stasiun Dapur", align: "center", bold: true },
@@ -70,19 +74,24 @@ const buildThermalLines = (ticket, station) => {
 
     if (ticket?.ticket_number) lines.push({ text: `Ticket: ${ticket.ticket_number}` });
     if (ticket?.invoice) lines.push({ text: `Invoice: ${ticket.invoice}` });
-    if (ticket?.order_type) lines.push({ text: `Order: ${ticket.order_type}` });
-    if (ticket?.table_name || ticket?.table_code) {
-        lines.push({
-            text: `Meja: ${ticket.table_name || ticket.table_code}`,
-        });
-    }
-
     lines.push({
         text: `Customer: ${ticket?.customer_name || "Pelanggan Umum"}`,
     });
 
     if (ticket?.fired_at) {
         lines.push({ text: `Waktu: ${formatDateTime(ticket.fired_at)}` });
+    }
+
+    if (tableLabel) {
+        lines.push({
+            text: `Meja: ${tableLabel}`,
+        });
+    }
+
+    if (ticket?.order_type_label || ticket?.order_type) {
+        lines.push({
+            text: `Tipe: ${ticket?.order_type_label || ticket?.order_type}`,
+        });
     }
 
     lines.push({ text: sep, align: "left" });

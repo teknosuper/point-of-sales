@@ -8,6 +8,7 @@ use App\Models\PrintJob;
 use App\Services\PrintJobService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 
 class PrintBridgeController extends Controller
 {
@@ -169,6 +170,9 @@ class PrintBridgeController extends Controller
 
     private function jobPayload(PrintJob $job): array
     {
+        $tableCode = $job->transaction?->diningTable?->code;
+        $tableName = $job->transaction?->diningTable?->name;
+
         return [
             'id' => $job->id,
             'job_type' => $job->job_type,
@@ -186,6 +190,11 @@ class PrintBridgeController extends Controller
                 'customer_name' => $job->transaction->customer_name,
                 'customer_phone' => $job->transaction->customer_phone,
                 'customer_address' => $job->transaction->customer_address,
+                'order_type' => $job->transaction->order_type,
+                'order_type_label' => $this->orderTypeLabel($job->transaction->order_type),
+                'table' => $this->tableLabel($tableCode, $tableName),
+                'table_code' => $tableCode,
+                'table_name' => $tableName,
             ] : null,
             'kitchen_ticket' => $job->kitchenTicket ? [
                 'id' => $job->kitchenTicket->id,
@@ -215,5 +224,26 @@ class PrintBridgeController extends Controller
                 'template_style' => data_get($job->device->meta, 'template_style'),
             ] : null,
         ];
+    }
+
+    private function orderTypeLabel(?string $orderType): string
+    {
+        return match ($orderType) {
+            'dine_in' => 'Makan di Tempat',
+            'take_away', 'takeaway' => 'Bawa Pulang',
+            default => Str::headline(str_replace('_', ' ', (string) $orderType)),
+        };
+    }
+
+    private function tableLabel(?string $tableCode, ?string $tableName): ?string
+    {
+        $tableCode = trim((string) $tableCode);
+        $tableName = trim((string) $tableName);
+
+        if ($tableCode !== '' && $tableName !== '') {
+            return "{$tableCode} - {$tableName}";
+        }
+
+        return $tableCode !== '' ? $tableCode : ($tableName !== '' ? $tableName : null);
     }
 }
