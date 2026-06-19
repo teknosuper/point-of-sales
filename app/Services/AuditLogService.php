@@ -15,7 +15,7 @@ class AuditLogService
     public function log(
         string $event,
         string $module,
-        ?Model $auditable = null,
+        Model|array|null $auditable = null,
         ?string $description = null,
         ?array $before = null,
         ?array $after = null,
@@ -29,8 +29,9 @@ class AuditLogService
             'user_id' => $user?->id,
             'event' => $event,
             'module' => $module,
-            'auditable_type' => $auditable ? get_class($auditable) : null,
-            'auditable_id' => $auditable?->getKey(),
+            'auditable_type' => $this->resolveAuditableType($auditable),
+            'auditable_id' => $this->resolveAuditableId($auditable),
+            'target_label' => $this->resolveTargetLabel($auditable),
             'description' => $description,
             'before' => $before,
             'after' => $after,
@@ -45,7 +46,7 @@ class AuditLogService
      * Batch insert multiple audit logs in a single query.
      * Much more efficient than calling log() N times in a loop.
      *
-     * @param  array<int, array{event: string, module: string, auditable?: Model|null, description?: string|null, before?: array|null, after?: array|null, meta?: array|null}>  $payloads
+     * @param  array<int, array{event: string, module: string, auditable?: Model|array|null, description?: string|null, before?: array|null, after?: array|null, meta?: array|null}>  $payloads
      */
     public function logBatch(array $payloads): int
     {
@@ -65,8 +66,9 @@ class AuditLogService
                 'user_id' => $user?->id,
                 'event' => $payload['event'] ?? 'unknown',
                 'module' => $payload['module'] ?? 'unknown',
-                'auditable_type' => $auditable ? get_class($auditable) : null,
-                'auditable_id' => $auditable?->getKey(),
+                'auditable_type' => $this->resolveAuditableType($auditable),
+                'auditable_id' => $this->resolveAuditableId($auditable),
+                'target_label' => $this->resolveTargetLabel($auditable),
                 'description' => $payload['description'] ?? null,
                 'before' => isset($payload['before']) ? json_encode($payload['before']) : null,
                 'after' => isset($payload['after']) ? json_encode($payload['after']) : null,
@@ -194,6 +196,16 @@ class AuditLogService
             ->filter()
             ->values()
             ->all();
+    }
+
+    private function resolveAuditableType(Model|array|null $auditable): ?string
+    {
+        return $auditable instanceof Model ? get_class($auditable) : null;
+    }
+
+    private function resolveAuditableId(Model|array|null $auditable): ?int
+    {
+        return $auditable instanceof Model ? (int) $auditable->getKey() : null;
     }
 
     private function resolveTargetLabel(Model|array|null $auditable): ?string

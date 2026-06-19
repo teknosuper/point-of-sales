@@ -117,7 +117,6 @@ export default function MenuCatalog({
         try {
             const buildParams = (page) => {
                 const params = new URLSearchParams();
-                params.append("include_out_of_stock", "1");
                 params.append("per_page", "100");
                 params.append("page", String(page));
 
