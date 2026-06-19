@@ -84,6 +84,8 @@ export default function Show({ cashierShift, canForceClose = false }) {
     ]);
 
     const actualCashNumber = Number(actualCash || 0);
+    const actualCashHelper =
+        actualCash === "" ? null : formatCurrency(actualCashNumber);
     const difference = actualCash === ""
         ? null
         : actualCashNumber - Number(cashierShift.expected_cash || 0);
@@ -354,6 +356,11 @@ export default function Show({ cashierShift, canForceClose = false }) {
                                             onChange={(event) => setActualCash(event.target.value)}
                                             className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-800 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
                                         />
+                                        {actualCashHelper && !errors?.actual_cash && (
+                                            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                                                Nilai terbaca: <span className="font-semibold text-slate-700 dark:text-slate-200">{actualCashHelper}</span>
+                                            </p>
+                                        )}
                                         {errors?.actual_cash && (
                                             <p className="mt-2 text-xs text-rose-500">{errors.actual_cash}</p>
                                         )}

@@ -288,6 +288,10 @@ export default function Index({
     const [selectedVoucherId, setSelectedVoucherId] = useState("");
     const [openingCashInput, setOpeningCashInput] = useState("");
     const [shiftNotesInput, setShiftNotesInput] = useState("");
+    const openingCashHelper =
+        openingCashInput === ""
+            ? null
+            : formatPrice(Number(openingCashInput || 0));
     const [tableOrderApprovalTarget, setTableOrderApprovalTarget] = useState(null);
     const [tableOrderCashInput, setTableOrderCashInput] = useState("");
     const [tableOrderPaymentMethod, setTableOrderPaymentMethod] =
@@ -1484,9 +1488,28 @@ export default function Index({
         selectedTableId,
     ]);
 
-    const handleOpenShift = () => {
+    const handleOpenShift = async () => {
+        const openingCashNumber = Number(openingCashInput || 0);
+
+        const result = await Swal.fire({
+            title: "Buka shift kasir?",
+            html: `Modal awal akan disimpan sebesar <strong>${formatPrice(
+                openingCashNumber
+            )}</strong>.`,
+            icon: "question",
+            showCancelButton: true,
+            confirmButtonText: "Ya, Buka Shift",
+            cancelButtonText: "Batal",
+            confirmButtonColor: "#16a34a",
+            reverseButtons: true,
+        });
+
+        if (!result.isConfirmed) {
+            return;
+        }
+
         router.post(route("cashier-shifts.store"), {
-            opening_cash: Number(openingCashInput || 0),
+            opening_cash: openingCashNumber,
             notes: shiftNotesInput,
             redirect_to: "transactions",
         });
@@ -3144,7 +3167,7 @@ export default function Index({
         setRedeemPointsInput("");
         setCashInput("");
         setSelectedCustomer(WALK_IN_CUSTOMER);
-        setOrderType("take_away");
+        setOrderType("dine_in");
         setSelectedTableId("");
         setSelectedBankAccount(null);
         setSelectedVoucherId("");
@@ -4210,6 +4233,11 @@ export default function Index({
                                         className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-800 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
                                         placeholder="0"
                                     />
+                                    {openingCashHelper && !errors?.opening_cash && (
+                                        <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                                            Nilai terbaca: <span className="font-semibold text-slate-700 dark:text-slate-200">{openingCashHelper}</span>
+                                        </p>
+                                    )}
                                     {errors?.opening_cash && (
                                         <p className="mt-2 text-xs text-rose-500">{errors.opening_cash}</p>
                                     )}

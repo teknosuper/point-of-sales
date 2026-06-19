@@ -1100,6 +1100,9 @@ class TransactionController extends Controller
         }
 
         try {
+            $transaction = null;
+            $postCommitWarnings = [];
+
             $cartScope = Cart::with('product', 'modifiers')
                 ->where('cashier_id', auth()->id())
                 ->when($outlet, fn ($query) => $query->where('outlet_id', $outlet->id))
@@ -1377,18 +1380,73 @@ class TransactionController extends Controller
 
             // Batch audit log AFTER DB::transaction commits — single INSERT, no lock contention
             if (! empty($stockAuditPayloads)) {
-                $this->auditLogService->logBatch($stockAuditPayloads);
-                $markPerf('audit_logs_batched');
+                try {
+                    $this->auditLogService->logBatch($stockAuditPayloads);
+                    $markPerf('audit_logs_batched');
+                } catch (\Throwable $exception) {
+                    $postCommitWarnings[] = 'Audit stok belum seluruhnya tersimpan, tetapi transaksi sudah berhasil.';
+                    $this->logPosException('pos.store.audit_log_batch_failed', $exception, [
+                        'invoice' => $invoice,
+                        'user_id' => auth()->id(),
+                        'outlet_id' => $outlet?->id,
+                    ]);
+                }
             }
 
-            $sideEffectTransaction = $transaction->fresh(['details.product.kitchenStationMappings', 'details.modifiers']);
-            $this->foodcourtTenantAllocationService->rebuildForTransaction($sideEffectTransaction);
-            $markPerf('tenant_allocation');
-            $this->kitchenTicketService->createForTransaction($sideEffectTransaction);
-            $markPerf('kitchen_tickets');
-            if (($sideEffectTransaction->payment_status ?? null) === 'paid') {
-                $this->printJobService->queueReceipt($sideEffectTransaction, userId: auth()->id());
-                $markPerf('receipt_queued');
+            $sideEffectTransaction = null;
+
+            try {
+                $sideEffectTransaction = $transaction->fresh(['details.product.kitchenStationMappings', 'details.modifiers']);
+            } catch (\Throwable $exception) {
+                $postCommitWarnings[] = 'Beberapa data turunan transaksi belum sempat dimuat ulang, tetapi transaksi sudah berhasil.';
+                $this->logPosException('pos.store.transaction_fresh_failed', $exception, [
+                    'invoice' => $invoice,
+                    'user_id' => auth()->id(),
+                    'outlet_id' => $outlet?->id,
+                ]);
+            }
+
+            if ($sideEffectTransaction) {
+                try {
+                    $this->foodcourtTenantAllocationService->rebuildForTransaction($sideEffectTransaction);
+                    $markPerf('tenant_allocation');
+                } catch (\Throwable $exception) {
+                    $postCommitWarnings[] = 'Alokasi tenant belum sempat diperbarui, tetapi transaksi sudah berhasil.';
+                    $this->logPosException('pos.store.tenant_allocation_failed', $exception, [
+                        'invoice' => $invoice,
+                        'transaction_id' => $transaction?->id,
+                        'user_id' => auth()->id(),
+                        'outlet_id' => $outlet?->id,
+                    ]);
+                }
+
+                try {
+                    $this->kitchenTicketService->createForTransaction($sideEffectTransaction);
+                    $markPerf('kitchen_tickets');
+                } catch (\Throwable $exception) {
+                    $postCommitWarnings[] = 'Ticket dapur belum sempat dibuat, tetapi transaksi sudah berhasil.';
+                    $this->logPosException('pos.store.kitchen_ticket_failed', $exception, [
+                        'invoice' => $invoice,
+                        'transaction_id' => $transaction?->id,
+                        'user_id' => auth()->id(),
+                        'outlet_id' => $outlet?->id,
+                    ]);
+                }
+
+                if (($sideEffectTransaction->payment_status ?? null) === 'paid') {
+                    try {
+                        $this->printJobService->queueReceipt($sideEffectTransaction, userId: auth()->id());
+                        $markPerf('receipt_queued');
+                    } catch (\Throwable $exception) {
+                        $postCommitWarnings[] = 'Antrean cetak struk belum sempat dibuat, tetapi transaksi sudah berhasil.';
+                        $this->logPosException('pos.store.receipt_queue_failed', $exception, [
+                            'invoice' => $invoice,
+                            'transaction_id' => $transaction?->id,
+                            'user_id' => auth()->id(),
+                            'outlet_id' => $outlet?->id,
+                        ]);
+                    }
+                }
             }
 
         $paymentWarning = null;
@@ -1405,6 +1463,11 @@ class TransactionController extends Controller
                 $paymentWarning = $exception->getMessage();
             }
         }
+
+            $combinedWarning = collect(array_filter([
+                $paymentWarning,
+                ...$postCommitWarnings,
+            ]))->implode(' ');
 
             $transaction->load([
             'details.product',
@@ -1436,7 +1499,7 @@ class TransactionController extends Controller
             if ($request->expectsJson()) {
                 return response()->json([
                     'message' => 'Transaksi berhasil disimpan.',
-                    'warning' => $paymentWarning,
+                    'warning' => $combinedWarning !== '' ? $combinedWarning : null,
                     'data' => [
                         'transaction' => $transaction,
                         'print_url' => route('transactions.print', [
@@ -1457,10 +1520,10 @@ class TransactionController extends Controller
                 ], Response::HTTP_CREATED);
             }
 
-            if ($paymentWarning) {
+            if ($combinedWarning !== '') {
                 return redirect()
                     ->route('transactions.print', $transaction->invoice)
-                    ->with('error', $paymentWarning);
+                    ->with('error', $combinedWarning);
             }
 
             return to_route('transactions.print', $transaction->invoice);
