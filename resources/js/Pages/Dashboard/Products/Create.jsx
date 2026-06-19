@@ -35,8 +35,12 @@ export default function Create({
     categories,
     tenantOutlets = [],
     autoKitchenStations = [],
+    workspace = {},
+    tenantDefaultMarkup = 3000,
 }) {
     const { errors } = usePage().props;
+    const isTenantWorkspace = workspace?.is_tenant === true;
+    const defaultTenantOutletId = workspace?.active_outlet_id || "";
 
     const { data, setData, post, processing } = useForm({
         image: "",
@@ -53,6 +57,14 @@ export default function Create({
         supports_modifiers: false,
         modifier_options: [],
     });
+    const effectiveOutletSellPrice = useMemo(
+        () => Math.max(0, Number(data.buy_price || 0) + Number(tenantDefaultMarkup || 0)),
+        [data.buy_price, tenantDefaultMarkup]
+    );
+    const autoProductCodePreview = useMemo(
+        () => previewAutoSku("", "", data.title || "FC-PRODUCT"),
+        [data.title]
+    );
 
     const [selectedCategory, setSelectedCategory] = useState(null);
     const [imagePreview, setImagePreview] = useState(null);
@@ -110,6 +122,27 @@ export default function Create({
             setData("category_id", "");
         }
     }, [availableCategories, data.category_id, setData]);
+
+    useEffect(() => {
+        if (!isTenantWorkspace) {
+            return;
+        }
+
+        if (String(data.tenant_outlet_id || "") !== String(defaultTenantOutletId || "")) {
+            setData("tenant_outlet_id", String(defaultTenantOutletId || ""));
+        }
+
+        if (String(data.sell_price || "") !== String(effectiveOutletSellPrice)) {
+            setData("sell_price", String(effectiveOutletSellPrice));
+        }
+    }, [
+        data.sell_price,
+        data.tenant_outlet_id,
+        defaultTenantOutletId,
+        effectiveOutletSellPrice,
+        isTenantWorkspace,
+        setData,
+    ]);
 
     const handleImageChange = (e) => {
         const file = e.target.files[0];
@@ -229,7 +262,8 @@ export default function Create({
                                             setData("category_id", "");
                                             setSelectedCategory(null);
                                         }}
-                                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                        disabled={isTenantWorkspace}
+                                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-primary-500 focus:outline-none disabled:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:disabled:bg-slate-800"
                                     >
                                         <option value="">Global / Owner Outlet</option>
                                         {tenantOutlets.map((outlet) => (
@@ -244,7 +278,9 @@ export default function Create({
                                         </p>
                                     )}
                                     <p className="mt-1 text-xs text-slate-500">
-                                        {selectedTenantOutlet
+                                        {isTenantWorkspace
+                                            ? "Produk baru otomatis masuk ke tenant outlet aktif Anda."
+                                            : selectedTenantOutlet
                                             ? `Kategori yang tersedia akan dibatasi ke tenant ${selectedTenantOutlet.name}.`
                                             : "Pilih global jika produk milik owner outlet dan memakai kategori global."}
                                     </p>
@@ -275,31 +311,60 @@ export default function Create({
                                             : "Belum ada kategori untuk tenant/konteks ini. Buat kategori terlebih dahulu."}
                                     </p>
                                 </div>
-                                <Input
-                                    type="text"
-                                    label="Barcode"
-                                    value={data.barcode}
-                                    onChange={(e) =>
-                                        setData("barcode", e.target.value)
-                                    }
-                                    errors={errors.barcode}
-                                    placeholder="Masukkan kode produk"
-                                />
-                                <Input
-                                    type="text"
-                                    label="SKU"
-                                    value={data.sku}
-                                    onChange={(e) => setData("sku", e.target.value)}
-                                    errors={errors.sku}
-                                    placeholder="Kosongkan untuk generate otomatis"
-                                />
-                                <p className="-mt-2 text-xs text-slate-500">
-                                    Jika dikosongkan, SKU akan dibuat otomatis dari barcode atau nama produk.
-                                    Preview:{" "}
-                                    <span className="font-semibold text-slate-700">
-                                        {autoSkuPreview}
-                                    </span>
-                                </p>
+                                {isTenantWorkspace ? (
+                                    <>
+                                        <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800">
+                                            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                                Barcode
+                                            </p>
+                                            <p className="mt-1 text-lg font-bold text-slate-900 dark:text-slate-100">
+                                                {autoProductCodePreview}
+                                            </p>
+                                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                Dibuat otomatis saat produk disimpan.
+                                            </p>
+                                        </div>
+                                        <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800">
+                                            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                                SKU
+                                            </p>
+                                            <p className="mt-1 text-lg font-bold text-slate-900 dark:text-slate-100">
+                                                {autoProductCodePreview}
+                                            </p>
+                                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                Dibuat otomatis mengikuti kode produk.
+                                            </p>
+                                        </div>
+                                    </>
+                                ) : (
+                                    <>
+                                        <Input
+                                            type="text"
+                                            label="Barcode"
+                                            value={data.barcode}
+                                            onChange={(e) =>
+                                                setData("barcode", e.target.value)
+                                            }
+                                            errors={errors.barcode}
+                                            placeholder="Kosongkan untuk generate otomatis"
+                                        />
+                                        <Input
+                                            type="text"
+                                            label="SKU"
+                                            value={data.sku}
+                                            onChange={(e) => setData("sku", e.target.value)}
+                                            errors={errors.sku}
+                                            placeholder="Kosongkan untuk generate otomatis"
+                                        />
+                                        <p className="-mt-2 text-xs text-slate-500">
+                                            Jika dikosongkan, barcode dan SKU akan dibuat otomatis dari nama produk.
+                                            Preview:{" "}
+                                            <span className="font-semibold text-slate-700">
+                                                {autoSkuPreview}
+                                            </span>
+                                        </p>
+                                    </>
+                                )}
                                 <Input
                                     type="text"
                                     label="Nama Produk"
@@ -378,16 +443,30 @@ export default function Create({
                                     errors={errors.buy_price}
                                     placeholder="0"
                                 />
-                                <Input
-                                    type="number"
-                                    label="Harga Jual Outlet"
-                                    value={data.sell_price}
-                                    onChange={(e) =>
-                                        setData("sell_price", e.target.value)
-                                    }
-                                    errors={errors.sell_price}
-                                    placeholder="0"
-                                />
+                                {isTenantWorkspace ? (
+                                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800">
+                                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                            Harga Jual Outlet
+                                        </p>
+                                        <p className="mt-1 text-lg font-bold text-slate-900 dark:text-slate-100">
+                                            Rp {effectiveOutletSellPrice.toLocaleString("id-ID")}
+                                        </p>
+                                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                            Otomatis dihitung dari harga beli tenant + markup default Rp {Number(tenantDefaultMarkup || 0).toLocaleString("id-ID")}.
+                                        </p>
+                                    </div>
+                                ) : (
+                                    <Input
+                                        type="number"
+                                        label="Harga Jual Outlet"
+                                        value={data.sell_price}
+                                        onChange={(e) =>
+                                            setData("sell_price", e.target.value)
+                                        }
+                                        errors={errors.sell_price}
+                                        placeholder="0"
+                                    />
+                                )}
                                 <Input
                                     type="number"
                                     label="Stok"
@@ -429,7 +508,11 @@ export default function Create({
                                             + Rp{" "}
                                             {Math.max(
                                                 0,
-                                                Number(data.sell_price || 0) -
+                                                Number(
+                                                    isTenantWorkspace
+                                                        ? effectiveOutletSellPrice
+                                                        : data.sell_price || 0
+                                                ) -
                                                     Number(data.buy_price || 0)
                                             ).toLocaleString("id-ID")}
                                         </p>

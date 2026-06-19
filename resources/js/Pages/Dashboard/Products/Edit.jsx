@@ -173,9 +173,12 @@ export default function Edit({
     autoKitchenStations = [],
     outletStocks = [],
     activePricingRules = {},
+    workspace = {},
+    tenantDefaultMarkup = 3000,
     capabilities = {},
 }) {
     const { errors } = usePage().props;
+    const isTenantWorkspace = workspace?.is_tenant === true;
     const canManageCatalog = capabilities?.can_manage_catalog === true;
     const canManagePricing = capabilities?.can_manage_pricing === true;
     const canManageTenantDiscount =
@@ -188,6 +191,7 @@ export default function Edit({
         capabilities?.can_manage_outlet_stock === true;
     const canManageProductImage =
         capabilities?.can_manage_product_image === true;
+    const tenantCatalogMode = isTenantWorkspace && canManageCatalog;
     const canSubmitProductForm =
         canManageCatalog ||
         canManagePricing ||
@@ -266,6 +270,18 @@ export default function Edit({
 
         return autoKitchenStations[0] || null;
     }, [autoKitchenStations, data.tenant_outlet_id]);
+    const preservedOwnerMarkup = useMemo(
+        () =>
+            Math.max(
+                0,
+                Number(product.sell_price || 0) - Number(product.buy_price || 0)
+            ),
+        [product.buy_price, product.sell_price]
+    );
+    const effectiveOutletSellPrice = useMemo(
+        () => Math.max(0, Number(data.buy_price || 0) + preservedOwnerMarkup),
+        [data.buy_price, preservedOwnerMarkup]
+    );
 
     useEffect(() => {
         if (!data.category_id) {
@@ -284,6 +300,22 @@ export default function Edit({
             setData("category_id", "");
         }
     }, [availableCategories, data.category_id, setData]);
+
+    useEffect(() => {
+        if (!isTenantWorkspace || !canManageCatalog) {
+            return;
+        }
+
+        if (String(data.sell_price || "") !== String(effectiveOutletSellPrice)) {
+            setData("sell_price", String(effectiveOutletSellPrice));
+        }
+    }, [
+        canManageCatalog,
+        data.sell_price,
+        effectiveOutletSellPrice,
+        isTenantWorkspace,
+        setData,
+    ]);
 
     const modifierSummary = useMemo(
         () =>
@@ -437,7 +469,7 @@ export default function Edit({
                           !canManageCatalog &&
                           !canManagePricing ? (
                             <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-100">
-                                Mode owner tenant aktif. Anda bisa mengubah nama produk, HPP tenant, dan harga jual tenant sendiri. Harga outlet tetap dikelola owner outlet. Gunakan tombol <span className="font-semibold">Sesuaikan Stok Hari Ini</span> di halaman daftar produk untuk menyesuaikan stok outlet aktif.
+                                Mode owner tenant aktif. Anda bisa mengelola katalog produk tenant sendiri, termasuk topping. Harga outlet tidak bisa diubah manual dan akan mengikuti selisih markup lama produk ini.
                             </div>
                         ) : canManageTenantDiscount && !canManageCatalog && !canManagePricing ? (
                             <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100">
@@ -464,7 +496,8 @@ export default function Edit({
                                                     setData("category_id", "");
                                                     setSelectedCategory(null);
                                                 }}
-                                                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                                disabled={tenantCatalogMode}
+                                                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-primary-500 focus:outline-none disabled:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:disabled:bg-slate-800"
                                             >
                                                 <option value="">Global / Owner Outlet</option>
                                                 {tenantOutlets.map((outlet) => (
@@ -479,7 +512,9 @@ export default function Edit({
                                                 </p>
                                             )}
                                             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                                {selectedTenantOutlet
+                                                {tenantCatalogMode
+                                                    ? "Produk tenant tetap terkunci ke outlet tenant aktif Anda."
+                                                    : selectedTenantOutlet
                                                     ? `Kategori yang tampil dibatasi ke tenant ${selectedTenantOutlet.name}.`
                                                     : "Produk global hanya dapat memakai kategori global."}
                                             </p>
@@ -538,33 +573,62 @@ export default function Edit({
                                         </div>
                                     )}
                                 </div>
-                                <Input
-                                    type="text"
-                                    label="Barcode"
-                                    value={data.barcode}
-                                    onChange={(e) =>
-                                        setData("barcode", e.target.value)
-                                    }
-                                    errors={errors.barcode}
-                                    placeholder="Kode produk"
-                                    disabled={!canManageCatalog}
-                                />
-                                <Input
-                                    type="text"
-                                    label="SKU"
-                                    value={data.sku}
-                                    onChange={(e) => setData("sku", e.target.value)}
-                                    errors={errors.sku}
-                                    placeholder="Kosongkan untuk generate otomatis"
-                                    disabled={!canManageCatalog}
-                                />
-                                <p className="-mt-2 text-xs text-slate-500 dark:text-slate-400">
-                                    Jika dikosongkan, SKU akan dibuat otomatis dari barcode atau nama produk.
-                                    Preview:{" "}
-                                    <span className="font-semibold text-slate-700 dark:text-slate-200">
-                                        {autoSkuPreview}
-                                    </span>
-                                </p>
+                                {tenantCatalogMode ? (
+                                    <>
+                                        <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800">
+                                            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                                Barcode
+                                            </p>
+                                            <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                                                {product.barcode || autoSkuPreview}
+                                            </p>
+                                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                Dibuat otomatis dan tidak dapat diubah dari workspace tenant.
+                                            </p>
+                                        </div>
+                                        <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800">
+                                            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                                SKU
+                                            </p>
+                                            <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                                                {product.sku || autoSkuPreview}
+                                            </p>
+                                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                Dibuat otomatis mengikuti kode produk.
+                                            </p>
+                                        </div>
+                                    </>
+                                ) : (
+                                    <>
+                                        <Input
+                                            type="text"
+                                            label="Barcode"
+                                            value={data.barcode}
+                                            onChange={(e) =>
+                                                setData("barcode", e.target.value)
+                                            }
+                                            errors={errors.barcode}
+                                            placeholder="Kosongkan untuk generate otomatis"
+                                            disabled={!canManageCatalog}
+                                        />
+                                        <Input
+                                            type="text"
+                                            label="SKU"
+                                            value={data.sku}
+                                            onChange={(e) => setData("sku", e.target.value)}
+                                            errors={errors.sku}
+                                            placeholder="Kosongkan untuk generate otomatis"
+                                            disabled={!canManageCatalog}
+                                        />
+                                        <p className="-mt-2 text-xs text-slate-500 dark:text-slate-400">
+                                            Jika dikosongkan, barcode dan SKU akan dibuat otomatis dari nama produk.
+                                            Preview:{" "}
+                                            <span className="font-semibold text-slate-700 dark:text-slate-200">
+                                                {autoSkuPreview}
+                                            </span>
+                                        </p>
+                                    </>
+                                )}
                                 <Input
                                     type="text"
                                     label="Nama Produk"
@@ -634,7 +698,82 @@ export default function Edit({
                             </div>
                         </div>
 
-                        {canManagePricing ? (
+                        {tenantCatalogMode ? (
+                        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">
+                            <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-4 flex items-center gap-2">
+                                <IconCurrencyDollar size={18} />
+                                Harga Tenant & Outlet
+                            </h3>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <Input
+                                    type="number"
+                                    label="HPP Tenant"
+                                    value={data.tenant_hpp_price}
+                                    onChange={(e) =>
+                                        setData("tenant_hpp_price", e.target.value)
+                                    }
+                                    errors={errors.tenant_hpp_price}
+                                    placeholder="0"
+                                />
+                                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800">
+                                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                        Harga Jual Tenant
+                                    </p>
+                                    <p className="mt-1 text-lg font-bold text-slate-900 dark:text-slate-100">
+                                        {formatCurrency(product.buy_price || 0)}
+                                    </p>
+                                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                        Hanya super admin atau owner outlet yang bisa mengubah harga jual tenant.
+                                    </p>
+                                </div>
+                                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800">
+                                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                        Harga Outlet
+                                    </p>
+                                    <p className="mt-1 text-lg font-bold text-slate-900 dark:text-slate-100">
+                                        {formatCurrency(product.sell_price || 0)}
+                                    </p>
+                                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                        Nilai ini mengikuti setting owner outlet dan tidak bisa diubah dari workspace tenant.
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div className="mt-4 grid gap-4 rounded-xl border border-success-200 bg-success-50 p-4 dark:border-success-900 dark:bg-success-950/30 md:grid-cols-2">
+                                <div>
+                                    <p className="text-sm font-medium text-success-700 dark:text-success-400">
+                                        Margin Tenant per Item
+                                    </p>
+                                    <p className="mt-1 text-2xl font-bold text-success-600 dark:text-success-500">
+                                        + Rp{" "}
+                                        {Math.max(
+                                            0,
+                                            Number(product.buy_price || 0) -
+                                                Number(
+                                                    data.tenant_hpp_price ||
+                                                        product.tenant_hpp_price ||
+                                                        product.buy_price ||
+                                                        0
+                                                )
+                                        ).toLocaleString("id-ID")}
+                                    </p>
+                                </div>
+                                <div>
+                                    <p className="text-sm font-medium text-success-700 dark:text-success-400">
+                                        Markup Outlet per Item
+                                    </p>
+                                    <p className="mt-1 text-2xl font-bold text-success-600 dark:text-success-500">
+                                        + Rp{" "}
+                                        {Math.max(
+                                            0,
+                                            Number(product.sell_price || 0) -
+                                                Number(product.buy_price || 0)
+                                        ).toLocaleString("id-ID")}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                        ) : canManagePricing ? (
                         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">
                             <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-4 flex items-center gap-2">
                                 <IconCurrencyDollar size={18} />

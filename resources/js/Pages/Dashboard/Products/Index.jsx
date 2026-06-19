@@ -334,7 +334,7 @@ export default function Index({
     meta = {},
     workspace = {},
 }) {
-    const { can } = useAuthorization();
+    const { can, isSuperAdmin } = useAuthorization();
     const { activeOutlet, auth } = usePage().props;
     const [viewMode, setViewMode] = useState("grid");
     const [showFilters, setShowFilters] = useState(false);
@@ -394,7 +394,11 @@ export default function Index({
     const canManageCatalog = canCreateProducts && !isTenantWorkspace && !isKitchenWorkspace;
     const canEditCatalog = canEditProducts && !isTenantWorkspace && !isKitchenWorkspace;
     const canOpenTenantProductEdit = canEditProducts && isTenantWorkspace;
-    const canDeleteCatalog = canDeleteProducts && !isTenantWorkspace && !isKitchenWorkspace;
+    const canDeleteCatalog =
+        canDeleteProducts &&
+        !isTenantWorkspace &&
+        !isKitchenWorkspace &&
+        isSuperAdmin();
     const canUpdateDailyStock = canUpdateProductStock && Boolean(activeOutlet?.id);
     const showCostAsPrimary = isKitchenWorkspace || isTenantWorkspace || !canManagePricing;
     const categories = meta?.categories ?? [];

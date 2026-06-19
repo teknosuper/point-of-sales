@@ -44,8 +44,9 @@ self.addEventListener("fetch", (event) => {
       fetch(request)
         .then(async (response) => {
           if (response && response.status === 200) {
+            const responseClone = response.clone();
             const cache = await caches.open(RUNTIME_CACHE);
-            cache.put(request, response.clone());
+            await cache.put(request, responseClone);
           }
 
           return response;
@@ -81,7 +82,8 @@ self.addEventListener("fetch", (event) => {
         const networkFetch = fetch(request)
           .then((response) => {
             if (response && response.status === 200) {
-              cache.put(request, response.clone());
+              const responseClone = response.clone();
+              cache.put(request, responseClone);
             }
 
             return response;
