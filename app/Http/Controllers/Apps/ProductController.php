@@ -416,21 +416,24 @@ class ProductController extends Controller
                 ->withInput();
         }
 
-        // upload image
-        $storedImage = $this->imageUploadService->storePublicImage(
-            $request->file('image'),
-            'products',
-            [
-                'max_width' => 1600,
-                'max_height' => 1600,
-                'thumb_width' => 480,
-                'thumb_height' => 480,
-            ]
-        );
+        $storedImage = null;
+
+        if ($request->hasFile('image')) {
+            $storedImage = $this->imageUploadService->storePublicImage(
+                $request->file('image'),
+                'products',
+                [
+                    'max_width' => 1600,
+                    'max_height' => 1600,
+                    'thumb_width' => 480,
+                    'thumb_height' => 480,
+                ]
+            );
+        }
 
         // create product
         $product = Product::create([
-            'image' => $storedImage['basename'],
+            'image' => $storedImage['basename'] ?? 'default.jpg',
             'barcode' => $validated['barcode'],
             'sku' => $validated['sku'],
             'title' => $validated['title'],
