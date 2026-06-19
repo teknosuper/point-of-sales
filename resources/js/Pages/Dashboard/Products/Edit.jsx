@@ -170,6 +170,7 @@ export default function Edit({
     categories,
     product,
     tenantOutlets = [],
+    autoKitchenStations = [],
     outletStocks = [],
     activePricingRules = {},
     capabilities = {},
@@ -252,6 +253,19 @@ export default function Edit({
             ),
         [categories, data.tenant_outlet_id]
     );
+    const autoKitchenStation = useMemo(() => {
+        const selectedOutletId = Number(data.tenant_outlet_id || 0);
+
+        if (selectedOutletId > 0) {
+            return (
+                autoKitchenStations.find(
+                    (item) => Number(item.outlet_id) === selectedOutletId
+                ) || null
+            );
+        }
+
+        return autoKitchenStations[0] || null;
+    }, [autoKitchenStations, data.tenant_outlet_id]);
 
     useEffect(() => {
         if (!data.category_id) {
@@ -468,6 +482,11 @@ export default function Edit({
                                                 {selectedTenantOutlet
                                                     ? `Kategori yang tampil dibatasi ke tenant ${selectedTenantOutlet.name}.`
                                                     : "Produk global hanya dapat memakai kategori global."}
+                                            </p>
+                                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                {autoKitchenStation
+                                                    ? `Auto-mapping dapur akan memakai station ${autoKitchenStation.station_name}${autoKitchenStation.station_code ? ` (${autoKitchenStation.station_code})` : ""} bila produk belum punya mapping aktif.`
+                                                    : "Belum ada station dapur aktif yang bisa dipakai untuk auto-mapping."}
                                             </p>
                                         </>
                                     ) : (

@@ -359,6 +359,7 @@ class ProductController extends Controller
         return Inertia::render('Dashboard/Products/Create', [
             'categories' => $categories,
             'tenantOutlets' => Outlet::active()->ordered()->get(['id', 'name', 'code', 'outlet_type']),
+            'autoKitchenStations' => $this->autoKitchenStationHints(),
         ]);
     }
 
@@ -372,6 +373,8 @@ class ProductController extends Controller
         if ($this->isTenantOutletWorkspace($request)) {
             return $this->rejectStockOnlyUpdate();
         }
+
+        $activeOutletId = $this->outletResolver->resolve($request, $request->user())?->id;
 
         /**
          * validate
@@ -447,6 +450,12 @@ class ProductController extends Controller
             'stock' => $validated['stock'],
         ]);
 
+        $this->autoAssignKitchenStationMapping(
+            product: $product,
+            tenantOutletId: $validated['tenant_outlet_id'],
+            activeOutletId: $activeOutletId,
+            forceReplace: false,
+        );
         $this->stockMutationService->recordInitialStock($product, $request->user()?->id);
         $this->syncModifierOptions($product, $request->input('modifier_options', []));
         $this->auditLogService->log(
@@ -524,6 +533,7 @@ class ProductController extends Controller
             'tenantOutlets' => $request->user()?->isKitchenWorkspace()
                 ? []
                 : Outlet::active()->ordered()->get(['id', 'name', 'code', 'outlet_type']),
+            'autoKitchenStations' => $this->autoKitchenStationHints(),
             'outletStocks' => $outletStocks,
             'activePricingRules' => $this->pricingService->describeProductRules(
                 $product,
@@ -720,6 +730,7 @@ class ProductController extends Controller
     public function update(Request $request, Product $product)
     {
         $product = $this->resolveWorkspaceProduct($product, $request);
+        $beforeTenantOutletId = $product->tenant_outlet_id ? (int) $product->tenant_outlet_id : null;
         if ($this->isTenantOutletWorkspace($request) && ! $this->canManageTenantProductFields($request, $product)) {
             return $this->rejectStockOnlyUpdate();
         }
@@ -874,6 +885,12 @@ class ProductController extends Controller
                 'image' => $storedImage['basename'],
             ]);
 
+            $this->autoAssignKitchenStationMapping(
+                product: $product->fresh('kitchenStationMappings'),
+                tenantOutletId: $attributes['tenant_outlet_id'],
+                activeOutletId: $activeOutletId,
+                forceReplace: $beforeTenantOutletId !== $attributes['tenant_outlet_id'],
+            );
             $this->logProductUpdate($product, $before);
             if ($canManageCatalog) {
                 $this->syncModifierOptions($product, $validated['modifier_options'] ?? []);
@@ -888,6 +905,12 @@ class ProductController extends Controller
         if ($canManageCatalog) {
             $this->syncModifierOptions($product, $validated['modifier_options'] ?? []);
         }
+        $this->autoAssignKitchenStationMapping(
+            product: $product->fresh('kitchenStationMappings'),
+            tenantOutletId: $attributes['tenant_outlet_id'],
+            activeOutletId: $activeOutletId,
+            forceReplace: $beforeTenantOutletId !== $attributes['tenant_outlet_id'],
+        );
         $this->logProductUpdate($product, $before);
 
         // redirect
@@ -958,6 +981,134 @@ class ProductController extends Controller
         }
 
         return (int) $category->id;
+    }
+
+    private function autoAssignKitchenStationMapping(
+        Product $product,
+        ?int $tenantOutletId,
+        ?int $activeOutletId,
+        bool $forceReplace = false
+    ): void {
+        $currentMapping = $product->kitchenStationMappings()
+            ->where('is_active', true)
+            ->first();
+
+        if ($currentMapping && ! $forceReplace) {
+            return;
+        }
+
+        $stationId = $this->resolveAutoKitchenStationId($product, $tenantOutletId, $activeOutletId);
+
+        if (! $stationId) {
+            return;
+        }
+
+        $product->kitchenStationMappings()->update(['is_active' => false]);
+
+        ProductKitchenStationMapping::query()->updateOrCreate(
+            [
+                'product_id' => $product->id,
+                'kitchen_station_id' => $stationId,
+            ],
+            [
+                'priority' => 1,
+                'fire_on_sale' => true,
+                'is_active' => true,
+            ]
+        );
+    }
+
+    private function resolveAutoKitchenStationId(
+        Product $product,
+        ?int $tenantOutletId,
+        ?int $activeOutletId
+    ): ?int {
+        if ($tenantOutletId) {
+            $tenantStationId = KitchenStation::query()
+                ->where('outlet_id', $tenantOutletId)
+                ->where('is_active', true)
+                ->orderBy('sort_order')
+                ->orderBy('name')
+                ->value('id');
+
+            if ($tenantStationId) {
+                return (int) $tenantStationId;
+            }
+
+            $categoryScopedStationIds = ProductKitchenStationMapping::query()
+                ->join('products', 'products.id', '=', 'product_kitchen_station_mappings.product_id')
+                ->where('product_kitchen_station_mappings.is_active', true)
+                ->where('products.tenant_outlet_id', $tenantOutletId)
+                ->where('products.category_id', $product->category_id)
+                ->where('products.id', '!=', $product->id)
+                ->distinct()
+                ->pluck('product_kitchen_station_mappings.kitchen_station_id')
+                ->filter()
+                ->values();
+
+            if ($categoryScopedStationIds->count() === 1) {
+                return (int) $categoryScopedStationIds->first();
+            }
+
+            $tenantScopedStationIds = ProductKitchenStationMapping::query()
+                ->join('products', 'products.id', '=', 'product_kitchen_station_mappings.product_id')
+                ->where('product_kitchen_station_mappings.is_active', true)
+                ->where('products.tenant_outlet_id', $tenantOutletId)
+                ->where('products.id', '!=', $product->id)
+                ->distinct()
+                ->pluck('product_kitchen_station_mappings.kitchen_station_id')
+                ->filter()
+                ->values();
+
+            if ($tenantScopedStationIds->count() === 1) {
+                return (int) $tenantScopedStationIds->first();
+            }
+        }
+
+        if (! $activeOutletId) {
+            return null;
+        }
+
+        $outletStationId = KitchenStation::query()
+            ->where('outlet_id', $activeOutletId)
+            ->where('is_active', true)
+            ->orderBy('sort_order')
+            ->orderBy('name')
+            ->value('id');
+
+        return $outletStationId ? (int) $outletStationId : null;
+    }
+
+    private function autoKitchenStationHints(): array
+    {
+        return KitchenStation::query()
+            ->with('outlet:id,name,code')
+            ->where('is_active', true)
+            ->orderBy('outlet_id')
+            ->orderBy('sort_order')
+            ->orderBy('name')
+            ->get()
+            ->groupBy('outlet_id')
+            ->map(function ($stations, $outletId) {
+                /** @var KitchenStation|null $station */
+                $station = $stations->first();
+
+                if (! $station) {
+                    return null;
+                }
+
+                return [
+                    'outlet_id' => (int) $outletId,
+                    'station_id' => (int) $station->id,
+                    'station_name' => $station->name,
+                    'station_code' => $station->code,
+                    'outlet_name' => $station->outlet?->name,
+                    'outlet_code' => $station->outlet?->code,
+                ];
+            })
+            ->filter()
+            ->values()
+            ->all();
     }
 
     /**

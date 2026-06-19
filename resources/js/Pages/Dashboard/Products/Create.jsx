@@ -31,7 +31,11 @@ const previewAutoSku = (sku, barcode, title) => {
     return source || "SKU";
 };
 
-export default function Create({ categories, tenantOutlets = [] }) {
+export default function Create({
+    categories,
+    tenantOutlets = [],
+    autoKitchenStations = [],
+}) {
     const { errors } = usePage().props;
 
     const { data, setData, post, processing } = useForm({
@@ -70,6 +74,19 @@ export default function Create({ categories, tenantOutlets = [] }) {
             ),
         [categories, data.tenant_outlet_id]
     );
+    const autoKitchenStation = useMemo(() => {
+        const selectedOutletId = Number(data.tenant_outlet_id || 0);
+
+        if (selectedOutletId > 0) {
+            return (
+                autoKitchenStations.find(
+                    (item) => Number(item.outlet_id) === selectedOutletId
+                ) || null
+            );
+        }
+
+        return autoKitchenStations[0] || null;
+    }, [autoKitchenStations, data.tenant_outlet_id]);
 
     const setSelectedCategoryHandler = (value) => {
         setSelectedCategory(value);
@@ -230,6 +247,11 @@ export default function Create({ categories, tenantOutlets = [] }) {
                                         {selectedTenantOutlet
                                             ? `Kategori yang tersedia akan dibatasi ke tenant ${selectedTenantOutlet.name}.`
                                             : "Pilih global jika produk milik owner outlet dan memakai kategori global."}
+                                    </p>
+                                    <p className="mt-1 text-xs text-slate-500">
+                                        {autoKitchenStation
+                                            ? `Auto-mapping dapur akan memakai station ${autoKitchenStation.station_name}${autoKitchenStation.station_code ? ` (${autoKitchenStation.station_code})` : ""}.`
+                                            : "Belum ada station dapur aktif yang bisa dipakai untuk auto-mapping."}
                                     </p>
                                 </div>
                                 <div className="md:col-span-2">
