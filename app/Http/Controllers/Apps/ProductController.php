@@ -812,9 +812,13 @@ class ProductController extends Controller
         );
 
         if ($tenantWorkspaceCatalogManager) {
+            $existingOwnerMarkup = max(
+                0,
+                (int) ($product->sell_price ?? 0) - (int) ($product->buy_price ?? 0)
+            );
             $validated['tenant_outlet_id'] = $activeOutletId;
-            $validated['buy_price'] = $product->buy_price;
-            $validated['sell_price'] = $product->sell_price;
+            $validated['buy_price'] = (int) ($validated['buy_price'] ?? $product->buy_price ?? 0);
+            $validated['sell_price'] = $validated['buy_price'] + $existingOwnerMarkup;
         } elseif (! $canManagePricing || ($this->isTenantOutletWorkspace($request) && ! $canManageCatalog)) {
             $validated['buy_price'] = ($canManagePricing || $canManageTenantSellPrice)
                 ? ($validated['buy_price'] ?? $product->buy_price)

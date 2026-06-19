@@ -715,26 +715,25 @@ export default function Edit({
                                     errors={errors.tenant_hpp_price}
                                     placeholder="0"
                                 />
-                                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800">
-                                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                                        Harga Jual Tenant
-                                    </p>
-                                    <p className="mt-1 text-lg font-bold text-slate-900 dark:text-slate-100">
-                                        {formatCurrency(product.buy_price || 0)}
-                                    </p>
-                                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                        Hanya super admin atau owner outlet yang bisa mengubah harga jual tenant.
-                                    </p>
-                                </div>
+                                <Input
+                                    type="number"
+                                    label="Harga Jual Tenant"
+                                    value={data.buy_price}
+                                    onChange={(e) =>
+                                        setData("buy_price", e.target.value)
+                                    }
+                                    errors={errors.buy_price}
+                                    placeholder="0"
+                                />
                                 <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800">
                                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                                         Harga Outlet
                                     </p>
                                     <p className="mt-1 text-lg font-bold text-slate-900 dark:text-slate-100">
-                                        {formatCurrency(product.sell_price || 0)}
+                                        {formatCurrency(effectiveOutletSellPrice)}
                                     </p>
                                     <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                        Nilai ini mengikuti setting owner outlet dan tidak bisa diubah dari workspace tenant.
+                                        Nilai ini otomatis mengikuti harga jual tenant + markup lama {formatCurrency(preservedOwnerMarkup)} dan tidak bisa diubah manual dari workspace tenant.
                                     </p>
                                 </div>
                             </div>
@@ -748,7 +747,7 @@ export default function Edit({
                                         + Rp{" "}
                                         {Math.max(
                                             0,
-                                            Number(product.buy_price || 0) -
+                                            Number(data.buy_price || 0) -
                                                 Number(
                                                     data.tenant_hpp_price ||
                                                         product.tenant_hpp_price ||
@@ -766,8 +765,8 @@ export default function Edit({
                                         + Rp{" "}
                                         {Math.max(
                                             0,
-                                            Number(product.sell_price || 0) -
-                                                Number(product.buy_price || 0)
+                                            Number(effectiveOutletSellPrice || 0) -
+                                                Number(data.buy_price || 0)
                                         ).toLocaleString("id-ID")}
                                     </p>
                                 </div>
