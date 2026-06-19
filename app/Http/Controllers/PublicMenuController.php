@@ -97,20 +97,12 @@ class PublicMenuController extends Controller
             ->when($request->filled('tenant_outlet_id'), fn ($b) => $b->where('tenant_outlet_id', (int) $request->input('tenant_outlet_id')))
             ->orderBy('title');
 
-        if ($this->hasOutletStockTable()) {
-            $query->with(['outletStocks' => fn ($sq) => $outlet ? $sq->where('outlet_id', $outlet->id) : $sq->orderByDesc('stock')]);
-        }
-
         if (!$request->boolean('include_out_of_stock')) {
-            if ($this->hasOutletStockTable() && $outlet) {
-                $query->whereHas('outletStocks', fn ($sq) => $sq->where('outlet_id', $outlet->id)->where('stock', '>', 0));
-            } else {
-                $query->where('stock', '>', 0);
-            }
+            $query->where('stock', '>', 0);
         }
 
-        $products = $query->get()->map(function (Product $p) use ($outlet) {
-            $p->setAttribute('stock', $this->resolveProductStock($p, $outlet?->id));
+        $products = $query->get()->map(function (Product $p) {
+            $p->setAttribute('stock', (int) ($p->stock ?? 0));
             return $p;
         })->values();
 
@@ -195,14 +187,5 @@ class PublicMenuController extends Controller
     private function hasOutletStockTable(): bool
     {
         return Schema::hasTable('product_outlet_stocks');
-    }
-
-    private function resolveProductStock(Product $product, ?int $outletId): int
-    {
-        if ($outletId && $this->hasOutletStockTable()) {
-            $stock = ProductOutletStock::where('product_id', $product->id)->where('outlet_id', $outletId)->value('stock');
-            return $stock !== null ? (int) $stock : 0;
-        }
-        return (int) ($product->stock ?? 0);
     }
 }

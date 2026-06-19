@@ -68,17 +68,10 @@ class SettingController extends Controller
             ])
             ->orderBy('title')
             ->when($isTenantOutlet && $outletId, fn ($query) => $query->where('tenant_outlet_id', $outletId))
-            ->when($outlet && Schema::hasTable('product_outlet_stocks'), function ($query) use ($outlet) {
-                $query->with(['outletStocks' => fn ($stockQuery) => $stockQuery
-                    ->select('id', 'product_id', 'outlet_id', 'stock')
-                    ->where('outlet_id', $outlet->id)]);
-            })
             ->get()
-            ->map(function (Product $product) use ($productTargets, $outlet, $daysInMonth, $hasTenantHppColumn, $actualPerformance) {
+            ->map(function (Product $product) use ($productTargets, $daysInMonth, $hasTenantHppColumn, $actualPerformance) {
                 $monthlyTarget = (int) ($productTargets[$product->id] ?? 0);
-                $stock = $outlet && Schema::hasTable('product_outlet_stocks')
-                    ? (int) ($product->outletStocks->first()?->stock ?? 0)
-                    : (int) ($product->stock ?? 0);
+                $stock = (int) ($product->stock ?? 0);
                 $stationMapping = $product->kitchenStationMappings->first();
                 $tenantHppPrice = $hasTenantHppColumn
                     ? (int) ($product->tenant_hpp_price ?? $product->buy_price ?? 0)

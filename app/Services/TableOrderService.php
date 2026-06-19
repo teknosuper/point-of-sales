@@ -493,15 +493,6 @@ class TableOrderService
 
     private function resolveAvailableStock(Product $product, int $outletId): int
     {
-        if (Schema::hasTable('product_outlet_stocks')) {
-            $stock = ProductOutletStock::query()
-                ->where('outlet_id', $outletId)
-                ->where('product_id', $product->id)
-                ->value('stock');
-
-            return (int) ($stock ?? 0);
-        }
-
         return (int) ($product->stock ?? 0);
     }
 

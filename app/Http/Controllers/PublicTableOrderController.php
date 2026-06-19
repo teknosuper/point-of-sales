@@ -63,21 +63,10 @@ class PublicTableOrderController extends Controller
                 'supports_modifiers'
             )
             ->orderBy('title')
-            ->when(Schema::hasTable('product_outlet_stocks'), function ($query) use ($table) {
-                $query->whereHas('outletStocks', fn ($stockQuery) => $stockQuery
-                    ->where('outlet_id', $table->outlet_id)
-                    ->where('stock', '>', 0));
-            }, fn ($query) => $query->where('stock', '>', 0))
+            ->where('stock', '>', 0)
             ->get()
-            ->map(function (Product $product) use ($table) {
-                $stock = Schema::hasTable('product_outlet_stocks')
-                    ? ProductOutletStock::query()
-                        ->where('outlet_id', $table->outlet_id)
-                        ->where('product_id', $product->id)
-                        ->value('stock')
-                    : $product->stock;
-
-                $product->setAttribute('stock', (int) ($stock ?? 0));
+            ->map(function (Product $product) {
+                $product->setAttribute('stock', (int) ($product->stock ?? 0));
 
                 return $product;
             })

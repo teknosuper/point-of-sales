@@ -54,9 +54,7 @@ class DashboardController extends Controller
         }
 
         $totalCategories = Category::count();
-        $totalProducts = $outletId
-            ? Product::whereHas('outletStocks', fn ($query) => $query->where('outlet_id', $outletId))->count()
-            : Product::count();
+        $totalProducts = Product::count();
         $transactionQuery = Transaction::query()
             ->when($outletId, fn ($query) => $query->where('outlet_id', $outletId));
         $profitQuery = Profit::query()
@@ -120,35 +118,16 @@ class DashboardController extends Controller
             });
 
         // New: Low Stock Products (stock < 10)
-        $lowStockProducts = $outletId
-            ? ProductOutletStock::query()
-                ->with('product:id,title,image')
-                ->where('outlet_id', $outletId)
-                ->where('stock', '<', 10)
-                ->orderBy('stock', 'asc')
-                ->take(5)
-                ->get()
-                ->map(fn ($stock) => [
-                    'name' => $stock->product?->title ?? 'Produk',
-                    'stock' => (int) $stock->stock,
-                    'image' => $stock->product?->image,
-                ])
-            : Product::query()
-                ->leftJoin('product_outlet_stocks as pos', 'pos.product_id', '=', 'products.id')
-                ->select('products.id', 'products.title', 'products.image')
-                ->selectRaw('COALESCE(SUM(pos.stock), products.stock) as resolved_stock')
-                ->groupBy('products.id', 'products.title', 'products.image', 'products.stock')
-                ->havingRaw('COALESCE(SUM(pos.stock), products.stock) < 10')
-                ->orderByRaw('COALESCE(SUM(pos.stock), products.stock) asc')
-                ->take(5)
-                ->get()
-                ->map(function ($product) {
-                    return [
-                        'name' => $product->title,
-                        'stock' => (int) ($product->resolved_stock ?? 0),
-                        'image' => $product->image,
-                    ];
-                });
+        $lowStockProducts = Product::query()
+            ->where('stock', '<', 10)
+            ->orderBy('stock', 'asc')
+            ->take(5)
+            ->get(['title', 'image', 'stock'])
+            ->map(fn ($product) => [
+                'name' => $product->title,
+                'stock' => (int) ($product->stock ?? 0),
+                'image' => $product->image,
+            ]);
 
         // New: Slow Moving Products (no sales in 30 days)
         $thirtyDaysAgo = Carbon::now()->subDays(30);
@@ -157,21 +136,13 @@ class DashboardController extends Controller
             ->pluck('product_id');
 
         $slowMovingProducts = Product::whereNotIn('id', $recentlySoldProductIds)
-            ->where(function (Builder $query) {
-                $query
-                    ->whereHas('outletStocks', fn (Builder $stockQuery) => $stockQuery->where('stock', '>', 0))
-                    ->orWhere(function (Builder $fallbackQuery) {
-                        $fallbackQuery
-                            ->whereDoesntHave('outletStocks')
-                            ->where('stock', '>', 0);
-                    });
-            })
+            ->where('stock', '>', 0)
             ->take(5)
             ->get()
             ->map(function ($product) {
                 return [
                     'name' => $product->title,
-                    'stock' => (int) ($product->outletStocks()->sum('stock') ?: $product->stock),
+                    'stock' => (int) ($product->stock ?? 0),
                     'image' => $product->image,
                 ];
             });
@@ -462,17 +433,16 @@ class DashboardController extends Controller
                 'total' => (int) $detail->total,
             ]);
 
-        $lowStockProducts = ProductOutletStock::query()
-            ->with('product:id,title,image')
-            ->where('outlet_id', $tenantOutletId)
+        $lowStockProducts = Product::query()
+            ->where('tenant_outlet_id', $tenantOutletId)
             ->where('stock', '<', 10)
             ->orderBy('stock', 'asc')
             ->take(5)
-            ->get()
-            ->map(fn ($stock) => [
-                'name' => $stock->product?->title ?? 'Produk',
-                'stock' => (int) $stock->stock,
-                'image' => $stock->product?->image,
+            ->get(['title', 'image', 'stock'])
+            ->map(fn ($product) => [
+                'name' => $product->title,
+                'stock' => (int) ($product->stock ?? 0),
+                'image' => $product->image,
             ]);
 
         $thirtyDaysAgo = Carbon::now()->subDays(30);
@@ -486,12 +456,12 @@ class DashboardController extends Controller
         $slowMovingProducts = Product::query()
             ->where('tenant_outlet_id', $tenantOutletId)
             ->whereNotIn('id', $recentlySoldProductIds)
-            ->whereHas('outletStocks', fn (Builder $query) => $query->where('outlet_id', $tenantOutletId)->where('stock', '>', 0))
+            ->where('stock', '>', 0)
             ->take(5)
             ->get()
             ->map(fn ($product) => [
                 'name' => $product->title,
-                'stock' => (int) ($product->outletStocks()->where('outlet_id', $tenantOutletId)->value('stock') ?? 0),
+                'stock' => (int) ($product->stock ?? 0),
                 'image' => $product->image,
             ]);
 

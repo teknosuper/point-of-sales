@@ -79,9 +79,12 @@ function OutletStockSummary({ product, activeOutletName = "Outlet aktif" }) {
     return (
         <div className="space-y-1">
             <p className="text-xs font-medium text-slate-600 dark:text-slate-300">
-                {product.active_outlet_stock !== null && product.active_outlet_stock !== undefined
-                    ? `${activeOutletName}: ${product.active_outlet_stock}`
-                    : `Total semua outlet: ${product.total_outlet_stock ?? 0}`}
+                Stok terpusat:{" "}
+                {product.display_stock ??
+                    product.active_outlet_stock ??
+                    product.total_outlet_stock ??
+                    product.stock ??
+                    0}
             </p>
             <div className="flex flex-wrap gap-1.5">
                 {outletStocks.map((stock) => (
@@ -720,19 +723,36 @@ export default function Index({
 
     const submitBulkStockUpdate = (event) => {
         event.preventDefault();
+
+        const changedEntries = bulkStockEntries
+            .filter(
+                (entry) =>
+                    Number(entry.stock || 0) !== Number(entry.current_stock || 0)
+            )
+            .map((entry) => ({
+                product_id: entry.product_id,
+                stock: Number(entry.stock || 0),
+            }));
+
+        if (changedEntries.length === 0) {
+            closeBulkStockModal();
+            return;
+        }
+
         router.post(
             route("products.bulk-stock.update"),
             {
                 notes: bulkStockNotes,
-                stocks: bulkStockEntries.map((entry) => ({
-                    product_id: entry.product_id,
-                    stock: Number(entry.stock || 0),
-                })),
+                stocks: changedEntries,
             },
             {
                 preserveScroll: true,
                 onSuccess: () => {
                     closeBulkStockModal();
+                    router.reload({
+                        only: ["products"],
+                        preserveScroll: true,
+                    });
                 },
             }
         );

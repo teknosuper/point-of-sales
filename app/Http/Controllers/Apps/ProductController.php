@@ -64,25 +64,8 @@ class ProductController extends Controller
 
         $resolvedStockExpression = 'products.stock';
 
-        if (Schema::hasTable('product_outlet_stocks')) {
-            if ($activeOutletId) {
-                $resolvedStockExpression = sprintf(
-                    "CASE WHEN active_outlet_stocks.stock IS NOT NULL THEN active_outlet_stocks.stock WHEN EXISTS (SELECT 1 FROM product_outlet_stocks pos_any WHERE pos_any.product_id = products.id) THEN 0 ELSE products.stock END",
-                );
-            } else {
-                $resolvedStockExpression = "COALESCE((SELECT SUM(pos_any.stock) FROM product_outlet_stocks pos_any WHERE pos_any.product_id = products.id), products.stock)";
-            }
-        }
-
         $products = $this->applyWorkspaceProductScope(Product::query(), $request)
             ->select('products.*')
-            ->when(
-                Schema::hasTable('product_outlet_stocks') && $activeOutletId,
-                fn ($query) => $query->leftJoin('product_outlet_stocks as active_outlet_stocks', function ($join) use ($activeOutletId) {
-                    $join->on('active_outlet_stocks.product_id', '=', 'products.id')
-                        ->where('active_outlet_stocks.outlet_id', '=', $activeOutletId);
-                })
-            )
             ->selectRaw("{$resolvedStockExpression} as resolved_stock")
             ->with([
                 'category:id,name',
@@ -510,15 +493,14 @@ class ProductController extends Controller
             ->map(function (Outlet $outlet) use ($product) {
                 /** @var ProductOutletStock|null $existingStock */
                 $existingStock = $product->outletStocks->firstWhere('outlet_id', $outlet->id);
+                $unifiedStock = (int) $product->stock;
 
                 return [
                     'outlet_id' => $outlet->id,
                     'outlet_name' => $outlet->name,
                     'outlet_code' => $outlet->code,
                     'outlet_type' => $outlet->outlet_type,
-                    'stock' => $existingStock
-                        ? (int) $existingStock->stock
-                        : ($product->outletStocks->isNotEmpty() ? 0 : (int) $product->stock),
+                    'stock' => $unifiedStock,
                     'reorder_level' => $existingStock?->reorder_level !== null
                         ? (int) $existingStock->reorder_level
                         : 0,
@@ -572,6 +554,20 @@ class ProductController extends Controller
             'outlet_stocks.*.reorder_level' => ['nullable', 'integer', 'min:0'],
         ]);
 
+        $submittedStocks = collect($data['outlet_stocks'])
+            ->pluck('stock')
+            ->map(fn ($stock) => (int) $stock)
+            ->unique()
+            ->values();
+
+        if ($submittedStocks->count() > 1) {
+            throw ValidationException::withMessages([
+                'outlet_stocks' => 'Stok produk sekarang terpusat. Gunakan angka stok yang sama untuk semua outlet.',
+            ]);
+        }
+
+        $unifiedTargetStock = (int) $submittedStocks->first();
+
         foreach ($data['outlet_stocks'] as $row) {
             $outletId = (int) $row['outlet_id'];
 
@@ -583,13 +579,12 @@ class ProductController extends Controller
                 abort(403, 'Akun dapur hanya dapat memperbarui stok outlet aktif.');
             }
 
-            $targetStock = (int) $row['stock'];
             $reorderLevel = isset($row['reorder_level']) ? (int) $row['reorder_level'] : 0;
 
             $this->stockMutationService->setPhysicalStockForOutlet(
                 product: $product,
                 outletId: $outletId,
-                stockAfter: $targetStock,
+                stockAfter: $unifiedTargetStock,
                 referenceType: 'product_admin_adjustment',
                 referenceId: $product->id,
                 notes: $data['notes'] ?: 'Adjustment stok outlet dari halaman edit produk.',
@@ -602,7 +597,7 @@ class ProductController extends Controller
                     'product_id' => $product->id,
                 ],
                 [
-                    'stock' => $targetStock,
+                    'stock' => $unifiedTargetStock,
                     'reorder_level' => $reorderLevel,
                     'last_counted_at' => now(),
                 ]
@@ -626,11 +621,6 @@ class ProductController extends Controller
             'notes' => ['nullable', 'string', 'max:255'],
         ]);
 
-        $existingStock = ProductOutletStock::query()->firstWhere([
-            'outlet_id' => $activeOutlet->id,
-            'product_id' => $product->id,
-        ]);
-
         $this->stockMutationService->setPhysicalStockForOutlet(
             product: $product,
             outletId: (int) $activeOutlet->id,
@@ -639,20 +629,6 @@ class ProductController extends Controller
             referenceId: $product->id,
             notes: $data['notes'] ?: 'Adjustment stok harian dari daftar produk.',
             userId: $request->user()?->id,
-        );
-
-        ProductOutletStock::query()->updateOrCreate(
-            [
-                'outlet_id' => $activeOutlet->id,
-                'product_id' => $product->id,
-            ],
-            [
-                'stock' => (int) $data['stock'],
-                'reorder_level' => $existingStock?->reorder_level !== null
-                    ? (int) $existingStock->reorder_level
-                    : 0,
-                'last_counted_at' => now(),
-            ]
         );
 
         return back()->with('success', 'Stok harian produk berhasil diperbarui.');
@@ -676,20 +652,22 @@ class ProductController extends Controller
 
         $outletId = (int) $activeOutlet->id;
         $updated = 0;
+        $normalizedEntries = collect($data['stocks'])
+            ->keyBy(fn (array $entry) => (int) $entry['product_id']);
 
-        foreach ($data['stocks'] as $entry) {
-            $product = Product::find($entry['product_id']);
+        $products = Product::query()
+            ->whereIn('id', $normalizedEntries->keys()->all())
+            ->get()
+            ->keyBy('id');
+
+        foreach ($normalizedEntries as $productId => $entry) {
+            $product = $products->get((int) $productId);
 
             if (! $product) {
                 continue;
             }
 
             $this->resolveWorkspaceProduct($product, $request);
-
-            $existingStock = ProductOutletStock::query()->firstWhere([
-                'outlet_id' => $outletId,
-                'product_id' => $product->id,
-            ]);
 
             $this->stockMutationService->setPhysicalStockForOutlet(
                 product: $product,
@@ -701,24 +679,14 @@ class ProductController extends Controller
                 userId: $user->id,
             );
 
-            ProductOutletStock::query()->updateOrCreate(
-                [
-                    'outlet_id' => $outletId,
-                    'product_id' => $product->id,
-                ],
-                [
-                    'stock' => (int) $entry['stock'],
-                    'reorder_level' => $existingStock?->reorder_level !== null
-                        ? (int) $existingStock->reorder_level
-                        : 0,
-                    'last_counted_at' => now(),
-                ]
-            );
-
             $updated++;
         }
 
-        return back()->with('success', "{$updated} produk berhasil diperbarui stoknya di {$activeOutlet->name}.");
+        if ($updated === 0) {
+            return back()->with('info', 'Tidak ada perubahan stok yang disimpan.');
+        }
+
+        return back()->with('success', "{$updated} produk berhasil diperbarui stoknya secara terpusat.");
     }
 
     /**
@@ -1311,9 +1279,7 @@ class ProductController extends Controller
         $activeOutletStock = $activeOutletId
             ? $outletStocks->firstWhere('outlet_id', $activeOutletId)
             : null;
-        $displayStock = $activeOutletStock
-            ? (int) $activeOutletStock['stock']
-            : ((int) $outletStocks->sum('stock') > 0 ? (int) $outletStocks->sum('stock') : (int) $product->stock);
+        $displayStock = (int) $product->stock;
         $tenantDiscountPrice = $product->tenant_discount_price !== null
             ? (int) $product->tenant_discount_price
             : null;
@@ -1345,13 +1311,11 @@ class ProductController extends Controller
                 ]
                 : null,
             'display_stock' => $displayStock,
-            'display_stock_label' => $activeOutletStock
-                ? sprintf('%s: %d', $activeOutletStock['outlet_code'] ?? 'Outlet aktif', $displayStock)
-                : sprintf('Total semua outlet: %d', $displayStock),
-            'active_outlet_stock' => $activeOutletStock ? (int) $activeOutletStock['stock'] : null,
+            'display_stock_label' => sprintf('Stok terpusat: %d', $displayStock),
+            'active_outlet_stock' => $displayStock,
             'active_outlet_stock_label' => $activeOutletStock
-                ? sprintf('%s: %d', $activeOutletStock['outlet_code'] ?? 'Outlet aktif', $activeOutletStock['stock'])
-                : null,
+                ? sprintf('%s: %d', $activeOutletStock['outlet_code'] ?? 'Outlet aktif', $displayStock)
+                : sprintf('Stok terpusat: %d', $displayStock),
             'tenant_has_discount' => $tenantHasDiscount,
             'tenant_hpp_price' => (int) ($product->tenant_hpp_price ?? $product->buy_price ?? 0),
             'tenant_margin_unit_price' => max(0, (int) ($product->buy_price ?? 0) - (int) ($product->tenant_hpp_price ?? $product->buy_price ?? 0)),
@@ -1361,9 +1325,15 @@ class ProductController extends Controller
                 ? $tenantDiscountPrice
                 : (int) $product->buy_price,
             'pricing_badge' => $pricingBadge,
-            'total_outlet_stock' => (int) $outletStocks->sum('stock'),
+            'total_outlet_stock' => $displayStock,
             'outlet_stock_count' => $outletStocks->count(),
-            'outlet_stock_summary' => $outletStocks->take(3)->all(),
+            'outlet_stock_summary' => $outletStocks
+                ->take(3)
+                ->map(fn ($stock) => [
+                    ...$stock,
+                    'stock' => $displayStock,
+                ])
+                ->all(),
         ];
 
         if (! $canViewOwnerSellPrice) {

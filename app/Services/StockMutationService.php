@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\GoodsReceiving;
+use App\Models\Outlet;
 use App\Models\Product;
 use App\Models\ProductOutletStock;
 use App\Models\SalesReturn;
@@ -86,18 +87,7 @@ class StockMutationService
         }
 
         if ($stockOpname->outlet_id) {
-            ProductOutletStock::query()->updateOrCreate(
-                [
-                    'outlet_id' => $stockOpname->outlet_id,
-                    'product_id' => $product->id,
-                ],
-                [
-                    'stock' => $stockAfter,
-                    'reorder_level' => 0,
-                    'last_counted_at' => now(),
-                ]
-            );
-            $this->syncLegacyProductStock($product);
+            $this->syncUnifiedStock($product, $stockAfter, (int) $stockOpname->outlet_id, true);
         } else {
             $product->forceFill([
                 'stock' => $stockAfter,
@@ -163,21 +153,10 @@ class StockMutationService
         }
 
         if ($salesReturn->outlet_id) {
-            ProductOutletStock::query()->updateOrCreate(
-                [
-                    'outlet_id' => $salesReturn->outlet_id,
-                    'product_id' => $product->id,
-                ],
-                [
-                    'stock' => $stockAfter,
-                    'reorder_level' => 0,
-                    'last_counted_at' => now(),
-                ]
-            );
-            $this->syncLegacyProductStock($product);
+            $this->syncUnifiedStock($product, $stockAfter, (int) $salesReturn->outlet_id, true);
         } else {
             $product->forceFill([
-                'stock' => max((int) $product->stock, $stockAfter),
+                'stock' => $stockAfter,
             ])->save();
         }
 
@@ -237,21 +216,10 @@ class StockMutationService
         ?int $userId = null
     ): StockMutation {
         if ($goodsReceiving->outlet_id) {
-            ProductOutletStock::query()->updateOrCreate(
-                [
-                    'outlet_id' => $goodsReceiving->outlet_id,
-                    'product_id' => $product->id,
-                ],
-                [
-                    'stock' => $stockAfter,
-                    'reorder_level' => 0,
-                    'last_counted_at' => now(),
-                ]
-            );
-            $this->syncLegacyProductStock($product);
+            $this->syncUnifiedStock($product, $stockAfter, (int) $goodsReceiving->outlet_id, true);
         } else {
             $product->forceFill([
-                'stock' => max((int) $product->stock, $stockAfter),
+                'stock' => $stockAfter,
             ])->save();
         }
 
@@ -315,21 +283,10 @@ class StockMutationService
         }
 
         if ($supplierReturn->outlet_id) {
-            ProductOutletStock::query()->updateOrCreate(
-                [
-                    'outlet_id' => $supplierReturn->outlet_id,
-                    'product_id' => $product->id,
-                ],
-                [
-                    'stock' => $stockAfter,
-                    'reorder_level' => 0,
-                    'last_counted_at' => now(),
-                ]
-            );
-            $this->syncLegacyProductStock($product);
+            $this->syncUnifiedStock($product, $stockAfter, (int) $supplierReturn->outlet_id, true);
         } else {
             $product->forceFill([
-                'stock' => max(0, min((int) $product->stock, $stockAfter)),
+                'stock' => $stockAfter,
             ])->save();
         }
 
@@ -424,9 +381,11 @@ class StockMutationService
                 ]);
             }
 
-            $outletStock->forceFill(['stock' => $stockAfter])->save();
-
-            $this->syncLegacyProductStock($product);
+            $this->syncUnifiedStock($product, $stockAfter, $outletId, true);
+            $outletStock->forceFill([
+                'stock' => $stockAfter,
+            ]);
+            $existingStocks->put($product->id, $outletStock);
 
             $mutation = StockMutation::create([
                 'outlet_id' => $outletId,
@@ -476,20 +435,7 @@ class StockMutationService
 
     public function stockForOutlet(Product $product, int $outletId): int
     {
-        $stock = ProductOutletStock::query()
-            ->where('outlet_id', $outletId)
-            ->where('product_id', $product->id)
-            ->value('stock');
-
-        if ($stock !== null) {
-            return (int) $stock;
-        }
-
-        $hasOutletStocks = ProductOutletStock::query()
-            ->where('product_id', $product->id)
-            ->exists();
-
-        return $hasOutletStocks ? 0 : (int) $product->stock;
+        return (int) (Product::query()->whereKey($product->id)->value('stock') ?? $product->stock ?? 0);
     }
 
     public function decrementForTransactionDetail(
@@ -511,11 +457,7 @@ class StockMutationService
             ]);
         }
 
-        $outletStock->forceFill([
-            'stock' => $stockAfter,
-        ])->save();
-
-        $this->syncLegacyProductStock($product);
+        $this->syncUnifiedStock($product, $stockAfter, $outletId, true);
 
         return StockMutation::create([
             'outlet_id' => $outletId,
@@ -545,12 +487,7 @@ class StockMutationService
         $stockBefore = (int) $outletStock->stock;
         $stockAfter = $stockBefore + $qty;
 
-        $outletStock->forceFill([
-            'stock' => $stockAfter,
-            'last_counted_at' => now(),
-        ])->save();
-
-        $this->syncLegacyProductStock($product);
+        $this->syncUnifiedStock($product, $stockAfter, $outletId, true);
 
         return StockMutation::create([
             'outlet_id' => $outletId,
@@ -586,12 +523,7 @@ class StockMutationService
             ]);
         }
 
-        $outletStock->forceFill([
-            'stock' => $stockAfter,
-            'last_counted_at' => now(),
-        ])->save();
-
-        $this->syncLegacyProductStock($product);
+        $this->syncUnifiedStock($product, $stockAfter, $outletId, true);
 
         return StockMutation::create([
             'outlet_id' => $outletId,
@@ -621,6 +553,7 @@ class StockMutationService
         $stockBefore = (int) $outletStock->stock;
 
         if ($stockBefore === $stockAfter) {
+            $this->syncUnifiedStock($product, $stockAfter, $outletId, true);
             return null;
         }
 
@@ -661,21 +594,67 @@ class StockMutationService
 
     private function seedOutletStock(Product $product): int
     {
-        $hasAnyOutletStock = ProductOutletStock::query()
-            ->where('product_id', $product->id)
-            ->exists();
-
-        return $hasAnyOutletStock ? 0 : (int) $product->stock;
+        return (int) $product->stock;
     }
 
     private function syncLegacyProductStock(Product $product): void
     {
-        $totalOutletStock = (int) ProductOutletStock::query()
+        $product->forceFill([
+            'stock' => max(0, (int) $product->stock),
+        ])->save();
+    }
+
+    private function syncUnifiedStock(
+        Product $product,
+        int $stockAfter,
+        ?int $outletId = null,
+        bool $touchLastCounted = false
+    ): void {
+        $stockAfter = max(0, $stockAfter);
+
+        if ($outletId) {
+            $this->ensureOutletStock($product, $outletId);
+        }
+
+        $this->ensureAllOutletStocks($product, $stockAfter);
+
+        $update = ['stock' => $stockAfter];
+
+        if ($touchLastCounted) {
+            $update['last_counted_at'] = now();
+        }
+
+        ProductOutletStock::query()
             ->where('product_id', $product->id)
-            ->sum('stock');
+            ->update($update);
 
         $product->forceFill([
-            'stock' => max(0, $totalOutletStock),
+            'stock' => $stockAfter,
         ])->save();
+    }
+
+    private function ensureAllOutletStocks(Product $product, int $stock = 0): void
+    {
+        $existingOutletIds = ProductOutletStock::query()
+            ->where('product_id', $product->id)
+            ->pluck('outlet_id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+
+        $missingOutletIds = Outlet::query()
+            ->active()
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->reject(fn (int $id) => in_array($id, $existingOutletIds, true));
+
+        foreach ($missingOutletIds as $missingOutletId) {
+            ProductOutletStock::query()->create([
+                'outlet_id' => $missingOutletId,
+                'product_id' => $product->id,
+                'stock' => $stock,
+                'reorder_level' => 0,
+                'last_counted_at' => now(),
+            ]);
+        }
     }
 }

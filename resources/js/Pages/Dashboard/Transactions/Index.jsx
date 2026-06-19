@@ -219,6 +219,8 @@ export default function Index({
     const [draftOrderType, setDraftOrderType] = useState("dine_in");
     const [selectedTableId, setSelectedTableId] = useState("");
     const [draftSelectedTableId, setDraftSelectedTableId] = useState("");
+    const [orderReferenceName, setOrderReferenceName] = useState("");
+    const [draftOrderReferenceName, setDraftOrderReferenceName] = useState("");
     const [isTablePickerModalOpen, setIsTablePickerModalOpen] =
         useState(false);
     const [tablePickerContext, setTablePickerContext] = useState("final");
@@ -575,6 +577,39 @@ export default function Index({
             resolveRemainingProductStockForModal,
         ]
     );
+    const selectedTableItemNote = useMemo(() => {
+        const normalizedReferenceName = String(orderReferenceName || "").trim();
+        const prefix =
+            orderType === "dine_in"
+                ? (() => {
+                      if (!selectedTableId) {
+                          return "";
+                      }
+
+                      const table = diningTableOptions.find(
+                          (item) => String(item.id) === String(selectedTableId)
+                      );
+
+                      if (!table) {
+                          return "";
+                      }
+
+                      const label = table.code || table.name || "";
+
+                      return label ? `Meja ${label}` : "";
+                  })()
+                : "Take Away";
+
+        if (!prefix) {
+            return normalizedReferenceName;
+        }
+
+        if (!normalizedReferenceName) {
+            return prefix;
+        }
+
+        return `${prefix} - ${normalizedReferenceName}`;
+    }, [diningTableOptions, orderReferenceName, orderType, selectedTableId]);
 
     // Ref for search input to enable keyboard focus
     const searchInputRef = useRef(null);
@@ -586,6 +621,7 @@ export default function Index({
     const addToCartAudioContextRef = useRef(null);
     const paymentSuccessAudioContextRef = useRef(null);
     const hasUnlockedAudioRef = useRef(false);
+    const previousSelectedTableItemNoteRef = useRef("");
 
     // Set default payment method
     useEffect(() => {
@@ -627,6 +663,70 @@ export default function Index({
             setLocalCarts(savedCart);
         }
     }, [isBrowserOnline, isServerReachable, localCarts.length]);
+
+    useEffect(() => {
+        const previousAutoNote = previousSelectedTableItemNoteRef.current;
+        const nextAutoNote = selectedTableItemNote;
+
+        previousSelectedTableItemNoteRef.current = nextAutoNote;
+
+        if (localCarts.length === 0) {
+            return;
+        }
+
+        const changedItems = localCarts
+            .map((item) => {
+                const normalizedNotes = String(item.notes || "").trim();
+                const usesAutoNote =
+                    normalizedNotes === "" ||
+                    (previousAutoNote !== "" &&
+                        normalizedNotes === previousAutoNote);
+
+                if (!usesAutoNote) {
+                    return null;
+                }
+
+                const nextNotes = nextAutoNote || null;
+
+                if ((item.notes || null) === nextNotes) {
+                    return null;
+                }
+
+                return {
+                    ...item,
+                    notes: nextNotes,
+                };
+            })
+            .filter(Boolean);
+
+        if (changedItems.length === 0) {
+            return;
+        }
+
+        setLocalCarts((currentCarts) =>
+            currentCarts.map((item) => {
+                const updatedItem = changedItems.find(
+                    (candidate) => candidate.id === item.id
+                );
+
+                return updatedItem || item;
+            })
+        );
+
+        if (isOfflineMode) {
+            return;
+        }
+
+        changedItems.forEach((item) => {
+            if (!item.id || String(item.id).startsWith("temp-")) {
+                return;
+            }
+
+            axios.patch(route("transactions.updateCartNotes", item.id), {
+                notes: item.notes || null,
+            });
+        });
+    }, [isOfflineMode, localCarts, selectedTableItemNote]);
 
     useEffect(() => {
         setOfflineQueue(loadOfflineTransactionQueue());
@@ -955,8 +1055,9 @@ export default function Index({
     const customerInfoReady = useMemo(
         () =>
             Boolean(selectedCustomer) &&
+            Boolean(String(orderReferenceName || "").trim()) &&
             (orderType !== "dine_in" || Boolean(selectedTableId)),
-        [orderType, selectedCustomer, selectedTableId]
+        [orderReferenceName, orderType, selectedCustomer, selectedTableId]
     );
     const pricingDependency = useMemo(
         () => localCarts.map((item) => `${item.id}:${item.qty}`).join("|"),
@@ -1481,8 +1582,12 @@ export default function Index({
         setDraftCustomer(selectedCustomer || WALK_IN_CUSTOMER);
         setDraftOrderType(orderType || "dine_in");
         setDraftSelectedTableId(selectedTableId || "");
+        setDraftOrderReferenceName(
+            orderReferenceName || selectedCustomer?.name || ""
+        );
     }, [
         isCustomerInfoModalOpen,
+        orderReferenceName,
         orderType,
         selectedCustomer,
         selectedTableId,
@@ -1524,8 +1629,11 @@ export default function Index({
         setDraftCustomer(selectedCustomer || WALK_IN_CUSTOMER);
         setDraftOrderType(orderType || "dine_in");
         setDraftSelectedTableId(selectedTableId || "");
+        setDraftOrderReferenceName(
+            orderReferenceName || selectedCustomer?.name || ""
+        );
         setIsCustomerInfoModalOpen(true);
-    }, [orderType, selectedCustomer, selectedTableId]);
+    }, [orderReferenceName, orderType, selectedCustomer, selectedTableId]);
     const handleSaveCustomerInfo = useCallback(() => {
         if (!draftCustomer) {
             toast.error("Pilih pelanggan terlebih dahulu.");
@@ -1537,14 +1645,25 @@ export default function Index({
             return;
         }
 
+        if (!draftOrderReferenceName.trim()) {
+            toast.error("Isi nama untuk keterangan order.");
+            return;
+        }
+
         setSelectedCustomer(draftCustomer);
         setOrderType(draftOrderType);
         setSelectedTableId(
             draftOrderType === "dine_in" ? draftSelectedTableId : ""
         );
+        setOrderReferenceName(draftOrderReferenceName.trim());
         setIsCustomerInfoConfirmed(true);
         setIsCustomerInfoModalOpen(false);
-    }, [draftCustomer, draftOrderType, draftSelectedTableId]);
+    }, [
+        draftCustomer,
+        draftOrderReferenceName,
+        draftOrderType,
+        draftSelectedTableId,
+    ]);
     const openPaymentInfoTab = useCallback(() => {
         // Validasi keranjang kosong
         if (localCarts.length === 0) {
@@ -1977,7 +2096,8 @@ export default function Index({
             ? options.modifiers.filter((item) => item?.name)
             : [];
         const quantity = Math.max(1, Number(options.qty || 1));
-        const normalizedNotes = String(options.notes || "").trim();
+        const normalizedNotes =
+            String(options.notes || "").trim() || selectedTableItemNote;
         const rewardPromoMeta = options.rewardPromoMeta || null;
         const shouldForceNew =
             modifiers.length > 0 ||
@@ -2229,7 +2349,12 @@ export default function Index({
                 setPendingCartMutations((count) => Math.max(0, count - 1));
                 setAddingProductId(null);
             });
-    }, [isOfflineMode, localCarts, playAddToCartSound]);
+    }, [
+        isOfflineMode,
+        localCarts,
+        playAddToCartSound,
+        selectedTableItemNote,
+    ]);
 
     const handleAddRewardProducts = useCallback(
         async (rule, options = {}) => {
@@ -3169,6 +3294,8 @@ export default function Index({
         setSelectedCustomer(WALK_IN_CUSTOMER);
         setOrderType("dine_in");
         setSelectedTableId("");
+        setOrderReferenceName("");
+        setDraftOrderReferenceName("");
         setSelectedBankAccount(null);
         setSelectedVoucherId("");
         setPaymentMethod(defaultPaymentGateway ?? "cash");
@@ -4731,7 +4858,8 @@ export default function Index({
                                         </p>
                                         <p className="truncate text-sm font-semibold text-slate-800 dark:text-slate-100">
                                             {isCustomerInfoConfirmed
-                                                ? selectedCustomer?.name ||
+                                                ? orderReferenceName ||
+                                                  selectedCustomer?.name ||
                                                   "Pelanggan Umum"
                                                 : "Atur pelanggan dan pesanan"}
                                         </p>
@@ -4803,10 +4931,10 @@ export default function Index({
                         <div className="mt-3 grid gap-2 sm:grid-cols-3">
                             <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 dark:border-slate-700 dark:bg-slate-800/50">
                                 <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
-                                    Pelanggan
+                                    Nama Order
                                 </p>
                                 <p className="mt-1 truncate text-sm font-semibold text-slate-800 dark:text-slate-100">
-                                    {selectedCustomer?.name || "Pelanggan Umum"}
+                                    {orderReferenceName || "-"}
                                 </p>
                             </div>
                             <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 dark:border-slate-700 dark:bg-slate-800/50">
@@ -6370,6 +6498,30 @@ export default function Index({
                                         </button>
                                     ))}
                                 </div>
+                            </div>
+
+                            <div>
+                                <label className="mb-2 block text-xs font-medium text-slate-600 dark:text-slate-400">
+                                    Nama untuk keterangan order
+                                </label>
+                                <input
+                                    type="text"
+                                    value={draftOrderReferenceName}
+                                    onChange={(event) =>
+                                        setDraftOrderReferenceName(
+                                            event.target.value
+                                        )
+                                    }
+                                    placeholder="Contoh: Diah, Pak Budi, Rina"
+                                    className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-700 outline-none transition focus:border-primary-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                />
+                                <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
+                                    Keterangan item akan otomatis menjadi{" "}
+                                    {draftOrderType === "dine_in"
+                                        ? "Meja ... - Nama"
+                                        : "Take Away - Nama"}
+                                    .
+                                </p>
                             </div>
 
                             {draftOrderType === "dine_in" && (

@@ -368,25 +368,12 @@ class PublicCatalogController extends Controller
             )
             ->orderBy('title');
 
-        if ($this->hasOutletStockTable()) {
-            $query->with(['outletStocks' => fn ($stockQuery) => $outlet
-                ? $stockQuery->where('outlet_id', $outlet->id)
-                : $stockQuery->orderByDesc('stock')]);
-        }
-
         if (! $request->boolean('include_out_of_stock')) {
-            if ($this->hasOutletStockTable() && $outlet) {
-                $query->whereHas('outletStocks', fn ($stockQuery) => $stockQuery
-                    ->where('outlet_id', $outlet->id)
-                    ->where('stock', '>', 0));
-            } else {
-                $query->where('stock', '>', 0);
-            }
+            $query->where('stock', '>', 0);
         }
 
-        return $query->get()->map(function (Product $product) use ($outlet) {
-            $stock = $this->resolveProductStock($product, $outlet?->id);
-            $product->setAttribute('stock', $stock);
+        return $query->get()->map(function (Product $product) {
+            $product->setAttribute('stock', (int) ($product->stock ?? 0));
 
             return $product;
         })->values();
@@ -1053,25 +1040,6 @@ class PublicCatalogController extends Controller
 
     private function resolveProductStock(Product $product, ?int $outletId): int
     {
-        if (! $this->hasOutletStockTable()) {
-            return (int) ($product->stock ?? 0);
-        }
-
-        if ($outletId) {
-            $loadedStock = $product->relationLoaded('outletStocks')
-                ? $product->outletStocks->firstWhere('outlet_id', $outletId)
-                : null;
-
-            if ($loadedStock) {
-                return (int) $loadedStock->stock;
-            }
-
-            return (int) (ProductOutletStock::query()
-                ->where('outlet_id', $outletId)
-                ->where('product_id', $product->id)
-                ->value('stock') ?? 0);
-        }
-
         return (int) ($product->stock ?? 0);
     }
 

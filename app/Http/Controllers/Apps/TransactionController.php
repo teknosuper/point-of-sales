@@ -86,9 +86,7 @@ class TransactionController extends Controller
         $cartsToRemove = [];
         foreach ($carts as $cart) {
             if ($cart->product) {
-                $availableStock = $outlet
-                    ? $this->stockMutationService->stockForOutlet($cart->product, $outlet->id)
-                    : (int) $cart->product->stock;
+                $availableStock = (int) ($cart->product->stock ?? 0);
                 
                 if ($availableStock < $cart->qty) {
                     $cartsToRemove[] = $cart->id;
@@ -177,12 +175,8 @@ class TransactionController extends Controller
             ->groupBy('product_id')
             ->pluck('sold_qty', 'product_id');
 
-        $products = $productsQuery->get()->map(function (Product $product) use ($outlet) {
-            $stock = $outlet && Schema::hasTable('product_outlet_stocks')
-                ? $product->outletStocks()->where('outlet_id', $outlet->id)->value('stock')
-                : $product->stock;
-
-            $product->setAttribute('stock', (int) ($stock ?? 0));
+        $products = $productsQuery->get()->map(function (Product $product) {
+            $product->setAttribute('stock', (int) ($product->stock ?? 0));
 
             return $product;
         })->filter(function (Product $product) {
@@ -1920,7 +1914,8 @@ class TransactionController extends Controller
             ->withSum('details as total_items', 'qty')
             ->withSum('details as total_promo_discount', 'discount_total')
             ->withSum('profits as total_profit', 'total')
-            ->orderByDesc('created_at');
+            ->orderByDesc('created_at')
+            ->orderByDesc('id');
 
         if ($salesReturnTablesReady) {
             $query->with('details.salesReturnItems.salesReturn:id,status');
@@ -2015,7 +2010,8 @@ class TransactionController extends Controller
             ->when($filters['customer_scope'] === 'registered', fn (Builder $builder) => $builder->whereNotNull('customer_id'))
             ->when($filters['payment_status'], fn (Builder $builder, $status) => $builder->where('payment_status', $status))
             ->when($filters['payment_method'], fn (Builder $builder, $method) => $builder->where('payment_method', $method))
-            ->orderByDesc('created_at');
+            ->orderByDesc('created_at')
+            ->orderByDesc('id');
 
         $transactions = $query->paginate($filters['per_page'])->withQueryString();
 
