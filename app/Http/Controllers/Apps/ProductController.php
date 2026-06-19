@@ -17,6 +17,7 @@ use App\Services\StockMutationService;
 use Illuminate\Http\Request;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -61,7 +62,28 @@ class ProductController extends Controller
             $filters['per_page'] = 10;
         }
 
+        $resolvedStockExpression = 'products.stock';
+
+        if (Schema::hasTable('product_outlet_stocks')) {
+            if ($activeOutletId) {
+                $resolvedStockExpression = sprintf(
+                    "CASE WHEN active_outlet_stocks.stock IS NOT NULL THEN active_outlet_stocks.stock WHEN EXISTS (SELECT 1 FROM product_outlet_stocks pos_any WHERE pos_any.product_id = products.id) THEN 0 ELSE products.stock END",
+                );
+            } else {
+                $resolvedStockExpression = "COALESCE((SELECT SUM(pos_any.stock) FROM product_outlet_stocks pos_any WHERE pos_any.product_id = products.id), products.stock)";
+            }
+        }
+
         $products = $this->applyWorkspaceProductScope(Product::query(), $request)
+            ->select('products.*')
+            ->when(
+                Schema::hasTable('product_outlet_stocks') && $activeOutletId,
+                fn ($query) => $query->leftJoin('product_outlet_stocks as active_outlet_stocks', function ($join) use ($activeOutletId) {
+                    $join->on('active_outlet_stocks.product_id', '=', 'products.id')
+                        ->where('active_outlet_stocks.outlet_id', '=', $activeOutletId);
+                })
+            )
+            ->selectRaw("{$resolvedStockExpression} as resolved_stock")
             ->with([
                 'category:id,name',
                 'tenantOutlet:id,name,code',
@@ -102,11 +124,11 @@ class ProductController extends Controller
                     default => $query,
                 };
             })
-            ->when($filters['stock_status'] !== '', function ($query) use ($filters) {
+            ->when($filters['stock_status'] !== '', function ($query) use ($filters, $resolvedStockExpression) {
                 return match ($filters['stock_status']) {
-                    'out' => $query->where('stock', '<=', 0),
-                    'low' => $query->where('stock', '>', 0)->where('stock', '<=', 5),
-                    'ready' => $query->where('stock', '>', 5),
+                    'out' => $query->whereRaw("{$resolvedStockExpression} <= 0"),
+                    'low' => $query->whereRaw("{$resolvedStockExpression} > 0 AND {$resolvedStockExpression} <= 5"),
+                    'ready' => $query->whereRaw("{$resolvedStockExpression} > 5"),
                     default => $query,
                 };
             });
@@ -116,8 +138,8 @@ class ProductController extends Controller
             'title_desc' => $products->orderByDesc('title'),
             'price_low' => $products->orderBy('sell_price'),
             'price_high' => $products->orderByDesc('sell_price'),
-            'stock_low' => $products->orderBy('stock'),
-            'stock_high' => $products->orderByDesc('stock'),
+            'stock_low' => $products->orderByRaw("{$resolvedStockExpression} asc"),
+            'stock_high' => $products->orderByRaw("{$resolvedStockExpression} desc"),
             'oldest' => $products->oldest(),
             default => $products->latest(),
         };
@@ -482,7 +504,9 @@ class ProductController extends Controller
                     'outlet_name' => $outlet->name,
                     'outlet_code' => $outlet->code,
                     'outlet_type' => $outlet->outlet_type,
-                    'stock' => $existingStock ? (int) $existingStock->stock : (int) $product->stock,
+                    'stock' => $existingStock
+                        ? (int) $existingStock->stock
+                        : ($product->outletStocks->isNotEmpty() ? 0 : (int) $product->stock),
                     'reorder_level' => $existingStock?->reorder_level !== null
                         ? (int) $existingStock->reorder_level
                         : 0,
@@ -1133,6 +1157,9 @@ class ProductController extends Controller
         $activeOutletStock = $activeOutletId
             ? $outletStocks->firstWhere('outlet_id', $activeOutletId)
             : null;
+        $displayStock = $activeOutletStock
+            ? (int) $activeOutletStock['stock']
+            : ((int) $outletStocks->sum('stock') > 0 ? (int) $outletStocks->sum('stock') : (int) $product->stock);
         $tenantDiscountPrice = $product->tenant_discount_price !== null
             ? (int) $product->tenant_discount_price
             : null;
@@ -1149,6 +1176,7 @@ class ProductController extends Controller
 
         $payload = [
             ...$product->toArray(),
+            'stock' => $displayStock,
             'category' => $product->category
                 ? [
                     'id' => $product->category->id,
@@ -1162,6 +1190,10 @@ class ProductController extends Controller
                     'code' => $product->tenantOutlet->code,
                 ]
                 : null,
+            'display_stock' => $displayStock,
+            'display_stock_label' => $activeOutletStock
+                ? sprintf('%s: %d', $activeOutletStock['outlet_code'] ?? 'Outlet aktif', $displayStock)
+                : sprintf('Total semua outlet: %d', $displayStock),
             'active_outlet_stock' => $activeOutletStock ? (int) $activeOutletStock['stock'] : null,
             'active_outlet_stock_label' => $activeOutletStock
                 ? sprintf('%s: %d', $activeOutletStock['outlet_code'] ?? 'Outlet aktif', $activeOutletStock['stock'])

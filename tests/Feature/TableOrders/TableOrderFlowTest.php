@@ -176,6 +176,55 @@ class TableOrderFlowTest extends TestCase
         $this->assertSame(50000, (int) $order->items()->sum('line_total'));
     }
 
+    public function test_public_table_order_preview_rejects_duplicate_product_lines_that_exceed_available_stock(): void
+    {
+        $outlet = $this->createOutlet();
+        $table = DiningTable::create([
+            'outlet_id' => $outlet->id,
+            'name' => 'Meja 08',
+            'code' => 'A8',
+            'qr_token' => 'table-08-token',
+            'capacity' => 4,
+            'status' => 'active',
+            'self_order_enabled' => true,
+            'sort_order' => 8,
+        ]);
+
+        $product = $this->createProduct($outlet, [
+            'barcode' => '8990004',
+            'sku' => 'SKU-004',
+            'title' => 'Es Teh Jumbo',
+            'stock' => 1,
+        ]);
+
+        ProductOutletStock::query()
+            ->where('outlet_id', $outlet->id)
+            ->where('product_id', $product->id)
+            ->update(['stock' => 1]);
+
+        $customer = Customer::create([
+            'name' => 'Sari',
+            'no_telp' => '081122334455',
+            'email' => 'sari@example.com',
+            'address' => 'Jl. Melati No. 8',
+        ]);
+
+        $this->withSession([
+            "public_table_order.customer_id.{$outlet->id}" => $customer->id,
+        ])->postJson(route('table-order.preview', $table->qr_token), [
+            'items' => [
+                [
+                    'product_id' => $product->id,
+                    'qty' => 1,
+                ],
+                [
+                    'product_id' => $product->id,
+                    'qty' => 1,
+                ],
+            ],
+        ])->assertStatus(422);
+    }
+
     public function test_public_table_order_can_register_new_customer_from_pending_phone(): void
     {
         $outlet = $this->createOutlet();

@@ -522,6 +522,55 @@ export default function Index({
             modifierModalQuantity,
         ]
     );
+    const resolveRemainingProductStockForModal = useCallback(
+        (productId, cartTargetId = null) => {
+            const selectedProductId = Number(productId || 0);
+
+            if (!selectedProductId) {
+                return 0;
+            }
+
+            const product = productsById[selectedProductId];
+            const baseStock = Math.max(0, Number(product?.stock || 0));
+            const reservedQty = localCarts.reduce((sum, item) => {
+                if (Number(item?.product_id || 0) !== selectedProductId) {
+                    return sum;
+                }
+
+                if (cartTargetId && Number(item?.id || 0) === Number(cartTargetId)) {
+                    return sum;
+                }
+
+                return sum + Math.max(0, Number(item?.qty || 0));
+            }, 0);
+
+            return Math.max(0, baseStock - reservedQty);
+        },
+        [localCarts, productsById]
+    );
+    const handleModifierModalQuantityChange = useCallback(
+        (nextQuantity) => {
+            const normalizedQuantity = Math.max(1, Number(nextQuantity || 1));
+            const remainingStock = resolveRemainingProductStockForModal(
+                modifierModalProduct?.id,
+                modifierModalCartTargetId
+            );
+
+            if (normalizedQuantity > remainingStock) {
+                toast.error(
+                    `Stok tidak mencukupi. Tersedia: ${remainingStock}`
+                );
+                return;
+            }
+
+            setModifierModalQuantity(normalizedQuantity);
+        },
+        [
+            modifierModalCartTargetId,
+            modifierModalProduct?.id,
+            resolveRemainingProductStockForModal,
+        ]
+    );
 
     // Ref for search input to enable keyboard focus
     const searchInputRef = useRef(null);
@@ -3267,6 +3316,22 @@ export default function Index({
         return true;
     }, []);
 
+    const refreshPosData = useCallback(() => {
+        router.reload({
+            only: [
+                "products",
+                "carts",
+                "initialPricingPreview",
+                "pendingTableOrders",
+                "shiftSummary",
+                "outletOpenShift",
+                "lowStockNotifications",
+            ],
+            preserveScroll: true,
+            preserveState: true,
+        });
+    }, []);
+
     const openOfflineReceiptPrint = useCallback((receiptSource = null) => {
         const source = receiptSource || completedTransaction;
 
@@ -4061,6 +4126,7 @@ export default function Index({
             setCheckoutModalStep(null);
             setIsReceiptFrameReady(false);
             resetTransactionForm();
+            refreshPosData();
             toast.success("Transaksi berhasil! Struk masuk antrian cetak.");
             playPaymentSuccessSound();
             setMobileView("products");
@@ -6189,7 +6255,7 @@ export default function Index({
                 quantity={modifierModalQuantity}
                 notesValue={modifierModalNotes}
                 onNotesChange={setModifierModalNotes}
-                onQuantityChange={setModifierModalQuantity}
+                onQuantityChange={handleModifierModalQuantityChange}
                 selectedModifierOptionIds={selectedModifierOptionIds}
                 onToggleModifierOption={handleToggleModifierOption}
                 selectedModifierTotal={modifierModalSelectedModifierTotal}

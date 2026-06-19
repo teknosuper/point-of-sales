@@ -422,23 +422,6 @@ class TransactionController extends Controller
             return redirect()->back()->with('error', 'Product not found.');
         }
 
-        // Cek stok produk
-        $availableStock = $outlet
-            ? $this->stockMutationService->stockForOutlet($product, $outlet->id)
-            : (int) $product->stock;
-
-        if ($availableStock < $request->qty) {
-            if ($request->expectsJson()) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Out of Stock Product!.',
-                ], 422);
-            }
-
-            return redirect()->back()->with('error', 'Out of Stock Product!.');
-        }
-
-        // Cek keranjang
         $cart = null;
         if (! $forceNew) {
             $cart = Cart::with('product.modifierOptions', 'tenantOutlet:id,name,code', 'modifiers')
@@ -453,6 +436,23 @@ class TransactionController extends Controller
                 ->whereDoesntHave('modifiers')
                 ->active()
                 ->first();
+        }
+
+        // Cek stok produk dengan memperhitungkan item aktif yang akan digabung.
+        $availableStock = $outlet
+            ? $this->stockMutationService->stockForOutlet($product, $outlet->id)
+            : (int) $product->stock;
+        $requestedQty = (int) $request->qty + ($cart ? (int) $cart->qty : 0);
+
+        if ($availableStock < $requestedQty) {
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Out of Stock Product!.',
+                ], 422);
+            }
+
+            return redirect()->back()->with('error', 'Out of Stock Product!.');
         }
 
         if ($cart) {
@@ -781,6 +781,12 @@ class TransactionController extends Controller
 
         $supportsPromoRewardMeta = Schema::hasColumn('carts', 'is_promo_reward');
 
+        $productStock = $cart->product
+            ? ($cart->outlet_id
+                ? $this->stockMutationService->stockForOutlet($cart->product, (int) $cart->outlet_id)
+                : (int) $cart->product->stock)
+            : 0;
+
         return [
             'id' => $cart->id,
             'cashier_id' => $cart->cashier_id,
@@ -805,7 +811,7 @@ class TransactionController extends Controller
                 'image' => $cart->product->image,
                 'buy_price' => (int) $cart->product->buy_price,
                 'sell_price' => (int) $cart->product->sell_price,
-                'stock' => (int) $cart->product->stock,
+                'stock' => $productStock,
                 'category_id' => $cart->product->category_id,
                 'tenant_outlet_id' => $cart->product->tenant_outlet_id,
                 'supports_modifiers' => (bool) $cart->product->supports_modifiers,

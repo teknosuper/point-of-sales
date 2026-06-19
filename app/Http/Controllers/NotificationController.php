@@ -74,8 +74,7 @@ class NotificationController extends Controller
                 })
                 ->values();
         } elseif ($canSeeStockNotifications) {
-            $lowStockNotifications = Product::query()
-                ->where('stock', '<=', 0)
+            $lowStockNotifications = $this->globalLowStockProductsQuery()
                 ->whereNotExists(function ($query) use ($userId) {
                     $query->selectRaw('1')
                         ->from('product_notification_reads as pr')
@@ -83,14 +82,14 @@ class NotificationController extends Controller
                         ->where('pr.user_id', $userId)
                         ->whereColumn('pr.updated_at', '>=', 'products.updated_at');
                 })
-                ->orderByDesc('updated_at')
+                ->orderByDesc('products.updated_at')
                 ->limit(10)
-                ->get(['id', 'title', 'stock', 'updated_at'])
+                ->get()
                 ->map(function ($product) {
                     return [
                         'id' => $product->id,
                         'title' => $product->title,
-                        'stock' => (int) $product->stock,
+                        'stock' => (int) ($product->resolved_stock ?? 0),
                         'time' => optional($product->updated_at)->diffForHumans(),
                     ];
                 })
@@ -228,7 +227,9 @@ class NotificationController extends Controller
      */
     public function markAllLowStockRead(Request $request)
     {
-        $productIds = Product::where('stock', '<=', 0)->pluck('id')->all();
+        $productIds = $this->globalLowStockProductsQuery()
+            ->pluck('products.id')
+            ->all();
 
         if (count($productIds) === 0) {
             return back();
@@ -250,6 +251,23 @@ class NotificationController extends Controller
         );
 
         return back()->with('status', 'notification-read-all');
+    }
+
+    private function globalLowStockProductsQuery()
+    {
+        if (! Schema::hasTable('product_outlet_stocks')) {
+            return Product::query()
+                ->select('products.*')
+                ->selectRaw('products.stock as resolved_stock')
+                ->where('products.stock', '<=', 0);
+        }
+
+        return Product::query()
+            ->leftJoin('product_outlet_stocks as pos', 'pos.product_id', '=', 'products.id')
+            ->select('products.*')
+            ->selectRaw('COALESCE(SUM(pos.stock), products.stock) as resolved_stock')
+            ->groupBy('products.id', 'products.image', 'products.barcode', 'products.sku', 'products.title', 'products.description', 'products.tenant_hpp_price', 'products.buy_price', 'products.sell_price', 'products.tenant_discount_price', 'products.category_id', 'products.tenant_outlet_id', 'products.supports_modifiers', 'products.stock', 'products.created_at', 'products.updated_at')
+            ->havingRaw('COALESCE(SUM(pos.stock), products.stock) <= 0');
     }
 
     public function markRead(Request $request)

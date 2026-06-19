@@ -220,6 +220,31 @@ class TransactionFlowTest extends TestCase
         $this->assertSame($tenantB->id, (int) $transaction->tenantAllocations->first()->tenant_outlet_id);
     }
 
+    public function test_add_to_cart_rejects_qty_that_exceeds_stock_after_merging_existing_cart(): void
+    {
+        $cashier = $this->createCashier();
+        $this->openShiftFor($cashier);
+        $product = $this->createProduct(stock: 5);
+
+        $cart = Cart::create([
+            'cashier_id' => $cashier->id,
+            'product_id' => $product->id,
+            'qty' => 3,
+            'price' => $product->sell_price * 3,
+        ]);
+
+        $this->actingAs($cashier)
+            ->postJson(route('transactions.addToCart'), [
+                'product_id' => $product->id,
+                'qty' => 3,
+                'sell_price' => $product->sell_price,
+            ])
+            ->assertStatus(422)
+            ->assertJsonPath('success', false);
+
+        $this->assertSame(3, (int) $cart->fresh()->qty);
+    }
+
     public function test_cashier_can_view_invoice_page_after_transaction(): void
     {
         $cashier = $this->createCashier();

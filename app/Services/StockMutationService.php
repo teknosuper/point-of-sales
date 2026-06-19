@@ -97,11 +97,12 @@ class StockMutationService
                     'last_counted_at' => now(),
                 ]
             );
+            $this->syncLegacyProductStock($product);
+        } else {
+            $product->forceFill([
+                'stock' => $stockAfter,
+            ])->save();
         }
-
-        $product->forceFill([
-            'stock' => $stockAfter,
-        ])->save();
 
         $mutation = StockMutation::create([
             'outlet_id' => $stockOpname->outlet_id,
@@ -173,11 +174,12 @@ class StockMutationService
                     'last_counted_at' => now(),
                 ]
             );
+            $this->syncLegacyProductStock($product);
+        } else {
+            $product->forceFill([
+                'stock' => max((int) $product->stock, $stockAfter),
+            ])->save();
         }
-
-        $product->forceFill([
-            'stock' => max((int) $product->stock, $stockAfter),
-        ])->save();
 
         $mutation = StockMutation::create([
             'outlet_id' => $salesReturn->outlet_id,
@@ -246,11 +248,12 @@ class StockMutationService
                     'last_counted_at' => now(),
                 ]
             );
+            $this->syncLegacyProductStock($product);
+        } else {
+            $product->forceFill([
+                'stock' => max((int) $product->stock, $stockAfter),
+            ])->save();
         }
-
-        $product->forceFill([
-            'stock' => max((int) $product->stock, $stockAfter),
-        ])->save();
 
         $mutation = StockMutation::create([
             'outlet_id' => $goodsReceiving->outlet_id,
@@ -323,11 +326,12 @@ class StockMutationService
                     'last_counted_at' => now(),
                 ]
             );
+            $this->syncLegacyProductStock($product);
+        } else {
+            $product->forceFill([
+                'stock' => max(0, min((int) $product->stock, $stockAfter)),
+            ])->save();
         }
-
-        $product->forceFill([
-            'stock' => max(0, min((int) $product->stock, $stockAfter)),
-        ])->save();
 
         $mutation = StockMutation::create([
             'outlet_id' => $supplierReturn->outlet_id,
@@ -407,12 +411,7 @@ class StockMutationService
             $outletStock = $existingStocks->get($product->id);
 
             if (! $outletStock) {
-                $outletStock = ProductOutletStock::create([
-                    'outlet_id' => $outletId,
-                    'product_id' => $product->id,
-                    'stock' => (int) $product->stock,
-                    'reorder_level' => 0,
-                ]);
+                $outletStock = $this->ensureOutletStock($product, $outletId);
                 $existingStocks->put($product->id, $outletStock);
             }
 
@@ -427,9 +426,7 @@ class StockMutationService
 
             $outletStock->forceFill(['stock' => $stockAfter])->save();
 
-            $product->forceFill([
-                'stock' => max(0, (int) $product->stock - $qty),
-            ])->save();
+            $this->syncLegacyProductStock($product);
 
             $mutation = StockMutation::create([
                 'outlet_id' => $outletId,
@@ -484,7 +481,15 @@ class StockMutationService
             ->where('product_id', $product->id)
             ->value('stock');
 
-        return $stock !== null ? (int) $stock : (int) $product->stock;
+        if ($stock !== null) {
+            return (int) $stock;
+        }
+
+        $hasOutletStocks = ProductOutletStock::query()
+            ->where('product_id', $product->id)
+            ->exists();
+
+        return $hasOutletStocks ? 0 : (int) $product->stock;
     }
 
     public function decrementForTransactionDetail(
@@ -495,16 +500,7 @@ class StockMutationService
         ?int $userId = null
     ): StockMutation {
         $outletId = (int) $transaction->outlet_id;
-        $outletStock = ProductOutletStock::query()->firstOrCreate(
-            [
-                'outlet_id' => $outletId,
-                'product_id' => $product->id,
-            ],
-            [
-                'stock' => (int) $product->stock,
-                'reorder_level' => 0,
-            ]
-        );
+        $outletStock = $this->ensureOutletStock($product, $outletId);
 
         $stockBefore = (int) $outletStock->stock;
         $stockAfter = $stockBefore - $qty;
@@ -519,9 +515,7 @@ class StockMutationService
             'stock' => $stockAfter,
         ])->save();
 
-        $product->forceFill([
-            'stock' => max(0, (int) $product->stock - $qty),
-        ])->save();
+        $this->syncLegacyProductStock($product);
 
         return StockMutation::create([
             'outlet_id' => $outletId,
@@ -546,16 +540,7 @@ class StockMutationService
         string $notes,
         ?int $userId = null
     ): StockMutation {
-        $outletStock = ProductOutletStock::query()->firstOrCreate(
-            [
-                'outlet_id' => $outletId,
-                'product_id' => $product->id,
-            ],
-            [
-                'stock' => (int) $product->stock,
-                'reorder_level' => 0,
-            ]
-        );
+        $outletStock = $this->ensureOutletStock($product, $outletId);
 
         $stockBefore = (int) $outletStock->stock;
         $stockAfter = $stockBefore + $qty;
@@ -565,9 +550,7 @@ class StockMutationService
             'last_counted_at' => now(),
         ])->save();
 
-        $product->forceFill([
-            'stock' => max((int) $product->stock, $stockAfter),
-        ])->save();
+        $this->syncLegacyProductStock($product);
 
         return StockMutation::create([
             'outlet_id' => $outletId,
@@ -592,16 +575,7 @@ class StockMutationService
         string $notes,
         ?int $userId = null
     ): StockMutation {
-        $outletStock = ProductOutletStock::query()->firstOrCreate(
-            [
-                'outlet_id' => $outletId,
-                'product_id' => $product->id,
-            ],
-            [
-                'stock' => (int) $product->stock,
-                'reorder_level' => 0,
-            ]
-        );
+        $outletStock = $this->ensureOutletStock($product, $outletId);
 
         $stockBefore = (int) $outletStock->stock;
         $stockAfter = $stockBefore - $qty;
@@ -617,9 +591,7 @@ class StockMutationService
             'last_counted_at' => now(),
         ])->save();
 
-        $product->forceFill([
-            'stock' => max(0, min((int) $product->stock, $stockAfter)),
-        ])->save();
+        $this->syncLegacyProductStock($product);
 
         return StockMutation::create([
             'outlet_id' => $outletId,
@@ -644,16 +616,7 @@ class StockMutationService
         ?string $notes = null,
         ?int $userId = null
     ): ?StockMutation {
-        $outletStock = ProductOutletStock::query()->firstOrCreate(
-            [
-                'outlet_id' => $outletId,
-                'product_id' => $product->id,
-            ],
-            [
-                'stock' => (int) $product->stock,
-                'reorder_level' => 0,
-            ]
-        );
+        $outletStock = $this->ensureOutletStock($product, $outletId);
 
         $stockBefore = (int) $outletStock->stock;
 
@@ -666,9 +629,7 @@ class StockMutationService
             'last_counted_at' => now(),
         ])->save();
 
-        $product->forceFill([
-            'stock' => $stockAfter,
-        ])->save();
+        $this->syncLegacyProductStock($product);
 
         return StockMutation::create([
             'outlet_id' => $outletId,
@@ -682,5 +643,39 @@ class StockMutationService
             'notes' => $notes ?: 'Adjustment stok outlet.',
             'created_by' => $userId,
         ]);
+    }
+
+    private function ensureOutletStock(Product $product, int $outletId): ProductOutletStock
+    {
+        return ProductOutletStock::query()->firstOrCreate(
+            [
+                'outlet_id' => $outletId,
+                'product_id' => $product->id,
+            ],
+            [
+                'stock' => $this->seedOutletStock($product),
+                'reorder_level' => 0,
+            ]
+        );
+    }
+
+    private function seedOutletStock(Product $product): int
+    {
+        $hasAnyOutletStock = ProductOutletStock::query()
+            ->where('product_id', $product->id)
+            ->exists();
+
+        return $hasAnyOutletStock ? 0 : (int) $product->stock;
+    }
+
+    private function syncLegacyProductStock(Product $product): void
+    {
+        $totalOutletStock = (int) ProductOutletStock::query()
+            ->where('product_id', $product->id)
+            ->sum('stock');
+
+        $product->forceFill([
+            'stock' => max(0, $totalOutletStock),
+        ])->save();
     }
 }

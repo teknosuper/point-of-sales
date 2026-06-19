@@ -133,14 +133,19 @@ class DashboardController extends Controller
                     'stock' => (int) $stock->stock,
                     'image' => $stock->product?->image,
                 ])
-            : Product::where('stock', '<', 10)
-                ->orderBy('stock', 'asc')
+            : Product::query()
+                ->leftJoin('product_outlet_stocks as pos', 'pos.product_id', '=', 'products.id')
+                ->select('products.id', 'products.title', 'products.image')
+                ->selectRaw('COALESCE(SUM(pos.stock), products.stock) as resolved_stock')
+                ->groupBy('products.id', 'products.title', 'products.image', 'products.stock')
+                ->havingRaw('COALESCE(SUM(pos.stock), products.stock) < 10')
+                ->orderByRaw('COALESCE(SUM(pos.stock), products.stock) asc')
                 ->take(5)
                 ->get()
                 ->map(function ($product) {
                     return [
                         'name' => $product->title,
-                        'stock' => (int) $product->stock,
+                        'stock' => (int) ($product->resolved_stock ?? 0),
                         'image' => $product->image,
                     ];
                 });
@@ -152,13 +157,21 @@ class DashboardController extends Controller
             ->pluck('product_id');
 
         $slowMovingProducts = Product::whereNotIn('id', $recentlySoldProductIds)
-            ->where('stock', '>', 0)
+            ->where(function (Builder $query) {
+                $query
+                    ->whereHas('outletStocks', fn (Builder $stockQuery) => $stockQuery->where('stock', '>', 0))
+                    ->orWhere(function (Builder $fallbackQuery) {
+                        $fallbackQuery
+                            ->whereDoesntHave('outletStocks')
+                            ->where('stock', '>', 0);
+                    });
+            })
             ->take(5)
             ->get()
             ->map(function ($product) {
                 return [
                     'name' => $product->title,
-                    'stock' => (int) $product->stock,
+                    'stock' => (int) ($product->outletStocks()->sum('stock') ?: $product->stock),
                     'image' => $product->image,
                 ];
             });

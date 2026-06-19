@@ -144,8 +144,11 @@ class TableOrderService
             ->where('is_active', true)
             ->get()
             ->groupBy('product_id');
+        $requestedQtyByProduct = $items
+            ->groupBy('product_id')
+            ->map(fn (Collection $group) => (int) $group->sum('qty'));
 
-        $orderItems = $items->map(function (array $item, int $index) use ($products, $modifierOptions, $table) {
+        $orderItems = $items->map(function (array $item, int $index) use ($products, $modifierOptions, $table, $requestedQtyByProduct) {
             /** @var Product|null $product */
             $product = $products->get($item['product_id']);
             if (! $product) {
@@ -155,7 +158,9 @@ class TableOrderService
             }
 
             $availableStock = $this->resolveAvailableStock($product, $table->outlet_id);
-            if ($availableStock < $item['qty']) {
+            $requestedQty = (int) ($requestedQtyByProduct->get($product->id) ?? $item['qty']);
+
+            if ($availableStock < $requestedQty) {
                 throw ValidationException::withMessages([
                     'items' => "Stok produk {$product->title} tidak mencukupi.",
                 ]);

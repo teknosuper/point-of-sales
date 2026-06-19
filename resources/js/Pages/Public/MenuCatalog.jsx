@@ -10,7 +10,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import toast from "react-hot-toast";
 
-const AUTO_REFRESH_INTERVAL = 5 * 60 * 1000;
+const AUTO_REFRESH_INTERVAL = 30 * 1000;
 
 export default function MenuCatalog({
     outlet,
@@ -196,6 +196,29 @@ export default function MenuCatalog({
         }, AUTO_REFRESH_INTERVAL);
 
         return () => window.clearInterval(intervalId);
+    }, [fetchProducts]);
+
+    useEffect(() => {
+        const handleVisibilityRefresh = () => {
+            if (document.visibilityState === "visible") {
+                fetchProducts({ silent: true });
+            }
+        };
+
+        const handleFocusRefresh = () => {
+            fetchProducts({ silent: true });
+        };
+
+        window.addEventListener("focus", handleFocusRefresh);
+        document.addEventListener("visibilitychange", handleVisibilityRefresh);
+
+        return () => {
+            window.removeEventListener("focus", handleFocusRefresh);
+            document.removeEventListener(
+                "visibilitychange",
+                handleVisibilityRefresh
+            );
+        };
     }, [fetchProducts]);
 
     useEffect(() => {

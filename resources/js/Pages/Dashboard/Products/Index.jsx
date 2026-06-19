@@ -115,8 +115,15 @@ function ProductCard({
     showCostAsPrimary = false,
     showSellPrice = true,
 }) {
-    const lowStock = product.stock > 0 && product.stock <= 5;
-    const outOfStock = product.stock === 0;
+    const displayStock = Number(
+        product.display_stock ??
+            product.active_outlet_stock ??
+            product.total_outlet_stock ??
+            product.stock ??
+            0
+    );
+    const lowStock = displayStock > 0 && displayStock <= 5;
+    const outOfStock = displayStock === 0;
     const tenantReady = Boolean(product.tenant_outlet_id);
     const kitchenReady =
         Number(product.active_kitchen_station_mappings_count ?? 0) > 0;
@@ -178,11 +185,11 @@ function ProductCard({
                         </span>
                     ) : lowStock ? (
                         <span className="rounded-full bg-warning-500 px-2 py-1 text-xs font-semibold text-white">
-                            Stok: {product.stock}
+                            Stok: {displayStock}
                         </span>
                     ) : (
                         <span className="rounded-full bg-slate-900/60 px-2 py-1 text-xs font-medium text-white">
-                            Stok: {product.stock}
+                            Stok: {displayStock}
                         </span>
                     )}
                 </div>
