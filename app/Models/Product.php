@@ -22,6 +22,7 @@ class Product extends Model
         'stock' => 'integer',
         'tenant_outlet_id' => 'integer',
         'supports_modifiers' => 'boolean',
+        'requires_modifier_selection' => 'boolean',
     ];
 
     /**
@@ -42,6 +43,7 @@ class Product extends Model
         'category_id',
         'tenant_outlet_id',
         'supports_modifiers',
+        'requires_modifier_selection',
         'stock',
     ];
 

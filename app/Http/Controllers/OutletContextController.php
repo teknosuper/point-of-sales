@@ -39,7 +39,7 @@ class OutletContextController extends Controller
         }
 
         if ($selectedOutletId) {
-            $accessibleOutlet = $user?->outlets()
+            $accessibleOutlet = $user?->accessibleOutletsQuery()
                 ->active()
                 ->where('outlets.id', $selectedOutletId)
                 ->exists();

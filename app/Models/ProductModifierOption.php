@@ -14,6 +14,7 @@ class ProductModifierOption extends Model
         'name',
         'price',
         'is_active',
+        'is_required',
         'sort_order',
     ];
 
@@ -21,6 +22,7 @@ class ProductModifierOption extends Model
         'product_id' => 'integer',
         'price' => 'integer',
         'is_active' => 'boolean',
+        'is_required' => 'boolean',
         'sort_order' => 'integer',
     ];
 

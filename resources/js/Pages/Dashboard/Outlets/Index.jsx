@@ -6,6 +6,7 @@ import {
     IconAdjustmentsHorizontal,
     IconBuildingStore,
     IconCheck,
+    IconChecklist,
     IconMapPin,
     IconPlus,
     IconSearch,
@@ -35,6 +36,7 @@ const defaultForm = {
     website: "",
     address: "",
     outlet_type: "main",
+    parent_outlet_id: "",
     commission_rate_percent: 0,
     is_active: true,
     is_default: false,
@@ -61,11 +63,13 @@ export default function Index({ outlets, filters = {}, summary = {}, setupStatus
     });
     const perPageOptions = meta?.per_page_options ?? [10, 25, 50, 100];
     const users = meta?.users ?? [];
+    const parentMainOutlets = meta?.parent_main_outlets ?? [];
     const outletTypes = meta?.outlet_types ?? [];
     const form = useForm(defaultForm);
     const canCreateOutlets = can("outlets-create");
     const canUpdateOutlets = can("outlets-update");
     const canToggleOutlets = can("outlets-toggle");
+    const canAccessDataRepair = can("business-settings-access");
 
     useEffect(() => {
         if (flash?.success) toast.success(flash.success);
@@ -92,6 +96,12 @@ export default function Index({ outlets, filters = {}, summary = {}, setupStatus
             form.setData("outlet_type", ui.preset_outlet_type);
         }
     }, [ui?.show_form, ui?.preset_outlet_type]);
+
+    useEffect(() => {
+        if (form.data.outlet_type !== "tenant" && form.data.parent_outlet_id !== "") {
+            form.setData("parent_outlet_id", "");
+        }
+    }, [form.data.outlet_type]);
 
     const hasActiveFilters = useMemo(
         () =>
@@ -127,6 +137,7 @@ export default function Index({ outlets, filters = {}, summary = {}, setupStatus
             website: outlet.website || "",
             address: outlet.address || "",
             outlet_type: outlet.outlet_type || "main",
+            parent_outlet_id: String(outlet.parent_outlet_id || ""),
             commission_rate_percent: Number(outlet.commission_rate_percent ?? 0),
             is_active: Boolean(outlet.is_active),
             is_default: Boolean(outlet.is_default),
@@ -214,6 +225,15 @@ export default function Index({ outlets, filters = {}, summary = {}, setupStatus
                         </p>
                     </div>
                     <div className="flex flex-wrap gap-2">
+                        {canAccessDataRepair ? (
+                            <Link
+                                href={route("settings.data-repair")}
+                                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                            >
+                                <IconChecklist size={18} />
+                                Data Repair
+                            </Link>
+                        ) : null}
                         <button
                             type="button"
                             onClick={() => setShowFilters((value) => !value)}
@@ -512,6 +532,31 @@ export default function Index({ outlets, filters = {}, summary = {}, setupStatus
                                 ))}
                             </select>
                         </div>
+                        {form.data.outlet_type === "tenant" ? (
+                            <div>
+                                <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                    Outlet Utama Induk
+                                </label>
+                                <select
+                                    value={form.data.parent_outlet_id}
+                                    onChange={(event) => form.setData("parent_outlet_id", event.target.value)}
+                                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
+                                >
+                                    <option value="">Pilih outlet utama</option>
+                                    {parentMainOutlets.map((outlet) => (
+                                        <option key={outlet.id} value={String(outlet.id)}>
+                                            {outlet.code} - {outlet.name}
+                                        </option>
+                                    ))}
+                                </select>
+                                {form.errors.parent_outlet_id ? (
+                                    <p className="mt-1 text-xs text-red-500">{form.errors.parent_outlet_id}</p>
+                                ) : null}
+                                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                    Tenant dipetakan ke outlet utama ini agar laporan dan approval owner membaca tenant anak dengan jelas.
+                                </p>
+                            </div>
+                        ) : null}
                         <div>
                             <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
                                 Komisi Tenant %
@@ -676,6 +721,11 @@ export default function Index({ outlets, filters = {}, summary = {}, setupStatus
                                         <span>Transaksi: {outlet.transactions_count}</span>
                                         <span>Station: {outlet.kitchen_stations_count}</span>
                                         <span>Komisi: {outlet.commission_rate_percent}%</span>
+                                        {outlet.parent_outlet ? (
+                                            <span>
+                                                Induk: {outlet.parent_outlet.code} - {outlet.parent_outlet.name}
+                                            </span>
+                                        ) : null}
                                         <span>
                                             PIC:{" "}
                                             {outlet.users?.map((user) => user.name).join(", ") || "-"}

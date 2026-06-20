@@ -96,11 +96,9 @@ class ProfitReportController extends Controller
                 ['id' => 'bundle_price', 'name' => 'Harga Bundling'],
                 ['id' => 'buy_x_get_y', 'name' => 'Beli X Gratis Y'],
             ],
-            'tenantOutlets' => Outlet::query()
-                ->active()
-                ->ordered()
-                ->when($outletId, fn ($query) => $query->where('id', '!=', $outletId))
-                ->get(['id', 'name', 'code'])
+            'tenantOutlets' => $this->accessibleTenantOutlets($request)
+                ->when($outletId, fn ($query) => $query->where('outlets.id', '!=', $outletId))
+                ->get(['outlets.id', 'outlets.name', 'outlets.code'])
                 ->values(),
             'workspace' => [
                 'is_tenant_workspace' => $isTenantOutlet,
@@ -206,11 +204,9 @@ class ProfitReportController extends Controller
                 ['id' => 'bundle_price', 'name' => 'Harga Bundling'],
                 ['id' => 'buy_x_get_y', 'name' => 'Beli X Gratis Y'],
             ],
-            'tenantOutlets' => Outlet::query()
-                ->active()
-                ->ordered()
-                ->where('id', $tenantOutletId)
-                ->get(['id', 'name', 'code'])
+            'tenantOutlets' => $this->accessibleTenantOutlets(request())
+                ->where('outlets.id', $tenantOutletId)
+                ->get(['outlets.id', 'outlets.name', 'outlets.code'])
                 ->values(),
             'workspace' => [
                 'is_tenant_workspace' => true,
@@ -256,10 +252,8 @@ class ProfitReportController extends Controller
                     'name' => $customer->name,
                     'subtitle' => $customer->no_telp,
                 ]),
-            'tenant' => Outlet::query()
-                ->active()
-                ->ordered()
-                ->when($activeOutlet?->id, fn ($query) => $query->where('id', '!=', $activeOutlet->id))
+            'tenant' => $this->accessibleTenantOutlets($request)
+                ->when($activeOutlet?->id, fn ($query) => $query->where('outlets.id', '!=', $activeOutlet->id))
                 ->when($search !== '', function ($query) use ($search) {
                     $query->where(function ($nested) use ($search) {
                         $nested->where('name', 'like', '%'.$search.'%')
@@ -267,7 +261,7 @@ class ProfitReportController extends Controller
                     });
                 })
                 ->limit(20)
-                ->get(['id', 'name', 'code'])
+                ->get(['outlets.id', 'outlets.name', 'outlets.code'])
                 ->map(fn (Outlet $outlet) => [
                     'id' => $outlet->id,
                     'name' => $outlet->name,
@@ -279,6 +273,20 @@ class ProfitReportController extends Controller
         return response()->json([
             'data' => $items->values(),
         ]);
+    }
+
+    private function accessibleTenantOutlets(Request $request): Builder
+    {
+        $user = $request->user();
+
+        if (! $user) {
+            return Outlet::query()->whereRaw('1 = 0');
+        }
+
+        return $user->accessibleOutletsQuery()
+            ->active()
+            ->where('outlet_type', 'tenant')
+            ->ordered();
     }
 
     public function exportItems(Request $request)

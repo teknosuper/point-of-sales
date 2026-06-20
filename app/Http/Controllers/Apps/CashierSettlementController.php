@@ -38,6 +38,7 @@ class CashierSettlementController extends Controller
         abort_if(! $outlet, 404, 'Outlet aktif tidak ditemukan.');
         $isKitchenWorkspace = $user?->isKitchenWorkspace() ?? false;
         $isTenantRequestWorkspace = $this->isTenantRequestWorkspace($request);
+        $visibleOutletIds = $this->resolveVisibleOutletIds($request, $outlet);
 
         $filters = [
             'q' => trim((string) $request->input('q', '')),
@@ -57,7 +58,7 @@ class CashierSettlementController extends Controller
                 'approvedBy:id,name',
                 'rejectedBy:id,name',
             ])
-            ->where('outlet_id', $outlet->id)
+            ->whereIn('outlet_id', $visibleOutletIds->all())
             ->when(! $canApprove, fn (Builder $builder) => $builder->where('cashier_id', $user->id))
             ->when($filters['q'] !== '', function (Builder $builder) use ($filters) {
                 $builder->where(function (Builder $nested) use ($filters) {
@@ -89,7 +90,7 @@ class CashierSettlementController extends Controller
 
         $cashierOptions = $canApprove
             ? User::query()
-                ->whereHas('outlets', fn (Builder $builder) => $builder->where('outlets.id', $outlet->id))
+                ->whereHas('outlets', fn (Builder $builder) => $builder->whereIn('outlets.id', $visibleOutletIds->all()))
                 ->orderBy('name')
                 ->get(['id', 'name'])
                 ->map(fn (User $cashier) => ['id' => $cashier->id, 'name' => $cashier->name])
@@ -106,7 +107,7 @@ class CashierSettlementController extends Controller
             ->values();
 
         $recipientOptions = User::query()
-            ->whereHas('outlets', fn (Builder $builder) => $builder->where('outlets.id', $outlet->id))
+            ->whereHas('outlets', fn (Builder $builder) => $builder->whereIn('outlets.id', $visibleOutletIds->all()))
             ->orderBy('name')
             ->get(['id', 'name'])
             ->map(fn (User $recipient) => ['id' => $recipient->id, 'name' => $recipient->name])
@@ -157,12 +158,10 @@ class CashierSettlementController extends Controller
         $recipientUserId = $isTenantRequestWorkspace
             ? $defaultRecipientId
             : (int) ($data['recipient_user_id'] ?? 0);
-        $recipientUser = $recipientUserId > 0
-            ? User::query()
-                ->whereKey($recipientUserId)
-                ->whereHas('outlets', fn (Builder $builder) => $builder->where('outlets.id', $outlet->id))
-                ->first()
-            : null;
+        $recipientUser = $recipientUserId > 0 ? User::query()->find($recipientUserId) : null;
+        if ($recipientUser && ! $recipientUser->hasAccessToOutlet((int) $outlet->id)) {
+            $recipientUser = null;
+        }
         $requestProofPhotos = $this->storeProofPhotos($request, 'request_proof_photos', 'cashier-settlements/request-proofs');
         $settlementAttributes = [
             'outlet_id' => $outlet->id,
@@ -204,7 +203,6 @@ class CashierSettlementController extends Controller
                 'cashier_shift_id' => $settlement->cashier_shift_id,
                 'workspace' => $isKitchenWorkspace ? 'kitchen' : 'tenant',
             ],
-            actor: $user,
         );
 
         return back()->with('success', $isTenantRequestWorkspace ? 'Pengajuan penarikan dana tenant berhasil dibuat.' : 'Pengajuan setoran kasir berhasil dibuat.');
@@ -279,7 +277,6 @@ class CashierSettlementController extends Controller
             meta: [
                 'approved_by' => $approver?->id,
             ],
-            actor: $approver,
         );
 
         return back()->with('success', "Pengajuan {$settlement->request_number} berhasil disetujui.");
@@ -331,7 +328,6 @@ class CashierSettlementController extends Controller
             meta: [
                 'rejected_by' => $approver?->id,
             ],
-            actor: $approver,
         );
 
         return back()->with('success', "Pengajuan {$settlement->request_number} berhasil ditolak.");
@@ -356,14 +352,59 @@ class CashierSettlementController extends Controller
     private function resolveVisibleSettlement(Request $request, CashierSettlementRequest $cashierSettlement): CashierSettlementRequest
     {
         $user = $request->user();
-        $outletId = $this->outletResolver->resolve($request, $user)?->id;
+        $outlet = $this->outletResolver->resolve($request, $user);
+        $visibleOutletIds = $this->resolveVisibleOutletIds($request, $outlet);
 
         return CashierSettlementRequest::query()
             ->with(['cashier:id,name', 'cashierShift:id,opened_at,closed_at,status', 'recipientUser:id,name', 'approvedBy:id,name', 'rejectedBy:id,name'])
             ->whereKey($cashierSettlement->id)
-            ->where('outlet_id', $outletId)
+            ->whereIn('outlet_id', $visibleOutletIds->all())
             ->when(! $this->canApprove($user), fn (Builder $builder) => $builder->where('cashier_id', $user?->id))
             ->firstOrFail();
+    }
+
+    private function resolveVisibleOutletIds(Request $request, ?Outlet $activeOutlet): \Illuminate\Support\Collection
+    {
+        $user = $request->user();
+
+        if (! $user) {
+            return collect($activeOutlet?->id ? [(int) $activeOutlet->id] : []);
+        }
+
+        if (! $this->canApprove($user)) {
+            return collect($activeOutlet?->id ? [(int) $activeOutlet->id] : []);
+        }
+
+        if ($user->isSuperAdmin()) {
+            return Outlet::query()
+                ->active()
+                ->pluck('id')
+                ->map(fn ($id) => (int) $id)
+                ->values();
+        }
+
+        $outletIds = $user->outlets()
+            ->active()
+            ->pluck('outlets.id')
+            ->map(fn ($id) => (int) $id)
+            ->values();
+
+        if ($outletIds->isNotEmpty()) {
+            $childTenantIds = Outlet::query()
+                ->active()
+                ->where('outlet_type', 'tenant')
+                ->whereIn('parent_outlet_id', $outletIds->all())
+                ->pluck('id')
+                ->map(fn ($id) => (int) $id)
+                ->values();
+
+            return $outletIds
+                ->merge($childTenantIds)
+                ->unique()
+                ->values();
+        }
+
+        return collect($activeOutlet?->id ? [(int) $activeOutlet->id] : []);
     }
 
     private function shiftOptionPayload(CashierShift $shift): array

@@ -151,7 +151,7 @@ class ProductController extends Controller
 
         $tenantOutlets = ($isKitchenWorkspace || $isTenantOutlet)
             ? collect()
-            : Outlet::active()->ordered()->get(['id', 'name', 'code', 'outlet_type']);
+            : $this->accessibleTenantOutlets($request);
         $tenantOutletIds = $tenantOutlets
             ->where('outlet_type', 'tenant')
             ->pluck('id');
@@ -196,17 +196,11 @@ class ProductController extends Controller
             ],
             'meta' => [
                 'per_page_options' => $allowedPerPage,
-                'categories' => $this->categoryOptionsQuery()->get(['id', 'name', 'tenant_outlet_id']),
+                'categories' => $this->categoryOptionsQuery($request)->get(['id', 'name', 'tenant_outlet_id']),
                 'tenantOutlets' => $tenantOutlets,
                 'kitchenStations' => ($isKitchenWorkspace || $isTenantOutlet)
                     ? []
-                    : KitchenStation::query()
-                        ->with('outlet:id,name,code')
-                        ->where('is_active', true)
-                        ->orderBy('outlet_id')
-                        ->orderBy('sort_order')
-                        ->orderBy('name')
-                        ->get(['id', 'outlet_id', 'name', 'code']),
+                    : $this->accessibleKitchenStations($request),
             ],
         ]);
     }
@@ -254,7 +248,10 @@ class ProductController extends Controller
                                 'id' => $option->id,
                                 'name' => $option->name,
                                 'price' => (int) $option->price,
+                                'is_required' => (bool) $option->is_required,
                             ])->values()->all(),
+                            'supports_modifiers' => (bool) $product->supports_modifiers,
+                            'requires_modifier_selection' => (bool) $product->requires_modifier_selection,
                         ];
                     })->values()->all(),
                 ];
@@ -338,7 +335,7 @@ class ProductController extends Controller
         $isTenantWorkspace = $this->isTenantOutletWorkspace($request);
 
         // get categories
-        $categories = $this->categoryOptionsQuery()
+        $categories = $this->categoryOptionsQuery($request)
             ->when(
                 $isTenantWorkspace && $activeOutlet?->id,
                 fn ($query) => $query->where('tenant_outlet_id', $activeOutlet->id)
@@ -350,8 +347,8 @@ class ProductController extends Controller
             'categories' => $categories,
             'tenantOutlets' => ($isTenantWorkspace && $activeOutlet)
                 ? collect([$activeOutlet])->map(fn (Outlet $outlet) => $outlet->only(['id', 'name', 'code', 'outlet_type']))->values()
-                : Outlet::active()->ordered()->get(['id', 'name', 'code', 'outlet_type']),
-            'autoKitchenStations' => $this->autoKitchenStationHints(),
+                : $this->accessibleTenantOutlets($request),
+            'autoKitchenStations' => $this->autoKitchenStationHints($request),
             'workspace' => [
                 'is_tenant' => $isTenantWorkspace,
                 'active_outlet_id' => $activeOutlet?->id,
@@ -382,9 +379,11 @@ class ProductController extends Controller
             'category_id' => 'required',
             'tenant_outlet_id' => 'nullable|exists:outlets,id',
             'supports_modifiers' => 'nullable|boolean',
+            'requires_modifier_selection' => 'nullable|boolean',
             'modifier_options' => 'nullable|array',
             'modifier_options.*.name' => 'nullable|string|max:120',
             'modifier_options.*.price' => 'nullable|integer|min:0',
+            'modifier_options.*.is_required' => 'nullable|boolean',
             'tenant_hpp_price' => 'nullable|integer|min:0',
             'buy_price' => 'required|integer|min:0',
             'sell_price' => 'required|integer|min:0',
@@ -451,6 +450,7 @@ class ProductController extends Controller
             'tenant_outlet_id' => $validated['tenant_outlet_id'],
             'tenant_hpp_price' => $tenantHppPrice,
             'supports_modifiers' => $request->boolean('supports_modifiers'),
+            'requires_modifier_selection' => $request->boolean('supports_modifiers') && $request->boolean('requires_modifier_selection'),
             'buy_price' => $validated['buy_price'],
             'sell_price' => $validated['sell_price'],
             'stock' => $validated['stock'],
@@ -500,7 +500,7 @@ class ProductController extends Controller
         $canManageProductImage = $canManageCatalog || $canManageTenantBasicFields;
 
         // get categories
-        $categories = $this->categoryOptionsQuery()->get(['id', 'name', 'tenant_outlet_id']);
+        $categories = $this->categoryOptionsQuery($request)->get(['id', 'name', 'tenant_outlet_id']);
         $product->load(['outletStocks.outlet', 'modifierOptions', 'tenantOutlet:id,name,code']);
         $productPayload = $product->toArray();
 
@@ -539,8 +539,8 @@ class ProductController extends Controller
             'categories' => $categories,
             'tenantOutlets' => $request->user()?->isKitchenWorkspace()
                 ? []
-                : Outlet::active()->ordered()->get(['id', 'name', 'code', 'outlet_type']),
-            'autoKitchenStations' => $this->autoKitchenStationHints(),
+                : $this->accessibleTenantOutlets($request),
+            'autoKitchenStations' => $this->autoKitchenStationHints($request),
             'outletStocks' => $outletStocks,
             'activePricingRules' => $this->pricingService->describeProductRules(
                 $product,
@@ -651,15 +651,26 @@ class ProductController extends Controller
             'notes' => ['nullable', 'string', 'max:255'],
         ]);
 
-        $this->stockMutationService->setPhysicalStockForOutlet(
+        $targetStock = (int) $data['stock'];
+        $mutation = $this->stockMutationService->setPhysicalStockForOutlet(
             product: $product,
             outletId: (int) $activeOutlet->id,
-            stockAfter: (int) $data['stock'],
+            stockAfter: $targetStock,
             referenceType: 'product_daily_adjustment',
             referenceId: $product->id,
             notes: $data['notes'] ?: 'Adjustment stok harian dari daftar produk.',
             userId: $request->user()?->id,
         );
+
+        $actualStock = (int) Product::query()->whereKey($product->id)->value('stock');
+
+        if ($actualStock !== $targetStock) {
+            return back()->with('error', 'Pembaruan stok harian gagal diterapkan. Silakan coba lagi.');
+        }
+
+        if (! $mutation) {
+            return back()->with('info', 'Tidak ada perubahan stok harian yang disimpan.');
+        }
 
         return back()->with('success', 'Stok harian produk berhasil diperbarui.');
     }
@@ -699,17 +710,26 @@ class ProductController extends Controller
 
             $this->resolveWorkspaceProduct($product, $request);
 
-            $this->stockMutationService->setPhysicalStockForOutlet(
+            $targetStock = (int) $entry['stock'];
+            $mutation = $this->stockMutationService->setPhysicalStockForOutlet(
                 product: $product,
                 outletId: $outletId,
-                stockAfter: (int) $entry['stock'],
+                stockAfter: $targetStock,
                 referenceType: 'product_bulk_adjustment',
                 referenceId: $product->id,
                 notes: $data['notes'] ?: 'Adjustment stok massal dari daftar produk.',
                 userId: $user->id,
             );
 
-            $updated++;
+            $actualStock = (int) Product::query()->whereKey($product->id)->value('stock');
+
+            if ($actualStock !== $targetStock) {
+                return back()->with('error', "Pembaruan stok massal gagal diterapkan untuk produk {$product->title}.");
+            }
+
+            if ($mutation) {
+                $updated++;
+            }
         }
 
         if ($updated === 0) {
@@ -761,9 +781,11 @@ class ProductController extends Controller
             'category_id' => 'required',
             'tenant_outlet_id' => 'nullable|exists:outlets,id',
             'supports_modifiers' => 'nullable|boolean',
+            'requires_modifier_selection' => 'nullable|boolean',
             'modifier_options' => 'nullable|array',
             'modifier_options.*.name' => 'nullable|string|max:120',
             'modifier_options.*.price' => 'nullable|integer|min:0',
+            'modifier_options.*.is_required' => 'nullable|boolean',
             'tenant_hpp_price' => 'nullable|integer|min:0',
             'buy_price' => 'nullable|integer|min:0',
             'sell_price' => 'nullable|integer|min:0',
@@ -793,12 +815,14 @@ class ProductController extends Controller
             $validated['category_id'] = $product->category_id;
             $validated['tenant_outlet_id'] = $product->tenant_outlet_id;
             $validated['supports_modifiers'] = $product->supports_modifiers;
+            $validated['requires_modifier_selection'] = $product->requires_modifier_selection;
             $validated['modifier_options'] = $product->modifierOptions()
                 ->orderBy('sort_order')
-                ->get(['name', 'price'])
+                ->get(['name', 'price', 'is_required'])
                 ->map(fn ($option) => [
                     'name' => $option->name,
                     'price' => (int) $option->price,
+                    'is_required' => (bool) $option->is_required,
                 ])
                 ->all();
         }
@@ -867,6 +891,8 @@ class ProductController extends Controller
             'tenant_outlet_id' => $validated['tenant_outlet_id'] ? (int) $validated['tenant_outlet_id'] : null,
             'tenant_hpp_price' => $tenantHppPrice,
             'supports_modifiers' => (bool) ($validated['supports_modifiers'] ?? false),
+            'requires_modifier_selection' => (bool) ($validated['supports_modifiers'] ?? false)
+                && (bool) ($validated['requires_modifier_selection'] ?? false),
             'buy_price' => $validated['buy_price'],
             'sell_price' => $validated['sell_price'],
             'tenant_discount_price' => $tenantDiscountPrice,
@@ -999,10 +1025,25 @@ class ProductController extends Controller
         return $candidate;
     }
 
-    private function categoryOptionsQuery()
+    private function categoryOptionsQuery(Request $request)
     {
+        $accessibleTenantOutletIds = $request->user()?->accessibleOutletsQuery()
+            ->active()
+            ->where('outlet_type', 'tenant')
+            ->pluck('outlets.id')
+            ->values();
+
         return Category::query()
             ->with('tenantOutlet:id,name,code')
+            ->when(
+                $accessibleTenantOutletIds && $accessibleTenantOutletIds->isNotEmpty() && ! $request->user()?->isSuperAdmin(),
+                function ($query) use ($accessibleTenantOutletIds) {
+                    $query->where(function ($nested) use ($accessibleTenantOutletIds) {
+                        $nested->whereNull('tenant_outlet_id')
+                            ->orWhereIn('tenant_outlet_id', $accessibleTenantOutletIds->all());
+                    });
+                }
+            )
             ->orderByRaw('CASE WHEN tenant_outlet_id IS NULL THEN 0 ELSE 1 END')
             ->orderBy('tenant_outlet_id')
             ->orderBy('name');
@@ -1127,11 +1168,19 @@ class ProductController extends Controller
         return $outletStationId ? (int) $outletStationId : null;
     }
 
-    private function autoKitchenStationHints(): array
+    private function autoKitchenStationHints(?Request $request = null): array
     {
+        $accessibleOutletIds = $request?->user()?->accessibleOutletsQuery()
+            ->active()
+            ->pluck('outlets.id');
+
         return KitchenStation::query()
             ->with('outlet:id,name,code')
             ->where('is_active', true)
+            ->when(
+                $accessibleOutletIds && $accessibleOutletIds->isNotEmpty() && ! $request?->user()?->isSuperAdmin(),
+                fn ($query) => $query->whereIn('outlet_id', $accessibleOutletIds->all())
+            )
             ->orderBy('outlet_id')
             ->orderBy('sort_order')
             ->orderBy('name')
@@ -1157,6 +1206,42 @@ class ProductController extends Controller
             ->filter()
             ->values()
             ->all();
+    }
+
+    private function accessibleTenantOutlets(Request $request)
+    {
+        $user = $request->user();
+
+        if (! $user) {
+            return collect();
+        }
+
+        return $user->accessibleOutletsQuery()
+            ->active()
+            ->where('outlet_type', 'tenant')
+            ->ordered()
+            ->get(['outlets.id', 'outlets.name', 'outlets.code', 'outlets.outlet_type'])
+            ->values();
+    }
+
+    private function accessibleKitchenStations(Request $request)
+    {
+        $accessibleOutletIds = $request->user()?->accessibleOutletsQuery()
+            ->active()
+            ->pluck('outlets.id')
+            ->values();
+
+        return KitchenStation::query()
+            ->with('outlet:id,name,code')
+            ->where('is_active', true)
+            ->when(
+                $accessibleOutletIds && $accessibleOutletIds->isNotEmpty() && ! $request->user()?->isSuperAdmin(),
+                fn ($query) => $query->whereIn('outlet_id', $accessibleOutletIds->all())
+            )
+            ->orderBy('outlet_id')
+            ->orderBy('sort_order')
+            ->orderBy('name')
+            ->get(['id', 'outlet_id', 'name', 'code']);
     }
 
     /**
@@ -1253,6 +1338,7 @@ class ProductController extends Controller
             'category_id',
             'tenant_outlet_id',
             'supports_modifiers',
+            'requires_modifier_selection',
         ]);
     }
 
@@ -1271,6 +1357,7 @@ class ProductController extends Controller
                     'name' => $name,
                     'price' => max(0, $price),
                     'is_active' => true,
+                    'is_required' => (bool) data_get($row, 'is_required', false),
                     'sort_order' => $index,
                 ];
             })

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Category;
 use App\Models\Outlet;
 use App\Services\ImageUploadService;
+use App\Services\OutletResolver;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 
@@ -15,7 +16,8 @@ class CategoryController extends Controller
     private const DEFAULT_IMAGE = 'default.jpg';
 
     public function __construct(
-        private readonly ImageUploadService $imageUploadService
+        private readonly ImageUploadService $imageUploadService,
+        private readonly OutletResolver $outletResolver
     ) {}
 
     /**
@@ -25,9 +27,14 @@ class CategoryController extends Controller
      */
     public function index(Request $request)
     {
+        $activeOutlet = $this->outletResolver->resolve($request, $request->user());
+        $isTenantWorkspace = $activeOutlet?->outlet_type === 'tenant';
+
         $filters = [
             'search' => trim((string) $request->input('search', '')),
-            'tenant_outlet_id' => $request->input('tenant_outlet_id', ''),
+            'tenant_outlet_id' => $isTenantWorkspace
+                ? (string) ($activeOutlet?->id ?? '')
+                : $request->input('tenant_outlet_id', ''),
             'has_image' => $request->input('has_image', ''),
             'sort' => $request->input('sort', 'latest'),
             'per_page' => (int) $request->input('per_page', 10),
@@ -39,6 +46,10 @@ class CategoryController extends Controller
         }
 
         $categories = Category::query()
+            ->when(
+                $isTenantWorkspace && $activeOutlet?->id,
+                fn ($query) => $query->where('tenant_outlet_id', $activeOutlet->id)
+            )
             ->when($filters['search'] !== '', function ($query) use ($filters) {
                 $search = $filters['search'];
 
@@ -84,7 +95,7 @@ class CategoryController extends Controller
             'filters' => $filters,
             'meta' => [
                 'per_page_options' => $allowedPerPage,
-                'tenantOutlets' => Outlet::active()->ordered()->get(['id', 'name', 'code', 'outlet_type']),
+                'tenantOutlets' => $this->availableTenantOutlets($request),
             ],
         ]);
     }
@@ -94,10 +105,16 @@ class CategoryController extends Controller
      *
      * @return \Illuminate\Http\Response
      */
-    public function create()
+    public function create(Request $request)
     {
+        $activeOutlet = $this->outletResolver->resolve($request, $request->user());
+
         return Inertia::render('Dashboard/Categories/Create', [
-            'tenantOutlets' => Outlet::active()->ordered()->get(['id', 'name', 'code', 'outlet_type']),
+            'tenantOutlets' => $this->availableTenantOutlets($request),
+            'workspace' => [
+                'is_tenant' => $activeOutlet?->outlet_type === 'tenant',
+                'active_outlet_id' => $activeOutlet?->id,
+            ],
         ]);
     }
 
@@ -108,6 +125,9 @@ class CategoryController extends Controller
      */
     public function store(Request $request)
     {
+        $activeOutlet = $this->outletResolver->resolve($request, $request->user());
+        $isTenantWorkspace = $activeOutlet?->outlet_type === 'tenant';
+
         /**
          * validate
          */
@@ -145,7 +165,9 @@ class CategoryController extends Controller
             'image' => $imageName,
             'name' => $validated['name'],
             'description' => $validated['description'],
-            'tenant_outlet_id' => $request->integer('tenant_outlet_id') ?: null,
+            'tenant_outlet_id' => $isTenantWorkspace
+                ? ($activeOutlet?->id ?: null)
+                : ($request->integer('tenant_outlet_id') ?: null),
         ]);
 
         return to_route('categories.index');
@@ -157,11 +179,22 @@ class CategoryController extends Controller
      * @param  int  $id
      * @return \Illuminate\Http\Response
      */
-    public function edit(Category $category)
+    public function edit(Request $request, Category $category)
     {
+        $activeOutlet = $this->outletResolver->resolve($request, $request->user());
+        $isTenantWorkspace = $activeOutlet?->outlet_type === 'tenant';
+
+        if ($isTenantWorkspace && (int) ($category->tenant_outlet_id ?? 0) !== (int) ($activeOutlet?->id ?? 0)) {
+            abort(403, 'Tenant hanya dapat mengelola kategori tenant aktif.');
+        }
+
         return Inertia::render('Dashboard/Categories/Edit', [
             'category' => $category,
-            'tenantOutlets' => Outlet::active()->ordered()->get(['id', 'name', 'code', 'outlet_type']),
+            'tenantOutlets' => $this->availableTenantOutlets($request),
+            'workspace' => [
+                'is_tenant' => $isTenantWorkspace,
+                'active_outlet_id' => $activeOutlet?->id,
+            ],
         ]);
     }
 
@@ -173,6 +206,13 @@ class CategoryController extends Controller
      */
     public function update(Request $request, Category $category)
     {
+        $activeOutlet = $this->outletResolver->resolve($request, $request->user());
+        $isTenantWorkspace = $activeOutlet?->outlet_type === 'tenant';
+
+        if ($isTenantWorkspace && (int) ($category->tenant_outlet_id ?? 0) !== (int) ($activeOutlet?->id ?? 0)) {
+            abort(403, 'Tenant hanya dapat mengelola kategori tenant aktif.');
+        }
+
         $validated = $request->validate([
             'image' => ['nullable', 'image', 'mimes:jpeg,jpg,png,webp', 'max:2048'],
             'name' => ['required', 'string', 'max:255'],
@@ -204,13 +244,17 @@ class CategoryController extends Controller
                 'image' => $storedImage['basename'],
                 'name' => $validated['name'],
                 'description' => $validated['description'],
-                'tenant_outlet_id' => $request->integer('tenant_outlet_id') ?: null,
+                'tenant_outlet_id' => $isTenantWorkspace
+                    ? ($activeOutlet?->id ?: null)
+                    : ($request->integer('tenant_outlet_id') ?: null),
             ]);
         } else {
             $category->update([
                 'name' => $validated['name'],
                 'description' => $validated['description'],
-                'tenant_outlet_id' => $request->integer('tenant_outlet_id') ?: null,
+                'tenant_outlet_id' => $isTenantWorkspace
+                    ? ($activeOutlet?->id ?: null)
+                    : ($request->integer('tenant_outlet_id') ?: null),
             ]);
         }
 
@@ -223,12 +267,36 @@ class CategoryController extends Controller
      * @param  int  $id
      * @return \Illuminate\Http\Response
      */
-    public function destroy($id)
+    public function destroy(Request $request, $id)
     {
         $category = Category::findOrFail($id);
+        $activeOutlet = $this->outletResolver->resolve($request, $request->user());
+
+        if ($activeOutlet?->outlet_type === 'tenant' && (int) ($category->tenant_outlet_id ?? 0) !== (int) ($activeOutlet?->id ?? 0)) {
+            abort(403, 'Tenant hanya dapat menghapus kategori tenant aktif.');
+        }
+
         $this->deleteCategoryImage($category->getRawOriginal('image'));
         $category->delete();
         return to_route('categories.index');
+    }
+
+    private function availableTenantOutlets(Request $request)
+    {
+        $activeOutlet = $this->outletResolver->resolve($request, $request->user());
+
+        if ($activeOutlet?->outlet_type === 'tenant') {
+            return collect([$activeOutlet])
+                ->map(fn (Outlet $outlet) => $outlet->only(['id', 'name', 'code', 'outlet_type']))
+                ->values();
+        }
+
+        return $request->user()?->accessibleOutletsQuery()
+            ->active()
+            ->where('outlet_type', 'tenant')
+            ->ordered()
+            ->get(['outlets.id', 'outlets.name', 'outlets.code', 'outlets.outlet_type'])
+            ?? collect();
     }
 
     private function deleteCategoryImage(?string $image): void

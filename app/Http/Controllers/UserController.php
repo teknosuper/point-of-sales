@@ -456,7 +456,7 @@ class UserController extends Controller
             return;
         }
 
-        $allowedOutletIds = $user->outlets()->pluck('outlets.id')->map(fn ($id) => (int) $id);
+        $allowedOutletIds = $user->accessibleOutletsQuery()->pluck('outlets.id')->map(fn ($id) => (int) $id);
 
         $syncIds = collect($tenantOutletIds)
             ->filter()

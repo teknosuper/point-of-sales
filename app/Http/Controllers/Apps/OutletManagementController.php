@@ -31,7 +31,7 @@ class OutletManagementController extends Controller
             ? (int) $user->preferredKitchenStation->outlet_id
             : null;
         $accessibleOutletIds = $user && ! $user->isSuperAdmin()
-            ? $user->outlets()->pluck('outlets.id')->map(fn ($id) => (int) $id)
+            ? $user->accessibleOutletsQuery()->pluck('outlets.id')->map(fn ($id) => (int) $id)
             : null;
 
         $filters = [
@@ -48,7 +48,7 @@ class OutletManagementController extends Controller
         }
 
         $outlets = Outlet::query()
-            ->with(['users:id,name,email'])
+            ->with(['users:id,name,email', 'parentOutlet:id,name,code'])
             ->withCount(['users', 'transactions', 'kitchenStations'])
             ->when($lockedKitchenOutletId, fn ($query) => $query->where('id', $lockedKitchenOutletId))
             ->when(
@@ -122,6 +122,15 @@ class OutletManagementController extends Controller
             'meta' => [
                 'per_page_options' => $allowedPerPage,
                 'users' => User::query()->orderBy('name')->get(['id', 'name', 'email']),
+                'parent_main_outlets' => Outlet::query()
+                    ->active()
+                    ->where('outlet_type', 'main')
+                    ->when(
+                        $accessibleOutletIds,
+                        fn ($query) => $query->whereIn('id', $accessibleOutletIds->all())
+                    )
+                    ->ordered()
+                    ->get(['id', 'name', 'code']),
                 'outlet_types' => [
                     ['value' => 'main', 'label' => 'Main Outlet'],
                     ['value' => 'tenant', 'label' => 'Tenant Foodcourt'],
@@ -295,6 +304,7 @@ class OutletManagementController extends Controller
             'website' => ['nullable', 'string', 'max:150'],
             'address' => ['nullable', 'string'],
             'commission_rate_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'parent_outlet_id' => ['nullable', 'integer', 'exists:outlets,id'],
             'is_active' => ['nullable', 'boolean'],
             'is_default' => ['nullable', 'boolean'],
             'sort_order' => ['nullable', 'integer', 'min:0'],
@@ -307,8 +317,14 @@ class OutletManagementController extends Controller
             Outlet::query()->update(['is_default' => false]);
         }
 
+        $parentOutletId = $this->validateParentOutletId(
+            $data['outlet_type'],
+            $data['parent_outlet_id'] ?? null
+        );
+
         $outlet = Outlet::create([
             ...$data,
+            'parent_outlet_id' => $parentOutletId,
             'slug' => Str::slug($data['name'].'-'.$data['code']),
             'is_active' => (bool) ($data['is_active'] ?? true),
             'is_default' => (bool) ($data['is_default'] ?? false),
@@ -334,6 +350,7 @@ class OutletManagementController extends Controller
             'website' => ['nullable', 'string', 'max:150'],
             'address' => ['nullable', 'string'],
             'commission_rate_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'parent_outlet_id' => ['nullable', 'integer', 'exists:outlets,id'],
             'is_active' => ['nullable', 'boolean'],
             'is_default' => ['nullable', 'boolean'],
             'sort_order' => ['nullable', 'integer', 'min:0'],
@@ -348,8 +365,15 @@ class OutletManagementController extends Controller
                 ->update(['is_default' => false]);
         }
 
+        $parentOutletId = $this->validateParentOutletId(
+            $data['outlet_type'],
+            $data['parent_outlet_id'] ?? null,
+            (int) $outlet->id
+        );
+
         $outlet->update([
             ...$data,
+            'parent_outlet_id' => $parentOutletId,
             'slug' => Str::slug($data['name'].'-'.$data['code']),
             'is_active' => (bool) ($data['is_active'] ?? false),
             'is_default' => (bool) ($data['is_default'] ?? false),
@@ -385,5 +409,26 @@ class OutletManagementController extends Controller
             ->all();
 
         $outlet->users()->sync($syncPayload);
+    }
+
+    private function validateParentOutletId(string $outletType, mixed $parentOutletId, ?int $ignoreOutletId = null): ?int
+    {
+        if ($outletType !== 'tenant') {
+            return null;
+        }
+
+        $resolvedParentId = (int) ($parentOutletId ?? 0);
+
+        abort_if($resolvedParentId <= 0, 422, 'Tenant harus dipetakan ke outlet utama.');
+        abort_if($ignoreOutletId !== null && $resolvedParentId === $ignoreOutletId, 422, 'Outlet tidak boleh menjadi induk untuk dirinya sendiri.');
+
+        $parentOutlet = Outlet::query()
+            ->whereKey($resolvedParentId)
+            ->where('outlet_type', 'main')
+            ->first();
+
+        abort_if(! $parentOutlet, 422, 'Induk tenant harus berupa outlet utama.');
+
+        return $resolvedParentId;
     }
 }

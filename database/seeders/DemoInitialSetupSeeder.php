@@ -233,6 +233,12 @@ class DemoInitialSetupSeeder extends Seeder
 
     private function seedTenantOutlets(): Collection
     {
+        $mainOutletId = Outlet::query()
+            ->where('outlet_type', 'main')
+            ->orderByDesc('is_default')
+            ->orderBy('sort_order')
+            ->value('id');
+
         $rows = collect([
             [
                 'code' => 'TEN-MINUM',
@@ -313,6 +319,7 @@ class DemoInitialSetupSeeder extends Seeder
                 ['slug' => $row['slug']],
                 [
                     ...$row,
+                    'parent_outlet_id' => $mainOutletId,
                     'address' => 'Area Foodcourt Demo',
                     'city' => 'Bandung',
                     'phone' => '022-6000000',

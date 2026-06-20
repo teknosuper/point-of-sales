@@ -39,6 +39,17 @@ export default function ModifierOptionsModal({
     const hasModifierOptions =
         Array.isArray(product?.modifier_options) &&
         product.modifier_options.length > 0;
+    const requiredOptions = (product?.modifier_options || []).filter(
+        (option) => option?.is_required
+    );
+    const requiresSelection = Boolean(product?.requires_modifier_selection);
+    const hasRequiredOptions = requiredOptions.length > 0;
+    const hasSatisfiedRequiredSelection = hasRequiredOptions
+        ? requiredOptions.some((option) =>
+              selectedModifierOptionIds.includes(option.id)
+          )
+        : selectedModifierOptionIds.length > 0;
+    const selectionIsRequired = hasModifierOptions && (requiresSelection || hasRequiredOptions);
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -62,6 +73,13 @@ export default function ModifierOptionsModal({
                                   ? "Pilih topping / extra sebelum item dimasukkan ke keranjang."
                                   : "Periksa jumlah item sebelum dimasukkan ke keranjang."}
                         </p>
+                        {selectionIsRequired ? (
+                            <p className="mt-2 text-xs font-semibold text-amber-600 dark:text-amber-300">
+                                {hasRequiredOptions
+                                    ? "Produk ini wajib memilih salah satu topping yang ditandai wajib."
+                                    : "Produk ini wajib memilih minimal satu topping sebelum lanjut."}
+                            </p>
+                        ) : null}
                     </div>
                     <button
                         type="button"
@@ -317,9 +335,16 @@ export default function ModifierOptionsModal({
                                             <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
                                                 {option.name}
                                             </p>
-                                            <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                                                Tambahan {formatPrice(option.price)}
-                                            </p>
+                                            <div className="mt-1 flex flex-wrap items-center gap-2">
+                                                <p className="text-xs text-slate-500 dark:text-slate-400">
+                                                    Tambahan {formatPrice(option.price)}
+                                                </p>
+                                                {option.is_required ? (
+                                                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                                                        Wajib
+                                                    </span>
+                                                ) : null}
+                                            </div>
                                         </div>
                                         <div
                                             className={`h-5 w-5 rounded-md border ${
@@ -376,8 +401,14 @@ export default function ModifierOptionsModal({
                     <div className="grid grid-cols-2 gap-3">
                         <button
                             type="button"
-                            onClick={hasModifierOptions ? () => onSubmit?.(false) : onClose}
-                            disabled={isSubmitting}
+                            onClick={
+                                cartTargetId
+                                    ? onClose
+                                    : hasModifierOptions
+                                      ? () => onSubmit?.(false)
+                                      : onClose
+                            }
+                            disabled={isSubmitting || (!cartTargetId && selectionIsRequired)}
                             className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
                         >
                             {cartTargetId
@@ -389,7 +420,11 @@ export default function ModifierOptionsModal({
                         <button
                             type="button"
                             onClick={() => onSubmit?.(true)}
-                            disabled={isSubmitting}
+                            disabled={
+                                isSubmitting ||
+                                (selectionIsRequired &&
+                                    !hasSatisfiedRequiredSelection)
+                            }
                             className="rounded-2xl bg-primary-500 px-4 py-3 text-sm font-semibold text-white hover:bg-primary-600 disabled:opacity-50"
                         >
                             {isSubmitting

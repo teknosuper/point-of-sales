@@ -86,7 +86,7 @@ class PublicMenuController extends Controller
             ->select([
                 'id', 'image', 'barcode', 'sku', 'title', 'description',
                 'buy_price', 'sell_price', 'stock', 'category_id',
-                'tenant_outlet_id', 'supports_modifiers', 'created_at',
+                'tenant_outlet_id', 'supports_modifiers', 'requires_modifier_selection', 'created_at',
             ])
             ->when($request->filled('search'), fn ($b) => $b->where(fn ($q) => $q
                 ->where('title', 'like', '%'.trim((string) $request->input('search')).'%')

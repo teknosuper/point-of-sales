@@ -9,6 +9,7 @@ use App\Http\Controllers\Apps\CrmReminderController;
 use App\Http\Controllers\Apps\CustomerController;
 use App\Http\Controllers\Apps\CustomerSegmentController;
 use App\Http\Controllers\Apps\CustomerVoucherController;
+use App\Http\Controllers\Apps\DataRepairController;
 use App\Http\Controllers\Apps\DiningTableController;
 use App\Http\Controllers\Apps\GoodsReceivingController;
 use App\Http\Controllers\Apps\KitchenSettingsController;
@@ -415,6 +416,12 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
     Route::post('/settings/kitchen-devices/{device}/health-check', [KitchenSettingsController::class, 'healthCheckDevice'])->middleware(['permission:kitchen-manage', 'step_up', 'outlet_access'])->name('settings.kitchen-devices.health-check');
     Route::get('/settings/loyalty', [\App\Http\Controllers\Apps\SettingController::class, 'loyalty'])->middleware('permission:business-settings-access')->name('settings.loyalty');
     Route::post('/settings/loyalty', [\App\Http\Controllers\Apps\SettingController::class, 'updateLoyalty'])->middleware('permission:business-settings-update')->name('settings.loyalty.update');
+    Route::get('/settings/data-repair', [DataRepairController::class, 'index'])->middleware('permission:business-settings-access')->name('settings.data-repair');
+    Route::post('/settings/data-repair/sync-tenant-parents', [DataRepairController::class, 'syncTenantParents'])->middleware(['permission:business-settings-update', 'step_up'])->name('settings.data-repair.sync-tenant-parents');
+    Route::post('/settings/data-repair/sync-stocks', [DataRepairController::class, 'syncUnifiedStocks'])->middleware(['permission:business-settings-update', 'step_up'])->name('settings.data-repair.sync-stocks');
+    Route::post('/settings/data-repair/auto-map-kitchen', [DataRepairController::class, 'autoMapKitchenProducts'])->middleware(['permission:business-settings-update', 'step_up'])->name('settings.data-repair.auto-map-kitchen');
+    Route::post('/settings/data-repair/rebuild-member-metrics', [DataRepairController::class, 'rebuildMemberMetrics'])->middleware(['permission:business-settings-update', 'step_up'])->name('settings.data-repair.rebuild-member-metrics');
+    Route::post('/settings/data-repair/sync-tenant-categories', [DataRepairController::class, 'syncTenantCategories'])->middleware(['permission:business-settings-update', 'step_up'])->name('settings.data-repair.sync-tenant-categories');
 
     // settings bank accounts
     Route::get('/settings/bank-accounts', [\App\Http\Controllers\Apps\BankAccountController::class, 'index'])->middleware('permission:payment-settings-access')->name('settings.bank-accounts.index');

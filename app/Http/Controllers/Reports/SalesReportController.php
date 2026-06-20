@@ -219,10 +219,8 @@ class SalesReportController extends Controller
             'filters' => $filters,
             'cashiers' => User::select('id', 'name')->orderBy('name')->get(),
             'customers' => Customer::select('id', 'name')->orderBy('name')->get(),
-            'tenantOutlets' => Outlet::query()
-                ->active()
-                ->ordered()
-                ->get(['id', 'name', 'code']),
+            'tenantOutlets' => $this->accessibleTenantOutlets($request)
+                ->get(['outlets.id', 'outlets.name', 'outlets.code']),
             'workspace' => [
                 'is_tenant_workspace' => false,
                 'active_outlet' => $activeOutlet ? [
@@ -349,11 +347,9 @@ class SalesReportController extends Controller
             'filters' => $filters,
             'cashiers' => User::select('id', 'name')->orderBy('name')->get(),
             'customers' => Customer::select('id', 'name')->orderBy('name')->get(),
-            'tenantOutlets' => Outlet::query()
-                ->active()
-                ->ordered()
-                ->where('id', $tenantOutletId)
-                ->get(['id', 'name', 'code']),
+            'tenantOutlets' => $this->accessibleTenantOutlets($request())
+                ->where('outlets.id', $tenantOutletId)
+                ->get(['outlets.id', 'outlets.name', 'outlets.code']),
             'workspace' => [
                 'is_tenant_workspace' => true,
                 'active_outlet' => $topTenantOutlet ? [
@@ -364,6 +360,20 @@ class SalesReportController extends Controller
                 ] : null,
             ],
         ]);
+    }
+
+    private function accessibleTenantOutlets(Request $request)
+    {
+        $user = $request->user();
+
+        if (! $user) {
+            return Outlet::query()->whereRaw('1 = 0');
+        }
+
+        return $user->accessibleOutletsQuery()
+            ->active()
+            ->where('outlet_type', 'tenant')
+            ->ordered();
     }
 
     /**

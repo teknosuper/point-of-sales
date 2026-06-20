@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import { Head, Link, router, usePage } from "@inertiajs/react";
+import Swal from "sweetalert2";
 import Button from "@/Components/Dashboard/Button";
 import Modal from "@/Components/Dashboard/Modal";
 import {
@@ -391,6 +392,7 @@ export default function Index({
         workspace?.is_kitchen === true || auth?.user?.preferred_workspace === "kitchen";
     const isTenantWorkspace =
         workspace?.is_tenant === true || activeOutlet?.outlet_type === "tenant";
+    const canOpenCreateProduct = canCreateProducts && !isKitchenWorkspace;
     const canManageCatalog = canCreateProducts && !isTenantWorkspace && !isKitchenWorkspace;
     const canEditCatalog = canEditProducts && !isTenantWorkspace && !isKitchenWorkspace;
     const canOpenTenantProductEdit = canEditProducts && isTenantWorkspace;
@@ -669,23 +671,43 @@ export default function Index({
         });
     };
 
-    const submitDailyStockUpdate = (event) => {
+    const submitDailyStockUpdate = async (event) => {
         event.preventDefault();
 
         if (!dailyStockModalProduct) {
             return;
         }
 
+        const nextStock = Number(dailyStockForm.stock || 0);
+        const result = await Swal.fire({
+            title: "Simpan Stok Harian?",
+            text: `${dailyStockModalProduct.title} akan disesuaikan menjadi ${new Intl.NumberFormat("id-ID").format(nextStock)} item.`,
+            icon: "warning",
+            showCancelButton: true,
+            confirmButtonText: "Ya, Simpan",
+            cancelButtonText: "Batal",
+            confirmButtonColor: "#16a34a",
+            reverseButtons: true,
+        });
+
+        if (!result.isConfirmed) {
+            return;
+        }
+
         router.patch(
             route("products.daily-stock.update", dailyStockModalProduct.id),
             {
-                stock: Number(dailyStockForm.stock || 0),
+                stock: nextStock,
                 notes: dailyStockForm.notes,
             },
             {
                 preserveScroll: true,
                 onSuccess: () => {
                     closeDailyStockModal();
+                    router.reload({
+                        only: ["products"],
+                        preserveScroll: true,
+                    });
                 },
             }
         );
@@ -725,7 +747,7 @@ export default function Index({
         setBulkStockNotes("");
     };
 
-    const submitBulkStockUpdate = (event) => {
+    const submitBulkStockUpdate = async (event) => {
         event.preventDefault();
 
         const changedEntries = bulkStockEntries
@@ -740,6 +762,22 @@ export default function Index({
 
         if (changedEntries.length === 0) {
             closeBulkStockModal();
+            return;
+        }
+
+        const totalProducts = changedEntries.length;
+        const result = await Swal.fire({
+            title: "Simpan Stok Massal?",
+            text: `${new Intl.NumberFormat("id-ID").format(totalProducts)} produk akan diperbarui untuk outlet aktif ${activeOutletName}.`,
+            icon: "warning",
+            showCancelButton: true,
+            confirmButtonText: "Ya, Simpan Semua",
+            cancelButtonText: "Batal",
+            confirmButtonColor: "#16a34a",
+            reverseButtons: true,
+        });
+
+        if (!result.isConfirmed) {
             return;
         }
 
@@ -834,7 +872,7 @@ export default function Index({
                             Filter
                         </button>
 
-                        {canManageCatalog ? (
+                        {canOpenCreateProduct ? (
                             <Button
                                 type="link"
                                 icon={<IconCirclePlus size={18} strokeWidth={1.5} />}

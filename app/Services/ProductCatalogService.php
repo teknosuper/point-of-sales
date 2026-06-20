@@ -43,6 +43,7 @@ class ProductCatalogService
                 'category_id' => $product->category_id,
                 'tenant_outlet_id' => $product->tenant_outlet_id,
                 'supports_modifiers' => (bool) $product->supports_modifiers,
+                'requires_modifier_selection' => (bool) $product->requires_modifier_selection,
                 'sold_qty' => (int) ($soldQtyByProduct[$product->id] ?? 0),
                 'effective_price' => (int) ($pricing['effective_unit_price'] ?? $product->sell_price),
                 'promo_discount_total' => (int) ($pricing['line_discount_total'] ?? 0),
@@ -65,6 +66,7 @@ class ProductCatalogService
                         'id' => $option->id,
                         'name' => $option->name,
                         'price' => (int) $option->price,
+                        'is_required' => (bool) $option->is_required,
                     ])
                     ->values()
                     ->all(),

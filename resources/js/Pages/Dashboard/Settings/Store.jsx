@@ -1,12 +1,14 @@
 import DashboardLayout from "@/Layouts/DashboardLayout";
-import { Head, useForm, usePage } from "@inertiajs/react";
+import { Head, Link, useForm, usePage } from "@inertiajs/react";
 import Input from "@/Components/Dashboard/Input";
 import Textarea from "@/Components/Dashboard/TextArea";
 import useFlashToast from "@/Hooks/useFlashToast";
+import { useAuthorization } from "@/Utils/authorization";
 import toast from "react-hot-toast";
 import { useState, useEffect } from "react";
 import {
     IconBuildingStore,
+    IconChecklist,
     IconChevronDown,
     IconChevronRight,
     IconDeviceFloppy,
@@ -20,6 +22,8 @@ import {
 
 export default function Store({ settings, tenantOutlets = [] }) {
     useFlashToast();
+    const { can } = useAuthorization();
+    const canAccessDataRepair = can("business-settings-access");
     const [showTenantCommissions, setShowTenantCommissions] = useState(false);
     const initialTenantCommissions = tenantOutlets.reduce((acc, outlet) => {
         acc[outlet.id] = outlet.commission_rate_percent ?? 0;
@@ -80,6 +84,17 @@ export default function Store({ settings, tenantOutlets = [] }) {
                         Identitas toko yang tampil di struk, invoice, dan laporan.
                     </p>
                 </div>
+                {canAccessDataRepair ? (
+                    <div className="flex justify-start">
+                        <Link
+                            href={route("settings.data-repair")}
+                            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                        >
+                            <IconChecklist size={18} />
+                            Buka Data Repair
+                        </Link>
+                    </div>
+                ) : null}
 
                 <form onSubmit={submit} className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 space-y-6">
                     <div className="flex flex-col lg:flex-row gap-6">

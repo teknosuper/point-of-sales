@@ -32,6 +32,7 @@ import {
     IconSpeakerphone,
     IconLock,
     IconPrinter,
+    IconChecklist,
 } from "@/Utils/icons";
 import { useAuthorization } from "./authorization";
 
@@ -371,6 +372,17 @@ export default function Menu() {
                     <IconPrinter size={20} strokeWidth={1.5} />,
                     ["business-settings-access"]
                 ),
+                ...(!isTenantWorkspace
+                    ? [
+                          menuItem(
+                              "Data Repair",
+                              route("settings.data-repair"),
+                              url.startsWith("/dashboard/settings/data-repair"),
+                              <IconChecklist size={20} strokeWidth={1.5} />,
+                              ["business-settings-access"]
+                          ),
+                      ]
+                    : []),
                 menuItem(
                     "Perangkat Dapur",
                     route("settings.kitchen-devices.index"),

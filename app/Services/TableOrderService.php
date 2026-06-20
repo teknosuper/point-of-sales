@@ -178,6 +178,30 @@ class TableOrderService
                 ]);
             }
 
+            $requiredOptionIds = $productModifierOptions
+                ->where('is_required', true)
+                ->pluck('id')
+                ->map(fn ($id) => (int) $id)
+                ->values();
+
+            $selectedRequiredIds = $selectedModifiers
+                ->pluck('id')
+                ->map(fn ($id) => (int) $id)
+                ->intersect($requiredOptionIds)
+                ->values();
+
+            if ($requiredOptionIds->isNotEmpty() && $selectedRequiredIds->isEmpty()) {
+                throw ValidationException::withMessages([
+                    'items' => "Produk {$product->title} wajib memilih salah satu topping yang ditandai wajib.",
+                ]);
+            }
+
+            if ($requiredOptionIds->isEmpty() && (bool) $product->requires_modifier_selection && $selectedModifiers->isEmpty()) {
+                throw ValidationException::withMessages([
+                    'items' => "Produk {$product->title} wajib memilih minimal satu topping.",
+                ]);
+            }
+
             $modifierUnitTotal = (int) $selectedModifiers->sum(fn (ProductModifierOption $option) => (int) $option->price);
 
             return [

@@ -107,14 +107,12 @@ class KitchenSettingsController extends Controller
         return Inertia::render('Dashboard/KitchenSettings/Index', [
             'stations' => $stations->map(fn (KitchenStation $station) => $this->stationPayload($station, $latestDeviceJobs))->values(),
             'filters' => $filters,
-            'outlets' => Outlet::active()
-                ->ordered()
-                ->when($lockedKitchenOutletId, fn ($query) => $query->where('id', $lockedKitchenOutletId))
+            'outlets' => $this->accessibleOutlets($user, $lockedKitchenOutletId)
                 ->get(['id', 'name', 'code']),
             'outletUsers' => $this->outletUserOptions(
                 $lockedKitchenOutletId
                     ? collect([$lockedKitchenOutletId])
-                    : Outlet::active()->ordered()->pluck('id')
+                    : $this->accessibleOutlets($user)->pluck('id')
             ),
             'printProfiles' => KitchenStationDevice::printProfiles(),
             'setupStatus' => $setupStatus,
@@ -187,10 +185,8 @@ class KitchenSettingsController extends Controller
 
         $recipientUserId = (int) ($data['cashier_base_settlement_recipient_user_id'] ?? 0);
         if ($recipientUserId > 0) {
-            $recipientExists = User::query()
-                ->whereKey($recipientUserId)
-                ->whereHas('outlets', fn ($query) => $query->where('outlets.id', $outletId))
-                ->exists();
+            $recipientUser = User::query()->find($recipientUserId);
+            $recipientExists = $recipientUser?->hasAccessToOutlet($outletId) ?? false;
 
             if (! $recipientExists) {
                 throw ValidationException::withMessages([
@@ -489,6 +485,18 @@ class KitchenSettingsController extends Controller
                     ->all(),
             ])
             ->all();
+    }
+
+    private function accessibleOutlets(?User $user, ?int $lockedKitchenOutletId = null): Builder
+    {
+        return Outlet::query()
+            ->active()
+            ->when($lockedKitchenOutletId, fn ($query) => $query->where('id', $lockedKitchenOutletId))
+            ->when(
+                ! $lockedKitchenOutletId && $user && ! $user->isSuperAdmin(),
+                fn ($query) => $query->whereIn('id', $user->accessibleOutletsQuery()->pluck('outlets.id'))
+            )
+            ->ordered();
     }
 
     public function testDevice(KitchenStationDevice $device)

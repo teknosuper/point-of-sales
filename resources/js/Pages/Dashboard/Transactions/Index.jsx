@@ -102,6 +102,24 @@ const formatApiErrorMessage = (error, fallbackMessage) => {
     return baseMessage;
 };
 
+const formatInertiaErrorBag = (errors, fallbackMessage) => {
+    if (!errors || typeof errors !== "object") {
+        return fallbackMessage;
+    }
+
+    const messages = Object.values(errors)
+        .flatMap((value) =>
+            Array.isArray(value) ? value : value ? [value] : []
+        )
+        .filter(Boolean);
+
+    if (messages.length === 0) {
+        return fallbackMessage;
+    }
+
+    return messages.join("\n");
+};
+
 const resolveFreshnessMeta = (timestamp) => {
     if (!timestamp) {
         return {
@@ -1952,12 +1970,27 @@ export default function Index({
             },
             {
                 preserveScroll: true,
+                preserveState: true,
                 onSuccess: () => {
                     playPaymentSuccessSound();
+                    toast.success(
+                        `Pembayaran ${tableOrderApprovalTarget.order_number} berhasil dikonfirmasi.`
+                    );
+                    closeTableOrderApproval();
+                },
+                onError: (errors) => {
+                    toast.error(
+                        formatInertiaErrorBag(
+                            errors,
+                            "Gagal mengonfirmasi pembayaran order meja."
+                        )
+                    );
+                },
+                onCancel: () => {
+                    toast.error("Proses approval pembayaran dibatalkan.");
                 },
                 onFinish: () => {
                     setIsApprovingTableOrder(false);
-                    closeTableOrderApproval();
                 },
             }
         );
@@ -2827,6 +2860,30 @@ export default function Index({
     const submitModifierModal = useCallback(
         async (includeModifiers) => {
             if (!modifierModalProduct?.id) {
+                return;
+            }
+
+            const requiredOptions = (modifierModalProduct.modifier_options || []).filter(
+                (option) => option?.is_required
+            );
+            const hasRequiredSelection = requiredOptions.length > 0
+                ? requiredOptions.some((option) =>
+                      selectedModifierOptionIds.includes(option.id)
+                  )
+                : selectedModifierOptionIds.length > 0;
+            const requiresSelection = Boolean(modifierModalProduct?.requires_modifier_selection)
+                || requiredOptions.length > 0;
+
+            if (
+                includeModifiers &&
+                requiresSelection &&
+                !hasRequiredSelection
+            ) {
+                toast.error(
+                    requiredOptions.length > 0
+                        ? "Pilih salah satu topping yang ditandai wajib."
+                        : "Produk ini wajib memilih minimal satu topping."
+                );
                 return;
             }
 

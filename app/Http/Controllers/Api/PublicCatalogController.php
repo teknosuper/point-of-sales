@@ -350,6 +350,7 @@ class PublicCatalogController extends Controller
                 'category_id',
                 'tenant_outlet_id',
                 'supports_modifiers',
+                'requires_modifier_selection',
                 'created_at',
             ])
             ->when(
@@ -400,6 +401,7 @@ class PublicCatalogController extends Controller
                 'effective_price' => (int) ($pricePreview['effective_unit_price'] ?? $product->sell_price),
                 'promo_discount_total' => (int) ($pricePreview['line_discount_total'] ?? 0),
                 'supports_modifiers' => (bool) $product->supports_modifiers,
+                'requires_modifier_selection' => (bool) $product->requires_modifier_selection,
                 'category' => $product->category ? [
                     'id' => $product->category->id,
                     'name' => $product->category->name,
@@ -418,6 +420,7 @@ class PublicCatalogController extends Controller
                         'id' => $option->id,
                         'name' => $option->name,
                         'price' => (int) $option->price,
+                        'is_required' => (bool) $option->is_required,
                     ])
                     ->values()
                     ->all(),

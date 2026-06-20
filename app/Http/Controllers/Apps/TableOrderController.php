@@ -6,7 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Models\TableOrder;
 use App\Services\TableOrderService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
+use Throwable;
 
 class TableOrderController extends Controller
 {
@@ -103,12 +106,30 @@ class TableOrderController extends Controller
             'redirect_to' => ['nullable', 'string', 'in:print,list,transactions'],
         ]);
 
-        $transaction = $this->tableOrderService->approvePayment(
-            $tableOrder,
-            $request->user(),
-            (int) $validated['cash'],
-            (string) $validated['payment_method']
-        );
+        try {
+            $transaction = $this->tableOrderService->approvePayment(
+                $tableOrder,
+                $request->user(),
+                (int) $validated['cash'],
+                (string) $validated['payment_method']
+            );
+        } catch (ValidationException $exception) {
+            throw $exception;
+        } catch (Throwable $exception) {
+            Log::error('Gagal mengonfirmasi pembayaran table order.', [
+                'table_order_id' => $tableOrder->id,
+                'order_number' => $tableOrder->order_number,
+                'cashier_id' => $request->user()?->id,
+                'payment_method' => $validated['payment_method'],
+                'message' => $exception->getMessage(),
+            ]);
+
+            return back()->withErrors([
+                'approval' => filled($exception->getMessage())
+                    ? 'Gagal mengonfirmasi pembayaran order meja: '.$exception->getMessage()
+                    : 'Gagal mengonfirmasi pembayaran order meja.',
+            ]);
+        }
 
         $redirectTo = $validated['redirect_to'] ?? 'print';
 

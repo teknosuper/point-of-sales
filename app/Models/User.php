@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
@@ -134,17 +135,36 @@ class User extends Authenticatable
             ->withTimestamps();
     }
 
+    public function accessibleOutletsQuery(): Builder
+    {
+        if ($this->isSuperAdmin()) {
+            return Outlet::query();
+        }
+
+        $directOutletIds = $this->outlets()
+            ->select('outlets.id');
+
+        $directMainOutletIds = $this->outlets()
+            ->select('outlets.id')
+            ->where('outlets.outlet_type', 'main');
+
+        return Outlet::query()
+            ->where(function (Builder $query) use ($directOutletIds, $directMainOutletIds) {
+                $query->whereIn('outlets.id', $directOutletIds)
+                    ->orWhere(function (Builder $tenantQuery) use ($directMainOutletIds) {
+                        $tenantQuery->where('outlets.outlet_type', 'tenant')
+                            ->whereIn('outlets.parent_outlet_id', $directMainOutletIds);
+                    });
+            });
+    }
+
     public function hasAccessToOutlet(int $outletId): bool
     {
         if ($this->isSuperAdmin()) {
             return true;
         }
 
-        if ($this->relationLoaded('outlets')) {
-            return $this->outlets->contains('id', $outletId);
-        }
-
-        return $this->outlets()
+        return $this->accessibleOutletsQuery()
             ->where('outlets.id', $outletId)
             ->exists();
     }

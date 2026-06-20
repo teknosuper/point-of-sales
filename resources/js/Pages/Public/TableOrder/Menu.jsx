@@ -868,6 +868,30 @@ export default function Menu({
                 return;
             }
 
+            const requiredOptions = (modifierModalProduct.modifier_options || []).filter(
+                (option) => option?.is_required
+            );
+            const hasRequiredSelection = requiredOptions.length > 0
+                ? requiredOptions.some((option) =>
+                      selectedModifierOptionIds.includes(option.id)
+                  )
+                : selectedModifierOptionIds.length > 0;
+            const requiresSelection = Boolean(modifierModalProduct?.requires_modifier_selection)
+                || requiredOptions.length > 0;
+
+            if (
+                includeModifiers &&
+                requiresSelection &&
+                !hasRequiredSelection
+            ) {
+                toast.error(
+                    requiredOptions.length > 0
+                        ? "Pilih salah satu topping yang ditandai wajib."
+                        : "Produk ini wajib memilih minimal satu topping."
+                );
+                return;
+            }
+
             setIsModifierModalSubmitting(true);
 
             const selectedModifiers = includeModifiers

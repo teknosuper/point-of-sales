@@ -61,15 +61,19 @@ class HandleInertiaRequests extends Middleware
             $isKitchenWorkspace = $user->isKitchenWorkspace();
 
             if (Schema::hasTable('outlets')) {
-                $availableOutletsQuery = $request->user()
-                    ->outlets()
+                $directOutletMeta = $user->outlets()
+                    ->get(['outlets.id', 'outlets.outlet_type', 'outlet_user.is_primary'])
+                    ->keyBy('id');
+
+                $availableOutletsQuery = $user
+                    ->accessibleOutletsQuery()
                     ->active()
                     ->ordered();
 
-                if ($request->user()->isKitchenWorkspace() && $request->user()->preferredKitchenStation?->outlet_id) {
+                if ($user->isKitchenWorkspace() && $user->preferredKitchenStation?->outlet_id) {
                     $availableOutletsQuery->where(
                         'outlets.id',
-                        (int) $request->user()->preferredKitchenStation->outlet_id
+                        (int) $user->preferredKitchenStation->outlet_id
                     );
                 }
 
@@ -81,8 +85,9 @@ class HandleInertiaRequests extends Middleware
                         'slug' => $outlet->slug,
                         'name' => $outlet->name,
                         'city' => $outlet->city,
+                        'parent_outlet_id' => $outlet->parent_outlet_id,
                         'outlet_type' => $outlet->outlet_type ?? 'main',
-                        'is_primary' => (bool) ($outlet->pivot?->is_primary ?? false),
+                        'is_primary' => (bool) ($directOutletMeta->get($outlet->id)?->pivot?->is_primary ?? false),
                     ])
                     ->values();
                 $availableOutlets = $availableOutlets->all();

@@ -19,7 +19,12 @@ class OutletAnalyticsController extends Controller
 
     public function index(Request $request)
     {
+        $user = $request->user();
         $activeOutlet = $this->outletResolver->resolve($request, $request->user());
+        $accessibleOutletsQuery = $user?->accessibleOutletsQuery()->active()->ordered();
+        $accessibleOutletIds = $accessibleOutletsQuery
+            ? (clone $accessibleOutletsQuery)->pluck('outlets.id')->map(fn ($id) => (int) $id)->values()
+            : collect();
 
         abort_if(
             (string) ($activeOutlet?->outlet_type ?? '') === 'tenant',
@@ -35,10 +40,16 @@ class OutletAnalyticsController extends Controller
 
         $selectedOutlet = null;
         if (filled($filters['outlet_id'])) {
-            $selectedOutlet = Outlet::query()->find($filters['outlet_id']);
+            $selectedOutlet = ($accessibleOutletsQuery ? (clone $accessibleOutletsQuery) : Outlet::query())
+                ->where('outlets.id', $filters['outlet_id'])
+                ->first();
         }
 
         $transactionQuery = Transaction::query()
+            ->when(
+                $accessibleOutletIds->isNotEmpty() && ! $user?->isSuperAdmin(),
+                fn ($query) => $query->whereIn('outlet_id', $accessibleOutletIds->all())
+            )
             ->when($selectedOutlet, fn ($query) => $query->where('outlet_id', $selectedOutlet->id));
         $allocationQuery = TransactionTenantAllocation::query()
             ->with(['tenantOutlet:id,name,code'])
@@ -48,6 +59,16 @@ class OutletAnalyticsController extends Controller
                     ->selectRaw('COALESCE(SUM(base_unit_price * qty), 0)')
                     ->whereColumn('transaction_tenant_allocation_id', 'transaction_tenant_allocations.id'),
                 'cost_total'
+            )
+            ->when(
+                $accessibleOutletIds->isNotEmpty() && ! $user?->isSuperAdmin(),
+                function ($query) use ($accessibleOutletIds) {
+                    $query->where(function ($innerQuery) use ($accessibleOutletIds) {
+                        $innerQuery
+                            ->whereIn('outlet_id', $accessibleOutletIds->all())
+                            ->orWhereIn('tenant_outlet_id', $accessibleOutletIds->all());
+                    });
+                }
             )
             ->when($selectedOutlet, function ($query) use ($selectedOutlet) {
                 $query->where(function ($innerQuery) use ($selectedOutlet) {
@@ -68,6 +89,10 @@ class OutletAnalyticsController extends Controller
         }
 
         $outletStats = Outlet::query()
+            ->when(
+                $accessibleOutletIds->isNotEmpty() && ! $user?->isSuperAdmin(),
+                fn ($query) => $query->whereIn('id', $accessibleOutletIds->all())
+            )
             ->when($selectedOutlet, fn ($query) => $query->whereKey($selectedOutlet->id))
             ->withCount([
                 'transactions as transactions_count' => fn ($query) => $this->applyDateRange($query, $filters),
@@ -133,10 +158,16 @@ class OutletAnalyticsController extends Controller
             ->values();
 
         $summary = [
-            'outlets_total' => $selectedOutlet ? 1 : Outlet::count(),
+            'outlets_total' => $selectedOutlet
+                ? 1
+                : ($accessibleOutletIds->isNotEmpty() && ! $user?->isSuperAdmin()
+                    ? $accessibleOutletIds->count()
+                    : Outlet::count()),
             'active_outlets_total' => $selectedOutlet
                 ? ((bool) $selectedOutlet->is_active ? 1 : 0)
-                : Outlet::where('is_active', true)->count(),
+                : ($accessibleOutletIds->isNotEmpty() && ! $user?->isSuperAdmin()
+                    ? Outlet::whereIn('id', $accessibleOutletIds->all())->where('is_active', true)->count()
+                    : Outlet::where('is_active', true)->count()),
             'transactions_total' => (clone $transactionQuery)->count(),
             'revenue_total' => (int) ((clone $transactionQuery)->sum('grand_total') ?? 0),
             'tenant_revenue_total' => (int) $tenantStats->sum('revenue_total'),
@@ -148,7 +179,8 @@ class OutletAnalyticsController extends Controller
             'summary' => $summary,
             'outletStats' => $outletStats,
             'tenantStats' => $tenantStats,
-            'outlets' => Outlet::ordered()->get(['id', 'name', 'code']),
+            'outlets' => ($accessibleOutletsQuery ? (clone $accessibleOutletsQuery) : Outlet::query()->ordered())
+                ->get(['outlets.id', 'outlets.name', 'outlets.code']),
             'selectedOutlet' => $selectedOutlet?->only(['id', 'name', 'code', 'outlet_type']),
         ]);
     }

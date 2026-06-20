@@ -557,12 +557,7 @@ class StockMutationService
             return null;
         }
 
-        $outletStock->forceFill([
-            'stock' => $stockAfter,
-            'last_counted_at' => now(),
-        ])->save();
-
-        $this->syncLegacyProductStock($product);
+        $this->syncUnifiedStock($product, $stockAfter, $outletId, true);
 
         return StockMutation::create([
             'outlet_id' => $outletId,
@@ -595,13 +590,6 @@ class StockMutationService
     private function seedOutletStock(Product $product): int
     {
         return (int) $product->stock;
-    }
-
-    private function syncLegacyProductStock(Product $product): void
-    {
-        $product->forceFill([
-            'stock' => max(0, (int) $product->stock),
-        ])->save();
     }
 
     private function syncUnifiedStock(

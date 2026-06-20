@@ -60,7 +60,8 @@ class PublicTableOrderController extends Controller
                 'stock',
                 'category_id',
                 'tenant_outlet_id',
-                'supports_modifiers'
+                'supports_modifiers',
+                'requires_modifier_selection'
             )
             ->orderBy('title')
             ->where('stock', '>', 0)

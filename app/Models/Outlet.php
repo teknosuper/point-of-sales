@@ -21,6 +21,7 @@ class Outlet extends Model
         'email',
         'website',
         'outlet_type',
+        'parent_outlet_id',
         'commission_rate_percent',
         'logo',
         'is_active',
@@ -31,6 +32,7 @@ class Outlet extends Model
     protected $casts = [
         'is_active' => 'boolean',
         'is_default' => 'boolean',
+        'parent_outlet_id' => 'integer',
         'commission_rate_percent' => 'decimal:2',
         'sort_order' => 'integer',
     ];
@@ -44,6 +46,17 @@ class Outlet extends Model
         return $this->belongsToMany(User::class)
             ->withPivot('is_primary')
             ->withTimestamps();
+    }
+
+    public function parentOutlet()
+    {
+        return $this->belongsTo(self::class, 'parent_outlet_id');
+    }
+
+    public function childTenants()
+    {
+        return $this->hasMany(self::class, 'parent_outlet_id')
+            ->where('outlet_type', 'tenant');
     }
 
     public function productStocks()
@@ -88,6 +101,7 @@ class Outlet extends Model
             'code' => $this->code,
             'slug' => $this->slug,
             'name' => $this->name,
+            'parent_outlet_id' => $this->parent_outlet_id,
             'logo' => $this->logo_url,
             'address' => $this->address ?? '',
             'phone' => $this->phone ?? '',

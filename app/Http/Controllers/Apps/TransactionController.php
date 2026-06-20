@@ -34,6 +34,7 @@ use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -159,7 +160,7 @@ class TransactionController extends Controller
 
         // get all products with categories for product grid
         $productsQuery = Product::with(['category:id,name', 'modifierOptions', 'tenantOutlet:id,name,code,slug,sort_order'])
-            ->select('id', 'barcode', 'title', 'description', 'image', 'buy_price', 'sell_price', 'stock', 'category_id', 'tenant_outlet_id', 'supports_modifiers')
+            ->select('id', 'barcode', 'title', 'description', 'image', 'buy_price', 'sell_price', 'stock', 'category_id', 'tenant_outlet_id', 'supports_modifiers', 'requires_modifier_selection')
             ->orderBy('title');
 
         $soldQtyByProduct = TransactionDetail::query()
@@ -655,6 +656,8 @@ class TransactionController extends Controller
             'total_price' => $qty * $unitPrice,
         ]);
 
+        $this->ensureRequiredModifiersSatisfied($cart->fresh(['product.modifierOptions', 'modifiers']));
+
         return response()->json([
             'success' => true,
             'message' => 'Tambahan item berhasil ditambahkan',
@@ -690,6 +693,8 @@ class TransactionController extends Controller
             'total_price' => $qty * $unitPrice,
         ])->save();
 
+        $this->ensureRequiredModifiersSatisfied($cart->fresh(['product.modifierOptions', 'modifiers']));
+
         return response()->json([
             'success' => true,
             'message' => 'Tambahan item diperbarui',
@@ -710,6 +715,8 @@ class TransactionController extends Controller
         }
 
         $modifier->delete();
+
+        $this->ensureRequiredModifiersSatisfied($cart->fresh(['product.modifierOptions', 'modifiers']));
 
         return response()->json([
             'success' => true,
@@ -809,12 +816,14 @@ class TransactionController extends Controller
                 'category_id' => $cart->product->category_id,
                 'tenant_outlet_id' => $cart->product->tenant_outlet_id,
                 'supports_modifiers' => (bool) $cart->product->supports_modifiers,
+                'requires_modifier_selection' => (bool) $cart->product->requires_modifier_selection,
                 'modifier_options' => $cart->product->modifierOptions
                     ->where('is_active', true)
                     ->map(fn ($option) => [
                         'id' => $option->id,
                         'name' => $option->name,
                         'price' => (int) $option->price,
+                        'is_required' => (bool) $option->is_required,
                     ])
                     ->values()
                     ->all(),
@@ -835,6 +844,45 @@ class TransactionController extends Controller
                 ->values()
                 ->all(),
         ];
+    }
+
+    private function ensureRequiredModifiersSatisfied(?Cart $cart): void
+    {
+        if (! $cart || ! $cart->product) {
+            return;
+        }
+
+        $requiredOptions = $cart->product->modifierOptions
+            ->where('is_active', true)
+            ->where('is_required', true)
+            ->pluck('name')
+            ->map(fn ($name) => trim((string) $name))
+            ->filter()
+            ->values();
+
+        $selectedModifierNames = $cart->modifiers
+            ->pluck('name')
+            ->map(fn ($name) => trim((string) $name))
+            ->filter()
+            ->values();
+
+        $hasRequiredSelection = $requiredOptions->isNotEmpty()
+            ? $selectedModifierNames->intersect($requiredOptions)->isNotEmpty()
+            : $selectedModifierNames->isNotEmpty();
+
+        if ($requiredOptions->isNotEmpty() && ! $hasRequiredSelection) {
+            throw ValidationException::withMessages([
+                'modifier' => "Produk {$cart->product->title} wajib memilih salah satu topping yang ditandai wajib.",
+            ]);
+        }
+
+        if ($requiredOptions->isEmpty()
+            && (bool) $cart->product->requires_modifier_selection
+            && $selectedModifierNames->isEmpty()) {
+            throw ValidationException::withMessages([
+                'modifier' => "Produk {$cart->product->title} wajib memilih minimal satu topping.",
+            ]);
+        }
     }
 
     /**
@@ -2113,7 +2161,6 @@ class TransactionController extends Controller
                 'print_job_id' => $job->id,
                 'job_status' => $job->status,
             ],
-            actor: $request->user()
         );
 
         return response()->json([

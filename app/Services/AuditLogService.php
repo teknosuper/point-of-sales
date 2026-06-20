@@ -19,9 +19,10 @@ class AuditLogService
         ?string $description = null,
         ?array $before = null,
         ?array $after = null,
-        ?array $meta = null
+        ?array $meta = null,
+        ?Authenticatable $actor = null
     ): ?AuditLog {
-        $user = auth()->user();
+        $user = $actor ?? auth()->user();
         $ip = request()->ip();
         $userAgent = request()->userAgent();
 
@@ -46,7 +47,7 @@ class AuditLogService
      * Batch insert multiple audit logs in a single query.
      * Much more efficient than calling log() N times in a loop.
      *
-     * @param  array<int, array{event: string, module: string, auditable?: Model|array|null, description?: string|null, before?: array|null, after?: array|null, meta?: array|null}>  $payloads
+     * @param  array<int, array{event: string, module: string, auditable?: Model|array|null, description?: string|null, before?: array|null, after?: array|null, meta?: array|null, actor?: Authenticatable|null}>  $payloads
      */
     public function logBatch(array $payloads): int
     {
@@ -62,8 +63,9 @@ class AuditLogService
         $rows = [];
         foreach ($payloads as $payload) {
             $auditable = $payload['auditable'] ?? null;
+            $actor = $payload['actor'] ?? $user;
             $rows[] = [
-                'user_id' => $user?->id,
+                'user_id' => $actor?->id,
                 'event' => $payload['event'] ?? 'unknown',
                 'module' => $payload['module'] ?? 'unknown',
                 'auditable_type' => $this->resolveAuditableType($auditable),

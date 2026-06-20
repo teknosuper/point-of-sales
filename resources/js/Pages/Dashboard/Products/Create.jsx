@@ -55,6 +55,7 @@ export default function Create({
         sell_price: "",
         stock: "",
         supports_modifiers: false,
+        requires_modifier_selection: false,
         modifier_options: [],
     });
     const effectiveOutletSellPrice = useMemo(
@@ -68,7 +69,7 @@ export default function Create({
 
     const [selectedCategory, setSelectedCategory] = useState(null);
     const [imagePreview, setImagePreview] = useState(null);
-    const [showModifierSection, setShowModifierSection] = useState(false);
+    const [showModifierSection, setShowModifierSection] = useState(true);
     const autoSkuPreview = previewAutoSku(data.sku, data.barcode, data.title);
     const selectedTenantOutlet = useMemo(
         () =>
@@ -164,7 +165,7 @@ export default function Create({
     const addModifierOption = () => {
         setData("modifier_options", [
             ...data.modifier_options,
-            { name: "", price: "" },
+            { name: "", price: "", is_required: false },
         ]);
     };
 
@@ -390,28 +391,64 @@ export default function Create({
                                         rows={3}
                                     />
                                 </div>
-                                <div className="md:col-span-2">
-                                    <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
-                                        <input
-                                            type="checkbox"
-                                            checked={data.supports_modifiers}
-                                            onChange={(e) =>
-                                                setData(
-                                                    "supports_modifiers",
-                                                    e.target.checked
-                                                )
-                                            }
-                                            className="mt-0.5 h-4 w-4 rounded border-slate-300 text-primary-500 focus:ring-primary-500"
-                                        />
-                                        <span>
-                                            <span className="block font-semibold">
-                                                Produk ini mendukung topping / tambahan
+                                <div className="md:col-span-2 space-y-3">
+                                    <div className="rounded-2xl border-2 border-primary-200 bg-primary-50/80 p-4 dark:border-primary-900/40 dark:bg-primary-950/20">
+                                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary-600 dark:text-primary-300">
+                                            Langkah 1
+                                        </p>
+                                        <label className="mt-3 flex items-start gap-3 text-sm text-slate-700 dark:text-slate-200">
+                                            <input
+                                                type="checkbox"
+                                                checked={data.supports_modifiers}
+                                                onChange={(e) =>
+                                                    setData({
+                                                        ...data,
+                                                        supports_modifiers: e.target.checked,
+                                                        requires_modifier_selection: e.target.checked
+                                                            ? data.requires_modifier_selection
+                                                            : false,
+                                                    })
+                                                }
+                                                className="mt-0.5 h-6 w-6 rounded-md border-2 border-primary-400 text-primary-600 shadow-sm focus:ring-2 focus:ring-primary-500"
+                                            />
+                                            <span>
+                                                <span className="block text-base font-bold">
+                                                    Produk ini mendukung topping / tambahan
+                                                </span>
+                                                <span className="mt-1 block text-sm text-slate-600 dark:text-slate-300">
+                                                    Aktifkan jika item ini bisa memiliki extra topping, add-on, atau tambahan harga di POS dan self order.
+                                                </span>
                                             </span>
-                                            <span className="mt-1 block text-xs text-slate-500 dark:text-slate-400">
-                                                Aktifkan jika item ini bisa memiliki extra topping, add-on, atau tambahan harga di POS.
-                                            </span>
-                                        </span>
-                                    </label>
+                                        </label>
+                                    </div>
+                                    {data.supports_modifiers ? (
+                                        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/40 dark:bg-amber-950/20">
+                                            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-600 dark:text-amber-300">
+                                                Langkah 2
+                                            </p>
+                                            <label className="mt-3 flex items-start gap-3 text-sm text-slate-700 dark:text-slate-200">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={data.requires_modifier_selection}
+                                                    onChange={(e) =>
+                                                        setData(
+                                                            "requires_modifier_selection",
+                                                            e.target.checked
+                                                        )
+                                                    }
+                                                    className="mt-0.5 h-6 w-6 rounded-md border-2 border-amber-400 text-amber-500 shadow-sm focus:ring-2 focus:ring-amber-500"
+                                                />
+                                                <span>
+                                                    <span className="block font-semibold">
+                                                        Produk ini wajib memilih topping
+                                                    </span>
+                                                    <span className="mt-1 block text-xs text-slate-500 dark:text-slate-400">
+                                                        Jika aktif, POS dan self order akan meminta minimal satu topping dipilih. Jika ada opsi yang ditandai wajib, user harus memilih salah satunya.
+                                                    </span>
+                                                </span>
+                                            </label>
+                                        </div>
+                                    ) : null}
                                 </div>
                             </div>
                         </div>
@@ -525,11 +562,14 @@ export default function Create({
                             <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">
                                 <div className="mb-4 flex items-center justify-between gap-3">
                                     <div>
+                                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary-600 dark:text-primary-300">
+                                            Langkah 3
+                                        </p>
                                         <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">
                                             Preset Topping / Tambahan
                                         </h3>
                                         <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                            Opsi ini akan muncul sebagai pilihan cepat di POS untuk produk ini.
+                                            Opsi ini muncul di POS dan self order. Tandai `Wajib` pada opsi yang harus dipilih.
                                         </p>
                                     </div>
                                     <div className="flex items-center gap-2">
@@ -562,7 +602,7 @@ export default function Create({
                                     {data.modifier_options.map((option, index) => (
                                         <div
                                             key={index}
-                                            className="grid grid-cols-[minmax(0,1fr)_120px_auto] gap-3"
+                                            className="grid grid-cols-1 gap-3 rounded-xl border border-slate-200 p-3 dark:border-slate-700 md:grid-cols-[minmax(0,1fr)_120px_180px_auto]"
                                         >
                                             <Input
                                                 type="text"
@@ -590,6 +630,28 @@ export default function Create({
                                                 }
                                                 placeholder="0"
                                             />
+                                            <label className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={!!option.is_required}
+                                                    onChange={(e) =>
+                                                        updateModifierOption(
+                                                            index,
+                                                            "is_required",
+                                                            e.target.checked
+                                                        )
+                                                    }
+                                                    className="h-5 w-5 rounded border-slate-300 text-amber-500 focus:ring-amber-500"
+                                                />
+                                                <span>
+                                                    <span className="block font-semibold">
+                                                        Wajib dipilih
+                                                    </span>
+                                                    <span className="block text-xs text-slate-500 dark:text-slate-400">
+                                                        Salah satu opsi wajib harus dipilih saat order.
+                                                    </span>
+                                                </span>
+                                            </label>
                                             <div className="flex items-end">
                                                 <button
                                                     type="button"
@@ -606,7 +668,7 @@ export default function Create({
                                 </div>
                                 ) : (
                                     <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
-                                        Preset topping disembunyikan. Buka detail jika ingin menambah atau mengubah opsi.
+                                        Preset topping berada tepat di bagian ini. Buka detail di bawah judul ini untuk menambah, mengubah, atau menandai opsi wajib.
                                     </div>
                                 )}
                             </div>

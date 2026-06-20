@@ -20,14 +20,14 @@ class OutletResolver
 
         if ($user) {
             if ($user->isKitchenWorkspace() && $user->preferredKitchenStation?->outlet_id) {
-                return $user->outlets()
+                return $user->accessibleOutletsQuery()
                     ->where('outlets.id', (int) $user->preferredKitchenStation->outlet_id)
                     ->active()
                     ->first();
             }
 
             if ($requestedOutletId) {
-                $matchedOutlet = $user->outlets()
+                $matchedOutlet = $user->accessibleOutletsQuery()
                     ->where('outlets.id', $requestedOutletId)
                     ->active()
                     ->first();
