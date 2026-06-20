@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Head, router, usePage } from "@inertiajs/react";
+import { Head, Link, router, usePage } from "@inertiajs/react";
 import toast from "react-hot-toast";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import KitchenLayout from "@/Layouts/KitchenLayout";
@@ -109,7 +109,7 @@ function SummaryCard({ title, value, description, icon, tone = "slate" }) {
 }
 
 export default function Index({
-    filters = {},
+    walletFilters = {},
     summary = {},
     requests = {},
     cashiers = [],
@@ -121,12 +121,10 @@ export default function Index({
     wallet = null,
     walletTransactions = {},
 }) {
-    const { auth, errors, flash } = usePage().props;
+    const page = usePage();
+    const { auth, errors, flash } = page.props;
     const isKitchenWorkspace = auth?.user?.preferred_workspace === "kitchen";
     const isTenantRequestMode = Boolean(canCreateRequest);
-    const [showRequestPanel, setShowRequestPanel] = useState(
-        () => isTenantRequestMode
-    );
     const [showHelpModal, setShowHelpModal] = useState(false);
 
     useEffect(() => {
@@ -157,13 +155,32 @@ export default function Index({
     const submitRequestLabel = isTenantRequestMode
         ? "Ajukan Penarikan Dana"
         : "Ajukan Setoran";
+    const activeTab = useMemo(() => {
+        const querySource =
+            page.url && page.url.includes("?")
+                ? page.url.slice(page.url.indexOf("?"))
+                : typeof window !== "undefined"
+                  ? window.location.search
+                  : "";
+
+        if (!querySource) {
+            return isTenantRequestMode ? "balance" : "requests";
+        }
+
+        const requestedTab = new URLSearchParams(querySource).get("tab");
+
+        if (requestedTab && ["balance", "request", "transactions"].includes(requestedTab)) {
+            return requestedTab;
+        }
+
+        return isTenantRequestMode ? "balance" : "requests";
+    }, [isTenantRequestMode, page.url]);
     const [filterData, setFilterData] = useState({
         ...defaultFilters,
-        q: filters?.q ?? "",
-        status: filters?.status ?? "",
-        cashier_id: filters?.cashier_id ?? "",
-        date_from: filters?.date_from ?? "",
-        date_to: filters?.date_to ?? "",
+        q: walletFilters?.q ?? "",
+        cashier_id: walletFilters?.cashier_id ?? "",
+        date_from: walletFilters?.date_from ?? "",
+        date_to: walletFilters?.date_to ?? "",
     });
     const [createData, setCreateData] = useState({
         cashier_shift_id: "",
@@ -188,13 +205,12 @@ export default function Index({
     useEffect(() => {
         setFilterData({
             ...defaultFilters,
-            q: filters?.q ?? "",
-            status: filters?.status ?? "",
-            cashier_id: filters?.cashier_id ?? "",
-            date_from: filters?.date_from ?? "",
-            date_to: filters?.date_to ?? "",
+            q: walletFilters?.q ?? "",
+            cashier_id: walletFilters?.cashier_id ?? "",
+            date_from: walletFilters?.date_from ?? "",
+            date_to: walletFilters?.date_to ?? "",
         });
-    }, [filters]);
+    }, [walletFilters]);
 
     const rows = requests?.data ?? [];
     const links = requests?.links ?? [];
@@ -218,7 +234,7 @@ export default function Index({
 
     const applyFilters = (event) => {
         event.preventDefault();
-        router.get(route("cashier-settlements.index"), filterData, {
+        router.get(route("cashier-settlements.index"), { ...filterData, tab: "transactions" }, {
             preserveScroll: true,
             preserveState: true,
         });
@@ -226,7 +242,7 @@ export default function Index({
 
     const resetFilters = () => {
         setFilterData(defaultFilters);
-        router.get(route("cashier-settlements.index"), {}, {
+        router.get(route("cashier-settlements.index"), { tab: "transactions" }, {
             preserveScroll: true,
             preserveState: false,
             replace: true,
@@ -402,141 +418,80 @@ export default function Index({
                             <IconInfoCircle size={16} />
                             Bantuan
                         </button>
-                        <button
-                            type="button"
-                            onClick={() => setShowRequestPanel((value) => !value)}
-                            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-                        >
-                            {showRequestPanel ? <IconChevronUp size={18} /> : <IconChevronDown size={18} />}
-                            {showRequestPanel ? "Sembunyikan panel" : "Buka panel"}
-                        </button>
                     </div>
                 </div>
 
-                <div className="rounded-3xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
-                    <div className="mb-4">
-                        <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
-                            Filter Data
-                        </h2>
-                        <p className="text-sm text-slate-500 dark:text-slate-400">
-                            Kata kunci, pengaju, dan rentang tanggal berlaku untuk riwayat pengajuan dan transaksi masuk ke saldo. Filter status hanya berlaku untuk riwayat pengajuan.
-                        </p>
+                {isTenantRequestMode ? (
+                    <div className="rounded-3xl border border-slate-200 bg-white p-2 dark:border-slate-800 dark:bg-slate-900">
+                        <div className="grid gap-2 md:grid-cols-3">
+                            {[
+                                {
+                                    key: "balance",
+                                    label: "Saldo",
+                                    description: "Ringkasan saldo, piutang, dan pencairan tenant.",
+                                    icon: <IconCashBanknote size={16} />,
+                                },
+                                {
+                                    key: "request",
+                                    label: "Ajukan Penarikan Dana Tenant",
+                                    description: "Form pengajuan dan riwayat request tenant.",
+                                    icon: <IconFileExport size={16} />,
+                                },
+                                {
+                                    key: "transactions",
+                                    label: "Transaksi Masuk ke Saldo",
+                                    description: "Daftar aktivitas saldo dengan filter detail dan pagination.",
+                                    icon: <IconReceipt2 size={16} />,
+                                },
+                            ].map((tab) => {
+                                const isActive = activeTab === tab.key;
+
+                                const href = route("cashier-settlements.index", {
+                                    ...(tab.key === "transactions"
+                                        ? {
+                                              q: walletFilters?.q ?? "",
+                                              cashier_id: walletFilters?.cashier_id ?? "",
+                                              date_from: walletFilters?.date_from ?? "",
+                                              date_to: walletFilters?.date_to ?? "",
+                                          }
+                                        : {}),
+                                    tab: tab.key,
+                                });
+
+                                return (
+                                    <Link
+                                        key={tab.key}
+                                        href={href}
+                                        preserveScroll
+                                        preserveState
+                                        className={`rounded-2xl border px-4 py-4 text-left transition ${
+                                            isActive
+                                                ? "border-primary-200 bg-primary-50 text-primary-900 dark:border-primary-900/40 dark:bg-primary-950/20 dark:text-primary-100"
+                                                : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                                        }`}
+                                    >
+                                        <div className="flex items-center gap-2 text-sm font-semibold">
+                                            {tab.icon}
+                                            {tab.label}
+                                        </div>
+                                        <p className="mt-2 text-xs opacity-75">{tab.description}</p>
+                                    </Link>
+                                );
+                            })}
+                        </div>
                     </div>
-                    <form onSubmit={applyFilters} className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-                        <div className="xl:col-span-2">
-                            <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                Cari
-                            </label>
-                            <div className="relative">
-                                <input
-                                    value={filterData.q}
-                                    onChange={(event) =>
-                                        setFilterData((prev) => ({
-                                            ...prev,
-                                            q: event.target.value,
-                                        }))
-                                    }
-                                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 pr-10 text-sm dark:border-slate-700 dark:bg-slate-800"
-                                    placeholder={canCreateRequest ? "Invoice, request, customer, kasir..." : "Nomor request, pengaju, penerima..."}
-                                />
-                                <span className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-4 text-slate-400">
-                                    <IconSearch size={16} />
-                                </span>
-                            </div>
-                        </div>
-                        <div>
-                            <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                Status Pengajuan
-                            </label>
-                            <select
-                                value={filterData.status}
-                                onChange={(event) =>
-                                    setFilterData((prev) => ({
-                                        ...prev,
-                                        status: event.target.value,
-                                    }))
-                                }
-                                className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
-                            >
-                                <option value="">Semua</option>
-                                <option value="pending">Pending</option>
-                                <option value="approved">Approved</option>
-                                <option value="rejected">Rejected</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                {canCreateRequest ? "Akun / Kasir" : "Pengaju"}
-                            </label>
-                            <select
-                                value={filterData.cashier_id}
-                                onChange={(event) =>
-                                    setFilterData((prev) => ({
-                                        ...prev,
-                                        cashier_id: event.target.value,
-                                    }))
-                                }
-                                className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
-                            >
-                                <option value="">Semua</option>
-                                {cashiers.map((cashier) => (
-                                    <option key={cashier.id} value={String(cashier.id)}>
-                                        {cashier.name}
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
-                        <div className="flex items-end gap-2">
-                            <button type="submit" className="rounded-xl bg-primary-600 px-4 py-3 text-sm font-semibold text-white">
-                                Terapkan
-                            </button>
-                            <button type="button" onClick={resetFilters} className="rounded-xl border border-slate-200 px-4 py-3 text-sm font-medium text-slate-600 dark:border-slate-700 dark:text-slate-300">
-                                Reset
-                            </button>
-                        </div>
-                        <div>
-                            <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                Dari
-                            </label>
-                            <input
-                                type="date"
-                                value={filterData.date_from}
-                                onChange={(event) =>
-                                    setFilterData((prev) => ({
-                                        ...prev,
-                                        date_from: event.target.value,
-                                    }))
-                                }
-                                className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
-                            />
-                        </div>
-                        <div>
-                            <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                Sampai
-                            </label>
-                            <input
-                                type="date"
-                                value={filterData.date_to}
-                                onChange={(event) =>
-                                    setFilterData((prev) => ({
-                                        ...prev,
-                                        date_to: event.target.value,
-                                    }))
-                                }
-                                className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
-                            />
-                        </div>
-                    </form>
-                </div>
+                ) : null}
 
-                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                    <SummaryCard title="Menunggu Approval" value={String(summary?.pending_count ?? 0)} description="Pengajuan yang belum divalidasi" icon={<IconClockHour4 size={20} />} tone="amber" />
-                    <SummaryCard title="Disetujui" value={String(summary?.approved_count ?? 0)} description="Pengajuan yang sudah dibayar" icon={<IconCheck size={20} />} tone="emerald" />
-                    <SummaryCard title="Total Pending" value={formatCurrency(summary?.requested_total ?? 0)} description="Nominal pengajuan yang menunggu approval" icon={<IconReceipt2 size={20} />} tone="blue" />
-                    <SummaryCard title="Total Disetujui" value={formatCurrency(summary?.approved_total ?? 0)} description="Nominal sudah dibayar" icon={<IconCashBanknote size={20} />} tone="slate" />
-                </div>
+                {(!isTenantRequestMode || activeTab === "request") ? (
+                    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                        <SummaryCard title="Menunggu Approval" value={String(summary?.pending_count ?? 0)} description="Pengajuan yang belum divalidasi" icon={<IconClockHour4 size={20} />} tone="amber" />
+                        <SummaryCard title="Disetujui" value={String(summary?.approved_count ?? 0)} description="Pengajuan yang sudah dibayar" icon={<IconCheck size={20} />} tone="emerald" />
+                        <SummaryCard title="Total Pending" value={formatCurrency(summary?.requested_total ?? 0)} description="Nominal pengajuan yang menunggu approval" icon={<IconReceipt2 size={20} />} tone="blue" />
+                        <SummaryCard title="Total Disetujui" value={formatCurrency(summary?.approved_total ?? 0)} description="Nominal sudah dibayar" icon={<IconCashBanknote size={20} />} tone="slate" />
+                    </div>
+                ) : null}
 
-                {isTenantRequestMode && wallet ? (
+                {isTenantRequestMode && wallet && activeTab === "balance" ? (
                     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                         <SummaryCard title="Saldo Masuk Tenant" value={formatCurrency(wallet.tenant_sales_total ?? 0)} description="Hak tenant yang menjadi dasar saldo dan pencairan" icon={<IconReceipt2 size={20} />} tone="emerald" />
                         <SummaryCard title="Piutang ke Owner" value={formatCurrency(wallet.receivable_total ?? 0)} description="Hak tenant yang belum dicairkan penuh" icon={<IconClockHour4 size={20} />} tone="amber" />
@@ -545,8 +500,8 @@ export default function Index({
                     </div>
                 ) : null}
 
+                {(!isTenantRequestMode || activeTab === "request") ? (
                 <div className={`grid gap-6 ${canCreateRequest ? "xl:grid-cols-[0.95fr,1.05fr]" : "xl:grid-cols-[0.7fr,1.3fr]"}`}>
-                    {showRequestPanel ? (
                     <div className="rounded-3xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
                         <div className="mb-4">
                             <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
@@ -615,25 +570,37 @@ export default function Index({
                                         Nominal Penarikan
                                     </label>
                                     <div className="flex flex-col gap-3 sm:flex-row">
-                                        <input
-                                            type="number"
-                                            min="1"
-                                            max={kitchenAvailableBalance}
-                                            value={createData.requested_amount}
-                                            onChange={(event) =>
-                                                setCreateData((prev) => ({
-                                                    ...prev,
-                                                    requested_amount: event.target.value,
-                                                }))
-                                            }
-                                            className={`h-11 w-full rounded-xl border px-4 text-sm dark:bg-slate-800 ${
-                                                kitchenAmountExceedsBalance || errors.requested_amount
-                                                    ? "border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-800 dark:bg-rose-950/20 dark:text-rose-300"
-                                                    : "border-slate-200 bg-slate-50 dark:border-slate-700"
-                                            }`}
-                                            placeholder="Masukkan nominal yang ingin dicairkan"
-                                            required
-                                        />
+                                        <div className="w-full">
+                                            <div
+                                                className={`flex h-11 overflow-hidden rounded-xl border dark:bg-slate-800 ${
+                                                    kitchenAmountExceedsBalance || errors.requested_amount
+                                                        ? "border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-800 dark:bg-rose-950/20 dark:text-rose-300"
+                                                        : "border-slate-200 bg-slate-50 dark:border-slate-700"
+                                                }`}
+                                            >
+                                                <div className="flex items-center border-r border-inherit px-4 text-sm font-semibold">
+                                                    Rp
+                                                </div>
+                                                <input
+                                                    type="number"
+                                                    min="1"
+                                                    max={kitchenAvailableBalance}
+                                                    value={createData.requested_amount}
+                                                    onChange={(event) =>
+                                                        setCreateData((prev) => ({
+                                                            ...prev,
+                                                            requested_amount: event.target.value,
+                                                        }))
+                                                    }
+                                                    className="h-full w-full bg-transparent px-4 text-sm outline-none"
+                                                    placeholder="Masukkan nominal yang ingin dicairkan"
+                                                    required
+                                                />
+                                            </div>
+                                            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                                                Nilai terbaca: {formatCurrency(kitchenRequestedAmount || 0)}
+                                            </p>
+                                        </div>
                                         <button
                                             type="button"
                                             onClick={() =>
@@ -840,10 +807,10 @@ export default function Index({
                         </div>
                         )}
                     </div>
-                    ) : null}
-
                 </div>
+                ) : null}
 
+                {(!isTenantRequestMode || activeTab === "request") ? (
                 <div className="rounded-3xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
                     <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                         <div>
@@ -988,8 +955,9 @@ export default function Index({
                         </div>
                     )}
                 </div>
+                ) : null}
 
-                {isTenantRequestMode ? (
+                {isTenantRequestMode && activeTab === "transactions" ? (
                     <div className="rounded-3xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
                         <div className="mb-4">
                             <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
@@ -998,6 +966,102 @@ export default function Index({
                             <p className="text-sm text-slate-500 dark:text-slate-400">
                                 Menampilkan {walletTransactions?.from || 0}-{walletTransactions?.to || 0} dari {walletTransactions?.total || 0} aktivitas saldo. Fokus utama tabel ini adalah hak tenant yang bertambah atau berkurang.
                             </p>
+                        </div>
+
+                        <div className="mb-5 rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/40">
+                            <div className="mb-4">
+                                <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
+                                    Filter Detail
+                                </h3>
+                                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                    Advanced search untuk invoice, nomor allocation, customer, kasir, dan rentang tanggal aktivitas saldo.
+                                </p>
+                            </div>
+                            <form onSubmit={applyFilters} className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+                                <div className="xl:col-span-2">
+                                    <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                        Cari Invoice / Allocation / Customer
+                                    </label>
+                                    <div className="relative">
+                                        <input
+                                            value={filterData.q}
+                                            onChange={(event) =>
+                                                setFilterData((prev) => ({
+                                                    ...prev,
+                                                    q: event.target.value,
+                                                }))
+                                            }
+                                            className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 pr-10 text-sm dark:border-slate-700 dark:bg-slate-900"
+                                            placeholder="Contoh: TRX-..., TA-..., nama customer, kasir"
+                                        />
+                                        <span className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-4 text-slate-400">
+                                            <IconSearch size={16} />
+                                        </span>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                        Kasir
+                                    </label>
+                                    <select
+                                        value={filterData.cashier_id}
+                                        onChange={(event) =>
+                                            setFilterData((prev) => ({
+                                                ...prev,
+                                                cashier_id: event.target.value,
+                                            }))
+                                        }
+                                        className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm dark:border-slate-700 dark:bg-slate-900"
+                                    >
+                                        <option value="">Semua kasir</option>
+                                        {cashiers.map((cashier) => (
+                                            <option key={cashier.id} value={String(cashier.id)}>
+                                                {cashier.name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                        Dari Tanggal
+                                    </label>
+                                    <input
+                                        type="date"
+                                        value={filterData.date_from}
+                                        onChange={(event) =>
+                                            setFilterData((prev) => ({
+                                                ...prev,
+                                                date_from: event.target.value,
+                                            }))
+                                        }
+                                        className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm dark:border-slate-700 dark:bg-slate-900"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                        Sampai Tanggal
+                                    </label>
+                                    <input
+                                        type="date"
+                                        value={filterData.date_to}
+                                        onChange={(event) =>
+                                            setFilterData((prev) => ({
+                                                ...prev,
+                                                date_to: event.target.value,
+                                            }))
+                                        }
+                                        className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm dark:border-slate-700 dark:bg-slate-900"
+                                    />
+                                </div>
+                                <div className="xl:col-span-5 flex flex-wrap gap-2">
+                                    <button type="submit" className="rounded-xl bg-primary-600 px-4 py-3 text-sm font-semibold text-white">
+                                        Terapkan Filter
+                                    </button>
+                                    <button type="button" onClick={resetFilters} className="rounded-xl border border-slate-200 px-4 py-3 text-sm font-medium text-slate-600 dark:border-slate-700 dark:text-slate-300">
+                                        Reset Filter
+                                    </button>
+                                </div>
+                            </form>
                         </div>
 
                         {walletRows.length > 0 ? (
@@ -1068,7 +1132,9 @@ export default function Index({
                                         ))}
                                     </tbody>
                                 </table>
-                                {walletTransactions?.last_page > 1 ? <Pagination links={walletLinks} /> : null}
+                                <div className="mt-4 flex justify-end">
+                                    {walletTransactions?.last_page > 1 ? <Pagination links={walletLinks} /> : null}
+                                </div>
                             </div>
                         ) : (
                             <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-10 text-center text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">

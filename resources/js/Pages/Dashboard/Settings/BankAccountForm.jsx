@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { Head, useForm, Link, usePage } from "@inertiajs/react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import {
@@ -9,6 +9,10 @@ import {
 import toast from "react-hot-toast";
 import Input from "@/Components/Dashboard/Input";
 import { useAuthorization } from "@/Utils/authorization";
+import {
+    IMAGE_UPLOAD_ACCEPT,
+    prepareImageUpload,
+} from "@/Utils/imageUpload";
 
 export default function BankAccountForm({ bankAccount = null }) {
     const isEdit = !!bankAccount;
@@ -23,6 +27,7 @@ export default function BankAccountForm({ bankAccount = null }) {
     logo: null,
     is_active: bankAccount?.is_active ?? true,
 });
+    const [logoError, setLogoError] = useState("");
 
     useEffect(() => {
         if (flash?.success) toast.success(flash.success);
@@ -106,16 +111,34 @@ export default function BankAccountForm({ bankAccount = null }) {
                             </label>
                             <input
                                 type="file"
-                                accept="image/*"
-                                onChange={(e) =>
-                                    setData("logo", e.target.files?.[0] || null)
-                                }
+                                accept={IMAGE_UPLOAD_ACCEPT}
+                                onChange={async (e) => {
+                                    const file = e.target.files?.[0] || null;
+
+                                    if (!file) {
+                                        setData("logo", null);
+                                        setLogoError("");
+                                        return;
+                                    }
+
+                                    const result = await prepareImageUpload(file);
+
+                                    if (!result.ok) {
+                                        setData("logo", null);
+                                        setLogoError(result.error);
+                                        toast.error(result.error);
+                                        return;
+                                    }
+
+                                    setLogoError("");
+                                    setData("logo", result.file);
+                                }}
                                 disabled={!canUpdatePaymentSettings}
                                 className="w-full h-11 px-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm text-slate-700 dark:text-slate-200 focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
                             />
-                            {errors.logo && (
+                            {(logoError || errors.logo) && (
                                 <p className="text-xs text-danger-500 mt-1">
-                                    {errors.logo}
+                                    {logoError || errors.logo}
                                 </p>
                             )}
                         </div>

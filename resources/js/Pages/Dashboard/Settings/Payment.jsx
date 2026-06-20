@@ -15,6 +15,10 @@ import {
     IconTrash,
 } from "@/Utils/icons";
 import toast from "react-hot-toast";
+import {
+    IMAGE_UPLOAD_ACCEPT,
+    prepareImageUpload,
+} from "@/Utils/imageUpload";
 
 export default function Payment({
     setting,
@@ -46,6 +50,7 @@ export default function Payment({
     });
 
     const [qrisPreview, setQrisPreview] = useState(setting?.qris_static_image || null);
+    const [qrisImageError, setQrisImageError] = useState("");
 
     const handleSubmit = (e) => {
         e.preventDefault();
@@ -248,13 +253,28 @@ export default function Payment({
                                 )}
                             </div>
                             <div className="flex-1 space-y-2">
-                                <input type="file" accept="image/*" onChange={(e) => {
+                                <input type="file" accept={IMAGE_UPLOAD_ACCEPT} onChange={async (e) => {
                                     const file = e.target.files[0];
-                                    if (file) {
-                                        setData("qris_static_image", file);
-                                        setData("remove_qris_image", false);
-                                        setQrisPreview(URL.createObjectURL(file));
+
+                                    if (!file) {
+                                        setData("qris_static_image", null);
+                                        setQrisImageError("");
+                                        return;
                                     }
+
+                                    const result = await prepareImageUpload(file);
+
+                                    if (!result.ok) {
+                                        setData("qris_static_image", null);
+                                        setQrisImageError(result.error);
+                                        toast.error(result.error);
+                                        return;
+                                    }
+
+                                    setQrisImageError("");
+                                    setData("qris_static_image", result.file);
+                                    setData("remove_qris_image", false);
+                                    setQrisPreview(URL.createObjectURL(result.file));
                                 }} className="text-xs text-slate-500 file:mr-2 file:rounded-lg file:border-0 file:bg-primary-50 file:px-2.5 file:py-1 file:text-xs file:font-medium file:text-primary-700 hover:file:bg-primary-100 dark:file:bg-primary-950/30 dark:file:text-primary-300" disabled={!canUpdatePaymentSettings} />
                                 {qrisPreview && (
                                     <button type="button" onClick={() => {
@@ -267,8 +287,8 @@ export default function Payment({
                                 )}
                             </div>
                         </div>
-                        {errors?.qris_static_image && (
-                            <p className="text-xs text-danger-500">{errors.qris_static_image}</p>
+                        {(qrisImageError || errors?.qris_static_image) && (
+                            <p className="text-xs text-danger-500">{qrisImageError || errors.qris_static_image}</p>
                         )}
                     </div>
                 </div>

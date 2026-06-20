@@ -19,6 +19,10 @@ import {
     IconPhoto,
     IconPercentage,
 } from "@/Utils/icons";
+import {
+    IMAGE_UPLOAD_ACCEPT,
+    prepareImageUpload,
+} from "@/Utils/imageUpload";
 
 export default function Store({ settings, tenantOutlets = [] }) {
     useFlashToast();
@@ -42,6 +46,7 @@ export default function Store({ settings, tenantOutlets = [] }) {
     });
 
     const [logoPreview, setLogoPreview] = useState(settings.store_logo || null);
+    const [logoError, setLogoError] = useState("");
 
     useEffect(() => {
         return () => {
@@ -119,13 +124,28 @@ export default function Store({ settings, tenantOutlets = [] }) {
                             </div>
                             <input
                                 type="file"
-                                accept="image/*"
-                                onChange={(e) => {
+                                accept={IMAGE_UPLOAD_ACCEPT}
+                                onChange={async (e) => {
                                     const file = e.target.files[0];
-                                    if (file) {
-                                        setData("store_logo", file);
-                                        setLogoPreview(URL.createObjectURL(file));
+
+                                    if (!file) {
+                                        setData("store_logo", null);
+                                        setLogoError("");
+                                        return;
                                     }
+
+                                    const result = await prepareImageUpload(file);
+
+                                    if (!result.ok) {
+                                        setData("store_logo", null);
+                                        setLogoError(result.error);
+                                        toast.error(result.error);
+                                        return;
+                                    }
+
+                                    setLogoError("");
+                                    setData("store_logo", result.file);
+                                    setLogoPreview(URL.createObjectURL(result.file));
                                 }}
                                 className="text-xs text-slate-500 file:mr-2 file:rounded-lg file:border-0 file:bg-primary-50 file:px-2.5 file:py-1 file:text-xs file:font-medium file:text-primary-700 hover:file:bg-primary-100 dark:file:bg-primary-950/30 dark:file:text-primary-300"
                             />
@@ -133,9 +153,9 @@ export default function Store({ settings, tenantOutlets = [] }) {
                                 <span className="mt-0.5">*</span>
                                 Format JPG/PNG, maks 2MB.
                             </p>
-                            {errors.store_logo && (
+                            {(logoError || errors.store_logo) && (
                                 <p className="text-xs text-danger-500 mt-1">
-                                    {errors.store_logo}
+                                    {logoError || errors.store_logo}
                                 </p>
                             )}
                         </div>

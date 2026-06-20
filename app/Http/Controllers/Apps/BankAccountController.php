@@ -70,7 +70,7 @@ class BankAccountController extends Controller
             'bank_name' => 'required|string|max:100',
             'account_number' => 'required|string|max:50',
             'account_name' => 'required|string|max:100',
-            'logo' => 'nullable|image|mimes:png,jpg,jpeg,svg|max:1024',
+            'logo' => 'nullable|image|mimes:png,jpg,jpeg,webp|max:2048',
             'is_active' => 'nullable|boolean',
         ]);
 
@@ -124,7 +124,7 @@ class BankAccountController extends Controller
             'bank_name' => 'required|string|max:100',
             'account_number' => 'required|string|max:50',
             'account_name' => 'required|string|max:100',
-            'logo' => 'nullable|image|mimes:png,jpg,jpeg,svg|max:1024',
+            'logo' => 'nullable|image|mimes:png,jpg,jpeg,webp|max:2048',
             'is_active' => 'nullable|boolean',
         ]);
 

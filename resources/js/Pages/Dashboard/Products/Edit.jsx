@@ -19,6 +19,10 @@ import {
     IconTrash,
 } from "@/Utils/icons";
 import { getProductImageUrl } from "@/Utils/imageUrl";
+import {
+    IMAGE_UPLOAD_ACCEPT,
+    prepareImageUpload,
+} from "@/Utils/imageUpload";
 
 const formatCurrency = (value = 0) =>
     new Intl.NumberFormat("id-ID", {
@@ -103,69 +107,6 @@ const previewAutoSku = (sku, barcode, title) => {
     return source || "SKU";
 };
 
-const loadImageElement = (src) =>
-    new Promise((resolve, reject) => {
-        const image = new Image();
-        image.onload = () => resolve(image);
-        image.onerror = reject;
-        image.src = src;
-    });
-
-const compressImageFile = async (
-    file,
-    {
-        maxWidth = 1600,
-        maxHeight = 1600,
-        quality = 0.82,
-        outputType = "image/webp",
-    } = {}
-) => {
-    if (!file || !["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
-        return file;
-    }
-
-    const objectUrl = URL.createObjectURL(file);
-
-    try {
-        const image = await loadImageElement(objectUrl);
-        const ratio = Math.min(
-            1,
-            maxWidth / image.width || 1,
-            maxHeight / image.height || 1
-        );
-        const targetWidth = Math.max(1, Math.round(image.width * ratio));
-        const targetHeight = Math.max(1, Math.round(image.height * ratio));
-
-        const canvas = document.createElement("canvas");
-        canvas.width = targetWidth;
-        canvas.height = targetHeight;
-
-        const context = canvas.getContext("2d");
-        if (!context) {
-            return file;
-        }
-
-        context.drawImage(image, 0, 0, targetWidth, targetHeight);
-
-        const blob = await new Promise((resolve) =>
-            canvas.toBlob(resolve, outputType, quality)
-        );
-
-        if (!blob || blob.size >= file.size) {
-            return file;
-        }
-
-        const normalizedName = file.name.replace(/\.(jpe?g|png|webp)$/i, "");
-
-        return new File([blob], `${normalizedName}.webp`, {
-            type: outputType,
-            lastModified: Date.now(),
-        });
-    } finally {
-        URL.revokeObjectURL(objectUrl);
-    }
-};
-
 export default function Edit({
     categories,
     product,
@@ -238,6 +179,8 @@ export default function Edit({
     const [imagePreview, setImagePreview] = useState(
         product.image ? getProductImageUrl(product.image) : null
     );
+    const [selectedImageName, setSelectedImageName] = useState("");
+    const [imageLocalError, setImageLocalError] = useState("");
     const [showModifierSection, setShowModifierSection] = useState(true);
     const [showOutletStockSection, setShowOutletStockSection] = useState(false);
     const pricingRules = activePricingRules?.rules || [];
@@ -339,11 +282,28 @@ export default function Edit({
 
     const handleImageChange = async (e) => {
         const file = e.target.files[0];
-        if (file) {
-            const processedFile = await compressImageFile(file);
-            setData("image", processedFile);
-            setImagePreview(URL.createObjectURL(processedFile));
+
+        if (!file) {
+            setData("image", "");
+            setSelectedImageName("");
+            setImageLocalError("");
+            return;
         }
+
+        const result = await prepareImageUpload(file);
+
+        if (!result.ok) {
+            setData("image", "");
+            setSelectedImageName("");
+            setImageLocalError(result.error);
+            toast.error(result.error);
+            return;
+        }
+
+        setImageLocalError("");
+        setSelectedImageName(result.file.name);
+        setData("image", result.file);
+        setImagePreview(URL.createObjectURL(result.file));
     };
 
     const updateModifierOption = (index, field, value) => {
@@ -371,7 +331,14 @@ export default function Edit({
 
     const submit = (e) => {
         e.preventDefault();
+
+        if (imageLocalError) {
+            toast.error(imageLocalError);
+            return;
+        }
+
         post(route("products.update", product.id), {
+            forceFormData: true,
             onSuccess: () => toast.success("Produk berhasil diperbarui"),
             onError: () => toast.error("Gagal memperbarui produk"),
         });
@@ -446,11 +413,14 @@ export default function Edit({
                                         type="file"
                                         label="Ganti Gambar"
                                         onChange={handleImageChange}
-                                        errors={errors.image}
-                                        accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+                                        errors={imageLocalError || errors.image}
+                                        accept={IMAGE_UPLOAD_ACCEPT}
                                     />
                                     <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                                        Validasi: hanya `JPG`, `JPEG`, `PNG`, atau `WEBP`, maksimal `5 MB`. Gambar akan dikompres otomatis sebelum diunggah jika ukuran file bisa diperkecil.
+                                        {selectedImageName
+                                            ? `File dipilih: ${selectedImageName}. `
+                                            : ""}
+                                        Validasi: hanya `JPG`, `JPEG`, `PNG`, atau `WEBP`, maksimal `2 MB`. Gambar akan dikompres otomatis sebelum diunggah.
                                     </p>
                                 </>
                             ) : (

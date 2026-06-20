@@ -7,6 +7,10 @@ import Textarea from "@/Components/Dashboard/TextArea";
 import InputSelect from "@/Components/Dashboard/InputSelect";
 import toast from "react-hot-toast";
 import {
+    IMAGE_UPLOAD_ACCEPT,
+    prepareImageUpload,
+} from "@/Utils/imageUpload";
+import {
     IconPackage,
     IconDeviceFloppy,
     IconArrowLeft,
@@ -69,6 +73,8 @@ export default function Create({
 
     const [selectedCategory, setSelectedCategory] = useState(null);
     const [imagePreview, setImagePreview] = useState(null);
+    const [selectedImageName, setSelectedImageName] = useState("");
+    const [localErrors, setLocalErrors] = useState({});
     const [showModifierSection, setShowModifierSection] = useState(true);
     const autoSkuPreview = previewAutoSku(data.sku, data.barcode, data.title);
     const selectedTenantOutlet = useMemo(
@@ -145,12 +151,30 @@ export default function Create({
         setData,
     ]);
 
-    const handleImageChange = (e) => {
+    const handleImageChange = async (e) => {
         const file = e.target.files[0];
-        if (file) {
-            setData("image", file);
-            setImagePreview(URL.createObjectURL(file));
+
+        if (!file) {
+            setData("image", "");
+            setSelectedImageName("");
+            setLocalErrors((current) => ({ ...current, image: "" }));
+            return;
         }
+
+        const result = await prepareImageUpload(file);
+
+        if (!result.ok) {
+            setData("image", "");
+            setSelectedImageName("");
+            setLocalErrors((current) => ({ ...current, image: result.error }));
+            toast.error(result.error);
+            return;
+        }
+
+        setLocalErrors((current) => ({ ...current, image: "" }));
+        setSelectedImageName(result.file.name);
+        setData("image", result.file);
+        setImagePreview(URL.createObjectURL(result.file));
     };
 
     const updateModifierOption = (index, field, value) => {
@@ -178,7 +202,14 @@ export default function Create({
 
     const submit = (e) => {
         e.preventDefault();
+
+        if (localErrors.image) {
+            toast.error(localErrors.image);
+            return;
+        }
+
         post(route("products.store"), {
+            forceFormData: true,
             onSuccess: () => toast.success("Produk berhasil ditambahkan"),
             onError: () => toast.error("Gagal menyimpan produk"),
         });
@@ -237,9 +268,20 @@ export default function Create({
                                 type="file"
                                 label="Upload Gambar"
                                 onChange={handleImageChange}
-                                errors={errors.image}
-                                accept="image/*"
+                                errors={localErrors.image || errors.image}
+                                accept={IMAGE_UPLOAD_ACCEPT}
                             />
+                            <div className="mt-2 space-y-1 text-xs text-slate-500">
+                                <p>
+                                    {selectedImageName
+                                        ? `File dipilih: ${selectedImageName}`
+                                        : "Belum ada gambar dipilih. Sistem akan memakai default.jpg."}
+                                </p>
+                                <p>
+                                    Format: JPG, PNG, WEBP. Maksimal 2MB.
+                                    Gambar dikompres otomatis sebelum diunggah.
+                                </p>
+                            </div>
                         </div>
                     </div>
 

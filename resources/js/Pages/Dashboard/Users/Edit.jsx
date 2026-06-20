@@ -18,6 +18,10 @@ import {
 import Input from "@/Components/Dashboard/Input";
 import Checkbox from "@/Components/Dashboard/Checkbox";
 import toast from "react-hot-toast";
+import {
+    IMAGE_UPLOAD_ACCEPT,
+    prepareImageUpload,
+} from "@/Utils/imageUpload";
 import { useState } from "react";
 import { roleDescription, roleLabel } from "@/Utils/rolePresentation";
 import {
@@ -212,6 +216,7 @@ export default function Edit() {
     });
 
     const [avatarPreview, setAvatarPreview] = useState(user.avatar || null);
+    const [avatarError, setAvatarError] = useState("");
     const [showAccessGuide, setShowAccessGuide] = useState(false);
     const [showRoleLibrary, setShowRoleLibrary] = useState(false);
     const [roleSearch, setRoleSearch] = useState("");
@@ -571,17 +576,35 @@ export default function Edit() {
                                     </div>
                                     <Input
                                         type="file"
-                                        accept="image/*"
-                                        onChange={(e) => {
+                                        accept={IMAGE_UPLOAD_ACCEPT}
+                                        onChange={async (e) => {
                                             const file = e.target.files[0];
-                                            if (file) {
-                                                setData("avatar", file);
-                                                setAvatarPreview(
-                                                    URL.createObjectURL(file)
-                                                );
+
+                                            if (!file) {
+                                                setData("avatar", null);
+                                                setAvatarError("");
+                                                return;
                                             }
+
+                                            const result = await prepareImageUpload(file, {
+                                                maxWidth: 1200,
+                                                maxHeight: 1200,
+                                            });
+
+                                            if (!result.ok) {
+                                                setData("avatar", null);
+                                                setAvatarError(result.error);
+                                                toast.error(result.error);
+                                                return;
+                                            }
+
+                                            setAvatarError("");
+                                            setData("avatar", result.file);
+                                            setAvatarPreview(
+                                                URL.createObjectURL(result.file)
+                                            );
                                         }}
-                                        errors={errors.avatar}
+                                        errors={avatarError || errors.avatar}
                                     />
                                 </div>
                             </div>

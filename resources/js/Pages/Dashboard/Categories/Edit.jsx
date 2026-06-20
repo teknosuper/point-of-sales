@@ -14,14 +14,10 @@ import {
     categoryPlaceholderDataUri,
     resolveCategoryImageSrc,
 } from "@/Utils/imagePlaceholder";
-
-const IMAGE_MAX_SIZE = 2 * 1024 * 1024;
-const ALLOWED_IMAGE_TYPES = [
-    "image/jpeg",
-    "image/jpg",
-    "image/png",
-    "image/webp",
-];
+import {
+    IMAGE_UPLOAD_ACCEPT,
+    prepareImageUpload,
+} from "@/Utils/imageUpload";
 
 export default function Edit({ category, tenantOutlets = [] }) {
     const { errors } = usePage().props;
@@ -41,7 +37,7 @@ export default function Edit({ category, tenantOutlets = [] }) {
     const [localErrors, setLocalErrors] = useState({});
     const [selectedImageName, setSelectedImageName] = useState("");
 
-    const handleImageChange = (e) => {
+    const handleImageChange = async (e) => {
         const file = e.target.files[0];
 
         if (!file) {
@@ -51,30 +47,23 @@ export default function Edit({ category, tenantOutlets = [] }) {
             return;
         }
 
-        if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
-            setData("image", "");
-            setSelectedImageName("");
-            setLocalErrors((current) => ({
-                ...current,
-                image: "Format gambar harus jpeg, jpg, png, atau webp.",
-            }));
-            return;
-        }
+        const result = await prepareImageUpload(file);
 
-        if (file.size > IMAGE_MAX_SIZE) {
+        if (!result.ok) {
             setData("image", "");
             setSelectedImageName("");
             setLocalErrors((current) => ({
                 ...current,
-                image: "Ukuran gambar maksimal 2MB.",
+                image: result.error,
             }));
+            toast.error(result.error);
             return;
         }
 
         setLocalErrors((current) => ({ ...current, image: "" }));
-        setSelectedImageName(file.name);
-        setData("image", file);
-        setImagePreview(URL.createObjectURL(file));
+        setSelectedImageName(result.file.name);
+        setData("image", result.file);
+        setImagePreview(URL.createObjectURL(result.file));
     };
 
     const submit = (e) => {
@@ -161,7 +150,7 @@ export default function Edit({ category, tenantOutlets = [] }) {
                                     type="file"
                                     onChange={handleImageChange}
                                     errors={localErrors.image || errors.image}
-                                    accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+                                    accept={IMAGE_UPLOAD_ACCEPT}
                                 />
                                 <div className="mt-2 space-y-1 text-xs text-slate-500">
                                     <p>
@@ -169,7 +158,7 @@ export default function Edit({ category, tenantOutlets = [] }) {
                                             ? `File baru: ${selectedImageName}`
                                             : "Belum memilih gambar baru. Gambar lama tetap dipakai."}
                                     </p>
-                                    <p>Format: JPG, PNG, WEBP. Maksimal 2MB.</p>
+                                    <p>Format: JPG, PNG, WEBP. Maksimal 2MB. Gambar dikompres otomatis.</p>
                                 </div>
                             </div>
 

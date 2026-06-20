@@ -16,6 +16,7 @@ use App\Services\AuditLogService;
 use App\Services\CashierShiftService;
 use App\Services\OutletResolver;
 use Carbon\Carbon;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -42,9 +43,8 @@ class CashierSettlementController extends Controller
         $isTenantRequestWorkspace = $this->isTenantRequestWorkspace($request);
         $visibleOutletIds = $this->resolveVisibleOutletIds($request, $outlet);
 
-        $filters = [
+        $walletFilters = [
             'q' => trim((string) $request->input('q', '')),
-            'status' => (string) $request->input('status', ''),
             'cashier_id' => (string) $request->input('cashier_id', ''),
             'date_from' => (string) $request->input('date_from', ''),
             'date_to' => (string) $request->input('date_to', ''),
@@ -62,19 +62,6 @@ class CashierSettlementController extends Controller
             ])
             ->whereIn('outlet_id', $visibleOutletIds->all())
             ->when(! $canApprove, fn (Builder $builder) => $builder->where('cashier_id', $user->id))
-            ->when($filters['q'] !== '', function (Builder $builder) use ($filters) {
-                $builder->where(function (Builder $nested) use ($filters) {
-                    $nested
-                        ->where('request_number', 'like', '%'.$filters['q'].'%')
-                        ->orWhere('recipient_name', 'like', '%'.$filters['q'].'%')
-                        ->orWhereHas('cashier', fn (Builder $cashierQuery) => $cashierQuery->where('name', 'like', '%'.$filters['q'].'%'))
-                        ->orWhereHas('cashierShift.transactions', fn (Builder $transactionQuery) => $transactionQuery->where('invoice', 'like', '%'.$filters['q'].'%'));
-                });
-            })
-            ->when($filters['status'] !== '', fn (Builder $builder) => $builder->where('status', $filters['status']))
-            ->when($filters['cashier_id'] !== '', fn (Builder $builder) => $builder->where('cashier_id', (int) $filters['cashier_id']))
-            ->when($filters['date_from'] !== '', fn (Builder $builder) => $builder->whereDate('business_date', '>=', $filters['date_from']))
-            ->when($filters['date_to'] !== '', fn (Builder $builder) => $builder->whereDate('business_date', '<=', $filters['date_to']))
             ->latest('created_at');
 
         $requests = (clone $query)
@@ -121,11 +108,11 @@ class CashierSettlementController extends Controller
             ? $this->buildKitchenWalletSummary($user, $outlet)
             : null;
         $walletTransactions = $isTenantRequestWorkspace
-            ? $this->buildTenantWalletTransactions($user, $outlet, $filters)
+            ? $this->buildTenantWalletTransactions($user, $outlet, $walletFilters)
             : null;
 
         return Inertia::render('Dashboard/CashierSettlements/Index', [
-            'filters' => $filters,
+            'walletFilters' => $walletFilters,
             'summary' => $summary,
             'requests' => $requests,
             'cashiers' => $cashierOptions,
@@ -166,32 +153,43 @@ class CashierSettlementController extends Controller
             $recipientUser = null;
         }
         $requestProofPhotos = $this->storeProofPhotos($request, 'request_proof_photos', 'cashier-settlements/request-proofs');
-        $settlementAttributes = [
-            'outlet_id' => $outlet->id,
-            'cashier_id' => $user->id,
-            'request_number' => $this->nextRequestNumber($outlet->id, $isKitchenWorkspace ? 'TWR' : 'CSR'),
-            'recipient_user_id' => $recipientUser?->id,
-            'recipient_name' => $recipientUser?->name,
-            'requested_notes' => trim((string) ($data['requested_notes'] ?? '')),
-            'request_proof_photos' => $requestProofPhotos,
-            'status' => CashierSettlementRequest::STATUS_PENDING,
-        ];
-
         $wallet = $this->buildKitchenWalletSummary($user, $outlet);
         $requestedAmount = (int) round((float) ($data['requested_amount'] ?? 0));
 
         abort_if($requestedAmount <= 0, 422, 'Nominal penarikan harus lebih dari nol.');
         abort_if($requestedAmount > (int) ($wallet['available_balance'] ?? 0), 422, 'Nominal penarikan melebihi saldo tersedia tenant.');
 
-        $settlement = CashierSettlementRequest::create([
-            ...$settlementAttributes,
-            'cashier_shift_id' => null,
-            'business_date' => now()->toDateString(),
-            'gross_sales_total' => (int) ($wallet['gross_sales_total'] ?? 0),
-            'base_sales_total' => (int) ($wallet['tenant_sales_total'] ?? 0),
-            'markup_total' => (int) ($wallet['owner_markup_total'] ?? 0),
-            'requested_amount' => $requestedAmount,
-        ]);
+        $settlement = null;
+        $prefixCode = $isKitchenWorkspace ? 'TWR' : 'CSR';
+
+        for ($attempt = 0; $attempt < 3; $attempt++) {
+            try {
+                $settlement = CashierSettlementRequest::create([
+                    'outlet_id' => $outlet->id,
+                    'cashier_id' => $user->id,
+                    'request_number' => $this->nextRequestNumber($outlet->id, $prefixCode),
+                    'recipient_user_id' => $recipientUser?->id,
+                    'recipient_name' => $recipientUser?->name,
+                    'requested_notes' => trim((string) ($data['requested_notes'] ?? '')),
+                    'request_proof_photos' => $requestProofPhotos,
+                    'status' => CashierSettlementRequest::STATUS_PENDING,
+                    'cashier_shift_id' => null,
+                    'business_date' => now()->toDateString(),
+                    'gross_sales_total' => (int) ($wallet['gross_sales_total'] ?? 0),
+                    'base_sales_total' => (int) ($wallet['tenant_sales_total'] ?? 0),
+                    'markup_total' => (int) ($wallet['owner_markup_total'] ?? 0),
+                    'requested_amount' => $requestedAmount,
+                ]);
+
+                break;
+            } catch (UniqueConstraintViolationException $exception) {
+                if ($attempt === 2) {
+                    throw $exception;
+                }
+            }
+        }
+
+        abort_if(! $settlement, 500, 'Gagal membuat nomor pengajuan settlement yang unik.');
 
         $this->auditLogService->log(
             event: 'cashier_settlement.requested',
@@ -433,13 +431,18 @@ class CashierSettlementController extends Controller
     private function nextRequestNumber(int $outletId, string $prefixCode = 'CSR'): string
     {
         $prefix = $prefixCode.'-'.now()->format('dmy');
-        $count = CashierSettlementRequest::query()
-            ->where('outlet_id', $outletId)
-            ->whereDate('created_at', now()->toDateString())
+        $latestRequestNumber = CashierSettlementRequest::query()
             ->where('request_number', 'like', $prefix.'%')
-            ->count() + 1;
+            ->orderByDesc('request_number')
+            ->value('request_number');
 
-        return $prefix.str_pad((string) $count, 3, '0', STR_PAD_LEFT);
+        $lastSequence = 0;
+
+        if (is_string($latestRequestNumber) && preg_match('/(\d{3,})$/', $latestRequestNumber, $matches)) {
+            $lastSequence = (int) $matches[1];
+        }
+
+        return $prefix.str_pad((string) ($lastSequence + 1), 3, '0', STR_PAD_LEFT);
     }
 
     private function transformSettlement(CashierSettlementRequest $settlement): array
@@ -870,7 +873,7 @@ class CashierSettlementController extends Controller
         return TransactionTenantAllocationItem::query()
             ->join('transaction_details', 'transaction_details.id', '=', 'transaction_tenant_allocation_items.transaction_detail_id')
             ->whereIn('transaction_tenant_allocation_id', $allocationIds->all())
-            ->selectRaw('transaction_tenant_allocation_id, COALESCE(SUM(CASE WHEN transaction_details.qty > 0 THEN (CASE WHEN transaction_details.tenant_net_total > 0 THEN ROUND(transaction_details.tenant_net_total / transaction_details.qty) ELSE transaction_details.tenant_base_unit_price END) * transaction_tenant_allocation_items.qty ELSE 0 END), 0) as total_tenant_net_value')
+            ->selectRaw('transaction_tenant_allocation_id, COALESCE(SUM(CASE WHEN transaction_details.qty > 0 THEN (CASE WHEN transaction_details.tenant_net_total > 0 THEN ROUND(transaction_details.tenant_net_total / transaction_details.qty) WHEN transaction_details.tenant_base_unit_price > 0 THEN transaction_details.tenant_base_unit_price ELSE transaction_tenant_allocation_items.base_unit_price END) * transaction_tenant_allocation_items.qty ELSE COALESCE(transaction_tenant_allocation_items.line_total, 0) END), 0) as total_tenant_net_value')
             ->groupBy('transaction_tenant_allocation_id')
             ->pluck('total_tenant_net_value', 'transaction_tenant_allocation_id')
             ->map(fn ($value) => (int) $value);
@@ -885,7 +888,7 @@ class CashierSettlementController extends Controller
         return TransactionTenantAllocationItem::query()
             ->join('transaction_details', 'transaction_details.id', '=', 'transaction_tenant_allocation_items.transaction_detail_id')
             ->whereIn('transaction_tenant_allocation_id', $allocationIds->all())
-            ->selectRaw('transaction_tenant_allocation_id, COALESCE(SUM(CASE WHEN transaction_details.qty > 0 THEN (CASE WHEN transaction_details.owner_net_total > 0 THEN ROUND(transaction_details.owner_net_total / transaction_details.qty) ELSE transaction_details.owner_markup_unit_price END) * transaction_tenant_allocation_items.qty ELSE 0 END), 0) as total_owner_markup_value')
+            ->selectRaw('transaction_tenant_allocation_id, COALESCE(SUM(CASE WHEN transaction_details.qty > 0 THEN (CASE WHEN transaction_details.owner_net_total > 0 THEN ROUND(transaction_details.owner_net_total / transaction_details.qty) WHEN transaction_details.owner_markup_unit_price > 0 THEN transaction_details.owner_markup_unit_price ELSE GREATEST(COALESCE(transaction_tenant_allocation_items.line_total, 0) - (COALESCE(transaction_tenant_allocation_items.base_unit_price, 0) * transaction_tenant_allocation_items.qty), 0) / GREATEST(transaction_tenant_allocation_items.qty, 1) END) * transaction_tenant_allocation_items.qty ELSE GREATEST(COALESCE(transaction_tenant_allocation_items.line_total, 0) - (COALESCE(transaction_tenant_allocation_items.base_unit_price, 0) * transaction_tenant_allocation_items.qty), 0) END), 0) as total_owner_markup_value')
             ->groupBy('transaction_tenant_allocation_id')
             ->pluck('total_owner_markup_value', 'transaction_tenant_allocation_id')
             ->map(fn ($value) => (int) $value);

@@ -5,9 +5,12 @@ namespace App\Services;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 class ImageUploadService
 {
+    private const DEFAULT_MAX_KILOBYTES = 2048;
+
     public function storePublicImage(UploadedFile $file, string $directory, array $options = []): array
     {
         $disk = Storage::disk('public');
@@ -18,10 +21,13 @@ class ImageUploadService
         $createThumb = (bool) ($options['create_thumb'] ?? true);
         $thumbWidth = (int) ($options['thumb_width'] ?? 480);
         $thumbHeight = (int) ($options['thumb_height'] ?? 480);
+        $maxKilobytes = (int) ($options['max_kb'] ?? self::DEFAULT_MAX_KILOBYTES);
+        $allowSvg = (bool) ($options['allow_svg'] ?? false);
         $stem = Str::uuid()->toString();
         $extension = strtolower($file->getClientOriginalExtension() ?: $file->extension() ?: '');
+        $this->assertImageIsValid($file, $maxKilobytes, $allowSvg);
 
-        if ($extension === 'svg' || $file->getMimeType() === 'image/svg+xml') {
+        if (($extension === 'svg' || $file->getMimeType() === 'image/svg+xml') && $allowSvg) {
             $path = $file->storeAs($directory, $stem.'.svg', 'public');
 
             return [
@@ -57,14 +63,14 @@ class ImageUploadService
 
         $path = $directory.'/'.$stem.'.webp';
         $optimized = $this->resizeImage($source, $maxWidth, $maxHeight);
-        $disk->put($path, $this->encodeWebp($optimized, $quality));
+        $disk->put($path, $this->encodeOptimizedWebp($optimized, $quality, $maxKilobytes * 1024));
         imagedestroy($optimized);
 
         $thumbPath = null;
         if ($createThumb) {
             $thumbPath = $directory.'/thumbs/'.$stem.'.webp';
             $thumb = $this->resizeImage($source, $thumbWidth, $thumbHeight);
-            $disk->put($thumbPath, $this->encodeWebp($thumb, max(70, min(quality, 80))));
+            $disk->put($thumbPath, $this->encodeOptimizedWebp($thumb, max(70, min($quality, 80)), $maxKilobytes * 1024));
             imagedestroy($thumb);
         }
 
@@ -222,5 +228,51 @@ class ImageUploadService
         imagewebp($image, null, max(50, min($quality, 90)));
 
         return (string) ob_get_clean();
+    }
+
+    private function encodeOptimizedWebp($image, int $quality, int $maxBytes): string
+    {
+        $qualities = collect([$quality, 86, 80, 74, 68, 62, 56, 50])
+            ->map(fn ($value) => max(50, min((int) $value, 90)))
+            ->unique()
+            ->values();
+
+        $bestEncoded = '';
+
+        foreach ($qualities as $candidateQuality) {
+            $encoded = $this->encodeWebp($image, $candidateQuality);
+
+            if ($bestEncoded === '' || strlen($encoded) < strlen($bestEncoded)) {
+                $bestEncoded = $encoded;
+            }
+
+            if (strlen($encoded) <= $maxBytes) {
+                return $encoded;
+            }
+        }
+
+        return $bestEncoded;
+    }
+
+    private function assertImageIsValid(UploadedFile $file, int $maxKilobytes, bool $allowSvg): void
+    {
+        $mimeType = strtolower((string) $file->getMimeType());
+        $allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+
+        if ($allowSvg) {
+            $allowedMimeTypes[] = 'image/svg+xml';
+        }
+
+        if (! in_array($mimeType, $allowedMimeTypes, true)) {
+            throw ValidationException::withMessages([
+                'image' => 'Format gambar harus JPG, JPEG, PNG, atau WEBP.',
+            ]);
+        }
+
+        if ($file->getSize() > ($maxKilobytes * 1024)) {
+            throw ValidationException::withMessages([
+                'image' => 'Ukuran gambar maksimal 2MB.',
+            ]);
+        }
     }
 }
