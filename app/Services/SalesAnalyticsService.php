@@ -3,6 +3,8 @@
 namespace App\Services;
 
 use App\Models\TransactionDetail;
+use Carbon\Carbon;
+use App\Support\ReportTimezone;
 use Illuminate\Support\Facades\DB;
 
 class SalesAnalyticsService
@@ -12,22 +14,23 @@ class SalesAnalyticsService
      */
     public function buildHourlyBreakdown($query): array
     {
-        $results = (clone $query)
-            ->selectRaw('HOUR(created_at) as hour')
-            ->selectRaw('COUNT(*) as orders_count')
-            ->selectRaw('COALESCE(SUM(grand_total), 0) as revenue_total')
-            ->selectRaw('COALESCE(SUM(discount), 0) as discount_total')
-            ->groupBy('hour')
-            ->orderBy('hour')
-            ->get();
+        return (clone $query)
+            ->get(['created_at', 'grand_total', 'discount'])
+            ->groupBy(fn ($row) => ReportTimezone::localHourKey($row->created_at))
+            ->sortKeys()
+            ->map(function ($rows, $hour) {
+                $hourInt = (int) $hour;
 
-        return $results->map(fn ($row) => [
-            'hour' => (int) $row->hour,
-            'label' => str_pad($row->hour, 2, '0', STR_PAD_LEFT) . ':00',
-            'orders_count' => (int) $row->orders_count,
-            'revenue_total' => (int) $row->revenue_total,
-            'discount_total' => (int) $row->discount_total,
-        ])->toArray();
+                return [
+                    'hour' => $hourInt,
+                    'label' => str_pad((string) $hour, 2, '0', STR_PAD_LEFT).':00',
+                    'orders_count' => $rows->count(),
+                    'revenue_total' => (int) $rows->sum('grand_total'),
+                    'discount_total' => (int) $rows->sum('discount'),
+                ];
+            })
+            ->values()
+            ->toArray();
     }
 
     /**
@@ -35,23 +38,23 @@ class SalesAnalyticsService
      */
     public function buildDailyBreakdown($query): array
     {
-        $results = (clone $query)
-            ->selectRaw('DATE(created_at) as date')
-            ->selectRaw('COUNT(*) as orders_count')
-            ->selectRaw('COALESCE(SUM(grand_total), 0) as revenue_total')
-            ->selectRaw('COALESCE(SUM(discount), 0) as discount_total')
-            ->groupBy('date')
-            ->orderByDesc('date')
-            ->limit(30)
-            ->get();
-
-        return $results->map(fn ($row) => [
-            'date' => $row->date,
-            'label' => \Carbon\Carbon::parse($row->date)->translatedFormat('d M'),
-            'orders_count' => (int) $row->orders_count,
-            'revenue_total' => (int) $row->revenue_total,
-            'discount_total' => (int) $row->discount_total,
-        ])->reverse()->values()->toArray();
+        return (clone $query)
+            ->get(['created_at', 'grand_total', 'discount'])
+            ->groupBy(fn ($row) => ReportTimezone::localDateKey($row->created_at))
+            ->sortKeysDesc()
+            ->take(30)
+            ->map(function ($rows, $date) {
+                return [
+                    'date' => $date,
+                    'label' => Carbon::createFromFormat('Y-m-d', $date, ReportTimezone::timezone())->translatedFormat('d M'),
+                    'orders_count' => $rows->count(),
+                    'revenue_total' => (int) $rows->sum('grand_total'),
+                    'discount_total' => (int) $rows->sum('discount'),
+                ];
+            })
+            ->reverse()
+            ->values()
+            ->toArray();
     }
 
     /**

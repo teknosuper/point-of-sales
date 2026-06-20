@@ -12,6 +12,12 @@ import {
     IconSearch,
     IconX,
 } from "@/Utils/icons";
+import {
+    resolveReportTimezone,
+    shiftReportDateInput,
+    subtractOneMonthFromReportDateInput,
+    toTimeZoneDateInput,
+} from "@/Utils/reportTimezone";
 
 const defaultFilters = {
     start_date: "",
@@ -39,47 +45,34 @@ const formatCurrency = (value = 0) =>
 const formatNumber = (value = 0) =>
     new Intl.NumberFormat("id-ID").format(Number(value || 0));
 
-const toDateInput = (date) => {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, "0");
-    const day = String(date.getDate()).padStart(2, "0");
-
-    return `${year}-${month}-${day}`;
-};
-
-const datePresets = () => {
+const datePresets = (timeZone) => {
     const today = new Date();
-    const yesterday = new Date(today);
-    yesterday.setDate(today.getDate() - 1);
-    const last7Days = new Date(today);
-    last7Days.setDate(today.getDate() - 6);
-    const last30Days = new Date(today);
-    last30Days.setDate(today.getDate() - 29);
+    const todayInput = toTimeZoneDateInput(today, timeZone);
 
     return [
         {
             key: "today",
             label: "Hari Ini",
-            start_date: toDateInput(today),
-            end_date: toDateInput(today),
+            start_date: todayInput,
+            end_date: todayInput,
         },
         {
             key: "yesterday",
             label: "Kemarin",
-            start_date: toDateInput(yesterday),
-            end_date: toDateInput(yesterday),
+            start_date: shiftReportDateInput(todayInput, -1),
+            end_date: shiftReportDateInput(todayInput, -1),
         },
         {
             key: "last_7_days",
             label: "7 Hari",
-            start_date: toDateInput(last7Days),
-            end_date: toDateInput(today),
+            start_date: shiftReportDateInput(todayInput, -6),
+            end_date: todayInput,
         },
         {
             key: "last_30_days",
             label: "1 Bulan",
-            start_date: toDateInput(last30Days),
-            end_date: toDateInput(today),
+            start_date: subtractOneMonthFromReportDateInput(todayInput),
+            end_date: todayInput,
         },
     ];
 };
@@ -375,8 +368,11 @@ const ProfitReport = ({
     pricingRuleKinds = [],
     tenantOutlets = [],
     workspace = {},
+    reportMeta = {},
 }) => {
     const isTenantWorkspace = Boolean(workspace?.is_tenant_workspace);
+    const { timezone: reportTimezone, timezoneLabel: reportTimezoneLabel } =
+        resolveReportTimezone(reportMeta);
     const [showFilters, setShowFilters] = useState(true);
     const sanitizeFilters = (raw) =>
         Object.fromEntries(
@@ -398,6 +394,10 @@ const ProfitReport = ({
     const compositionTrendChartRef = useRef(null);
     const compositionTrendChartInstance = useRef(null);
     const customerOptions = [WALK_IN_CUSTOMER_OPTION, ...customers];
+    const quickDatePresets = useMemo(
+        () => datePresets(reportTimezone),
+        [reportTimezone]
+    );
 
     useEffect(() => {
         setFilterData(sanitizeFilters(filters));
@@ -492,7 +492,6 @@ const ProfitReport = ({
         filterData.tenant_outlet_id ||
         filterData.item_keyword ||
         filterData.pricing_rule_kind;
-    const quickDatePresets = useMemo(() => datePresets(), []);
 
     const exportItemQuery = new URLSearchParams(
         Object.entries(filterData).filter(([, value]) => value !== "")
@@ -992,6 +991,9 @@ const ProfitReport = ({
                         }
                     >
                         <form onSubmit={applyFilters} className="space-y-4">
+                            <p className="text-xs text-slate-400 dark:text-slate-500">
+                                Semua tanggal dan waktu mengikuti {reportTimezone} ({reportTimezoneLabel}).
+                            </p>
                             <div className="flex flex-wrap gap-2">
                                 {quickDatePresets.map((preset) => (
                                     <button
@@ -1011,22 +1013,32 @@ const ProfitReport = ({
                                 ))}
                             </div>
                             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
-                                <input
-                                    type="date"
-                                    value={filterData.start_date}
-                                    onChange={(event) =>
-                                        handleChange("start_date", event.target.value)
-                                    }
-                                    className="h-11 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-800 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
-                                />
-                                <input
-                                    type="date"
-                                    value={filterData.end_date}
-                                    onChange={(event) =>
-                                        handleChange("end_date", event.target.value)
-                                    }
-                                    className="h-11 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-800 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
-                                />
+                                <div>
+                                    <input
+                                        type="date"
+                                        value={filterData.start_date}
+                                        onChange={(event) =>
+                                            handleChange("start_date", event.target.value)
+                                        }
+                                        className="h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-800 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                                    />
+                                    <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
+                                        Tanggal lokal {reportTimezoneLabel}
+                                    </p>
+                                </div>
+                                <div>
+                                    <input
+                                        type="date"
+                                        value={filterData.end_date}
+                                        onChange={(event) =>
+                                            handleChange("end_date", event.target.value)
+                                        }
+                                        className="h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-800 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                                    />
+                                    <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
+                                        Tanggal lokal {reportTimezoneLabel}
+                                    </p>
+                                </div>
                                 <input
                                     type="text"
                                     value={filterData.invoice}

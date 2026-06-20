@@ -18,10 +18,12 @@ use App\Models\User;
 use App\Services\CustomerOutletMetricService;
 use App\Services\LoyaltyService;
 use App\Services\OutletResolver;
+use App\Support\ReportTimezone;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Inertia\Inertia;
 
 class AdvancedSalesInsightsController extends Controller
@@ -34,14 +36,17 @@ class AdvancedSalesInsightsController extends Controller
 
     public function index(Request $request)
     {
-        $outletId = $this->outletResolver->resolve($request, $request->user())?->id;
+        $activeOutlet = $this->outletResolver->resolve($request, $request->user());
+        $outletId = $activeOutlet?->id;
+        $isTenantWorkspace = (string) ($activeOutlet?->outlet_type ?? '') === 'tenant';
         $filters = [
             'start_date' => $request->input('start_date'),
             'end_date' => $request->input('end_date'),
             'cashier_id' => $request->input('cashier_id'),
             'customer_id' => $request->input('customer_id'),
             'category_id' => $request->input('category_id'),
-            'outlet_id' => $outletId,
+            'outlet_id' => $isTenantWorkspace ? null : $outletId,
+            'tenant_outlet_id' => $isTenantWorkspace ? $outletId : null,
         ];
 
         $transactionQuery = $this->applyTransactionFilters(
@@ -85,7 +90,14 @@ class AdvancedSalesInsightsController extends Controller
             'filters' => $filters,
             'cashiers' => User::select('id', 'name')->orderBy('name')->get(),
             'customers' => Customer::select('id', 'name')->orderBy('name')->get(),
-            'categories' => Category::select('id', 'name')->orderBy('name')->get(),
+            'categories' => Category::query()
+                ->when(
+                    $isTenantWorkspace && Schema::hasColumn('categories', 'tenant_outlet_id'),
+                    fn ($query) => $query->where('tenant_outlet_id', $outletId)
+                )
+                ->select('id', 'name')
+                ->orderBy('name')
+                ->get(),
             'summary' => [
                 'orders_count' => (int) ($summaryRaw->orders_count ?? 0),
                 'revenue_total' => (int) ($summaryRaw->revenue_total ?? 0),
@@ -108,12 +120,16 @@ class AdvancedSalesInsightsController extends Controller
             'promoMonitor' => $promoMonitor,
             'loyaltyPerformance' => $loyaltyPerformance,
             'crmOperations' => $crmOperations,
+            'reportMeta' => [
+                'timezone' => ReportTimezone::timezone(),
+                'timezone_label' => ReportTimezone::timezoneLabel(),
+            ],
         ]);
     }
 
     protected function applyTransactionFilters(Builder $query, array $filters): Builder
     {
-        return $query
+        $query = $query
             ->when($filters['outlet_id'] ?? null, fn (Builder $q, $outletId) => $q->where('transactions.outlet_id', $outletId))
             ->when($filters['cashier_id'] ?? null, fn (Builder $q, $cashierId) => $q->where('transactions.cashier_id', $cashierId))
             ->when($filters['customer_id'] ?? null, function (Builder $q, $customerId) {
@@ -122,16 +138,24 @@ class AdvancedSalesInsightsController extends Controller
                     default => $q->where('transactions.customer_id', $customerId),
                 };
             })
-            ->when($filters['start_date'] ?? null, fn (Builder $q, $startDate) => $q->whereDate('transactions.created_at', '>=', $startDate))
-            ->when($filters['end_date'] ?? null, fn (Builder $q, $endDate) => $q->whereDate('transactions.created_at', '<=', $endDate))
             ->when($filters['category_id'] ?? null, function (Builder $q, $categoryId) {
                 $q->whereHas('details.product', fn (Builder $productQuery) => $productQuery->where('category_id', $categoryId));
+            })
+            ->when($filters['tenant_outlet_id'] ?? null, function (Builder $q, $tenantOutletId) {
+                if (! Schema::hasColumn('transaction_details', 'tenant_outlet_id')) {
+                    return;
+                }
+
+                $q->whereHas('details', fn (Builder $detailQuery) => $detailQuery->where('tenant_outlet_id', $tenantOutletId));
             });
+
+        return ReportTimezone::applyUtcDateRange($query, 'transactions.created_at', $filters);
     }
 
     protected function detailMetricsQuery(array $filters)
     {
-        return DB::table('transaction_details as td')
+        return ReportTimezone::applyUtcDateRange(
+            DB::table('transaction_details as td')
             ->join('transactions as t', 't.id', '=', 'td.transaction_id')
             ->join('products as p', 'p.id', '=', 'td.product_id')
             ->leftJoin('categories as c', 'c.id', '=', 'p.category_id')
@@ -143,9 +167,11 @@ class AdvancedSalesInsightsController extends Controller
                     default => $q->where('t.customer_id', $customerId),
                 };
             })
-            ->when($filters['start_date'] ?? null, fn ($q, $startDate) => $q->whereDate('t.created_at', '>=', $startDate))
-            ->when($filters['end_date'] ?? null, fn ($q, $endDate) => $q->whereDate('t.created_at', '<=', $endDate))
-            ->when($filters['category_id'] ?? null, fn ($q, $categoryId) => $q->where('p.category_id', $categoryId));
+            ->when($filters['category_id'] ?? null, fn ($q, $categoryId) => $q->where('p.category_id', $categoryId))
+            ->when($filters['tenant_outlet_id'] ?? null, fn ($q, $tenantOutletId) => $q->where('td.tenant_outlet_id', $tenantOutletId)),
+            't.created_at',
+            $filters
+        );
     }
 
     protected function topSellingProducts(array $filters): array
@@ -211,6 +237,7 @@ class AdvancedSalesInsightsController extends Controller
             ->leftJoinSub($salesSubquery, 'sales', fn ($join) => $join->on('sales.product_id', '=', 'products.id'))
             ->leftJoin('categories', 'categories.id', '=', 'products.category_id')
             ->when($filters['category_id'] ?? null, fn ($q, $categoryId) => $q->where('products.category_id', $categoryId))
+            ->when($filters['tenant_outlet_id'] ?? null, fn ($q, $tenantOutletId) => $q->where('products.tenant_outlet_id', $tenantOutletId))
             ->where('products.stock', '>', 0)
             ->selectRaw('
                 products.id as product_id,
@@ -515,6 +542,7 @@ class AdvancedSalesInsightsController extends Controller
             ->leftJoinSub($salesSubquery, 'sales', fn ($join) => $join->on('sales.product_id', '=', 'products.id'))
             ->leftJoin('categories', 'categories.id', '=', 'products.category_id')
             ->when($filters['category_id'] ?? null, fn ($q, $categoryId) => $q->where('products.category_id', $categoryId))
+            ->when($filters['tenant_outlet_id'] ?? null, fn ($q, $tenantOutletId) => $q->where('products.tenant_outlet_id', $tenantOutletId))
             ->where('products.stock', '>', 0)
             ->selectRaw('
                 products.id as product_id,
@@ -800,13 +828,7 @@ class AdvancedSalesInsightsController extends Controller
 
     protected function applyDateRangeFilter($query, string $column, array $filters): void
     {
-        if ($filters['start_date'] ?? null) {
-            $query->whereDate($column, '>=', $filters['start_date']);
-        }
-
-        if ($filters['end_date'] ?? null) {
-            $query->whereDate($column, '<=', $filters['end_date']);
-        }
+        ReportTimezone::applyUtcDateRange($query, $column, $filters);
     }
 
     protected function serializePromoRule(PricingRule $rule): array

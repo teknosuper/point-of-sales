@@ -36,6 +36,12 @@ import {
     IconFileDownload,
     IconPrinter,
 } from "@/Utils/icons";
+import {
+    resolveReportTimezone,
+    shiftReportDateInput,
+    subtractOneMonthFromReportDateInput,
+    toTimeZoneDateInput,
+} from "@/Utils/reportTimezone";
 
 // Summary Card Component
 const SummaryCard = ({ icon, title, value, description }) => (
@@ -81,17 +87,6 @@ const progressWidth = (value) =>
 const castFilterString = (value) =>
     typeof value === "number" ? String(value) : value ?? "";
 
-const defaultSettlementForm = {
-    payout_reference: "",
-    payout_notes: "",
-    payout_paid_at: "",
-    payout_cash_amount: "",
-    payout_transfer_amount: "",
-    payout_other_amount: "",
-    payout_other_label: "",
-    payout_recipient_name: "",
-};
-
 const Sales = ({
     transactions,
     summary,
@@ -103,14 +98,12 @@ const Sales = ({
     tenantOutlets = [],
     workspace = {},
     analytics = {},
+    reportMeta = {},
 }) => {
     const isTenantWorkspace = Boolean(workspace?.is_tenant_workspace);
+    const { timezone: reportTimezone, timezoneLabel: reportTimezoneLabel } =
+        resolveReportTimezone(reportMeta);
     const [productDetailModal, setProductDetailModal] = useState(null);
-    const [settlementModal, setSettlementModal] = useState({
-        open: false,
-        allocation: null,
-    });
-    const [settlementForm, setSettlementForm] = useState(defaultSettlementForm);
     const [showFilters, setShowFilters] = useState(false);
     const [filterData, setFilterData] = useState({
         ...defaultFilterState,
@@ -185,88 +178,6 @@ const Sales = ({
         Object.entries(filterData).filter(([, value]) => value !== "")
     ).toString();
 
-    const openSettlementModal = (allocation) => {
-        setSettlementModal({
-            open: true,
-            allocation,
-        });
-        setSettlementForm({
-            payout_reference: allocation.payout_reference ?? "",
-            payout_notes: allocation.payout_notes ?? "",
-            payout_paid_at: allocation.payout_paid_at
-                ? new Date(allocation.payout_paid_at).toISOString().slice(0, 16)
-                : "",
-            payout_cash_amount: String(allocation.payout_cash_amount ?? 0),
-            payout_transfer_amount: String(allocation.payout_transfer_amount ?? 0),
-            payout_other_amount: String(allocation.payout_other_amount ?? 0),
-            payout_other_label: allocation.payout_other_label ?? "",
-            payout_recipient_name: allocation.payout_recipient_name ?? allocation.tenant_outlet?.name ?? "",
-        });
-    };
-
-    const closeSettlementModal = () => {
-        setSettlementModal({
-            open: false,
-            allocation: null,
-        });
-        setSettlementForm(defaultSettlementForm);
-    };
-
-    const settlementBreakdownTotal =
-        Number(settlementForm.payout_cash_amount || 0) +
-        Number(settlementForm.payout_transfer_amount || 0) +
-        Number(settlementForm.payout_other_amount || 0);
-    const settlementExpectedTotal = Number(
-        settlementModal.allocation?.tenant_payout_total || 0
-    );
-    const settlementDifference =
-        settlementBreakdownTotal - settlementExpectedTotal;
-
-    const submitSettlement = (event) => {
-        event.preventDefault();
-        if (!settlementModal.allocation) return;
-
-        router.patch(
-            route(
-                "reports.sales.tenant-allocations.settle",
-                settlementModal.allocation.id
-            ),
-            settlementForm,
-            {
-                preserveScroll: true,
-                onSuccess: () => closeSettlementModal(),
-            }
-        );
-    };
-
-    const printSettlementReceipt = (allocation) => {
-        window.open(
-            route("reports.sales.tenant-allocations.receipt", {
-                allocation: allocation.id,
-                autoprint: 1,
-            }),
-            "_blank",
-            "noopener,noreferrer"
-        );
-    };
-
-    const unsettleAllocation = (allocation) => {
-        router.patch(
-            route("reports.sales.tenant-allocations.unsettle", allocation.id),
-            {},
-            {
-                preserveScroll: true,
-            }
-        );
-    };
-
-    const updateSettlementField = (field, value) => {
-        setSettlementForm((prev) => ({
-            ...prev,
-            [field]: value,
-        }));
-    };
-
     const applyFilters = (e) => {
         e.preventDefault();
         router.get(route("reports.sales.index"), filterData, {
@@ -313,28 +224,28 @@ const Sales = ({
 
     const applyDatePreset = (preset) => {
         const today = new Date();
+        const todayInReportTimezone = toTimeZoneDateInput(
+            today,
+            reportTimezone
+        );
         let startDate = '';
-        let endDate = today.toISOString().split('T')[0];
+        let endDate = todayInReportTimezone;
 
         switch (preset) {
             case 'today':
                 startDate = endDate;
                 break;
             case 'yesterday':
-                const yesterday = new Date(today);
-                yesterday.setDate(yesterday.getDate() - 1);
-                startDate = yesterday.toISOString().split('T')[0];
+                startDate = shiftReportDateInput(todayInReportTimezone, -1);
                 endDate = startDate;
                 break;
             case '7days':
-                const sevenDaysAgo = new Date(today);
-                sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-                startDate = sevenDaysAgo.toISOString().split('T')[0];
+                startDate = shiftReportDateInput(todayInReportTimezone, -6);
                 break;
             case '1month':
-                const oneMonthAgo = new Date(today);
-                oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
-                startDate = oneMonthAgo.toISOString().split('T')[0];
+                startDate = subtractOneMonthFromReportDateInput(
+                    todayInReportTimezone
+                );
                 break;
         }
 
@@ -372,7 +283,6 @@ const Sales = ({
         margin_percentage: tenantSettlement?.summary?.margin_percentage ?? 0,
     };
     const topTenants = tenantSettlement?.top_tenants ?? [];
-    const tenantAllocations = tenantSettlement?.allocations ?? [];
     const dailyRecap = tenantSettlement?.daily_recap ?? [];
 
     const summaryCards = [
@@ -474,16 +384,21 @@ const Sales = ({
                 {showFilters && (
                     <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">
                         <div className="flex items-center justify-between mb-4">
-                            <div className="flex items-center gap-2">
-                                <IconCalendar size={20} className="text-slate-400" />
-                                <h3 className="text-base font-semibold text-slate-900 dark:text-white">
-                                    Filter Laporan
-                                </h3>
-                                {hasActiveFilters && (
-                                    <span className="rounded-full bg-primary-100 px-2 py-0.5 text-xs font-semibold text-primary-700 dark:bg-primary-900/50 dark:text-primary-400">
-                                        Aktif
-                                    </span>
-                                )}
+                            <div>
+                                <div className="flex items-center gap-2">
+                                    <IconCalendar size={20} className="text-slate-400" />
+                                    <h3 className="text-base font-semibold text-slate-900 dark:text-white">
+                                        Filter Laporan
+                                    </h3>
+                                    {hasActiveFilters && (
+                                        <span className="rounded-full bg-primary-100 px-2 py-0.5 text-xs font-semibold text-primary-700 dark:bg-primary-900/50 dark:text-primary-400">
+                                            Aktif
+                                        </span>
+                                    )}
+                                </div>
+                                <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
+                                    Semua tanggal dan waktu mengikuti {reportTimezone} ({reportTimezoneLabel}).
+                                </p>
                             </div>
                             {/* Date Presets - Quick filters */}
                             <div className="flex items-center gap-2">
@@ -527,6 +442,9 @@ const Sales = ({
                                         }
                                         className="w-full h-11 px-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all"
                                     />
+                                    <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
+                                        Tanggal lokal {reportTimezoneLabel}
+                                    </p>
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
@@ -543,6 +461,9 @@ const Sales = ({
                                         }
                                         className="w-full h-11 px-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all"
                                     />
+                                    <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
+                                        Tanggal lokal {reportTimezoneLabel}
+                                    </p>
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
@@ -1235,510 +1156,6 @@ const Sales = ({
                     <Pagination links={paginationLinks} />
                 )}
 
-                {settlementModal.open ? (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-4">
-                        <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl dark:bg-slate-900">
-                            <div className="flex items-start justify-between gap-4">
-                                <div>
-                                    <h2 className="text-xl font-semibold text-slate-900 dark:text-white">
-                                        Validasi Settlement Tenant
-                                    </h2>
-                                    <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                                        {settlementModal.allocation?.allocation_number} •{" "}
-                                        {settlementModal.allocation?.tenant_outlet?.name ||
-                                            settlementModal.allocation?.tenant_outlet?.code}
-                                    </p>
-                                </div>
-                                <button
-                                    type="button"
-                                    onClick={closeSettlementModal}
-                                    className="rounded-2xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 dark:border-slate-700 dark:text-slate-300"
-                                >
-                                    Tutup
-                                </button>
-                            </div>
-
-                            <div className="mt-5 grid gap-4 md:grid-cols-3">
-                                <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-800/60">
-                                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                                        Payout Tenant
-                                    </p>
-                                    <p className="mt-2 text-lg font-bold text-slate-900 dark:text-white">
-                                        {formatCurrency(
-                                            settlementModal.allocation?.tenant_payout_total ?? 0
-                                        )}
-                                    </p>
-                                </div>
-                                <div className="rounded-2xl bg-amber-50 p-4 dark:bg-amber-950/20">
-                                    <p className="text-xs font-semibold uppercase tracking-wide text-amber-500">
-                                        Revenue Tenant
-                                    </p>
-                                    <p className="mt-2 text-lg font-bold text-amber-700 dark:text-amber-300">
-                                        {formatCurrency(
-                                            settlementModal.allocation?.grand_total ?? 0
-                                        )}
-                                    </p>
-                                </div>
-                                <div className="rounded-2xl bg-emerald-50 p-4 dark:bg-emerald-950/20">
-                                    <p className="text-xs font-semibold uppercase tracking-wide text-emerald-500">
-                                        Management Fee
-                                    </p>
-                                    <p className="mt-2 text-lg font-bold text-emerald-700 dark:text-emerald-300">
-                                        {formatCurrency(
-                                            settlementModal.allocation?.management_fee_total ?? 0
-                                        )}
-                                    </p>
-                                </div>
-                            </div>
-
-                            <form onSubmit={submitSettlement} className="mt-6 space-y-5">
-                                <div className="grid gap-4 md:grid-cols-2">
-                                    <div>
-                                        <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                            Penerima uang
-                                        </label>
-                                        <input
-                                            value={settlementForm.payout_recipient_name}
-                                            onChange={(e) =>
-                                                updateSettlementField(
-                                                    "payout_recipient_name",
-                                                    e.target.value
-                                                )
-                                            }
-                                            className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
-                                            placeholder="Nama tenant / PIC penerima"
-                                            required
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                            Tanggal bayar
-                                        </label>
-                                        <input
-                                            type="datetime-local"
-                                            value={settlementForm.payout_paid_at}
-                                            onChange={(e) =>
-                                                updateSettlementField(
-                                                    "payout_paid_at",
-                                                    e.target.value
-                                                )
-                                            }
-                                            className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
-                                        />
-                                    </div>
-                                </div>
-
-                                <div className="grid gap-4 md:grid-cols-3">
-                                    <div>
-                                        <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                            Cash
-                                        </label>
-                                        <input
-                                            type="number"
-                                            min="0"
-                                            value={settlementForm.payout_cash_amount}
-                                            onChange={(e) =>
-                                                updateSettlementField(
-                                                    "payout_cash_amount",
-                                                    e.target.value
-                                                )
-                                            }
-                                            className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                            Transfer
-                                        </label>
-                                        <input
-                                            type="number"
-                                            min="0"
-                                            value={settlementForm.payout_transfer_amount}
-                                            onChange={(e) =>
-                                                updateSettlementField(
-                                                    "payout_transfer_amount",
-                                                    e.target.value
-                                                )
-                                            }
-                                            className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                            Lainnya
-                                        </label>
-                                        <input
-                                            type="number"
-                                            min="0"
-                                            value={settlementForm.payout_other_amount}
-                                            onChange={(e) =>
-                                                updateSettlementField(
-                                                    "payout_other_amount",
-                                                    e.target.value
-                                                )
-                                            }
-                                            className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
-                                        />
-                                    </div>
-                                </div>
-
-                                <div className="grid gap-4 md:grid-cols-2">
-                                    <div>
-                                        <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                            Label metode lainnya
-                                        </label>
-                                        <input
-                                            value={settlementForm.payout_other_label}
-                                            onChange={(e) =>
-                                                updateSettlementField(
-                                                    "payout_other_label",
-                                                    e.target.value
-                                                )
-                                            }
-                                            className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
-                                            placeholder="Contoh: E-wallet / Giro"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                            Referensi payout
-                                        </label>
-                                        <input
-                                            value={settlementForm.payout_reference}
-                                            onChange={(e) =>
-                                                updateSettlementField(
-                                                    "payout_reference",
-                                                    e.target.value
-                                                )
-                                            }
-                                            className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
-                                            placeholder="Nomor transfer / referensi admin"
-                                        />
-                                    </div>
-                                </div>
-
-                                <div>
-                                    <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                        Catatan settlement
-                                    </label>
-                                    <textarea
-                                        value={settlementForm.payout_notes}
-                                        onChange={(e) =>
-                                            updateSettlementField(
-                                                "payout_notes",
-                                                e.target.value
-                                            )
-                                        }
-                                        rows={3}
-                                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm dark:border-slate-700 dark:bg-slate-800"
-                                        placeholder="Contoh: Pembayaran gabungan cash dan transfer sesuai permintaan tenant"
-                                    />
-                                </div>
-
-                                <div
-                                    className={`rounded-2xl border px-4 py-3 text-sm ${
-                                        settlementDifference === 0
-                                            ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-300"
-                                            : "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300"
-                                    }`}
-                                >
-                                    Total metode bayar:{" "}
-                                    <span className="font-semibold">
-                                        {formatCurrency(settlementBreakdownTotal)}
-                                    </span>
-                                    {" • "}
-                                    Target payout:{" "}
-                                    <span className="font-semibold">
-                                        {formatCurrency(settlementExpectedTotal)}
-                                    </span>
-                                    {settlementDifference !== 0 ? (
-                                        <>
-                                            {" • "}
-                                            Selisih{" "}
-                                            <span className="font-semibold">
-                                                {formatCurrency(
-                                                    Math.abs(settlementDifference)
-                                                )}
-                                            </span>
-                                        </>
-                                    ) : null}
-                                </div>
-
-                                <div className="flex flex-wrap items-center justify-end gap-3">
-                                    <button
-                                        type="button"
-                                        onClick={closeSettlementModal}
-                                        className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-medium text-slate-600 dark:border-slate-700 dark:text-slate-300"
-                                    >
-                                        Batal
-                                    </button>
-                                    <button
-                                        type="submit"
-                                        disabled={settlementDifference !== 0}
-                                        className="rounded-2xl bg-primary-600 px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
-                                    >
-                                        Validasi & Simpan Settlement
-                                    </button>
-                                </div>
-                            </form>
-                        </div>
-                    </div>
-                ) : null}
-
-                <div className="rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 overflow-hidden">
-                    <div className="border-b border-slate-100 px-5 py-4 dark:border-slate-800">
-                        <h2 className="text-base font-semibold text-slate-900 dark:text-white">
-                            Detail Allocation Tenant
-                        </h2>
-                        <p className="text-sm text-slate-500 dark:text-slate-400">
-                            Breakdown pendapatan per tenant untuk nota yang masuk filter.
-                        </p>
-                    </div>
-
-                    {tenantAllocations.length > 0 ? (
-                        <div className="overflow-x-auto">
-                            <table className="w-full">
-                                <thead>
-                                    <tr className="border-b border-slate-100 dark:border-slate-800">
-                                        <th className="px-4 py-4 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
-                                            Nota
-                                        </th>
-                                        <th className="px-4 py-4 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
-                                            Tenant
-                                        </th>
-                                        <th className="px-4 py-4 text-center text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
-                                            Item
-                                        </th>
-                                        <th className="px-4 py-4 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
-                                            Subtotal
-                                        </th>
-                                        <th className="px-4 py-4 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
-                                            Discount
-                                        </th>
-                                        <th className="px-4 py-4 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
-                                            Cost
-                                        </th>
-                                        <th className="px-4 py-4 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
-                                            Profit
-                                        </th>
-                                        <th className="px-4 py-4 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
-                                            Fee
-                                        </th>
-                                        <th className="px-4 py-4 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
-                                            Payout
-                                        </th>
-                                        <th className="px-4 py-4 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
-                                            Margin
-                                        </th>
-                                        <th className="px-4 py-4 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
-                                            Grand Total
-                                        </th>
-                                        <th className="px-4 py-4 text-center text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
-                                            Settlement
-                                        </th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                                    {tenantAllocations.map((allocation) => {
-                                        const totalDiscount = Number(
-                                            allocation.total_discount_total ?? 0
-                                        );
-
-                                        const isSettled = Boolean(
-                                            allocation.settled_at
-                                        );
-
-                                        return (
-                                            <tr
-                                                key={allocation.id}
-                                                className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
-                                            >
-                                                <td className="px-4 py-4">
-                                                    <p className="text-sm font-semibold text-slate-900 dark:text-white">
-                                                        {allocation.transaction
-                                                            ?.invoice || "-"}
-                                                    </p>
-                                                    <p className="text-xs text-slate-500 dark:text-slate-400">
-                                                        {allocation.transaction
-                                                            ?.created_at || "-"}
-                                                    </p>
-                                                </td>
-                                                <td className="px-4 py-4 text-sm text-slate-700 dark:text-slate-300">
-                                                    <Link
-                                                        href={route(
-                                                            "reports.sales.tenant-statement",
-                                                            allocation.tenant_outlet_id
-                                                        )}
-                                                        className="font-medium hover:text-primary-600 dark:hover:text-primary-300"
-                                                    >
-                                                        {allocation.tenant_outlet
-                                                            ?.name ||
-                                                            allocation.tenant_outlet
-                                                                ?.code ||
-                                                            `Tenant ${allocation.tenant_outlet_id}`}
-                                                    </Link>
-                                                </td>
-                                                <td className="px-4 py-4 text-center">
-                                                    <span className="rounded-full bg-primary-100 px-2 py-0.5 text-xs font-medium text-primary-700 dark:bg-primary-900/50 dark:text-primary-300">
-                                                        {allocation.total_items ??
-                                                            0}
-                                                    </span>
-                                                </td>
-                                                <td className="px-4 py-4 text-right text-sm font-medium text-slate-900 dark:text-white">
-                                                    {formatCurrency(
-                                                        allocation.subtotal ?? 0
-                                                    )}
-                                                    {Number(
-                                                        allocation.pre_promo_subtotal ??
-                                                            0
-                                                    ) >
-                                                    Number(
-                                                        allocation.subtotal ?? 0
-                                                    ) ? (
-                                                        <p className="mt-1 text-xs font-normal text-slate-500 dark:text-slate-400">
-                                                            Sebelum promo{" "}
-                                                            {formatCurrency(
-                                                                allocation.pre_promo_subtotal ??
-                                                                    0
-                                                            )}
-                                                        </p>
-                                                    ) : null}
-                                                </td>
-                                                <td className="px-4 py-4 text-right text-sm font-medium text-rose-600 dark:text-rose-400">
-                                                    -{" "}
-                                                    {formatCurrency(
-                                                        totalDiscount
-                                                    )}
-                                                </td>
-                                                <td className="px-4 py-4 text-right text-sm font-medium text-slate-900 dark:text-white">
-                                                    {formatCurrency(
-                                                        allocation.cost_total ??
-                                                            0
-                                                    )}
-                                                </td>
-                                                <td className="px-4 py-4 text-right text-sm font-medium text-cyan-600 dark:text-cyan-400">
-                                                    {formatCurrency(
-                                                        allocation.profit_total ??
-                                                            0
-                                                    )}
-                                                </td>
-                                                <td className="px-4 py-4 text-right text-sm font-medium text-rose-600 dark:text-rose-400">
-                                                    {formatCurrency(
-                                                        allocation.management_fee_total ??
-                                                            0
-                                                    )}
-                                                </td>
-                                                <td className="px-4 py-4 text-right text-sm font-medium text-teal-600 dark:text-teal-400">
-                                                    {formatCurrency(
-                                                        allocation.tenant_payout_total ??
-                                                            0
-                                                    )}
-                                                </td>
-                                                <td className="px-4 py-4 text-right text-sm font-medium text-violet-600 dark:text-violet-400">
-                                                    {allocation.margin_percentage ??
-                                                        0}
-                                                    %
-                                                </td>
-                                                <td className="px-4 py-4 text-right text-sm font-bold text-primary-600 dark:text-primary-400">
-                                                    {formatCurrency(
-                                                        allocation.grand_total ??
-                                                            0
-                                                    )}
-                                                </td>
-                                                <td className="px-4 py-4">
-                                                    <div className="flex flex-col items-center gap-2">
-                                                        <span
-                                                            className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${
-                                                                isSettled
-                                                                    ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
-                                                                    : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
-                                                            }`}
-                                                        >
-                                                            {isSettled ? (
-                                                                <IconCheck
-                                                                    size={12}
-                                                                />
-                                                            ) : (
-                                                                <IconClock
-                                                                    size={12}
-                                                                />
-                                                            )}
-                                                            {isSettled
-                                                                ? "Settled"
-                                                                : "Outstanding"}
-                                                        </span>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() =>
-                                                                isSettled
-                                                                    ? unsettleAllocation(
-                                                                          allocation
-                                                                      )
-                                                                    : openSettlementModal(
-                                                                          allocation
-                                                                      )
-                                                            }
-                                                            className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
-                                                                isSettled
-                                                                    ? "bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-                                                                    : "bg-primary-50 text-primary-700 hover:bg-primary-100 dark:bg-primary-950/40 dark:text-primary-300 dark:hover:bg-primary-950/60"
-                                                            }`}
-                                                        >
-                                                            {isSettled
-                                                                ? "Buka Lagi"
-                                                                : "Validasi & Bayar"}
-                                                        </button>
-                                                        {isSettled ? (
-                                                            <button
-                                                                type="button"
-                                                                onClick={() =>
-                                                                    printSettlementReceipt(
-                                                                        allocation
-                                                                    )
-                                                                }
-                                                                className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 transition-colors hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-950/60"
-                                                            >
-                                                                <IconPrinter size={12} />
-                                                                Cetak Bukti
-                                                            </button>
-                                                        ) : null}
-                                                        {allocation.payout_reference ? (
-                                                            <p className="max-w-[140px] text-center text-[11px] text-slate-500 dark:text-slate-400">
-                                                                Ref: {allocation.payout_reference}
-                                                            </p>
-                                                        ) : null}
-                                                        {allocation.validated_by ? (
-                                                            <p className="max-w-[160px] text-center text-[11px] text-slate-500 dark:text-slate-400">
-                                                                Validasi: {allocation.validated_by?.name || "-"}
-                                                            </p>
-                                                        ) : null}
-                                                        {isSettled ? (
-                                                            <p className="max-w-[160px] text-center text-[11px] text-slate-500 dark:text-slate-400">
-                                                                Cash {formatCurrency(allocation.payout_cash_amount ?? 0)}
-                                                                <br />
-                                                                Transfer {formatCurrency(allocation.payout_transfer_amount ?? 0)}
-                                                                {Number(allocation.payout_other_amount ?? 0) > 0 ? (
-                                                                    <>
-                                                                        <br />
-                                                                        {(allocation.payout_other_label || "Lainnya")} {formatCurrency(allocation.payout_other_amount ?? 0)}
-                                                                    </>
-                                                                ) : null}
-                                                            </p>
-                                                        ) : null}
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                        );
-                                    })}
-                                </tbody>
-                            </table>
-                        </div>
-                    ) : (
-                        <div className="px-5 py-8 text-sm text-slate-500 dark:text-slate-400">
-                            Belum ada allocation tenant pada filter ini.
-                        </div>
-                    )}
-                </div>
             </div>
         </>
     );

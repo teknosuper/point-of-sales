@@ -15,6 +15,7 @@ use App\Models\User;
 use Carbon\Carbon;
 use App\Services\OutletResolver;
 use App\Services\SalesAnalyticsService;
+use App\Support\ReportTimezone;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Schema;
@@ -120,6 +121,7 @@ class SalesReportController extends Controller
             ->limit(20)
             ->get();
         $tenantAllocations = $this->appendAllocationMetrics($tenantAllocations);
+        $tenantAllocations = $this->formatAllocationReportRows($tenantAllocations);
 
         $tenantSummary = [
             'allocation_count' => $tenantMetricAllocations->count(),
@@ -230,6 +232,10 @@ class SalesReportController extends Controller
                     'outlet_type' => $activeOutlet->outlet_type,
                 ] : null,
             ],
+            'reportMeta' => [
+                'timezone' => ReportTimezone::timezone(),
+                'timezone_label' => ReportTimezone::timezoneLabel(),
+            ],
         ]);
     }
 
@@ -280,6 +286,7 @@ class SalesReportController extends Controller
         $tenantAllocations = $this->appendTenantWorkspaceAllocationMetrics(
             (clone $tenantBaseQuery)->limit(20)->get()
         );
+        $tenantAllocations = $this->formatAllocationReportRows($tenantAllocations);
 
         $tenantSummary = [
             'allocation_count' => (int) $tenantMetricAllocations->count(),
@@ -320,9 +327,8 @@ class SalesReportController extends Controller
 
         // Build analytics for tenant workspace - query from transaction (has discount column)
         $tenantAnalyticsQuery = Transaction::query()
-            ->whereHas('tenantAllocations', fn ($q) => $q->where('tenant_outlet_id', $tenantOutletId))
-            ->when($filters['start_date'] ?? null, fn ($q, $start) => $q->whereDate('created_at', '>=', $start))
-            ->when($filters['end_date'] ?? null, fn ($q, $end) => $q->whereDate('created_at', '<=', $end));
+            ->whereHas('tenantAllocations', fn ($q) => $q->where('tenant_outlet_id', $tenantOutletId));
+        $tenantAnalyticsQuery = ReportTimezone::applyUtcDateRange($tenantAnalyticsQuery, 'created_at', $filters);
 
         $analytics = [
             'hourly_breakdown' => $this->analyticsService->buildHourlyBreakdown((clone $tenantAnalyticsQuery)),
@@ -359,6 +365,10 @@ class SalesReportController extends Controller
                     'outlet_type' => 'tenant',
                 ] : null,
             ],
+            'reportMeta' => [
+                'timezone' => ReportTimezone::timezone(),
+                'timezone_label' => ReportTimezone::timezoneLabel(),
+            ],
         ]);
     }
 
@@ -381,7 +391,7 @@ class SalesReportController extends Controller
      */
     protected function applyFilters($query, array $filters)
     {
-        return $query
+        $query = $query
             ->when($filters['outlet_id'] ?? null, fn ($q, $outletId) => $q->where('outlet_id', $outletId))
             ->when($filters['invoice'] ?? null, fn ($q, $invoice) => $q->where('invoice', 'like', '%'.$invoice.'%'))
             ->when($filters['cashier_id'] ?? null, fn ($q, $cashier) => $q->where('cashier_id', $cashier))
@@ -390,9 +400,9 @@ class SalesReportController extends Controller
                     'walk_in' => $q->whereNull('customer_id'),
                     default => $q->where('customer_id', $customer),
                 };
-            })
-            ->when($filters['start_date'] ?? null, fn ($q, $start) => $q->whereDate('created_at', '>=', $start))
-            ->when($filters['end_date'] ?? null, fn ($q, $end) => $q->whereDate('created_at', '<=', $end));
+            });
+
+        return ReportTimezone::applyUtcDateRange($query, 'created_at', $filters);
     }
 
     protected function transactionDetailSelectColumns(): array
@@ -434,6 +444,7 @@ class SalesReportController extends Controller
 
         return [
             ...$transaction->toArray(),
+            'created_at' => ReportTimezone::formatDateTime($transaction->created_at),
             'pre_promo_subtotal' => $prePromoSubtotal,
             'tenant_discount_total' => (int) $transaction->details->sum(
                 fn (TransactionDetail $detail) => (int) ($detail->tenant_discount_total ?? 0)
@@ -473,7 +484,7 @@ class SalesReportController extends Controller
         return [
             'id' => $allocation->id,
             'invoice' => $transaction?->invoice ?? $allocation->allocation_number,
-            'created_at' => optional($transaction?->created_at)?->format('Y-m-d H:i:s'),
+            'created_at' => ReportTimezone::formatDateTime($transaction?->created_at),
             'customer' => $transaction?->customer ? [
                 'name' => $transaction->customer->name,
             ] : null,
@@ -540,23 +551,23 @@ class SalesReportController extends Controller
     protected function resolvePeriodLabel(array $filters): string
     {
         if (! empty($filters['start_date']) && ! empty($filters['end_date'])) {
-            return Carbon::parse($filters['start_date'])->format('d M Y').' - '.Carbon::parse($filters['end_date'])->format('d M Y');
+            return Carbon::parse($filters['start_date'], ReportTimezone::timezone())->format('d M Y').' - '.Carbon::parse($filters['end_date'], ReportTimezone::timezone())->format('d M Y').' ('.ReportTimezone::timezoneLabel().')';
         }
 
         if (! empty($filters['start_date'])) {
-            return 'Sejak '.Carbon::parse($filters['start_date'])->format('d M Y');
+            return 'Sejak '.Carbon::parse($filters['start_date'], ReportTimezone::timezone())->format('d M Y').' ('.ReportTimezone::timezoneLabel().')';
         }
 
         if (! empty($filters['end_date'])) {
-            return 'Sampai '.Carbon::parse($filters['end_date'])->format('d M Y');
+            return 'Sampai '.Carbon::parse($filters['end_date'], ReportTimezone::timezone())->format('d M Y').' ('.ReportTimezone::timezoneLabel().')';
         }
 
-        return 'Periode berjalan';
+        return 'Periode berjalan ('.ReportTimezone::timezoneLabel().')';
     }
 
     protected function applyAllocationFilters($query, array $filters)
     {
-        return $query
+        $query = $query
             ->when($filters['outlet_id'] ?? null, fn ($q, $outletId) => $q->where('outlet_id', $outletId))
             ->when($filters['invoice'] ?? null, fn ($q, $invoice) => $q->whereHas('transaction', fn ($transactionQuery) => $transactionQuery->where('invoice', 'like', '%'.$invoice.'%')))
             ->when($filters['cashier_id'] ?? null, fn ($q, $cashierId) => $q->where('cashier_id', $cashierId))
@@ -573,9 +584,13 @@ class SalesReportController extends Controller
                     'outstanding' => $q->whereNull('settled_at'),
                     default => $q,
                 };
-            })
-            ->when($filters['start_date'] ?? null, fn ($q, $start) => $q->whereHas('transaction', fn ($transactionQuery) => $transactionQuery->whereDate('created_at', '>=', $start)))
-            ->when($filters['end_date'] ?? null, fn ($q, $end) => $q->whereHas('transaction', fn ($transactionQuery) => $transactionQuery->whereDate('created_at', '<=', $end)));
+            });
+
+        if (! empty($filters['start_date']) || ! empty($filters['end_date'])) {
+            $query->whereHas('transaction', fn ($transactionQuery) => ReportTimezone::applyUtcDateRange($transactionQuery, 'created_at', $filters));
+        }
+
+        return $query;
     }
 
     public function exportTenantSettlement(Request $request)
@@ -1167,7 +1182,11 @@ class SalesReportController extends Controller
     {
         return $allocations
             ->groupBy(function ($allocation) {
-                return optional($allocation->transaction?->created_at)->format('Y-m-d') ?: 'tanpa-tanggal';
+                $createdAt = $allocation->transaction?->created_at;
+
+                return $createdAt
+                    ? ReportTimezone::localDateKey($createdAt)
+                    : 'tanpa-tanggal';
             })
             ->map(function ($rows, $date) {
                 $settledRows = $rows->filter(fn ($allocation) => filled($allocation->settled_at));
@@ -1176,7 +1195,7 @@ class SalesReportController extends Controller
                 return [
                     'date' => $date,
                     'label' => $date !== 'tanpa-tanggal'
-                        ? Carbon::parse($date)->translatedFormat('d M Y')
+                        ? Carbon::parse($date, ReportTimezone::timezone())->translatedFormat('d M Y')
                         : 'Tanpa tanggal',
                     'allocations_count' => $rows->count(),
                     'tenant_count' => $rows->pluck('tenant_outlet_id')->filter()->unique()->count(),
@@ -1191,4 +1210,32 @@ class SalesReportController extends Controller
             ->sortByDesc('date')
             ->values();
     }
+
+    protected function formatAllocationReportRows($allocations)
+    {
+        return collect($allocations)->map(function ($allocation) {
+            $row = $allocation->toArray();
+
+            if (isset($row['transaction']['created_at'])) {
+                $row['transaction']['created_at'] = ReportTimezone::formatDateTime(
+                    $allocation->transaction?->created_at
+                );
+            }
+
+            if (array_key_exists('settled_at', $row)) {
+                $row['settled_at'] = ReportTimezone::formatDateTime($allocation->settled_at);
+            }
+
+            if (array_key_exists('validated_at', $row)) {
+                $row['validated_at'] = ReportTimezone::formatDateTime($allocation->validated_at);
+            }
+
+            if (array_key_exists('payout_paid_at', $row)) {
+                $row['payout_paid_at'] = ReportTimezone::formatDateTime($allocation->payout_paid_at);
+            }
+
+            return $row;
+        })->values();
+    }
+
 }
