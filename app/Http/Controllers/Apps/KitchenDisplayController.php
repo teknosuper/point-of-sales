@@ -616,6 +616,10 @@ class KitchenDisplayController extends Controller
                     'customer_phone' => $ticket->transaction?->customer?->no_telp,
                     'order_type' => $ticket->transaction?->order_type ?? 'take_away',
                     'order_type_label' => $this->humanizeOrderType($ticket->transaction?->order_type),
+                    'table_label' => $this->tableLabel(
+                        $ticket->transaction?->diningTable?->code,
+                        $ticket->transaction?->diningTable?->name
+                    ),
                     'table_name' => $ticket->transaction?->diningTable?->name,
                     'table_code' => $ticket->transaction?->diningTable?->code,
                     'notes' => $ticket->notes,
@@ -678,6 +682,18 @@ class KitchenDisplayController extends Controller
             'take_away', 'takeaway' => 'Bawa Pulang',
             default => 'Bawa Pulang',
         };
+    }
+
+    private function tableLabel(?string $code, ?string $name): ?string
+    {
+        $code = filled($code) ? trim((string) $code) : null;
+        $name = filled($name) ? trim((string) $name) : null;
+
+        if ($code && $name && strcasecmp($code, $name) !== 0) {
+            return "{$code} • {$name}";
+        }
+
+        return $code ?: $name;
     }
 
     private function autoAcknowledgePendingTickets(?KitchenStation $station, ?int $userId = null): void

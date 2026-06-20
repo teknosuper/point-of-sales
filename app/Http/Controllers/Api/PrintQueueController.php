@@ -94,7 +94,10 @@ class PrintQueueController extends Controller
             ])
             ->where('job_type', PrintJob::TYPE_KITCHEN_TICKET)
             ->whereIn('status', [PrintJob::STATUS_QUEUED, PrintJob::STATUS_PROCESSING])
-            ->when($outletId > 0, fn ($q) => $q->where('outlet_id', $outletId))
+            ->when(
+                $outletId > 0 && $stationId <= 0,
+                fn ($q) => $q->where('outlet_id', $outletId)
+            )
             ->when($deviceId > 0, fn ($q) => $q->where('kitchen_station_device_id', $deviceId))
             ->when($stationId > 0, fn ($q) => $q->whereHas('kitchenTicket', fn ($sub) => $sub->where('kitchen_station_id', $stationId)))
             ->orderBy('queued_at')
@@ -384,6 +387,10 @@ class PrintQueueController extends Controller
             'type' => 'kitchen_ticket',
             'copies' => $job->copies ?: 1,
             'paper_width' => data_get($job->payload, 'paper_width', '80mm'),
+            'payload' => [
+                'paper_width' => data_get($job->payload, 'paper_width', '80mm'),
+                'raw_base64' => $this->encodeKitchenTicketPayload($job),
+            ],
             'station' => $ticket?->kitchenStation ? [
                 'name' => $ticket->kitchenStation->name,
                 'code' => $ticket->kitchenStation->code,
@@ -401,12 +408,119 @@ class PrintQueueController extends Controller
             'transaction' => $transaction ? [
                 'invoice' => $transaction->invoice,
                 'order_type' => $transaction->order_type,
-                'table' => $transaction->diningTable?->name ?? $transaction->diningTable?->code ?? null,
+                'table' => $this->tableLabel(
+                    $transaction->diningTable?->code,
+                    $transaction->diningTable?->name
+                ),
                 'customer' => $transaction->customer?->name ?? 'Pelanggan Umum',
                 'date' => $transaction->created_at ? \Carbon\Carbon::parse($transaction->created_at)->format('d/m/Y H:i') : null,
             ] : null,
             'queued_at' => $job->queued_at?->toIso8601String(),
         ];
+    }
+
+    private function tableLabel(?string $code, ?string $name): ?string
+    {
+        $code = filled($code) ? trim((string) $code) : null;
+        $name = filled($name) ? trim((string) $name) : null;
+
+        if ($code && $name && strcasecmp($code, $name) !== 0) {
+            return "{$code} • {$name}";
+        }
+
+        return $code ?: $name;
+    }
+
+    private function encodeKitchenTicketPayload(PrintJob $job): string
+    {
+        $paperWidth = (string) (data_get($job->payload, 'paper_width', '80mm') ?: '80mm');
+        $isCompact58 = strtolower($paperWidth) !== '80mm';
+        $cols = $isCompact58 ? 32 : 48;
+        $separator = str_repeat('=', $cols);
+        $ticket = $job->kitchenTicket;
+        $transaction = $job->transaction;
+        $stationName = $ticket?->kitchenStation?->name ?? data_get($job->device?->meta, 'station_name') ?? 'KITCHEN ORDER';
+
+        $chunks = ["\x1B\x40", "\x1B\x61\x01"];
+        $chunks[] = $isCompact58 ? "\x1B\x4D\x01" : "\x1B\x4D\x00";
+        $chunks[] = "\x1B\x45\x01";
+        $this->appendWrappedLines($chunks, (string) $stationName, $cols);
+        $chunks[] = "\x1B\x45\x00";
+
+        if ($ticket?->ticket_number) {
+            $chunks[] = "\x1B\x45\x01";
+            $this->appendWrappedLines($chunks, '#'.$ticket->ticket_number, $cols);
+            $chunks[] = "\x1B\x45\x00";
+        }
+
+        $this->appendLine($chunks, $separator);
+        $chunks[] = "\x1B\x61\x00";
+
+        if ($transaction?->invoice) {
+            $this->appendWrappedLines($chunks, 'Invoice: '.$transaction->invoice, $cols);
+        }
+
+        $customerName = $transaction?->customer?->name ?: 'Pelanggan Umum';
+        $this->appendWrappedLines($chunks, 'Customer: '.$customerName, $cols);
+
+        if ($transaction?->created_at) {
+            $this->appendWrappedLines(
+                $chunks,
+                'Waktu: '.\Carbon\Carbon::parse($transaction->created_at)->format('d/m/Y H:i'),
+                $cols
+            );
+        }
+
+        if ($transaction?->order_type) {
+            $this->appendWrappedLines(
+                $chunks,
+                'Tipe: '.$this->humanizeKitchenOrderType((string) $transaction->order_type),
+                $cols
+            );
+        }
+
+        $tableLabel = $this->tableLabel(
+            $transaction?->diningTable?->code,
+            $transaction?->diningTable?->name
+        );
+        if ($tableLabel) {
+            $this->appendWrappedLines($chunks, 'Meja: '.$tableLabel, $cols);
+        }
+
+        if ($ticket?->notes) {
+            $this->appendWrappedLines($chunks, 'Catatan: '.$ticket->notes, $cols);
+        }
+
+        $this->appendLine($chunks, $separator);
+
+        foreach (($ticket?->items ?? []) as $item) {
+            $chunks[] = "\x1B\x45\x01";
+            $this->appendWrappedLines(
+                $chunks,
+                sprintf('%sx %s', (int) ($item->qty ?? 0), (string) ($item->product_title ?? 'Item')),
+                $cols
+            );
+            $chunks[] = "\x1B\x45\x00";
+
+            if (! empty($item->notes)) {
+                $this->appendWrappedLines($chunks, '>> '.(string) $item->notes, $cols, '   ');
+            }
+        }
+
+        $chunks[] = "\n\n\n";
+        $chunks[] = "\x1D\x56\x00";
+
+        return base64_encode(implode('', $chunks));
+    }
+
+    private function humanizeKitchenOrderType(string $orderType): string
+    {
+        return match (strtolower($orderType)) {
+            'dine_in' => 'Dine In',
+            'take_away', 'takeaway' => 'Take Away',
+            'delivery' => 'Delivery',
+            default => Str::headline(str_replace('_', ' ', $orderType)),
+        };
     }
 
     private function encodeReceiptPayload(array $layout): string

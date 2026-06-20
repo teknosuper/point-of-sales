@@ -71,9 +71,9 @@ const buildThermalLines = (ticket, station) => {
     if (ticket?.ticket_number) lines.push({ text: `Ticket: ${ticket.ticket_number}` });
     if (ticket?.invoice) lines.push({ text: `Invoice: ${ticket.invoice}` });
     if (ticket?.order_type) lines.push({ text: `Order: ${ticket.order_type}` });
-    if (ticket?.table_name || ticket?.table_code) {
+    if (ticket?.table_label || ticket?.table_name || ticket?.table_code) {
         lines.push({
-            text: `Meja: ${ticket.table_name || ticket.table_code}`,
+            text: `Meja: ${ticket.table_label || ticket.table_code || ticket.table_name}`,
         });
     }
 
