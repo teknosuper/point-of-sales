@@ -7,6 +7,7 @@ use App\Models\CashierSettlementRequest;
 use App\Models\CashierShift;
 use App\Models\Outlet;
 use App\Models\Product;
+use App\Models\SalesReturn;
 use App\Models\Setting;
 use App\Models\TransactionTenantAllocation;
 use App\Models\TransactionTenantAllocationItem;
@@ -18,6 +19,7 @@ use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
@@ -65,7 +67,8 @@ class CashierSettlementController extends Controller
                     $nested
                         ->where('request_number', 'like', '%'.$filters['q'].'%')
                         ->orWhere('recipient_name', 'like', '%'.$filters['q'].'%')
-                        ->orWhereHas('cashier', fn (Builder $cashierQuery) => $cashierQuery->where('name', 'like', '%'.$filters['q'].'%'));
+                        ->orWhereHas('cashier', fn (Builder $cashierQuery) => $cashierQuery->where('name', 'like', '%'.$filters['q'].'%'))
+                        ->orWhereHas('cashierShift.transactions', fn (Builder $transactionQuery) => $transactionQuery->where('invoice', 'like', '%'.$filters['q'].'%'));
                 });
             })
             ->when($filters['status'] !== '', fn (Builder $builder) => $builder->where('status', $filters['status']))
@@ -579,10 +582,12 @@ class CashierSettlementController extends Controller
 
     private function buildTenantWalletTransactions(User $user, Outlet $activeOutlet, array $filters)
     {
-        $paginator = $this->applyTenantWalletFilters(
+        $allocationQuery = $this->applyTenantWalletFilters(
             $this->buildTenantWalletAllocationQuery($user, $activeOutlet),
             $filters
-        )
+        );
+
+        $allocationPaginator = $allocationQuery
             ->with([
                 'transaction.customer:id,name',
                 'transaction.cashier:id,name',
@@ -594,17 +599,18 @@ class CashierSettlementController extends Controller
             ->paginate(15, ['*'], 'wallet_page')
             ->withQueryString();
 
-        $tenantNetTotals = $this->tenantNetTotalsByAllocationIds($paginator->getCollection()->pluck('id'));
-        $ownerMarkupTotals = $this->ownerMarkupTotalsByAllocationIds($paginator->getCollection()->pluck('id'));
+        $tenantNetTotals = $this->tenantNetTotalsByAllocationIds($allocationPaginator->getCollection()->pluck('id'));
+        $ownerMarkupTotals = $this->ownerMarkupTotalsByAllocationIds($allocationPaginator->getCollection()->pluck('id'));
 
-        $paginator->setCollection(
-            $paginator->getCollection()->map(function (TransactionTenantAllocation $allocation) use ($tenantNetTotals, $ownerMarkupTotals) {
+        $allocationRows = $allocationPaginator->getCollection()->map(function (TransactionTenantAllocation $allocation) use ($tenantNetTotals, $ownerMarkupTotals) {
                 $tenantNetTotal = (int) ($tenantNetTotals->get($allocation->id, 0) ?? 0);
                 $grossAfterPromo = (int) ($allocation->subtotal ?? 0);
                 $ownerMarkupTotal = (int) ($ownerMarkupTotals->get($allocation->id, 0) ?? 0);
 
                 return [
-                    'id' => $allocation->id,
+                    'id' => 'allocation-'.$allocation->id,
+                    'entry_type' => 'allocation',
+                    'entry_label' => 'Masuk Saldo',
                     'allocation_number' => $allocation->allocation_number,
                     'invoice' => $allocation->transaction?->invoice ?? $allocation->allocation_number,
                     'customer_name' => $allocation->transaction?->customer?->name ?? 'Pelanggan umum',
@@ -622,20 +628,25 @@ class CashierSettlementController extends Controller
                     'pricing_discount_total' => (int) ($allocation->promo_discount_total ?? 0),
                     'delivered_at' => optional($allocation->delivered_at)?->toIso8601String(),
                     'created_at' => optional($allocation->transaction?->created_at)?->toIso8601String(),
+                    'activity_at' => optional($allocation->delivered_at)?->toIso8601String(),
                     'details' => $allocation->items->map(function ($item) {
                         $detail = $item->transactionDetail;
+                        $remainingQty = (int) ($item->qty ?? 0);
+                        $tenantBaseUnitPrice = (int) ($detail?->tenant_base_unit_price ?? $item->base_unit_price ?? 0);
+                        $ownerMarkupUnitPrice = (int) ($detail?->owner_markup_unit_price ?? 0);
+                        $customerUnitPrice = (int) ($detail?->customer_base_unit_price ?? $detail?->unit_price ?? 0);
 
                         return [
                             'id' => $detail?->id ?? $item->transaction_detail_id,
                             'product_title' => $detail?->product?->title ?? 'Produk terhapus',
-                            'qty' => (int) ($detail?->qty ?? $item->qty ?? 0),
-                            'customer_unit_price' => (int) ($detail?->customer_base_unit_price ?? $detail?->unit_price ?? 0),
-                            'line_total' => (int) ($detail?->price ?? $item->line_total ?? 0),
-                            'tenant_base_unit_price' => (int) ($detail?->tenant_base_unit_price ?? 0),
-                            'tenant_net_total' => (int) ($detail?->tenant_net_total ?? 0),
-                            'owner_markup_unit_price' => (int) ($detail?->owner_markup_unit_price ?? 0),
-                            'owner_net_total' => (int) ($detail?->owner_net_total ?? 0),
-                            'discount_total' => (int) ($detail?->discount_total ?? $item->discount_total ?? 0),
+                            'qty' => $remainingQty,
+                            'customer_unit_price' => $customerUnitPrice,
+                            'line_total' => $customerUnitPrice * $remainingQty,
+                            'tenant_base_unit_price' => $tenantBaseUnitPrice,
+                            'tenant_net_total' => (int) ($item->line_total ?? ($tenantBaseUnitPrice * $remainingQty)),
+                            'owner_markup_unit_price' => $ownerMarkupUnitPrice,
+                            'owner_net_total' => $ownerMarkupUnitPrice * $remainingQty,
+                            'discount_total' => (int) ($item->discount_total ?? 0),
                             'notes' => $detail?->notes,
                             'modifiers' => $detail?->modifiers
                                 ? $detail->modifiers->map(fn ($modifier) => [
@@ -649,10 +660,30 @@ class CashierSettlementController extends Controller
                         ];
                     })->values()->all(),
                 ];
-            })
-        );
+            })->values();
 
-        return $paginator;
+        $returnRows = $this->buildTenantWalletReturnRows($user, $activeOutlet, $filters);
+
+        $combinedRows = $allocationRows
+            ->merge($returnRows)
+            ->sortByDesc(fn (array $row) => strtotime((string) ($row['activity_at'] ?? $row['delivered_at'] ?? $row['created_at'] ?? now()->toIso8601String())))
+            ->values();
+
+        $currentPage = max(1, (int) request()->integer('wallet_page', 1));
+        $perPage = 15;
+        $pageRows = $combinedRows->slice(($currentPage - 1) * $perPage, $perPage)->values();
+
+        return new LengthAwarePaginator(
+            $pageRows,
+            $combinedRows->count(),
+            $perPage,
+            $currentPage,
+            [
+                'path' => request()->url(),
+                'pageName' => 'wallet_page',
+                'query' => request()->query(),
+            ]
+        );
     }
 
     private function buildTenantWalletAllocationQuery(User $user, Outlet $activeOutlet): Builder
@@ -693,6 +724,125 @@ class CashierSettlementController extends Controller
             ->when($filters['date_to'] !== '', fn (Builder $builder) => $builder->whereDate('delivered_at', '<=', $filters['date_to']));
     }
 
+    private function buildTenantWalletReturnRows(User $user, Outlet $activeOutlet, array $filters): \Illuminate\Support\Collection
+    {
+        $tenantOutletIds = $this->resolveKitchenTenantOutletIds($user, $activeOutlet->id);
+
+        if ($tenantOutletIds->isEmpty()) {
+            return collect();
+        }
+
+        $salesReturns = SalesReturn::query()
+            ->with([
+                'transaction.customer:id,name',
+                'transaction.cashier:id,name',
+                'items.product:id,title',
+                'items.transactionDetail.product:id,title',
+                'items.transactionDetail.modifiers',
+            ])
+            ->where('status', 'completed')
+            ->whereHas('items.transactionDetail', fn (Builder $builder) => $builder->whereIn('tenant_outlet_id', $tenantOutletIds->all()))
+            ->when($filters['q'] !== '', function (Builder $builder) use ($filters) {
+                $builder->where(function (Builder $nested) use ($filters) {
+                    $nested
+                        ->where('code', 'like', '%'.$filters['q'].'%')
+                        ->orWhereHas('transaction', function (Builder $transactionQuery) use ($filters) {
+                            $transactionQuery
+                                ->where('invoice', 'like', '%'.$filters['q'].'%')
+                                ->orWhereHas('customer', fn (Builder $customerQuery) => $customerQuery->where('name', 'like', '%'.$filters['q'].'%'))
+                                ->orWhereHas('cashier', fn (Builder $cashierQuery) => $cashierQuery->where('name', 'like', '%'.$filters['q'].'%'));
+                        });
+                });
+            })
+            ->when($filters['cashier_id'] !== '', fn (Builder $builder) => $builder->where('cashier_id', (int) $filters['cashier_id']))
+            ->when($filters['date_from'] !== '', fn (Builder $builder) => $builder->whereDate('completed_at', '>=', $filters['date_from']))
+            ->when($filters['date_to'] !== '', fn (Builder $builder) => $builder->whereDate('completed_at', '<=', $filters['date_to']))
+            ->latest('completed_at')
+            ->get();
+
+        return $salesReturns->map(function (SalesReturn $salesReturn) use ($tenantOutletIds, $activeOutlet) {
+            $relevantItems = $salesReturn->items
+                ->filter(fn ($item) => $tenantOutletIds->contains((int) ($item->transactionDetail?->tenant_outlet_id ?? 0)))
+                ->values();
+
+            $grossSalesTotal = 0;
+            $tenantSalesTotal = 0;
+            $ownerMarkupTotal = 0;
+            $pricingDiscountTotal = 0;
+
+            $details = $relevantItems->map(function ($item) use (&$grossSalesTotal, &$tenantSalesTotal, &$ownerMarkupTotal, &$pricingDiscountTotal) {
+                $detail = $item->transactionDetail;
+                $qty = (int) ($item->qty_return ?? 0);
+                $customerUnitPrice = (int) ($detail?->customer_base_unit_price ?? $detail?->unit_price ?? 0);
+                $tenantBaseUnitPrice = (int) ($detail?->tenant_base_unit_price ?? 0);
+                $ownerMarkupUnitPrice = (int) ($detail?->owner_markup_unit_price ?? 0);
+                $discountUnitValue = max(0, (int) round(((int) ($detail?->discount_total ?? 0)) / max(1, (int) ($detail?->qty ?? 1))));
+
+                $lineTotal = $customerUnitPrice * $qty;
+                $tenantNetTotal = (int) ($detail?->tenant_net_total ?? 0) > 0
+                    ? (int) round(((int) $detail->tenant_net_total / max(1, (int) ($detail->qty ?? 1))) * $qty)
+                    : $tenantBaseUnitPrice * $qty;
+                $ownerNetTotal = (int) ($detail?->owner_net_total ?? 0) > 0
+                    ? (int) round(((int) $detail->owner_net_total / max(1, (int) ($detail->qty ?? 1))) * $qty)
+                    : $ownerMarkupUnitPrice * $qty;
+                $discountTotal = $discountUnitValue * $qty;
+
+                $grossSalesTotal += $lineTotal;
+                $tenantSalesTotal += $tenantNetTotal;
+                $ownerMarkupTotal += $ownerNetTotal;
+                $pricingDiscountTotal += $discountTotal;
+
+                return [
+                    'id' => 'return-item-'.$item->id,
+                    'product_title' => $detail?->product?->title ?? $item->product?->title ?? 'Produk terhapus',
+                    'qty' => -$qty,
+                    'customer_unit_price' => $customerUnitPrice,
+                    'line_total' => -$lineTotal,
+                    'tenant_base_unit_price' => $tenantBaseUnitPrice,
+                    'tenant_net_total' => -$tenantNetTotal,
+                    'owner_markup_unit_price' => $ownerMarkupUnitPrice,
+                    'owner_net_total' => -$ownerNetTotal,
+                    'discount_total' => -$discountTotal,
+                    'notes' => $item->return_reason,
+                    'modifiers' => $detail?->modifiers
+                        ? $detail->modifiers->map(fn ($modifier) => [
+                            'id' => $modifier->id,
+                            'name' => $modifier->name,
+                            'qty' => (int) $modifier->qty,
+                            'unit_price' => (int) $modifier->unit_price,
+                            'total_price' => (int) $modifier->total_price,
+                        ])->values()->all()
+                        : [],
+                ];
+            })->values()->all();
+
+            return [
+                'id' => 'return-'.$salesReturn->id,
+                'entry_type' => 'sales_return',
+                'entry_label' => 'Retur',
+                'allocation_number' => $salesReturn->code,
+                'invoice' => $salesReturn->transaction?->invoice ?? $salesReturn->code,
+                'customer_name' => $salesReturn->transaction?->customer?->name ?? 'Pelanggan umum',
+                'cashier_name' => $salesReturn->transaction?->cashier?->name ?? ($salesReturn->cashier?->name ?? '-'),
+                'tenant_outlet' => [
+                    'id' => $activeOutlet->id,
+                    'name' => $activeOutlet->name,
+                    'code' => $activeOutlet->code,
+                ],
+                'payment_method' => $salesReturn->transaction?->payment_method,
+                'payment_status' => 'retur',
+                'gross_sales_total' => -$grossSalesTotal,
+                'tenant_sales_total' => -$tenantSalesTotal,
+                'owner_markup_total' => -$ownerMarkupTotal,
+                'pricing_discount_total' => -$pricingDiscountTotal,
+                'delivered_at' => optional($salesReturn->completed_at)?->toIso8601String(),
+                'created_at' => optional($salesReturn->created_at)?->toIso8601String(),
+                'activity_at' => optional($salesReturn->completed_at)?->toIso8601String(),
+                'details' => $details,
+            ];
+        })->filter(fn (array $row) => ! empty($row['details']))->values();
+    }
+
     private function sumTenantNetValueForAllocationIds(\Illuminate\Support\Collection $allocationIds): int
     {
         if ($allocationIds->isEmpty()) {
@@ -720,7 +870,7 @@ class CashierSettlementController extends Controller
         return TransactionTenantAllocationItem::query()
             ->join('transaction_details', 'transaction_details.id', '=', 'transaction_tenant_allocation_items.transaction_detail_id')
             ->whereIn('transaction_tenant_allocation_id', $allocationIds->all())
-            ->selectRaw('transaction_tenant_allocation_id, COALESCE(SUM(CASE WHEN transaction_details.tenant_net_total > 0 THEN transaction_details.tenant_net_total ELSE transaction_details.tenant_base_unit_price * transaction_details.qty END), 0) as total_tenant_net_value')
+            ->selectRaw('transaction_tenant_allocation_id, COALESCE(SUM(CASE WHEN transaction_details.qty > 0 THEN (CASE WHEN transaction_details.tenant_net_total > 0 THEN ROUND(transaction_details.tenant_net_total / transaction_details.qty) ELSE transaction_details.tenant_base_unit_price END) * transaction_tenant_allocation_items.qty ELSE 0 END), 0) as total_tenant_net_value')
             ->groupBy('transaction_tenant_allocation_id')
             ->pluck('total_tenant_net_value', 'transaction_tenant_allocation_id')
             ->map(fn ($value) => (int) $value);
@@ -735,7 +885,7 @@ class CashierSettlementController extends Controller
         return TransactionTenantAllocationItem::query()
             ->join('transaction_details', 'transaction_details.id', '=', 'transaction_tenant_allocation_items.transaction_detail_id')
             ->whereIn('transaction_tenant_allocation_id', $allocationIds->all())
-            ->selectRaw('transaction_tenant_allocation_id, COALESCE(SUM(CASE WHEN transaction_details.owner_net_total > 0 THEN transaction_details.owner_net_total ELSE transaction_details.owner_markup_unit_price * transaction_details.qty END), 0) as total_owner_markup_value')
+            ->selectRaw('transaction_tenant_allocation_id, COALESCE(SUM(CASE WHEN transaction_details.qty > 0 THEN (CASE WHEN transaction_details.owner_net_total > 0 THEN ROUND(transaction_details.owner_net_total / transaction_details.qty) ELSE transaction_details.owner_markup_unit_price END) * transaction_tenant_allocation_items.qty ELSE 0 END), 0) as total_owner_markup_value')
             ->groupBy('transaction_tenant_allocation_id')
             ->pluck('total_owner_markup_value', 'transaction_tenant_allocation_id')
             ->map(fn ($value) => (int) $value);

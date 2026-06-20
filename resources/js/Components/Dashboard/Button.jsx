@@ -63,6 +63,7 @@ export default function Button({
             )}
             {type === "button" && (
                 <button
+                    type="button"
                     className={`${baseStyles} ${sizeStyles} ${className}`}
                     {...props}
                 >
@@ -90,6 +91,7 @@ export default function Button({
             )}
             {type === "delete" && (
                 <button
+                    type="button"
                     onClick={() => deleteData(url)}
                     className={`${baseStyles} ${smallStyles} ${className}`}
                     {...props}
@@ -99,6 +101,7 @@ export default function Button({
             )}
             {type === "modal" && (
                 <button
+                    type="button"
                     className={`${baseStyles} ${smallStyles} ${className}`}
                     {...props}
                 >
@@ -116,6 +119,7 @@ export default function Button({
             )}
             {type === "bulk" && (
                 <button
+                    type="button"
                     {...props}
                     className={`${baseStyles} ${sizeStyles} ${className}`}
                 >

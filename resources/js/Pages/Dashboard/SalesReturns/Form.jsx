@@ -2,8 +2,8 @@ import React, { useEffect, useMemo } from "react";
 import { Head, Link, router, useForm } from "@inertiajs/react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import Button from "@/Components/Dashboard/Button";
-import Table from "@/Components/Dashboard/Table";
 import { IconArrowLeft, IconCheck, IconDeviceFloppy } from "@/Utils/icons";
+import Swal from "sweetalert2";
 import toast from "react-hot-toast";
 
 const formatCurrency = (value = 0) =>
@@ -20,6 +20,24 @@ const formatDateTime = (value) =>
               timeStyle: "short",
           }).format(new Date(value))
         : "-";
+
+const formatInertiaErrorBag = (errors, fallbackMessage) => {
+    if (!errors || typeof errors !== "object") {
+        return fallbackMessage;
+    }
+
+    const messages = Object.values(errors)
+        .flatMap((value) =>
+            Array.isArray(value) ? value : value ? [value] : []
+        )
+        .filter(Boolean);
+
+    if (messages.length === 0) {
+        return fallbackMessage;
+    }
+
+    return messages.join("\n");
+};
 
 export default function SalesReturnForm({
     title,
@@ -160,8 +178,31 @@ export default function SalesReturnForm({
         );
     };
 
-    const submit = (event) => {
+    const submit = async (event) => {
         event.preventDefault();
+
+        const result = await Swal.fire({
+            title: salesReturn ? "Perbarui draft retur?" : "Buat draft retur?",
+            html: `
+                <div style="text-align:left;display:grid;gap:8px;">
+                    <div style="display:flex;justify-content:space-between;gap:12px;"><span>Invoice</span><strong>${transaction.invoice}</strong></div>
+                    <div style="display:flex;justify-content:space-between;gap:12px;"><span>Produk dipilih</span><strong>${summary.selectedItemsCount} produk</strong></div>
+                    <div style="display:flex;justify-content:space-between;gap:12px;"><span>Total qty retur</span><strong>${summary.totalItems} item</strong></div>
+                    <div style="display:flex;justify-content:space-between;gap:12px;"><span>Nominal retur</span><strong>${formatCurrency(summary.totalAmount)}</strong></div>
+                </div>
+            `,
+            icon: "question",
+            showCancelButton: true,
+            confirmButtonText: salesReturn ? "Ya, Perbarui Draft" : "Ya, Buat Draft",
+            cancelButtonText: "Batal",
+            confirmButtonColor: "#16a34a",
+            cancelButtonColor: "#64748b",
+            reverseButtons: true,
+        });
+
+        if (!result.isConfirmed) {
+            return;
+        }
 
         form[submitMethod](submitRoute, {
             preserveScroll: true,
@@ -169,18 +210,55 @@ export default function SalesReturnForm({
                 toast.success(
                     salesReturn ? "Draft retur diperbarui" : "Draft retur dibuat"
                 ),
-            onError: () => toast.error("Gagal menyimpan draft retur"),
+            onError: (errors) =>
+                toast.error(
+                    formatInertiaErrorBag(
+                        errors,
+                        "Gagal menyimpan draft retur"
+                    )
+                ),
         });
     };
 
-    const complete = () => {
+    const complete = async () => {
+        const result = await Swal.fire({
+            title: "Selesaikan retur penjualan?",
+            html: `
+                <div style="text-align:left;display:grid;gap:8px;">
+                    <div style="display:flex;justify-content:space-between;gap:12px;"><span>Invoice</span><strong>${transaction.invoice}</strong></div>
+                    <div style="display:flex;justify-content:space-between;gap:12px;"><span>Produk dipilih</span><strong>${summary.selectedItemsCount} produk</strong></div>
+                    <div style="display:flex;justify-content:space-between;gap:12px;"><span>Total qty retur</span><strong>${summary.totalItems} item</strong></div>
+                    <div style="display:flex;justify-content:space-between;gap:12px;"><span>Stok kembali</span><strong>${summary.restockQty} item</strong></div>
+                    <div style="display:flex;justify-content:space-between;gap:12px;"><span>Nominal retur</span><strong>${formatCurrency(summary.totalAmount)}</strong></div>
+                </div>
+                <p style="margin-top:16px;">Aksi ini akan memproses retur, menyesuaikan stok, dan memperbarui dampak ke settlement terkait.</p>
+            `,
+            icon: "warning",
+            showCancelButton: true,
+            confirmButtonText: "Ya, Selesaikan",
+            cancelButtonText: "Batal",
+            confirmButtonColor: "#16a34a",
+            cancelButtonColor: "#64748b",
+            reverseButtons: true,
+        });
+
+        if (!result.isConfirmed) {
+            return;
+        }
+
         router.post(
             completeRoute,
             {},
             {
                 preserveScroll: true,
                 onSuccess: () => toast.success("Retur penjualan diselesaikan"),
-                onError: () => toast.error("Gagal menyelesaikan retur"),
+                onError: (errors) =>
+                    toast.error(
+                        formatInertiaErrorBag(
+                            errors,
+                            "Gagal menyelesaikan retur"
+                        )
+                    ),
             }
         );
     };
@@ -262,55 +340,106 @@ export default function SalesReturnForm({
                     className="grid gap-6 xl:grid-cols-[1.7fr_1fr]"
                 >
                     <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
-                        <div className="mb-4 flex items-center justify-between">
-                            <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
-                                Item Retur
-                            </h2>
+                        <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                            <div>
+                                <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+                                    Item Retur
+                                </h2>
+                                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                    Pilih item yang dibatalkan, isi jumlah retur,
+                                    alasan, lalu tentukan apakah stok kembali ke
+                                    inventory.
+                                </p>
+                                {canComplete && (
+                                    <div className="mt-3 rounded-2xl border border-warning-200 bg-warning-50 px-4 py-3 text-sm text-warning-800 dark:border-warning-900/60 dark:bg-warning-950/20 dark:text-warning-300">
+                                        Draft retur belum diproses final. Setelah
+                                        data benar, gunakan tombol{" "}
+                                        <span className="font-semibold">
+                                            Selesaikan Retur
+                                        </span>{" "}
+                                        di panel kanan untuk memproses refund,
+                                        stok, dan dampak settlement.
+                                    </div>
+                                )}
+                            </div>
                             {canEdit && (
                                 <Button
                                     type="submit"
                                     icon={<IconDeviceFloppy size={18} />}
-                                    className="bg-primary-500 text-white hover:bg-primary-600"
-                                    label={salesReturn ? "Simpan Draft" : "Buat Draft"}
+                                    className="bg-primary-500 text-white hover:bg-primary-600 lg:self-start"
+                                    label={
+                                        salesReturn
+                                            ? "Perbarui Draft"
+                                            : "Buat Draft"
+                                    }
                                     disabled={form.processing}
                                 />
                             )}
                         </div>
 
-                        <Table>
-                            <Table.Thead>
-                                <tr>
-                                    <Table.Th>Produk</Table.Th>
-                                    <Table.Th>Qty Beli</Table.Th>
-                                    <Table.Th>Sudah Retur</Table.Th>
-                                    <Table.Th>Sisa</Table.Th>
-                                    <Table.Th>Qty Retur</Table.Th>
-                                    <Table.Th>Alasan</Table.Th>
-                                    <Table.Th>Restock</Table.Th>
-                                    <Table.Th>Subtotal</Table.Th>
-                                </tr>
-                            </Table.Thead>
-                            <Table.Tbody>
-                                {itemStates.map((item) => (
-                                    <tr key={item.id}>
-                                        <Table.Td>
+                        <div className="space-y-4">
+                            {itemStates.map((item, index) => (
+                                <div
+                                    key={item.id}
+                                    className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 dark:border-slate-800 dark:bg-slate-950/40"
+                                >
+                                    <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                                        <div className="space-y-3">
                                             <div>
-                                                <p className="font-medium text-slate-800 dark:text-slate-100">
+                                                <div className="mb-2 flex items-center gap-2">
+                                                    <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-primary-100 px-2 text-xs font-semibold text-primary-700 dark:bg-primary-950/40 dark:text-primary-300">
+                                                        {index + 1}
+                                                    </span>
+                                                    <span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                                        Item transaksi
+                                                    </span>
+                                                </div>
+                                                <p className="text-base font-semibold text-slate-900 dark:text-white">
                                                     {item.product?.title || "-"}
                                                 </p>
-                                                <p className="text-xs text-slate-500 dark:text-slate-400">
+                                                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                                                     {item.product?.barcode ||
                                                         item.product?.sku ||
                                                         "-"}
                                                 </p>
                                             </div>
-                                        </Table.Td>
-                                        <Table.Td>{item.qty}</Table.Td>
-                                        <Table.Td>
-                                            {item.returned_completed_qty}
-                                        </Table.Td>
-                                        <Table.Td>{item.remaining_returnable_qty}</Table.Td>
-                                        <Table.Td>
+
+                                            <div className="grid gap-2 sm:grid-cols-3">
+                                                <MiniStat
+                                                    label="Qty Beli"
+                                                    value={item.qty}
+                                                />
+                                                <MiniStat
+                                                    label="Sudah Retur"
+                                                    value={item.returned_completed_qty}
+                                                />
+                                                <MiniStat
+                                                    label="Sisa Bisa Diretur"
+                                                    value={item.remaining_returnable_qty}
+                                                    accent
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left xl:min-w-52 xl:text-right dark:border-slate-700 dark:bg-slate-900">
+                                            <p className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                                Subtotal Retur
+                                            </p>
+                                            <p className="mt-2 text-lg font-semibold text-slate-900 dark:text-white">
+                                                {formatCurrency(item.subtotal)}
+                                            </p>
+                                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                Harga satuan{" "}
+                                                {formatCurrency(item.price)}
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    <div className="mt-4 grid gap-4 lg:grid-cols-[180px_1fr]">
+                                        <div>
+                                            <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                                Qty Retur
+                                            </label>
                                             <input
                                                 type="number"
                                                 min="0"
@@ -324,12 +453,19 @@ export default function SalesReturnForm({
                                                         event.target.value
                                                     )
                                                 }
-                                                className="h-10 w-24 rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-800 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                                                className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm text-slate-800 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
                                             />
-                                        </Table.Td>
-                                        <Table.Td>
-                                            <input
-                                                type="text"
+                                            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                                                Maksimal {item.remaining_returnable_qty} item
+                                            </p>
+                                        </div>
+
+                                        <div>
+                                            <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                                Alasan Retur
+                                            </label>
+                                            <textarea
+                                                rows={3}
                                                 value={item.return_reason}
                                                 disabled={!canEdit}
                                                 onChange={(event) =>
@@ -339,32 +475,40 @@ export default function SalesReturnForm({
                                                         event.target.value
                                                     )
                                                 }
-                                                placeholder="Alasan retur"
-                                                className="h-10 min-w-48 rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-800 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                                                placeholder="Contoh: salah input, item rusak, pesanan dibatalkan customer"
+                                                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
                                             />
-                                        </Table.Td>
-                                        <Table.Td>
-                                            <input
-                                                type="checkbox"
-                                                checked={item.restock_to_inventory}
-                                                disabled={!canEdit}
-                                                onChange={(event) =>
-                                                    updateItem(
-                                                        item.id,
-                                                        "restock_to_inventory",
-                                                        event.target.checked
-                                                    )
-                                                }
-                                                className="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500"
-                                            />
-                                        </Table.Td>
-                                        <Table.Td>
-                                            {formatCurrency(item.subtotal)}
-                                        </Table.Td>
-                                    </tr>
-                                ))}
-                            </Table.Tbody>
-                        </Table>
+                                        </div>
+                                    </div>
+
+                                    <label className="mt-4 flex items-start gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 dark:border-slate-700 dark:bg-slate-900">
+                                        <input
+                                            type="checkbox"
+                                            checked={item.restock_to_inventory}
+                                            disabled={!canEdit}
+                                            onChange={(event) =>
+                                                updateItem(
+                                                    item.id,
+                                                    "restock_to_inventory",
+                                                    event.target.checked
+                                                )
+                                            }
+                                            className="mt-0.5 h-5 w-5 rounded border-slate-300 text-primary-600 focus:ring-primary-500"
+                                        />
+                                        <span>
+                                            <span className="block text-sm font-medium text-slate-800 dark:text-slate-200">
+                                                Kembalikan stok ke inventory
+                                            </span>
+                                            <span className="mt-1 block text-xs text-slate-500 dark:text-slate-400">
+                                                Nonaktifkan jika item retur tidak
+                                                layak jual atau tidak masuk kembali
+                                                ke stok.
+                                            </span>
+                                        </span>
+                                    </label>
+                                </div>
+                            ))}
+                        </div>
 
                         {form.errors.items && (
                             <p className="mt-3 text-sm text-danger-600">
@@ -541,6 +685,25 @@ function PreviewRow({ label, value, strong = false }) {
             >
                 {value}
             </span>
+        </div>
+    );
+}
+
+function MiniStat({ label, value, accent = false }) {
+    return (
+        <div
+            className={`rounded-2xl border px-3 py-3 ${
+                accent
+                    ? "border-primary-200 bg-primary-50/80 dark:border-primary-900 dark:bg-primary-950/20"
+                    : "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900"
+            }`}
+        >
+            <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                {label}
+            </p>
+            <p className="mt-1 text-base font-semibold text-slate-900 dark:text-white">
+                {value}
+            </p>
         </div>
     );
 }

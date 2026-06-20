@@ -167,6 +167,10 @@ class CashierShiftService
             ->where('cashier_shift_id', $shift->id)
             ->where('payment_status', 'paid');
 
+        $completedSalesReturns = SalesReturn::query()
+            ->where('cashier_shift_id', $shift->id)
+            ->where('status', 'completed');
+
         $grossSalesTotal = (int) ((clone $paidTransactions)->sum('grand_total') ?? 0);
         $transactionIds = (clone $paidTransactions)->pluck('id');
         $baseSalesTotal = $transactionIds->isNotEmpty()
@@ -180,14 +184,18 @@ class CashierShiftService
                 ->whereIn('transaction_id', $transactionIds)
                 ->sum('discount_total') ?? 0)
             : 0;
+        $cashReturnTotal = (int) ((clone $completedSalesReturns)->sum('refund_amount') ?? 0);
+        $creditReturnTotal = (int) ((clone $completedSalesReturns)->sum('credited_amount') ?? 0);
+        $totalReturnAmount = $cashReturnTotal + $creditReturnTotal;
+        $netGrossSalesTotal = max(0, $grossSalesTotal - $totalReturnAmount);
 
         return [
             'paid_transactions_count' => (int) $transactionIds->count(),
-            'gross_sales_total' => $grossSalesTotal,
-            'base_sales_total' => $baseSalesTotal,
+            'gross_sales_total' => $netGrossSalesTotal,
+            'base_sales_total' => max(0, $baseSalesTotal - $totalReturnAmount),
             'pricing_discount_total' => $pricingDiscountTotal,
-            'pricing_reference_total' => max(0, $baseSalesTotal - $pricingDiscountTotal),
-            'markup_total' => max(0, $grossSalesTotal - $baseSalesTotal),
+            'pricing_reference_total' => max(0, $baseSalesTotal - $pricingDiscountTotal - $totalReturnAmount),
+            'markup_total' => max(0, $netGrossSalesTotal - max(0, $baseSalesTotal - $totalReturnAmount)),
         ];
     }
 

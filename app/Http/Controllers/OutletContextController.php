@@ -26,6 +26,19 @@ class OutletContextController extends Controller
         $user = $request->user();
         $selectedOutletId = $validated['outlet_id'] ?? null;
 
+        if ($this->outletResolver->shouldRestrictCashierToMainOutlet($user)) {
+            $allowedMainOutletIds = $user?->accessibleOutletsQuery()
+                ->active()
+                ->where('outlets.outlet_type', 'main')
+                ->pluck('outlets.id')
+                ->map(fn ($id) => (int) $id)
+                ->all() ?? [];
+
+            if ($selectedOutletId && ! in_array((int) $selectedOutletId, $allowedMainOutletIds, true)) {
+                return back()->with('warning', 'Kasir dikunci ke outlet utama. Outlet tenant tidak bisa dipilih untuk shift kasir.');
+            }
+        }
+
         if ($user?->isKitchenWorkspace() && $user->preferredKitchenStation?->outlet_id) {
             $lockedOutletId = (int) $user->preferredKitchenStation->outlet_id;
 

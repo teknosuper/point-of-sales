@@ -29,6 +29,7 @@ class CashierShiftController extends Controller
     public function index(Request $request): Response
     {
         $activeOutlet = $this->outletResolver->resolve($request, $request->user());
+        $canViewAllShiftHistory = $request->user()->isSuperAdmin() || $request->user()->can('cashier-shifts-force-close');
         $filters = [
             'cashier_id' => $request->input('cashier_id'),
             'status' => $request->input('status'),
@@ -43,9 +44,9 @@ class CashierShiftController extends Controller
             ->when($filters['opened_from'], fn (Builder $builder, $date) => $builder->whereDate('opened_at', '>=', $date))
             ->when($filters['opened_to'], fn (Builder $builder, $date) => $builder->whereDate('opened_at', '<=', $date))
             ->when(
-                $activeOutlet,
+                $activeOutlet && ! $canViewAllShiftHistory,
                 fn (Builder $builder) => $builder->where('outlet_id', $activeOutlet->id),
-                fn (Builder $builder) => $builder->whereNull('outlet_id')
+                fn (Builder $builder) => $canViewAllShiftHistory ? $builder : $builder->whereNull('outlet_id')
             )
             ->latest('opened_at');
 
@@ -97,7 +98,7 @@ class CashierShiftController extends Controller
             ])
             ->values();
 
-        $cashiers = $request->user()->isSuperAdmin() || $request->user()->can('cashier-shifts-force-close')
+        $cashiers = $canViewAllShiftHistory
             ? User::query()->orderBy('name')->get(['id', 'name'])
             : collect([$request->user()->only(['id', 'name'])]);
 
@@ -108,7 +109,7 @@ class CashierShiftController extends Controller
             'activeShift' => $activeShift ? $this->transformShift($activeShift) : null,
             'outletOpenShift' => $outletOpenShift ? $this->transformShift($outletOpenShift) : null,
             'otherOpenShifts' => $otherOpenShifts,
-            'canForceClose' => $request->user()->isSuperAdmin() || $request->user()->can('cashier-shifts-force-close'),
+            'canForceClose' => $canViewAllShiftHistory,
         ]);
     }
 

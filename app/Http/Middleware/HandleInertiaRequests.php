@@ -70,6 +70,10 @@ class HandleInertiaRequests extends Middleware
                     ->active()
                     ->ordered();
 
+                if (app(OutletResolver::class)->shouldRestrictCashierToMainOutlet($user)) {
+                    $availableOutletsQuery->where('outlets.outlet_type', 'main');
+                }
+
                 if ($user->isKitchenWorkspace() && $user->preferredKitchenStation?->outlet_id) {
                     $availableOutletsQuery->where(
                         'outlets.id',

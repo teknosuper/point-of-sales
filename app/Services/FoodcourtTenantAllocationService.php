@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\SalesReturnItem;
 use App\Models\Transaction;
 use App\Models\TransactionDetail;
 use App\Models\TransactionTenantAllocation;
@@ -12,10 +13,46 @@ class FoodcourtTenantAllocationService
 {
     public function rebuildForTransaction(Transaction $transaction): Collection
     {
+        return $this->syncAllocationsForTransaction($transaction);
+    }
+
+    public function reconcileCompletedReturns(Transaction $transaction): Collection
+    {
+        $returnedQtyMap = SalesReturnItem::query()
+            ->selectRaw('transaction_detail_id, COALESCE(SUM(qty_return), 0) as qty_returned')
+            ->whereHas('salesReturn', fn ($query) => $query
+                ->where('transaction_id', $transaction->id)
+                ->where('status', 'completed'))
+            ->groupBy('transaction_detail_id')
+            ->pluck('qty_returned', 'transaction_detail_id')
+            ->map(fn ($qty) => (int) $qty);
+
+        return $this->syncAllocationsForTransaction($transaction, $returnedQtyMap);
+    }
+
+    private function syncAllocationsForTransaction(Transaction $transaction, ?Collection $returnedQtyMap = null): Collection
+    {
         $transaction->loadMissing('details');
+        $returnedQtyMap ??= collect();
 
         $details = $transaction->details
-            ->filter(fn (TransactionDetail $detail) => (int) ($detail->tenant_outlet_id ?? $detail->outlet_id ?? 0) > 0)
+            ->map(function (TransactionDetail $detail) use ($returnedQtyMap) {
+                $returnedQty = min(
+                    (int) $detail->qty,
+                    max(0, (int) ($returnedQtyMap->get($detail->id, 0) ?? 0))
+                );
+                $remainingQty = max(0, (int) $detail->qty - $returnedQty);
+
+                return [
+                    'detail' => $detail,
+                    'tenant_outlet_id' => (int) ($detail->tenant_outlet_id ?? $detail->outlet_id ?? 0),
+                    'remaining_qty' => $remainingQty,
+                    'tenant_line_total' => $this->proratedValue($this->tenantLineTotal($detail), (int) $detail->qty, $remainingQty),
+                    'tenant_discount_total' => $this->proratedValue($this->tenantDiscountTotal($detail), (int) $detail->qty, $remainingQty),
+                    'tenant_base_unit_price' => $this->tenantBaseUnitPrice($detail),
+                ];
+            })
+            ->filter(fn (array $row) => $row['tenant_outlet_id'] > 0 && $row['remaining_qty'] > 0)
             ->values();
 
         if ($details->isEmpty()) {
@@ -27,11 +64,11 @@ class FoodcourtTenantAllocationService
         }
 
         $allocations = collect();
-        $groupedDetails = $details->groupBy(fn (TransactionDetail $detail) => (int) ($detail->tenant_outlet_id ?? $detail->outlet_id));
+        $groupedDetails = $details->groupBy(fn (array $row) => $row['tenant_outlet_id']);
         $tenantOutletIds = $groupedDetails->keys()->map(fn ($id) => (int) $id)->values()->all();
-        $subtotals = $groupedDetails->map(fn (Collection $tenantDetails) => (int) $tenantDetails->sum(
-            fn (TransactionDetail $detail) => $this->tenantLineTotal($detail)
-        ));
+        $subtotals = $groupedDetails->map(
+            fn (Collection $tenantDetails) => (int) $tenantDetails->sum('tenant_line_total')
+        );
         $voucherShares = $this->allocateAcrossTenants($subtotals, (int) ($transaction->customer_voucher_discount ?? 0));
         $afterVoucher = $subtotals->map(fn (int $subtotal, int|string $tenantOutletId) => max(0, $subtotal - (int) $voucherShares->get($tenantOutletId, 0)));
         $loyaltyShares = $this->allocateAcrossTenants($afterVoucher, (int) ($transaction->loyalty_discount_total ?? 0));
@@ -49,7 +86,7 @@ class FoodcourtTenantAllocationService
             $tenantDetails = $tenantDetails->values();
             $tenantOutletId = (int) $tenantOutletId;
             $subtotal = (int) $subtotals->get($tenantOutletId, 0);
-            $promoDiscountTotal = (int) $tenantDetails->sum(fn (TransactionDetail $detail) => $this->tenantDiscountTotal($detail));
+            $promoDiscountTotal = (int) $tenantDetails->sum('tenant_discount_total');
             $voucherDiscountTotal = (int) $voucherShares->get($tenantOutletId, 0);
             $loyaltyDiscountTotal = (int) $loyaltyShares->get($tenantOutletId, 0);
             $manualDiscountTotal = (int) $manualShares->get($tenantOutletId, 0);
@@ -80,8 +117,8 @@ class FoodcourtTenantAllocationService
                 'voucher_discount_total' => $voucherDiscountTotal,
                 'grand_total' => $grandTotal,
                 'payment_status' => (string) ($transaction->payment_status ?: 'paid'),
-                'kitchen_status' => $tenantDetails->contains(fn (TransactionDetail $detail) => $detail->kitchen_station_id) ? 'pending' : 'not_required',
-                'waiter_status' => $tenantDetails->contains(fn (TransactionDetail $detail) => $detail->kitchen_station_id) ? ($allocation->waiter_status ?: 'pending') : 'not_required',
+                'kitchen_status' => $tenantDetails->contains(fn (array $row) => (bool) ($row['detail']?->kitchen_station_id ?? null)) ? 'pending' : 'not_required',
+                'waiter_status' => $tenantDetails->contains(fn (array $row) => (bool) ($row['detail']?->kitchen_station_id ?? null)) ? ($allocation->waiter_status ?: 'pending') : 'not_required',
             ]);
             $allocation->save();
 
@@ -91,7 +128,10 @@ class FoodcourtTenantAllocationService
 
             $allocation->items()->delete();
 
-            foreach ($tenantDetails as $detail) {
+            foreach ($tenantDetails as $detailRow) {
+                /** @var TransactionDetail $detail */
+                $detail = $detailRow['detail'];
+                $remainingQty = (int) $detailRow['remaining_qty'];
                 $existingItem = $existingItems->get((int) $detail->id);
                 $defaultServiceStatus = $detail->kitchen_station_id ? 'pending' : 'not_required';
 
@@ -100,11 +140,11 @@ class FoodcourtTenantAllocationService
                     'tenant_outlet_id' => (int) $tenantOutletId,
                     'product_id' => $detail->product_id,
                     'kitchen_station_id' => $detail->kitchen_station_id,
-                    'qty' => (int) $detail->qty,
-                    'base_unit_price' => $this->tenantBaseUnitPrice($detail),
-                    'unit_price' => (int) max(0, round($this->tenantLineTotal($detail) / max(1, (int) $detail->qty))),
-                    'line_total' => $this->tenantLineTotal($detail),
-                    'discount_total' => $this->tenantDiscountTotal($detail),
+                    'qty' => $remainingQty,
+                    'base_unit_price' => (int) $detailRow['tenant_base_unit_price'],
+                    'unit_price' => (int) max(0, round(((int) $detailRow['tenant_line_total']) / max(1, $remainingQty))),
+                    'line_total' => (int) $detailRow['tenant_line_total'],
+                    'discount_total' => (int) $detailRow['tenant_discount_total'],
                     'service_status' => $existingItem?->service_status ?: $defaultServiceStatus,
                     'ready_at' => $existingItem?->ready_at,
                     'picked_up_at' => $existingItem?->picked_up_at,
@@ -116,6 +156,19 @@ class FoodcourtTenantAllocationService
         }
 
         return $allocations;
+    }
+
+    private function proratedValue(int $totalValue, int $originalQty, int $remainingQty): int
+    {
+        if ($originalQty <= 0 || $remainingQty <= 0 || $totalValue <= 0) {
+            return 0;
+        }
+
+        if ($remainingQty >= $originalQty) {
+            return $totalValue;
+        }
+
+        return (int) round(($totalValue / $originalQty) * $remainingQty);
     }
 
     private function allocateAcrossTenants(Collection $bases, int $amount): Collection

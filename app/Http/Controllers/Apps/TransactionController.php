@@ -1969,9 +1969,7 @@ class TransactionController extends Controller
             $query->with('details.salesReturnItems.salesReturn:id,status');
         }
 
-        if (! $request->user()->isSuperAdmin()) {
-            $query->where('cashier_id', $request->user()->id);
-        }
+        $query = $this->constrainHistoryTransactionsVisibleToUser($query, $request);
 
         $query
             ->when($filters['invoice'], function (Builder $builder, $invoice) {
@@ -1993,22 +1991,46 @@ class TransactionController extends Controller
         $transactions = $query->paginate(10)->withQueryString();
         $transactions->through(function (Transaction $transaction) use ($salesReturnTablesReady) {
             $canCreateSalesReturn = false;
+            $salesReturnSummary = [
+                'completed_returns_count' => 0,
+                'returned_items_qty' => 0,
+                'returned_amount_total' => 0,
+                'status' => 'none',
+            ];
 
             if ($salesReturnTablesReady) {
                 $allReturned = true;
+                $completedReturnIds = collect();
+                $returnedItemsQty = 0;
+                $returnedAmountTotal = 0;
 
                 foreach ($transaction->details as $detail) {
-                    $returnedQty = (int) $detail->salesReturnItems
-                        ->filter(fn ($item) => $item->salesReturn?->status === 'completed')
-                        ->sum('qty_return');
+                    $completedReturnItems = $detail->salesReturnItems
+                        ->filter(fn ($item) => $item->salesReturn?->status === 'completed');
+
+                    $returnedQty = (int) $completedReturnItems->sum('qty_return');
+                    $returnedItemsQty += $returnedQty;
+                    $returnedAmountTotal += (int) $completedReturnItems->sum('subtotal_return');
+                    $completedReturnIds = $completedReturnIds->merge(
+                        $completedReturnItems
+                            ->pluck('sales_return_id')
+                            ->filter()
+                    );
 
                     if ($returnedQty < (int) $detail->qty) {
                         $allReturned = false;
-                        break;
                     }
                 }
 
                 $canCreateSalesReturn = $transaction->details->isNotEmpty() && ! $allReturned;
+                $salesReturnSummary = [
+                    'completed_returns_count' => $completedReturnIds->unique()->count(),
+                    'returned_items_qty' => $returnedItemsQty,
+                    'returned_amount_total' => $returnedAmountTotal,
+                    'status' => $returnedItemsQty <= 0
+                        ? 'none'
+                        : ($allReturned ? 'full' : 'partial'),
+                ];
             }
 
             return [
@@ -2018,6 +2040,7 @@ class TransactionController extends Controller
                     + (int) ($transaction->loyalty_discount_total ?? 0)
                     + (int) ($transaction->customer_voucher_discount ?? 0),
                 'can_create_sales_return' => $canCreateSalesReturn,
+                'sales_return_summary' => $salesReturnSummary,
                 'can_create_share_campaign' => (bool) $transaction->customer_id,
             ];
         });
@@ -2207,11 +2230,12 @@ class TransactionController extends Controller
             ->when($includeDetails, fn (Builder $builder) => $builder->with([
                 'details' => fn ($detailQuery) => $detailQuery
                     ->select($detailColumns)
-                    ->with('product:id,title', 'modifiers'),
+                    ->with('product:id,title', 'modifiers', 'salesReturnItems.salesReturn:id,status'),
             ]))
             ->when($this->resolveActiveOutlet($request), fn (Builder $builder, $outlet) => $builder->where('outlet_id', $outlet->id))
-            ->when(! $request->user()->isSuperAdmin(), fn (Builder $builder) => $builder->where('cashier_id', $request->user()->id))
             ->withSum('details as total_items', 'qty');
+
+        $query = $this->constrainHistoryTransactionsVisibleToUser($query, $request);
 
         if (Schema::hasColumn('transaction_details', 'discount_total')) {
             $query->withSum('details as total_promo_discount', 'discount_total');
@@ -2223,6 +2247,7 @@ class TransactionController extends Controller
     private function transformTransactionHistoryModalItem(Transaction $transaction): array
     {
         $storePayload = $this->resolveActiveOutlet()?->profilePayload() ?? [];
+        $salesReturnSummary = $this->buildTransactionSalesReturnSummary($transaction);
 
         return [
             'id' => $transaction->id,
@@ -2240,6 +2265,10 @@ class TransactionController extends Controller
                 + (int) ($transaction->discount ?? 0)
                 + (int) ($transaction->loyalty_discount_total ?? 0)
                 + (int) ($transaction->customer_voucher_discount ?? 0),
+            'sales_return_summary' => $salesReturnSummary,
+            'can_create_sales_return' => ($transaction->relationLoaded('details')
+                ? $transaction->details->isNotEmpty() && $salesReturnSummary['status'] !== 'full'
+                : false),
             'cashier' => $transaction->cashier ? [
                 'id' => $transaction->cashier->id,
                 'name' => $transaction->cashier->name,
@@ -2281,6 +2310,62 @@ class TransactionController extends Controller
                 : [],
             'receiptLayout' => $this->receiptLayoutService->build($transaction, $storePayload, '58mm'),
         ];
+    }
+
+    private function buildTransactionSalesReturnSummary(Transaction $transaction): array
+    {
+        if (! $transaction->relationLoaded('details')) {
+            return [
+                'completed_returns_count' => 0,
+                'returned_items_qty' => 0,
+                'returned_amount_total' => 0,
+                'status' => 'none',
+            ];
+        }
+
+        $allReturned = true;
+        $completedReturnIds = collect();
+        $returnedItemsQty = 0;
+        $returnedAmountTotal = 0;
+
+        foreach ($transaction->details as $detail) {
+            $completedReturnItems = $detail->salesReturnItems
+                ? $detail->salesReturnItems->filter(fn ($item) => $item->salesReturn?->status === 'completed')
+                : collect();
+
+            $returnedQty = (int) $completedReturnItems->sum('qty_return');
+            $returnedItemsQty += $returnedQty;
+            $returnedAmountTotal += (int) $completedReturnItems->sum('subtotal_return');
+            $completedReturnIds = $completedReturnIds->merge(
+                $completedReturnItems->pluck('sales_return_id')->filter()
+            );
+
+            if ($returnedQty < (int) $detail->qty) {
+                $allReturned = false;
+            }
+        }
+
+        return [
+            'completed_returns_count' => $completedReturnIds->unique()->count(),
+            'returned_items_qty' => $returnedItemsQty,
+            'returned_amount_total' => $returnedAmountTotal,
+            'status' => $returnedItemsQty <= 0
+                ? 'none'
+                : ($allReturned ? 'full' : 'partial'),
+        ];
+    }
+
+    private function constrainHistoryTransactionsVisibleToUser(Builder $query, Request $request): Builder
+    {
+        if ($request->user()->isSuperAdmin()) {
+            return $query;
+        }
+
+        return $query->where(function (Builder $builder) use ($request) {
+            $builder
+                ->where('cashier_id', $request->user()->id)
+                ->orWhereHas('cashierShift.operators', fn (Builder $operatorQuery) => $operatorQuery->where('users.id', $request->user()->id));
+        });
     }
 
     private function findEditableCart(Request $request, int|string $cartId): ?Cart

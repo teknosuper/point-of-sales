@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreSalesReturnRequest;
 use App\Http\Requests\UpdateSalesReturnRequest;
 use App\Models\CustomerCredit;
+use App\Models\CashierSettlementRequest;
 use App\Models\Profit;
 use App\Models\SalesReturn;
 use App\Models\SalesReturnItem;
@@ -13,6 +14,7 @@ use App\Models\Transaction;
 use App\Models\TransactionDetail;
 use App\Services\AuditLogService;
 use App\Services\CashierShiftService;
+use App\Services\FoodcourtTenantAllocationService;
 use App\Services\OutletResolver;
 use App\Services\StockMutationService;
 use Illuminate\Database\Eloquent\Builder;
@@ -20,8 +22,10 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
+use Throwable;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -32,6 +36,7 @@ class SalesReturnController extends Controller
         private readonly StockMutationService $stockMutationService,
         private readonly CashierShiftService $cashierShiftService,
         private readonly AuditLogService $auditLogService,
+        private readonly FoodcourtTenantAllocationService $foodcourtTenantAllocationService,
         private readonly OutletResolver $outletResolver
     ) {}
 
@@ -51,11 +56,6 @@ class SalesReturnController extends Controller
         $salesReturns = SalesReturn::query()
             ->with(['transaction:id,invoice,payment_method,payment_status', 'customer:id,name', 'cashier:id,name'])
             ->when($outlet, fn (Builder $query) => $query->where('outlet_id', $outlet->id))
-            ->when(! $request->user()->isSuperAdmin(), function (Builder $query) use ($request) {
-                $query->whereHas('transaction', function (Builder $builder) use ($request) {
-                    $builder->where('cashier_id', $request->user()->id);
-                });
-            })
             ->when($filters['code'], fn (Builder $query, $code) => $query->where('code', 'like', '%'.$code.'%'))
             ->when($filters['invoice'], function (Builder $query, $invoice) {
                 $query->whereHas('transaction', fn (Builder $builder) => $builder->where('invoice', 'like', '%'.$invoice.'%'));
@@ -63,7 +63,9 @@ class SalesReturnController extends Controller
             ->when($filters['date_from'], fn (Builder $query, $date) => $query->whereDate('created_at', '>=', $date))
             ->when($filters['date_to'], fn (Builder $query, $date) => $query->whereDate('created_at', '<=', $date))
             ->when($filters['return_type'], fn (Builder $query, $returnType) => $query->where('return_type', $returnType))
-            ->withCount('items')
+            ->withCount('items');
+
+        $salesReturns = $this->constrainSalesReturnsVisibleToUser($salesReturns, $request)
             ->latest()
             ->paginate(10)
             ->withQueryString();
@@ -185,123 +187,162 @@ class SalesReturnController extends Controller
         $this->ensureDraft($salesReturn);
         $before = $this->salesReturnAuditPayload($salesReturn);
 
-        DB::transaction(function () use ($request, $salesReturn) {
-            $activeShift = $this->cashierShiftService->requireActiveShiftForUser(
-                $request->user()->id,
-                $salesReturn->outlet_id,
-                lockForUpdate: true
-            );
+        try {
+            DB::transaction(function () use ($request, $salesReturn) {
+                $activeShift = $this->cashierShiftService->requireActiveShiftForUser(
+                    $request->user()->id,
+                    $salesReturn->outlet_id,
+                    lockForUpdate: true
+                );
 
-            $salesReturn->load([
-                'transaction.receivable',
-                'items.product',
-                'items.transactionDetail',
-            ]);
-
-            if ($salesReturn->items->isEmpty()) {
-                throw ValidationException::withMessages([
-                    'sales_return' => 'Draft retur belum memiliki item.',
+                $salesReturn->load([
+                    'transaction.receivable',
+                    'items.product',
+                    'items.transactionDetail',
                 ]);
-            }
 
-            $returnedQtyMap = $this->getCompletedReturnedQtyMap(
-                $salesReturn->transaction_id,
-                excludeSalesReturnId: $salesReturn->id,
-            );
-
-            foreach ($salesReturn->items as $item) {
-                $detail = $item->transactionDetail;
-
-                if (! $detail || $item->qty_return < 1) {
+                if ($salesReturn->items->isEmpty()) {
                     throw ValidationException::withMessages([
-                        'sales_return' => 'Seluruh item retur harus memiliki kuantitas minimal 1.',
+                        'sales_return' => 'Draft retur belum memiliki item.',
                     ]);
                 }
 
-                $returnedBefore = (int) ($returnedQtyMap[$detail->id] ?? 0);
-                $remainingQty = (int) $detail->qty - $returnedBefore;
+                $returnedQtyMap = $this->getCompletedReturnedQtyMap(
+                    $salesReturn->transaction_id,
+                    excludeSalesReturnId: $salesReturn->id,
+                );
 
-                if ($item->qty_return > $remainingQty) {
-                    throw ValidationException::withMessages([
-                        'sales_return' => 'Ada item retur yang melebihi sisa qty yang bisa diretur.',
-                    ]);
-                }
-            }
+                foreach ($salesReturn->items as $item) {
+                    $detail = $item->transactionDetail;
 
-            foreach ($salesReturn->items as $item) {
-                if ($item->restock_to_inventory && $item->product) {
-                        $product = $item->product()->lockForUpdate()->first();
+                    if (! $detail || $item->qty_return < 1) {
+                        throw ValidationException::withMessages([
+                            'sales_return' => 'Seluruh item retur harus memiliki kuantitas minimal 1.',
+                        ]);
+                    }
 
-                        if ($product) {
-                            $stockBefore = $this->stockMutationService->stockForOutlet($product, (int) $salesReturn->outlet_id);
-                            $stockAfter = $stockBefore + (int) $item->qty_return;
+                    $returnedBefore = (int) ($returnedQtyMap[$detail->id] ?? 0);
+                    $remainingQty = (int) $detail->qty - $returnedBefore;
 
-                            $this->stockMutationService->recordSalesReturnRestock(
-                                product: $product,
-                            salesReturn: $salesReturn,
-                            stockBefore: $stockBefore,
-                            stockAfter: $stockAfter,
-                            reason: $item->return_reason,
-                            userId: $request->user()?->id,
-                        );
+                    if ($item->qty_return > $remainingQty) {
+                        throw ValidationException::withMessages([
+                            'sales_return' => 'Ada item retur yang melebihi sisa qty yang bisa diretur.',
+                        ]);
                     }
                 }
 
-                $detail = $item->transactionDetail;
-                $buyPrice = (int) ($item->product?->buy_price ?? 0);
-                $margin = ((int) $detail->price - $buyPrice) * (int) $item->qty_return;
+                foreach ($salesReturn->items as $item) {
+                    if ($item->restock_to_inventory && $item->product) {
+                            $product = $item->product()->lockForUpdate()->first();
 
-                Profit::create([
-                    'transaction_id' => $salesReturn->transaction_id,
-                    'total' => -$margin,
-                ]);
-            }
+                            if ($product) {
+                                $stockBefore = $this->stockMutationService->stockForOutlet($product, (int) $salesReturn->outlet_id);
+                                $stockAfter = $stockBefore + (int) $item->qty_return;
 
-            $salesReturn->loadMissing('transaction.receivable');
-            $settlement = $this->calculateSettlement(
-                $salesReturn->transaction,
-                (int) $salesReturn->total_return_amount,
-                $salesReturn->return_type
-            );
+                                $this->stockMutationService->recordSalesReturnRestock(
+                                    product: $product,
+                                salesReturn: $salesReturn,
+                                stockBefore: $stockBefore,
+                                stockAfter: $stockAfter,
+                                reason: $item->return_reason,
+                                userId: $request->user()?->id,
+                            );
+                        }
+                    }
 
-            $salesReturn->update([
-                'cashier_shift_id' => $activeShift->id,
-                'return_type' => $settlement['return_type'],
-                'refund_amount' => $settlement['refund_amount'],
-                'credited_amount' => $settlement['credited_amount'],
-                'status' => 'completed',
-                'completed_at' => now(),
-            ]);
+                    $detail = $item->transactionDetail;
+                    $buyPrice = (int) ($item->product?->buy_price ?? 0);
+                    $margin = ((int) $detail->price - $buyPrice) * (int) $item->qty_return;
 
-            if ($salesReturn->transaction->payment_method === 'pay_later' && $salesReturn->transaction->receivable) {
-                $receivable = $salesReturn->transaction->receivable()->lockForUpdate()->first();
-
-                if ($receivable) {
-                    $receivable->update([
-                        'total' => $settlement['receivable_total_after'],
-                        'status' => $this->determineReceivableStatus(
-                            total: $settlement['receivable_total_after'],
-                            paid: (int) $receivable->paid,
-                            dueDate: $receivable->due_date,
-                        ),
+                    Profit::create([
+                        'transaction_id' => $salesReturn->transaction_id,
+                        'total' => -$margin,
                     ]);
                 }
-            }
 
-            if (
-                $salesReturn->return_type === 'store_credit'
-                && $salesReturn->customer_id
-                && $salesReturn->credited_amount > 0
-            ) {
-                CustomerCredit::create([
-                    'customer_id' => $salesReturn->customer_id,
-                    'sales_return_id' => $salesReturn->id,
-                    'amount' => $salesReturn->credited_amount,
-                    'balance' => $salesReturn->credited_amount,
-                    'notes' => 'Saldo toko dari retur penjualan '.$salesReturn->code,
+                $salesReturn->loadMissing('transaction.receivable');
+                $settlement = $this->calculateSettlement(
+                    $salesReturn->transaction,
+                    (int) $salesReturn->total_return_amount,
+                    $salesReturn->return_type
+                );
+
+                $salesReturn->update([
+                    'cashier_shift_id' => $activeShift->id,
+                    'return_type' => $settlement['return_type'],
+                    'refund_amount' => $settlement['refund_amount'],
+                    'credited_amount' => $settlement['credited_amount'],
+                    'status' => 'completed',
+                    'completed_at' => now(),
                 ]);
-            }
-        });
+
+                if ($salesReturn->transaction->payment_method === 'pay_later' && $salesReturn->transaction->receivable) {
+                    $receivable = $salesReturn->transaction->receivable()->lockForUpdate()->first();
+
+                    if ($receivable) {
+                        $receivable->update([
+                            'total' => $settlement['receivable_total_after'],
+                            'status' => $this->determineReceivableStatus(
+                                total: $settlement['receivable_total_after'],
+                                paid: (int) $receivable->paid,
+                                dueDate: $receivable->due_date,
+                            ),
+                        ]);
+                    }
+                }
+
+                if (
+                    $salesReturn->return_type === 'store_credit'
+                    && $salesReturn->customer_id
+                    && $salesReturn->credited_amount > 0
+                ) {
+                    CustomerCredit::create([
+                        'customer_id' => $salesReturn->customer_id,
+                        'sales_return_id' => $salesReturn->id,
+                        'amount' => $salesReturn->credited_amount,
+                        'balance' => $salesReturn->credited_amount,
+                        'notes' => 'Saldo toko dari retur penjualan '.$salesReturn->code,
+                    ]);
+                }
+
+                $this->foodcourtTenantAllocationService->reconcileCompletedReturns(
+                    $salesReturn->transaction->fresh(['details'])
+                );
+
+                $pendingSettlement = CashierSettlementRequest::query()
+                    ->where('cashier_shift_id', $activeShift->id)
+                    ->where('status', CashierSettlementRequest::STATUS_PENDING)
+                    ->latest('created_at')
+                    ->first();
+
+                if ($pendingSettlement) {
+                    $summary = $this->cashierShiftService->calculateBaseSettlementSummary($activeShift);
+
+                    $pendingSettlement->update([
+                        'gross_sales_total' => (int) $summary['gross_sales_total'],
+                        'base_sales_total' => (int) $summary['base_sales_total'],
+                        'markup_total' => (int) $summary['markup_total'],
+                        'requested_amount' => (int) $summary['base_sales_total'],
+                    ]);
+                }
+            });
+        } catch (ValidationException $exception) {
+            throw $exception;
+        } catch (Throwable $exception) {
+            Log::error('Gagal menyelesaikan retur penjualan.', [
+                'sales_return_id' => $salesReturn->id,
+                'sales_return_code' => $salesReturn->code,
+                'transaction_id' => $salesReturn->transaction_id,
+                'cashier_id' => $request->user()?->id,
+                'message' => $exception->getMessage(),
+            ]);
+
+            return back()->withErrors([
+                'sales_return' => filled($exception->getMessage())
+                    ? 'Gagal menyelesaikan retur: '.$exception->getMessage()
+                    : 'Gagal menyelesaikan retur.',
+            ]);
+        }
 
         $salesReturn->refresh();
         $salesReturn->load('items.product');
@@ -350,7 +391,13 @@ class SalesReturnController extends Controller
                 'details.salesReturnItems.salesReturn:id,status',
             ])
             ->when($outlet, fn (Builder $query) => $query->where('outlet_id', $outlet->id))
-            ->when(! $request->user()->isSuperAdmin(), fn (Builder $query) => $query->where('cashier_id', $request->user()->id))
+            ->when(! $request->user()->isSuperAdmin(), function (Builder $query) use ($request) {
+                $query->where(function (Builder $builder) use ($request) {
+                    $builder
+                        ->where('cashier_id', $request->user()->id)
+                        ->orWhereHas('cashierShift.operators', fn (Builder $operatorQuery) => $operatorQuery->where('users.id', $request->user()->id));
+                });
+            })
             ->findOrFail($transactionId);
     }
 
@@ -371,10 +418,23 @@ class SalesReturnController extends Controller
                 'items.transactionDetail:id,transaction_id,product_id,qty,price',
             ])
             ->when($outlet, fn (Builder $query) => $query->where('outlet_id', $outlet->id))
-            ->when(! $request->user()->isSuperAdmin(), function (Builder $query) use ($request) {
-                $query->whereHas('transaction', fn (Builder $builder) => $builder->where('cashier_id', $request->user()->id));
-            })
+            ->when(true, fn (Builder $query) => $this->constrainSalesReturnsVisibleToUser($query, $request))
             ->findOrFail($salesReturnId);
+    }
+
+    private function constrainSalesReturnsVisibleToUser(Builder $query, Request $request): Builder
+    {
+        if ($request->user()->isSuperAdmin()) {
+            return $query;
+        }
+
+        return $query->whereHas('transaction', function (Builder $builder) use ($request) {
+            $builder->where(function (Builder $nested) use ($request) {
+                $nested
+                    ->where('cashier_id', $request->user()->id)
+                    ->orWhereHas('cashierShift.operators', fn (Builder $operatorQuery) => $operatorQuery->where('users.id', $request->user()->id));
+            });
+        });
     }
 
     private function transformTransactionForEditor(Transaction $transaction, ?SalesReturn $salesReturn = null): array

@@ -47,7 +47,7 @@ class SalesReportController extends Controller
         ];
 
         if ($isTenantOutlet) {
-            return $this->renderTenantSalesReport($filters, $outletId);
+            return $this->renderTenantSalesReport($request, $filters, $outletId);
         }
 
         $baseListQuery = $this->applyFilters(
@@ -233,7 +233,7 @@ class SalesReportController extends Controller
         ]);
     }
 
-    protected function renderTenantSalesReport(array $filters, int $tenantOutletId)
+    protected function renderTenantSalesReport(Request $request, array $filters, int $tenantOutletId)
     {
         $tenantBaseQuery = $this->applyAllocationFilters(
             $this->withAllocationDiscountSplit(TransactionTenantAllocation::query())
@@ -347,7 +347,7 @@ class SalesReportController extends Controller
             'filters' => $filters,
             'cashiers' => User::select('id', 'name')->orderBy('name')->get(),
             'customers' => Customer::select('id', 'name')->orderBy('name')->get(),
-            'tenantOutlets' => $this->accessibleTenantOutlets($request())
+            'tenantOutlets' => $this->accessibleTenantOutlets($request)
                 ->where('outlets.id', $tenantOutletId)
                 ->get(['outlets.id', 'outlets.name', 'outlets.code']),
             'workspace' => [

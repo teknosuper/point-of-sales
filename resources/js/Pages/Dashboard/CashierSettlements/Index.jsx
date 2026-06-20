@@ -200,6 +200,8 @@ export default function Index({
     const links = requests?.links ?? [];
     const walletRows = walletTransactions?.data ?? [];
     const walletLinks = walletTransactions?.links ?? [];
+    const isWalletReturnDetail =
+        walletDetailModal.transaction?.entry_type === "sales_return";
     const selectedShift = useMemo(
         () =>
             shiftOptions.find(
@@ -536,7 +538,7 @@ export default function Index({
 
                 {isTenantRequestMode && wallet ? (
                     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                        <SummaryCard title="Saldo Masuk Tenant" value={formatCurrency(wallet.tenant_sales_total ?? 0)} description="Hak tenant setelah markup owner dipisahkan" icon={<IconReceipt2 size={20} />} tone="emerald" />
+                        <SummaryCard title="Saldo Masuk Tenant" value={formatCurrency(wallet.tenant_sales_total ?? 0)} description="Hak tenant yang menjadi dasar saldo dan pencairan" icon={<IconReceipt2 size={20} />} tone="emerald" />
                         <SummaryCard title="Piutang ke Owner" value={formatCurrency(wallet.receivable_total ?? 0)} description="Hak tenant yang belum dicairkan penuh" icon={<IconClockHour4 size={20} />} tone="amber" />
                         <SummaryCard title="Menunggu Approval" value={formatCurrency(wallet.pending_total ?? 0)} description="Pengajuan penarikan yang masih diproses" icon={<IconShieldCheck size={20} />} tone="blue" />
                         <SummaryCard title="Saldo Tersedia" value={formatCurrency(wallet.available_balance ?? 0)} description="Batas nominal yang bisa diajukan saat ini" icon={<IconCashBanknote size={20} />} tone="slate" />
@@ -560,13 +562,13 @@ export default function Index({
                                 <div className="grid gap-3 md:grid-cols-2">
                                     <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-800/60">
                                         <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                                            Hak Tenant Setelah Markup
+                                            Hak Tenant
                                         </p>
                                         <p className="mt-2 text-lg font-bold text-slate-900 dark:text-white">
                                             {formatCurrency(wallet?.tenant_sales_total ?? 0)}
                                         </p>
                                         <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                            Omzet setelah promo {formatCurrency(wallet?.gross_sales_total ?? 0)}
+                                            Ini adalah dasar saldo tenant sebelum bagian markup owner
                                         </p>
                                     </div>
                                     <div className="rounded-2xl bg-emerald-50 p-4 dark:bg-emerald-950/20">
@@ -577,7 +579,7 @@ export default function Index({
                                             {formatCurrency(wallet?.available_balance ?? 0)}
                                         </p>
                                         <p className="mt-1 text-xs text-emerald-600/80 dark:text-emerald-300/70">
-                                            Promo pricing rules {formatCurrency(wallet?.pricing_discount_total ?? 0)}
+                                            Promo tenant {formatCurrency(wallet?.pricing_discount_total ?? 0)}
                                         </p>
                                     </div>
                                 </div>
@@ -994,7 +996,7 @@ export default function Index({
                                 Transaksi Masuk ke Saldo
                             </h2>
                             <p className="text-sm text-slate-500 dark:text-slate-400">
-                                Menampilkan {walletTransactions?.from || 0}-{walletTransactions?.to || 0} dari {walletTransactions?.total || 0} transaksi delivered. Tabel ini menjadi dasar saldo tenant, markup owner, dan nominal yang bisa diajukan.
+                                Menampilkan {walletTransactions?.from || 0}-{walletTransactions?.to || 0} dari {walletTransactions?.total || 0} aktivitas saldo. Fokus utama tabel ini adalah hak tenant yang bertambah atau berkurang.
                             </p>
                         </div>
 
@@ -1003,9 +1005,8 @@ export default function Index({
                                 <table className="w-full text-sm">
                                     <thead>
                                         <tr className="border-b border-slate-100 dark:border-slate-800">
-                                            <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Transaksi</th>
+                                            <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Aktivitas</th>
                                             <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Kasir</th>
-                                            <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Omzet Setelah Promo</th>
                                             <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Hak Tenant</th>
                                             <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Promo</th>
                                             <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Selesai</th>
@@ -1026,7 +1027,10 @@ export default function Index({
                                                         {row.allocation_number} • {row.customer_name}
                                                     </div>
                                                     <div className="text-xs text-slate-500 dark:text-slate-400">
-                                                        {paymentMethodLabel(row.payment_method)} • {row.payment_status || "-"}
+                                                        {paymentMethodLabel(row.payment_method)} • {row.entry_type === "sales_return" ? "retur" : (row.payment_status || "-")}
+                                                    </div>
+                                                    <div className="mt-1 inline-flex items-center rounded-full px-2 py-1 text-[11px] font-semibold bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                                                        {row.entry_type === "sales_return" ? "Retur" : "Masuk Saldo"}
                                                     </div>
                                                 </td>
                                                 <td className="px-4 py-3 text-slate-700 dark:text-slate-300">
@@ -1037,19 +1041,27 @@ export default function Index({
                                                         </div>
                                                     ) : null}
                                                 </td>
-                                                <td className="px-4 py-3 text-right font-semibold text-slate-900 dark:text-white">
-                                                    {formatCurrency(row.gross_sales_total)}
-                                                </td>
-                                                <td className="px-4 py-3 text-right font-semibold text-emerald-600 dark:text-emerald-300">
+                                                <td className={`px-4 py-3 text-right font-semibold ${row.tenant_sales_total < 0 ? "text-danger-600 dark:text-danger-300" : "text-emerald-600 dark:text-emerald-300"}`}>
                                                     {formatCurrency(row.tenant_sales_total)}
+                                                    {row.entry_type !== "sales_return" ? (
+                                                        <div className="mt-1 text-[11px] font-normal text-slate-500 dark:text-slate-400">
+                                                            Referensi customer {formatCurrency(row.gross_sales_total)}
+                                                        </div>
+                                                    ) : (
+                                                        <div className="mt-1 text-[11px] font-normal text-slate-500 dark:text-slate-400">
+                                                            Pengurang dari retur customer {formatCurrency(row.gross_sales_total)}
+                                                        </div>
+                                                    )}
                                                 </td>
-                                                <td className="px-4 py-3 text-right text-slate-700 dark:text-slate-300">
+                                                <td className={`px-4 py-3 text-right ${row.pricing_discount_total < 0 ? "text-danger-600 dark:text-danger-300" : "text-slate-700 dark:text-slate-300"}`}>
                                                     {formatCurrency(row.pricing_discount_total || 0)}
                                                 </td>
                                                 <td className="px-4 py-3 text-slate-700 dark:text-slate-300">
                                                     <div>{formatDateTime(row.delivered_at)}</div>
                                                     <div className="text-xs text-slate-500 dark:text-slate-400">
-                                                        Dibuat {formatDateTime(row.created_at)}
+                                                        {row.entry_type === "sales_return"
+                                                            ? `Retur dibuat ${formatDateTime(row.created_at)}`
+                                                            : `Dibuat ${formatDateTime(row.created_at)}`}
                                                     </div>
                                                 </td>
                                             </tr>
@@ -1073,11 +1085,18 @@ export default function Index({
                                 <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-6 py-5 dark:border-slate-800">
                                     <div>
                                         <h2 className="text-xl font-semibold text-slate-900 dark:text-white">
-                                            Detail Transaksi Tenant
+                                            {isWalletReturnDetail
+                                                ? "Detail Retur Tenant"
+                                                : "Detail Transaksi Tenant"}
                                         </h2>
                                         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                                             {walletDetailModal.transaction?.invoice} • {walletDetailModal.transaction?.customer_name}
                                         </p>
+                                        {isWalletReturnDetail ? (
+                                            <div className="mt-2 inline-flex items-center rounded-full bg-danger-50 px-2 py-1 text-[11px] font-semibold text-danger-700 dark:bg-danger-950/30 dark:text-danger-300">
+                                                Retur mengurangi saldo tenant
+                                            </div>
+                                        ) : null}
                                     </div>
                                     <button type="button" onClick={closeWalletDetailModal} className="rounded-xl border border-slate-200 px-3 py-2 text-sm dark:border-slate-700">
                                         Tutup
@@ -1086,26 +1105,34 @@ export default function Index({
                                 <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
                                     <div className="grid gap-3 md:grid-cols-4">
                                         <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-800/60">
-                                            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Omzet Setelah Promo</p>
-                                            <p className="mt-2 text-lg font-bold text-slate-900 dark:text-white">
+                                            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                                                {isWalletReturnDetail ? "Omzet Dikurangi" : "Omzet Setelah Promo"}
+                                            </p>
+                                            <p className={`mt-2 text-lg font-bold ${isWalletReturnDetail ? "text-danger-700 dark:text-danger-300" : "text-slate-900 dark:text-white"}`}>
                                                 {formatCurrency(walletDetailModal.transaction?.gross_sales_total ?? 0)}
                                             </p>
                                         </div>
                                         <div className="rounded-2xl bg-emerald-50 p-4 dark:bg-emerald-950/20">
-                                            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-500">Hak Tenant</p>
-                                            <p className="mt-2 text-lg font-bold text-emerald-700 dark:text-emerald-300">
+                                            <p className={`text-xs font-semibold uppercase tracking-wide ${isWalletReturnDetail ? "text-danger-500" : "text-emerald-500"}`}>
+                                                {isWalletReturnDetail ? "Hak Tenant Dikurangi" : "Hak Tenant"}
+                                            </p>
+                                            <p className={`mt-2 text-lg font-bold ${isWalletReturnDetail ? "text-danger-700 dark:text-danger-300" : "text-emerald-700 dark:text-emerald-300"}`}>
                                                 {formatCurrency(walletDetailModal.transaction?.tenant_sales_total ?? 0)}
                                             </p>
                                         </div>
                                         <div className="rounded-2xl bg-amber-50 p-4 dark:bg-amber-950/20">
-                                            <p className="text-xs font-semibold uppercase tracking-wide text-amber-500">Markup Owner</p>
-                                            <p className="mt-2 text-lg font-bold text-amber-700 dark:text-amber-300">
+                                            <p className={`text-xs font-semibold uppercase tracking-wide ${isWalletReturnDetail ? "text-danger-500" : "text-amber-500"}`}>
+                                                {isWalletReturnDetail ? "Markup Owner Dikurangi" : "Markup Owner"}
+                                            </p>
+                                            <p className={`mt-2 text-lg font-bold ${isWalletReturnDetail ? "text-danger-700 dark:text-danger-300" : "text-amber-700 dark:text-amber-300"}`}>
                                                 {formatCurrency(walletDetailModal.transaction?.owner_markup_total ?? 0)}
                                             </p>
                                         </div>
                                         <div className="rounded-2xl bg-blue-50 p-4 dark:bg-blue-950/20">
-                                            <p className="text-xs font-semibold uppercase tracking-wide text-blue-500">Promo</p>
-                                            <p className="mt-2 text-lg font-bold text-blue-700 dark:text-blue-300">
+                                            <p className={`text-xs font-semibold uppercase tracking-wide ${isWalletReturnDetail ? "text-danger-500" : "text-blue-500"}`}>
+                                                {isWalletReturnDetail ? "Promo Dikurangi" : "Promo"}
+                                            </p>
+                                            <p className={`mt-2 text-lg font-bold ${isWalletReturnDetail ? "text-danger-700 dark:text-danger-300" : "text-blue-700 dark:text-blue-300"}`}>
                                                 {formatCurrency(walletDetailModal.transaction?.pricing_discount_total ?? 0)}
                                             </p>
                                         </div>
@@ -1144,27 +1171,29 @@ export default function Index({
                                                             ) : null}
                                                         </td>
                                                         <td className="px-4 py-3 text-right text-slate-700 dark:text-slate-300">
-                                                            {detail.qty}
+                                                            <span className={detail.qty < 0 ? "font-semibold text-danger-600 dark:text-danger-300" : ""}>
+                                                                {detail.qty}
+                                                            </span>
                                                         </td>
-                                                        <td className="px-4 py-3 text-right text-slate-700 dark:text-slate-300">
+                                                        <td className={`px-4 py-3 text-right ${detail.line_total < 0 ? "font-semibold text-danger-600 dark:text-danger-300" : "text-slate-700 dark:text-slate-300"}`}>
                                                             <div>{formatCurrency(detail.line_total)}</div>
                                                             <div className="text-xs text-slate-500 dark:text-slate-400">
                                                                 Unit {formatCurrency(detail.customer_unit_price)}
                                                             </div>
                                                         </td>
-                                                        <td className="px-4 py-3 text-right font-semibold text-emerald-600 dark:text-emerald-300">
+                                                        <td className={`px-4 py-3 text-right font-semibold ${detail.tenant_net_total < 0 ? "text-danger-600 dark:text-danger-300" : "text-emerald-600 dark:text-emerald-300"}`}>
                                                             <div>{formatCurrency(detail.tenant_net_total)}</div>
                                                             <div className="text-xs font-normal text-slate-500 dark:text-slate-400">
                                                                 Unit {formatCurrency(detail.tenant_base_unit_price)}
                                                             </div>
                                                         </td>
-                                                        <td className="px-4 py-3 text-right font-semibold text-amber-600 dark:text-amber-300">
+                                                        <td className={`px-4 py-3 text-right font-semibold ${detail.owner_net_total < 0 ? "text-danger-600 dark:text-danger-300" : "text-amber-600 dark:text-amber-300"}`}>
                                                             <div>{formatCurrency(detail.owner_net_total)}</div>
                                                             <div className="text-xs font-normal text-slate-500 dark:text-slate-400">
                                                                 Unit {formatCurrency(detail.owner_markup_unit_price)}
                                                             </div>
                                                         </td>
-                                                        <td className="px-4 py-3 text-right text-slate-700 dark:text-slate-300">
+                                                        <td className={`px-4 py-3 text-right ${detail.discount_total < 0 ? "font-semibold text-danger-600 dark:text-danger-300" : "text-slate-700 dark:text-slate-300"}`}>
                                                             {formatCurrency(detail.discount_total || 0)}
                                                         </td>
                                                     </tr>

@@ -292,6 +292,35 @@ const History = ({ transactions, filters }) => {
                                                     <span className="text-sm font-semibold text-slate-900 dark:text-white">
                                                         {transaction.invoice}
                                                     </span>
+                                                    {transaction.sales_return_summary
+                                                        ?.status !== "none" && (
+                                                        <div className="flex flex-wrap gap-2">
+                                                            <span
+                                                                className={`inline-flex items-center rounded-full px-2 py-1 text-[11px] font-semibold ${
+                                                                    transaction
+                                                                        .sales_return_summary
+                                                                        ?.status ===
+                                                                    "full"
+                                                                        ? "bg-danger-50 text-danger-700 dark:bg-danger-950/30 dark:text-danger-300"
+                                                                        : "bg-warning-50 text-warning-700 dark:bg-warning-950/30 dark:text-warning-300"
+                                                                }`}
+                                                            >
+                                                                {transaction
+                                                                    .sales_return_summary
+                                                                    ?.status ===
+                                                                "full"
+                                                                    ? "Retur Penuh"
+                                                                    : "Retur Parsial"}
+                                                            </span>
+                                                            <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                                                                {transaction
+                                                                    .sales_return_summary
+                                                                    ?.returned_items_qty ||
+                                                                    0}{" "}
+                                                                item
+                                                            </span>
+                                                        </div>
+                                                    )}
                                                     {Number(
                                                         transaction.total_discount ||
                                                             0
@@ -300,6 +329,21 @@ const History = ({ transactions, filters }) => {
                                                             Promo total{" "}
                                                             {formatCurrency(
                                                                 transaction.total_discount
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                    {Number(
+                                                        transaction
+                                                            .sales_return_summary
+                                                            ?.returned_amount_total ||
+                                                            0
+                                                    ) > 0 && (
+                                                        <div className="text-[11px] font-medium text-danger-600 dark:text-danger-400">
+                                                            Total retur{" "}
+                                                            {formatCurrency(
+                                                                transaction
+                                                                    .sales_return_summary
+                                                                    ?.returned_amount_total
                                                             )}
                                                         </div>
                                                     )}
@@ -496,6 +540,34 @@ const History = ({ transactions, filters }) => {
                                             <p className="text-base font-semibold text-slate-900 dark:text-white">
                                                 {transaction.invoice}
                                             </p>
+                                            {transaction.sales_return_summary
+                                                ?.status !== "none" && (
+                                                <div className="flex flex-wrap gap-2">
+                                                    <span
+                                                        className={`inline-flex items-center rounded-full px-2 py-1 text-[11px] font-semibold ${
+                                                            transaction
+                                                                .sales_return_summary
+                                                                ?.status ===
+                                                            "full"
+                                                                ? "bg-danger-50 text-danger-700 dark:bg-danger-950/30 dark:text-danger-300"
+                                                                : "bg-warning-50 text-warning-700 dark:bg-warning-950/30 dark:text-warning-300"
+                                                        }`}
+                                                    >
+                                                        {transaction
+                                                            .sales_return_summary
+                                                            ?.status === "full"
+                                                            ? "Retur Penuh"
+                                                            : "Retur Parsial"}
+                                                    </span>
+                                                    <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                                                        {transaction
+                                                            .sales_return_summary
+                                                            ?.returned_items_qty ||
+                                                            0}{" "}
+                                                        item
+                                                    </span>
+                                                </div>
+                                            )}
                                             {Number(
                                                 transaction.total_discount || 0
                                             ) > 0 && (
@@ -503,6 +575,19 @@ const History = ({ transactions, filters }) => {
                                                     Promo total{" "}
                                                     {formatCurrency(
                                                         transaction.total_discount
+                                                    )}
+                                                </p>
+                                            )}
+                                            {Number(
+                                                transaction.sales_return_summary
+                                                    ?.returned_amount_total || 0
+                                            ) > 0 && (
+                                                <p className="text-[11px] font-medium text-danger-600 dark:text-danger-400">
+                                                    Total retur{" "}
+                                                    {formatCurrency(
+                                                        transaction
+                                                            .sales_return_summary
+                                                            ?.returned_amount_total
                                                     )}
                                                 </p>
                                             )}
