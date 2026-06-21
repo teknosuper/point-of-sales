@@ -43,6 +43,7 @@ import {
 import { useAuthorization } from "@/Utils/authorization";
 import {
     buildOfflineInvoice,
+    buildOfflineTransactionSignature,
     buildOfflinePricing,
     clearOfflineCart,
     clearOfflinePosBootstrap,
@@ -3862,7 +3863,7 @@ export default function Index({
             };
         });
 
-        return {
+        const payload = {
             offline_reference: offlineReference,
             status: "pending",
             sync_attempts: 0,
@@ -3891,6 +3892,11 @@ export default function Index({
             outlet_name: activeOutlet?.name || storeProfile?.name || "GTC KASIR",
             cashier_name: auth?.user?.name || "Kasir",
             details: normalizedItems,
+        };
+
+        return {
+            ...payload,
+            offline_signature: buildOfflineTransactionSignature(payload),
         };
     }, [
         activeOutlet?.id,
@@ -4281,6 +4287,21 @@ export default function Index({
         if (isOfflineMode) {
             try {
                 const offlinePayload = buildOfflineTransactionPayload();
+                const duplicateQueueItem = offlineQueue.find(
+                    (item) =>
+                        item.offline_signature &&
+                        item.offline_signature ===
+                            offlinePayload.offline_signature &&
+                        item.status !== "synced"
+                );
+
+                if (duplicateQueueItem) {
+                    toast.error(
+                        "Transaksi offline yang sama sudah ada di antrean sinkronisasi."
+                    );
+                    setIsSubmitting(false);
+                    return;
+                }
                 const nextQueue = [...offlineQueue, offlinePayload];
 
                 saveOfflineTransactionQueue(nextQueue);

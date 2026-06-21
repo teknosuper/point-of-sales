@@ -132,6 +132,69 @@ export function buildOfflineInvoice() {
     return `OFF-${timestamp}-${random}`;
 }
 
+function stableStringify(value) {
+    if (Array.isArray(value)) {
+        return `[${value.map((item) => stableStringify(item)).join(",")}]`;
+    }
+
+    if (value && typeof value === "object") {
+        return `{${Object.keys(value)
+            .sort()
+            .map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`)
+            .join(",")}}`;
+    }
+
+    return JSON.stringify(value);
+}
+
+function hashDjb2(value) {
+    let hash = 5381;
+    const text = String(value || "");
+
+    for (let index = 0; index < text.length; index += 1) {
+        hash = (hash * 33) ^ text.charCodeAt(index);
+    }
+
+    return `ofs-${(hash >>> 0).toString(16).padStart(8, "0")}`;
+}
+
+export function buildOfflineTransactionSignature(payload) {
+    return hashDjb2(
+        stableStringify({
+            customer_id: payload?.customer_id ?? null,
+            order_type: payload?.order_type ?? "take_away",
+            table_id: payload?.table_id ?? null,
+            cash: Number(payload?.cash || 0),
+            change: Number(payload?.change || 0),
+            shipping_cost: Number(payload?.shipping_cost || 0),
+            grand_total: Number(payload?.grand_total || 0),
+            details: (payload?.details || []).map((item) => ({
+                product_id: Number(item?.product_id || 0),
+                tenant_outlet_id: item?.tenant_outlet_id ?? null,
+                qty: Number(item?.qty || 0),
+                base_unit_price: Number(item?.base_unit_price || 0),
+                unit_price: Number(item?.unit_price || 0),
+                price: Number(item?.price || 0),
+                notes: item?.notes || null,
+                discount_total: Number(item?.discount_total || 0),
+                pricing_rule_name: item?.pricing_rule_name || null,
+                pricing_rule_kind: item?.pricing_rule_kind || null,
+                pricing_group_key: item?.pricing_group_key || null,
+                pricing_group_label: item?.pricing_group_label || null,
+                is_promo_reward: Boolean(item?.is_promo_reward),
+                promo_reward_rule_name: item?.promo_reward_rule_name || null,
+                promo_reward_label: item?.promo_reward_label || null,
+                modifiers: (item?.modifiers || []).map((modifier) => ({
+                    name: modifier?.name || null,
+                    qty: Number(modifier?.qty || 0),
+                    unit_price: Number(modifier?.unit_price || 0),
+                    total_price: Number(modifier?.total_price || 0),
+                })),
+            })),
+        })
+    );
+}
+
 export function buildOfflinePricing(localCarts = []) {
     const items = (localCarts || []).map((item) => {
         const qty = Math.max(1, Number(item.qty || 1));

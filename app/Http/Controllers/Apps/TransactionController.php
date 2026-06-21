@@ -1621,6 +1621,7 @@ class TransactionController extends Controller
         $supportsDetailRewardMeta = Schema::hasColumn('transaction_details', 'is_promo_reward');
         $validated = $request->validate([
             'offline_reference' => ['required', 'string', 'max:80'],
+            'offline_signature' => ['nullable', 'string', 'max:120'],
             'customer_id' => ['nullable', 'integer', 'exists:customers,id'],
             'order_type' => ['nullable', 'in:dine_in,take_away'],
             'table_id' => ['nullable', 'integer', 'exists:dining_tables,id'],
@@ -1686,6 +1687,39 @@ class TransactionController extends Controller
         $supportsDetailRewardMeta = Schema::hasColumn('transaction_details', 'is_promo_reward');
 
         try {
+            $existingTransaction = $this->findExistingOfflineTransaction(
+                $validated['offline_reference'],
+                $validated['offline_signature'] ?? null,
+                (int) ($outlet?->id ?? 0),
+                (int) auth()->id()
+            );
+
+            if ($existingTransaction) {
+                $this->printJobService->queueReceipt($existingTransaction, userId: auth()->id());
+
+                return response()->json([
+                    'message' => 'Transaksi offline sudah pernah disinkronkan sebelumnya.',
+                    'data' => [
+                        'transaction' => $existingTransaction,
+                        'print_url' => route('transactions.print', [
+                            'invoice' => $existingTransaction->invoice,
+                            'embedded' => 1,
+                        ], false),
+                        'receipt_print_url' => route('transactions.print', [
+                            'invoice' => $existingTransaction->invoice,
+                            'embedded' => 1,
+                            'autoprint' => 1,
+                            'mode' => 'thermal58',
+                        ], false),
+                        'receipt_pdf_url' => route('pdf.transactions.receipt', [
+                            'invoice' => $existingTransaction->invoice,
+                            'size' => '58',
+                        ], false),
+                        'idempotent' => true,
+                    ],
+                ], Response::HTTP_OK);
+            }
+
             $transaction = DB::transaction(function () use ($validated, $outlet, $orderType, $tableId, $customer, $supportsDetailRewardMeta) {
                 $activeShift = $this->cashierShiftService->requireActiveShiftForUser(
                     auth()->id(),
@@ -1693,9 +1727,6 @@ class TransactionController extends Controller
                 );
 
             $invoice = $validated['offline_reference'];
-            if (Transaction::query()->where('invoice', $invoice)->exists()) {
-                $invoice = $invoice.'-'.Str::upper(Str::random(4));
-            }
 
             $transaction = Transaction::create([
                 'cashier_id' => auth()->id(),
@@ -1715,6 +1746,7 @@ class TransactionController extends Controller
                 'grand_total' => (int) $validated['grand_total'],
                 'payment_method' => 'cash',
                 'payment_status' => 'paid',
+                'payment_reference' => $validated['offline_signature'] ?? $validated['offline_reference'],
             ]);
 
             foreach ($validated['details'] as $row) {
@@ -1865,6 +1897,37 @@ class TransactionController extends Controller
                 ? $request->query('mode')
                 : 'thermal58',
         ]);
+    }
+
+    private function findExistingOfflineTransaction(
+        string $offlineReference,
+        ?string $offlineSignature,
+        int $outletId,
+        int $cashierId
+    ): ?Transaction {
+        return Transaction::query()
+            ->with([
+                'details.product',
+                'details.modifiers',
+                'cashier',
+                'diningTable',
+                'customer',
+                'bankAccount',
+                'tenantAllocations.tenantOutlet:id,name,code',
+                'tenantAllocations.items.product:id,title',
+            ])
+            ->where('outlet_id', $outletId)
+            ->where('cashier_id', $cashierId)
+            ->where(function (Builder $query) use ($offlineReference, $offlineSignature) {
+                $query->where('invoice', $offlineReference)
+                    ->orWhere('payment_reference', $offlineReference);
+
+                if (filled($offlineSignature)) {
+                    $query->orWhere('payment_reference', $offlineSignature);
+                }
+            })
+            ->latest('id')
+            ->first();
     }
 
     private function transactionStoreErrorResponse(Request $request, string $message)
