@@ -543,6 +543,7 @@ class KitchenDisplayController extends Controller
                 'transaction.customer:id,name,no_telp',
                 'transaction.diningTable:id,name,code',
                 'items',
+                'printJobs:id,kitchen_ticket_id,status,copies,queued_at,processing_at,processed_at,failed_at',
             ])
             ->where('outlet_id', $station->outlet_id)
             ->where('kitchen_station_id', $station->id);
@@ -602,6 +603,19 @@ class KitchenDisplayController extends Controller
                     ->whereIn('event', ['ticket.dispatch_queued', 'ticket.dispatched', 'ticket.dispatch_failed'])
                     ->latest('created_at')
                     ->first();
+                $printJobs = $ticket->printJobs->sortBy('id')->values();
+                $latestPrintJob = $printJobs->last();
+                $successfulPrintJobs = $printJobs->where('status', 'success');
+                $queuedPrintJobs = $printJobs->whereIn('status', ['queued', 'processing']);
+                $failedPrintJobs = $printJobs->where('status', 'failed');
+                $printedCopies = (int) $successfulPrintJobs->sum(fn ($job) => max(1, (int) ($job->copies ?? 1)));
+                $printStatus = match (true) {
+                    $queuedPrintJobs->isNotEmpty() && $successfulPrintJobs->isNotEmpty() => 'reprint_queued',
+                    $queuedPrintJobs->isNotEmpty() => 'queued',
+                    $latestPrintJob?->status === 'failed' => 'failed',
+                    $successfulPrintJobs->isNotEmpty() => 'printed',
+                    default => 'not_printed',
+                };
 
                 return [
                     'id' => $ticket->id,
@@ -638,6 +652,17 @@ class KitchenDisplayController extends Controller
                         'print_job_status' => data_get($latestDispatchEvent->payload, 'print_job_status'),
                         'reason' => data_get($latestDispatchEvent->payload, 'reason'),
                     ] : null,
+                    'print' => [
+                        'status' => $printStatus,
+                        'total_jobs' => $printJobs->count(),
+                        'success_jobs' => $successfulPrintJobs->count(),
+                        'failed_jobs' => $failedPrintJobs->count(),
+                        'queued_jobs' => $queuedPrintJobs->count(),
+                        'printed_copies' => $printedCopies,
+                        'last_printed_at' => optional($successfulPrintJobs->sortByDesc('processed_at')->first()?->processed_at)?->toIso8601String(),
+                        'last_failed_at' => optional($failedPrintJobs->sortByDesc('failed_at')->first()?->failed_at)?->toIso8601String(),
+                        'last_queued_at' => optional($queuedPrintJobs->sortByDesc('queued_at')->first()?->queued_at)?->toIso8601String(),
+                    ],
                     'items' => $ticket->items->map(fn ($item) => [
                         'resolved_service_status' => (($serviceStatusMap->get((int) $item->transaction_detail_id)?->service_status === 'not_required')
                             && $item->status === 'completed')
