@@ -8,6 +8,7 @@ use App\Models\Transaction;
 use App\Models\TransactionDetail;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -173,12 +174,12 @@ class CashierShiftService
 
         $grossSalesTotal = (int) ((clone $paidTransactions)->sum('grand_total') ?? 0);
         $transactionIds = (clone $paidTransactions)->pluck('id');
-        $baseSalesTotal = $transactionIds->isNotEmpty()
-            ? (int) (TransactionDetail::query()
-                ->whereIn('transaction_id', $transactionIds)
-                ->selectRaw('COALESCE(SUM(base_unit_price * qty), 0) as total_base_value')
-                ->value('total_base_value') ?? 0)
-            : 0;
+        $detailTotals = $transactionIds->isNotEmpty()
+            ? $this->sumTransactionDetailPricing($transactionIds)
+            : [
+                'base_sales_total' => 0,
+                'markup_total' => 0,
+            ];
         $pricingDiscountTotal = $transactionIds->isNotEmpty()
             ? (int) (TransactionDetail::query()
                 ->whereIn('transaction_id', $transactionIds)
@@ -188,15 +189,72 @@ class CashierShiftService
         $creditReturnTotal = (int) ((clone $completedSalesReturns)->sum('credited_amount') ?? 0);
         $totalReturnAmount = $cashReturnTotal + $creditReturnTotal;
         $netGrossSalesTotal = max(0, $grossSalesTotal - $totalReturnAmount);
+        $netBaseSalesTotal = max(0, (int) ($detailTotals['base_sales_total'] ?? 0) - $totalReturnAmount);
+        $netMarkupTotal = max(0, (int) ($detailTotals['markup_total'] ?? 0));
 
         return [
             'paid_transactions_count' => (int) $transactionIds->count(),
             'gross_sales_total' => $netGrossSalesTotal,
-            'base_sales_total' => max(0, $baseSalesTotal - $totalReturnAmount),
+            'base_sales_total' => $netBaseSalesTotal,
             'pricing_discount_total' => $pricingDiscountTotal,
-            'pricing_reference_total' => max(0, $baseSalesTotal - $pricingDiscountTotal - $totalReturnAmount),
-            'markup_total' => max(0, $netGrossSalesTotal - max(0, $baseSalesTotal - $totalReturnAmount)),
+            'pricing_reference_total' => max(0, $netBaseSalesTotal - $pricingDiscountTotal),
+            'markup_total' => $netMarkupTotal,
         ];
+    }
+
+    public function paymentMethodBreakdown(CashierShift $shift): Collection
+    {
+        return Transaction::query()
+            ->where('cashier_shift_id', $shift->id)
+            ->where('payment_status', 'paid')
+            ->selectRaw('COALESCE(payment_method, "lainnya") as payment_method, COUNT(*) as transactions_count, COALESCE(SUM(grand_total), 0) as gross_total')
+            ->groupBy('payment_method')
+            ->orderByRaw('COALESCE(SUM(grand_total), 0) DESC')
+            ->get()
+            ->map(fn ($row) => [
+                'payment_method' => (string) ($row->payment_method ?: 'lainnya'),
+                'payment_method_label' => $this->humanizePaymentMethod($row->payment_method),
+                'transactions_count' => (int) ($row->transactions_count ?? 0),
+                'gross_total' => (int) ($row->gross_total ?? 0),
+            ])
+            ->values();
+    }
+
+    public function shiftTransactionsQuery(CashierShift $shift, array $filters = []): Builder
+    {
+        return Transaction::query()
+            ->with([
+                'customer:id,name',
+                'cashier:id,name',
+                'waiter:id,name',
+                'diningTable:id,name,code',
+                'details:id,transaction_id,qty,base_unit_price,tenant_base_unit_price,owner_markup_unit_price,tenant_net_total,owner_net_total,discount_total',
+                'salesReturns:id,transaction_id,status,refund_amount,credited_amount',
+            ])
+            ->where('cashier_shift_id', $shift->id)
+            ->when(($filters['q'] ?? '') !== '', function (Builder $builder) use ($filters) {
+                $search = trim((string) $filters['q']);
+
+                $builder->where(function (Builder $nested) use ($search) {
+                    $nested
+                        ->where('invoice', 'like', '%'.$search.'%')
+                        ->orWhere('payment_method', 'like', '%'.$search.'%')
+                        ->orWhere('payment_status', 'like', '%'.$search.'%')
+                        ->orWhereHas('customer', fn (Builder $customerQuery) => $customerQuery->where('name', 'like', '%'.$search.'%'))
+                        ->orWhereHas('cashier', fn (Builder $cashierQuery) => $cashierQuery->where('name', 'like', '%'.$search.'%'))
+                        ->orWhereHas('waiter', fn (Builder $waiterQuery) => $waiterQuery->where('name', 'like', '%'.$search.'%'));
+                });
+            })
+            ->when(($filters['payment_method'] ?? '') !== '', fn (Builder $builder, $paymentMethod) => $builder->where('payment_method', $paymentMethod))
+            ->when(($filters['payment_status'] ?? '') !== '', fn (Builder $builder, $paymentStatus) => $builder->where('payment_status', $paymentStatus))
+            ->when(($filters['order_type'] ?? '') !== '', fn (Builder $builder, $orderType) => $builder->where('order_type', $orderType))
+            ->orderBy('created_at')
+            ->orderBy('id');
+    }
+
+    public function transactionPricingSummary(Transaction $transaction): array
+    {
+        return $this->sumTransactionDetails($transaction->details);
     }
 
     public function closeShift(
@@ -305,5 +363,76 @@ class CashierShiftService
             })
             ->when($outletId, fn ($query) => $query->where('outlet_id', $outletId), fn ($query) => $query->whereNull('outlet_id'))
             ->latest('opened_at');
+    }
+
+    private function sumTransactionDetailPricing(Collection $transactionIds): array
+    {
+        $row = TransactionDetail::query()
+            ->whereIn('transaction_id', $transactionIds->all())
+            ->selectRaw('
+                COALESCE(SUM(
+                    CASE
+                        WHEN tenant_net_total > 0 THEN tenant_net_total
+                        WHEN tenant_base_unit_price > 0 THEN tenant_base_unit_price * qty
+                        ELSE COALESCE(base_unit_price, 0) * qty
+                    END
+                ), 0) as total_tenant_base_value,
+                COALESCE(SUM(
+                    CASE
+                        WHEN owner_net_total > 0 THEN owner_net_total
+                        WHEN owner_markup_unit_price > 0 THEN owner_markup_unit_price * qty
+                        ELSE 0
+                    END
+                ), 0) as total_owner_markup_value
+            ')
+            ->first();
+
+        return [
+            'base_sales_total' => (int) ($row?->total_tenant_base_value ?? 0),
+            'markup_total' => (int) ($row?->total_owner_markup_value ?? 0),
+        ];
+    }
+
+    private function sumTransactionDetails(Collection $details): array
+    {
+        $baseSalesTotal = 0;
+        $ownerMarkupTotal = 0;
+        $pricingDiscountTotal = 0;
+
+        foreach ($details as $detail) {
+            $qty = max(0, (int) ($detail->qty ?? 0));
+            $pricingDiscountTotal += (int) ($detail->discount_total ?? 0);
+
+            $baseSalesTotal += match (true) {
+                (int) ($detail->tenant_net_total ?? 0) > 0 => (int) $detail->tenant_net_total,
+                (int) ($detail->tenant_base_unit_price ?? 0) > 0 => (int) $detail->tenant_base_unit_price * $qty,
+                default => (int) ($detail->base_unit_price ?? 0) * $qty,
+            };
+
+            $ownerMarkupTotal += match (true) {
+                (int) ($detail->owner_net_total ?? 0) > 0 => (int) $detail->owner_net_total,
+                (int) ($detail->owner_markup_unit_price ?? 0) > 0 => (int) $detail->owner_markup_unit_price * $qty,
+                default => 0,
+            };
+        }
+
+        return [
+            'base_sales_total' => $baseSalesTotal,
+            'markup_total' => $ownerMarkupTotal,
+            'pricing_discount_total' => $pricingDiscountTotal,
+        ];
+    }
+
+    private function humanizePaymentMethod(?string $paymentMethod): string
+    {
+        return match (strtolower((string) $paymentMethod)) {
+            'cash' => 'Tunai',
+            'qris' => 'QRIS',
+            'bank_transfer' => 'Transfer Bank',
+            'pay_later' => 'Bayar Nanti',
+            'edc', 'debit_card' => 'EDC / Kartu Debit',
+            'credit_card' => 'Kartu Kredit',
+            default => $paymentMethod ? ucwords(str_replace('_', ' ', $paymentMethod)) : 'Lainnya',
+        };
     }
 }

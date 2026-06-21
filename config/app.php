@@ -69,6 +69,34 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Database Datetime Timezone
+    |--------------------------------------------------------------------------
+    |
+    | Timezone sumber untuk kolom datetime yang tersimpan di database.
+    | Jika database menyimpan waktu lokal, biarkan mengikuti APP_TIMEZONE.
+    | Jika database menyimpan UTC, set DB_TIMEZONE=UTC di environment.
+    |
+    */
+
+    'db_timezone' => env('DB_TIMEZONE', env('APP_TIMEZONE', 'Asia/Jakarta')),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Report Timezone Strategy
+    |--------------------------------------------------------------------------
+    |
+    | REPORT_SOURCE_TIMEZONE adalah timezone asumsi untuk membaca datetime
+    | mentah di database khusus keperluan report/export. REPORT_DISPLAY_TIMEZONE
+    | adalah timezone tampilan di UI/PDF. Dengan ini report stabil dan tidak
+    | bergantung pada timezone server DB.
+    |
+    */
+
+    'report_source_timezone' => env('REPORT_SOURCE_TIMEZONE', '-05:00'),
+    'report_display_timezone' => env('REPORT_DISPLAY_TIMEZONE', env('APP_TIMEZONE', 'Asia/Jakarta')),
+
+    /*
+    |--------------------------------------------------------------------------
     | Application Locale Configuration
     |--------------------------------------------------------------------------
     |

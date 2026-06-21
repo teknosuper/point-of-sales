@@ -208,6 +208,7 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
     Route::get('cashier-shifts', [CashierShiftController::class, 'index'])->middleware('permission:cashier-shifts-access')->name('cashier-shifts.index');
     Route::post('cashier-shifts', [CashierShiftController::class, 'store'])->middleware('permission:cashier-shifts-open')->name('cashier-shifts.store');
     Route::get('cashier-shifts/{cashierShift}', [CashierShiftController::class, 'show'])->middleware('permission:cashier-shifts-access')->name('cashier-shifts.show');
+    Route::get('cashier-shifts/{cashierShift}/transactions-pdf', [CashierShiftController::class, 'transactionsPdf'])->middleware('permission:cashier-shifts-access')->name('cashier-shifts.transactions-pdf');
     Route::post('cashier-shifts/{cashierShift}/close', [CashierShiftController::class, 'close'])->middleware('permission:cashier-shifts-close')->name('cashier-shifts.close');
     Route::get('cashier-settlements', [CashierSettlementController::class, 'index'])->middleware(['permission:cashier-settlements-access', 'outlet_access'])->name('cashier-settlements.index');
     Route::post('cashier-settlements', [CashierSettlementController::class, 'store'])->middleware(['permission:cashier-settlements-access', 'outlet_access'])->name('cashier-settlements.store');

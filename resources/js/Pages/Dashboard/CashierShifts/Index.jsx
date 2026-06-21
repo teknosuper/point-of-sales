@@ -9,6 +9,7 @@ import {
     IconClockHour4,
     IconChevronDown,
     IconChevronUp,
+    IconFileDownload,
     IconEye,
     IconUser,
 } from "@/Utils/icons";
@@ -338,7 +339,7 @@ export default function Index({
                                 <Table.Th>Tutup</Table.Th>
                                 <Table.Th>Expected Cash</Table.Th>
                                 <Table.Th>Selisih</Table.Th>
-                                <Table.Th className="w-24 text-center">Aksi</Table.Th>
+                                <Table.Th className="w-32 text-center">Aksi</Table.Th>
                             </tr>
                         </Table.Thead>
                         <Table.Tbody>
@@ -401,12 +402,22 @@ export default function Index({
                                                 : formatCurrency(shift.cash_difference)}
                                         </Table.Td>
                                         <Table.Td className="text-center">
-                                            <Link
-                                                href={route("cashier-shifts.show", shift.id)}
-                                                className="inline-flex rounded-xl border border-slate-200 bg-slate-50 p-2 text-slate-600 transition hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-primary-700 dark:hover:text-primary-400"
-                                            >
-                                                <IconEye size={18} />
-                                            </Link>
+                                            <div className="flex items-center justify-center gap-2">
+                                                <Link
+                                                    href={route("cashier-shifts.show", shift.id)}
+                                                    className="inline-flex rounded-xl border border-slate-200 bg-slate-50 p-2 text-slate-600 transition hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-primary-700 dark:hover:text-primary-400"
+                                                    title="Detail shift"
+                                                >
+                                                    <IconEye size={18} />
+                                                </Link>
+                                                <a
+                                                    href={route("cashier-shifts.transactions-pdf", shift.id)}
+                                                    className="inline-flex rounded-xl border border-slate-200 bg-slate-50 p-2 text-slate-600 transition hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-primary-700 dark:hover:text-primary-400"
+                                                    title="Download laporan PDF"
+                                                >
+                                                    <IconFileDownload size={18} />
+                                                </a>
+                                            </div>
                                         </Table.Td>
                                     </tr>
                                 ))

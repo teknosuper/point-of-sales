@@ -6,8 +6,11 @@ import ConfirmPasswordModal from "@/Components/Dashboard/ConfirmPasswordModal";
 import {
     IconArrowLeft,
     IconCashBanknote,
+    IconFileDownload,
+    IconFilter,
     IconReceipt,
     IconRotateClockwise2,
+    IconSearch,
     IconWallet,
 } from "@/Utils/icons";
 import { useAuthorization } from "@/Utils/authorization";
@@ -42,7 +45,40 @@ function MetricCard({ title, value, icon: Icon }) {
     );
 }
 
-export default function Show({ cashierShift, canForceClose = false }) {
+const paymentStatusLabel = (value) => {
+    switch (String(value || "").toLowerCase()) {
+        case "paid":
+            return "Lunas";
+        case "pending":
+            return "Menunggu";
+        case "failed":
+            return "Gagal";
+        default:
+            return value || "-";
+    }
+};
+
+const orderTypeLabel = (value) => {
+    switch (String(value || "").toLowerCase()) {
+        case "dine_in":
+            return "Dine In";
+        case "take_away":
+            return "Take Away";
+        case "online":
+            return "Online";
+        default:
+            return value || "-";
+    }
+};
+
+export default function Show({
+    cashierShift,
+    canForceClose = false,
+    paymentMethodBreakdown = [],
+    transactionFilters = {},
+    transactions,
+    transactionFilterMeta = {},
+}) {
     const { auth, errors } = usePage().props;
     const { can } = useAuthorization();
     const isKitchenWorkspace = auth?.user?.preferred_workspace === "kitchen";
@@ -51,6 +87,13 @@ export default function Show({ cashierShift, canForceClose = false }) {
     );
     const [closeNotes, setCloseNotes] = useState(cashierShift.close_notes || "");
     const [isConfirmPasswordOpen, setIsConfirmPasswordOpen] = useState(false);
+    const [filters, setFilters] = useState({
+        q: transactionFilters?.q ?? "",
+        payment_method: transactionFilters?.payment_method ?? "",
+        payment_status: transactionFilters?.payment_status ?? "",
+        order_type: transactionFilters?.order_type ?? "",
+        per_page: String(transactionFilters?.per_page ?? 10),
+    });
 
     const canCloseShift = useMemo(() => {
         if (cashierShift.status !== "open") return false;
@@ -110,6 +153,34 @@ export default function Show({ cashierShift, canForceClose = false }) {
             actual_cash: actualCashNumber,
             close_notes: closeNotes,
         });
+    };
+
+    const applyTransactionFilters = (nextFilters = filters) => {
+        router.get(
+            route("cashier-shifts.show", cashierShift.id),
+            {
+                ...nextFilters,
+                transactions_page: 1,
+            },
+            {
+                preserveState: true,
+                preserveScroll: true,
+                replace: true,
+            }
+        );
+    };
+
+    const resetTransactionFilters = () => {
+        const reset = {
+            q: "",
+            payment_method: "",
+            payment_status: "",
+            order_type: "",
+            per_page: String(transactionFilterMeta?.per_page_options?.[0] || 10),
+        };
+
+        setFilters(reset);
+        applyTransactionFilters(reset);
     };
 
     const handleCloseShift = async (event) => {
@@ -204,6 +275,43 @@ export default function Show({ cashierShift, canForceClose = false }) {
                     <MetricCard title="Transaksi Lunas" value={Number(cashierShift.paid_transactions_count || 0).toLocaleString("id-ID")} icon={IconReceipt} />
                     <MetricCard title="Transaksi Walk-in" value={walkInTransactions.toLocaleString("id-ID")} icon={IconReceipt} />
                     <MetricCard title="Customer Terdaftar" value={registeredTransactions.toLocaleString("id-ID")} icon={IconReceipt} />
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                        <div>
+                            <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+                                Detail Pembayaran per Metode
+                            </h2>
+                            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                Penjualan lunas pada shift ini diringkas per metode bayar.
+                            </p>
+                        </div>
+                    </div>
+                    <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                        {paymentMethodBreakdown.length > 0 ? (
+                            paymentMethodBreakdown.map((row) => (
+                                <div
+                                    key={row.payment_method}
+                                    className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/60"
+                                >
+                                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                        {row.payment_method_label}
+                                    </p>
+                                    <p className="mt-2 text-lg font-semibold text-slate-900 dark:text-white">
+                                        {formatCurrency(row.gross_total)}
+                                    </p>
+                                    <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                        {Number(row.transactions_count || 0).toLocaleString("id-ID")} transaksi
+                                    </p>
+                                </div>
+                            ))
+                        ) : (
+                            <div className="rounded-2xl border border-dashed border-slate-300 px-4 py-8 text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                                Belum ada transaksi lunas pada shift ini.
+                            </div>
+                        )}
+                    </div>
                 </div>
 
                 <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
@@ -397,6 +505,306 @@ export default function Show({ cashierShift, canForceClose = false }) {
                             </div>
                         )}
                     </div>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                        <div>
+                            <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+                                Transaksi dalam Shift
+                            </h2>
+                            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                Cari transaksi shift ini, lihat hak tenant dan markup owner, lalu ekspor ke PDF.
+                            </p>
+                        </div>
+                        <a
+                            href={route("cashier-shifts.transactions-pdf", {
+                                cashierShift: cashierShift.id,
+                                ...filters,
+                            })}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:text-slate-200 dark:hover:border-primary-700 dark:hover:text-primary-400"
+                        >
+                            <IconFileDownload size={18} />
+                            <span>Export PDF</span>
+                        </a>
+                    </div>
+
+                    <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/50">
+                        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+                            <div className="xl:col-span-2">
+                                <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                    Cari invoice / customer / kasir
+                                </label>
+                                <div className="relative">
+                                    <IconSearch
+                                        size={18}
+                                        className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                                    />
+                                    <input
+                                        type="text"
+                                        value={filters.q}
+                                        onChange={(event) =>
+                                            setFilters((previous) => ({
+                                                ...previous,
+                                                q: event.target.value,
+                                            }))
+                                        }
+                                        placeholder="Invoice, customer, kasir, waiter"
+                                        className="h-11 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-4 text-sm text-slate-800 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                                    />
+                                </div>
+                            </div>
+                            <div>
+                                <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                    Metode Bayar
+                                </label>
+                                <select
+                                    value={filters.payment_method}
+                                    onChange={(event) =>
+                                        setFilters((previous) => ({
+                                            ...previous,
+                                            payment_method: event.target.value,
+                                        }))
+                                    }
+                                    className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm dark:border-slate-700 dark:bg-slate-900"
+                                >
+                                    <option value="">Semua</option>
+                                    {(transactionFilterMeta.payment_methods || []).map((option) => (
+                                        <option key={option.value} value={option.value}>
+                                            {option.label}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                    Status Bayar
+                                </label>
+                                <select
+                                    value={filters.payment_status}
+                                    onChange={(event) =>
+                                        setFilters((previous) => ({
+                                            ...previous,
+                                            payment_status: event.target.value,
+                                        }))
+                                    }
+                                    className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm dark:border-slate-700 dark:bg-slate-900"
+                                >
+                                    <option value="">Semua</option>
+                                    {(transactionFilterMeta.payment_statuses || []).map((option) => (
+                                        <option key={option.value} value={option.value}>
+                                            {option.label}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                    Tipe Order
+                                </label>
+                                <select
+                                    value={filters.order_type}
+                                    onChange={(event) =>
+                                        setFilters((previous) => ({
+                                            ...previous,
+                                            order_type: event.target.value,
+                                        }))
+                                    }
+                                    className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm dark:border-slate-700 dark:bg-slate-900"
+                                >
+                                    <option value="">Semua</option>
+                                    {(transactionFilterMeta.order_types || []).map((option) => (
+                                        <option key={option.value} value={option.value}>
+                                            {option.label}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                        </div>
+
+                        <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+                            <div>
+                                <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                    Per halaman
+                                </label>
+                                <select
+                                    value={filters.per_page}
+                                    onChange={(event) =>
+                                        setFilters((previous) => ({
+                                            ...previous,
+                                            per_page: event.target.value,
+                                        }))
+                                    }
+                                    className="h-11 w-36 rounded-xl border border-slate-200 bg-white px-4 text-sm dark:border-slate-700 dark:bg-slate-900"
+                                >
+                                    {(transactionFilterMeta.per_page_options || []).map((option) => (
+                                        <option key={option} value={option}>
+                                            {option}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div className="flex flex-wrap gap-3">
+                                <button
+                                    type="button"
+                                    onClick={resetTransactionFilters}
+                                    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:border-slate-300 dark:border-slate-700 dark:text-slate-200"
+                                >
+                                    Reset
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => applyTransactionFilters()}
+                                    className="inline-flex items-center gap-2 rounded-xl bg-primary-500 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-primary-600"
+                                >
+                                    <IconFilter size={18} />
+                                    <span>Terapkan Filter</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="mt-5 overflow-x-auto">
+                        <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800">
+                            <thead>
+                                <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                    <th className="px-4 py-3">Transaksi</th>
+                                    <th className="px-4 py-3">Pembayaran</th>
+                                    <th className="px-4 py-3">Grand Total</th>
+                                    <th className="px-4 py-3">Hak Tenant</th>
+                                    <th className="px-4 py-3">Markup Owner</th>
+                                    <th className="px-4 py-3">Waktu</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                {(transactions?.data || []).length > 0 ? (
+                                    transactions.data.map((row) => (
+                                        <tr key={row.id}>
+                                            <td className="px-4 py-4 align-top">
+                                                <div className="font-semibold text-slate-900 dark:text-white">
+                                                    {row.invoice}
+                                                </div>
+                                                <div className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                                    {row.customer_name}
+                                                </div>
+                                                <div className="mt-1 text-xs text-slate-400 dark:text-slate-500">
+                                                    {orderTypeLabel(row.order_type)}
+                                                    {row.table_label ? ` • ${row.table_label}` : ""}
+                                                </div>
+                                            </td>
+                                            <td className="px-4 py-4 align-top">
+                                                <div className="text-sm font-medium text-slate-900 dark:text-white">
+                                                    {row.payment_method_label}
+                                                </div>
+                                                <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                    {paymentStatusLabel(row.payment_status)}
+                                                </div>
+                                                {row.payment_method === "cash" ? (
+                                                    <div className="mt-2 space-y-1 text-xs text-slate-500 dark:text-slate-400">
+                                                        <div>
+                                                            Bayar customer:{" "}
+                                                            <span className="font-medium text-slate-700 dark:text-slate-200">
+                                                                {formatCurrency(row.cash_received)}
+                                                            </span>
+                                                        </div>
+                                                        <div>
+                                                            Kembalian:{" "}
+                                                            <span className="font-medium text-slate-700 dark:text-slate-200">
+                                                                {formatCurrency(row.cash_change)}
+                                                            </span>
+                                                        </div>
+                                                        <div>
+                                                            Uang tunai transaksi:{" "}
+                                                            <span className="font-medium text-slate-700 dark:text-slate-200">
+                                                                {formatCurrency(row.expected_cash_in)}
+                                                            </span>
+                                                        </div>
+                                                        <div>
+                                                            Saldo kas setelah transaksi:{" "}
+                                                            <span className="font-medium text-emerald-700 dark:text-emerald-300">
+                                                                {formatCurrency(row.running_expected_cash)}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                ) : (
+                                                    <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                                                        Expected non tunai:{" "}
+                                                        <span className="font-medium text-primary-700 dark:text-primary-300">
+                                                            {formatCurrency(row.expected_non_cash_in)}
+                                                        </span>
+                                                    </div>
+                                                )}
+                                            </td>
+                                            <td className="px-4 py-4 align-top text-sm font-semibold text-slate-900 dark:text-white">
+                                                {formatCurrency(row.grand_total)}
+                                            </td>
+                                            <td className="px-4 py-4 align-top">
+                                                <div className="text-sm font-semibold text-slate-900 dark:text-white">
+                                                    {formatCurrency(row.base_sales_total)}
+                                                </div>
+                                                {row.pricing_discount_total > 0 ? (
+                                                    <div className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+                                                        Promo {formatCurrency(row.pricing_discount_total)}
+                                                    </div>
+                                                ) : null}
+                                            </td>
+                                            <td className="px-4 py-4 align-top">
+                                                <div className="text-sm font-semibold text-slate-900 dark:text-white">
+                                                    {formatCurrency(row.markup_total)}
+                                                </div>
+                                                {row.sales_returns_count > 0 ? (
+                                                    <div className="mt-1 text-xs text-rose-600 dark:text-rose-400">
+                                                        Retur {row.sales_returns_count} • {formatCurrency(row.returned_amount)}
+                                                    </div>
+                                                ) : null}
+                                            </td>
+                                            <td className="px-4 py-4 align-top text-sm text-slate-600 dark:text-slate-300">
+                                                {formatDateTime(row.created_at)}
+                                            </td>
+                                        </tr>
+                                    ))
+                                ) : (
+                                    <tr>
+                                        <td
+                                            colSpan={6}
+                                            className="px-4 py-8 text-center text-sm text-slate-500 dark:text-slate-400"
+                                        >
+                                            Tidak ada transaksi yang cocok dengan filter.
+                                        </td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    {transactions?.links?.length > 1 ? (
+                        <div className="mt-5 flex flex-wrap gap-2">
+                            {transactions.links.map((link, index) =>
+                                link.url ? (
+                                    <Link
+                                        key={`${link.label}-${index}`}
+                                        href={link.url}
+                                        preserveScroll
+                                        preserveState
+                                        className={`rounded-lg px-3 py-2 text-sm ${
+                                            link.active
+                                                ? "bg-primary-500 text-white"
+                                                : "border border-slate-200 text-slate-600 hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:text-slate-300"
+                                        }`}
+                                        dangerouslySetInnerHTML={{ __html: link.label }}
+                                    />
+                                ) : (
+                                    <span
+                                        key={`${link.label}-${index}`}
+                                        className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-300 dark:border-slate-700 dark:text-slate-600"
+                                        dangerouslySetInnerHTML={{ __html: link.label }}
+                                    />
+                                )
+                            )}
+                        </div>
+                    ) : null}
                 </div>
             </div>
         </>
