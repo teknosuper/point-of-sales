@@ -6,6 +6,7 @@ use App\Models\GoodsReceiving;
 use App\Models\GoodsReceivingItem;
 use App\Models\Payable;
 use App\Models\PurchaseOrder;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -19,13 +20,15 @@ class GoodsReceivingService
     public function generateDocumentNumber(): string
     {
         $prefix = 'GR-'.now()->format('Ymd').'-';
-        $last = GoodsReceiving::where('document_number', 'like', $prefix.'%')
-            ->orderByDesc('document_number')
-            ->value('document_number');
+        $lockKey = 'goods-receiving-document:'.$prefix;
 
-        $next = $last ? (int) Str::afterLast($last, '-') + 1 : 1;
-
-        return $prefix.str_pad((string) $next, 4, '0', STR_PAD_LEFT);
+        try {
+            return Cache::lock($lockKey, 10)->block(5, function () use ($prefix) {
+                return $this->nextDocumentNumber($prefix);
+            });
+        } catch (\Throwable) {
+            return $this->nextDocumentNumber($prefix);
+        }
     }
 
     public function receive(PurchaseOrder $order, array $items, ?string $notes, int $userId): GoodsReceiving
@@ -145,5 +148,16 @@ class GoodsReceivingService
                 meta: ['goods_receiving_id' => $receiving->id],
             );
         }
+    }
+
+    private function nextDocumentNumber(string $prefix): string
+    {
+        $last = GoodsReceiving::where('document_number', 'like', $prefix.'%')
+            ->orderByDesc('document_number')
+            ->value('document_number');
+
+        $next = $last ? (int) Str::afterLast($last, '-') + 1 : 1;
+
+        return $prefix.str_pad((string) $next, 4, '0', STR_PAD_LEFT);
     }
 }

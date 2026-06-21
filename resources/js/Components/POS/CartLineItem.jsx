@@ -25,6 +25,7 @@ export default function CartLineItem({
     qtyUpdating = false,
     itemRemoving = false,
     highlightRewardProductIds = [],
+    stockIssue = null,
     notePlaceholder = "Catatan item...",
     modifierActionLabel = "Tambah topping / extra",
 }) {
@@ -94,6 +95,16 @@ export default function CartLineItem({
                 <p className="truncate text-sm font-medium text-slate-700 dark:text-slate-300">
                     {item.product?.title || "Produk"}
                 </p>
+                {stockIssue ? (
+                    <div className="mt-1 rounded-xl border border-amber-200 bg-amber-50 px-2.5 py-2 text-[11px] text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300">
+                        <p className="font-semibold">Stok berubah</p>
+                        <p>
+                            Qty di keranjang {stockIssue.qty}, stok tersedia{" "}
+                            {stockIssue.availableStock}. Kurangi qty sebelum
+                            checkout.
+                        </p>
+                    </div>
+                ) : null}
                 {item.promo_reward_meta ? (
                     <div className="mt-1 flex flex-wrap items-center gap-1.5">
                         <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">

@@ -1,5 +1,4 @@
-import React, { useState, useEffect } from "react";
-import { router } from "@inertiajs/react";
+import React, { useState, useEffect, useMemo } from "react";
 import axios from "axios";
 import {
     IconCrown,
@@ -37,24 +36,86 @@ export default function CustomerSelect({
     const [isPickerOpen, setIsPickerOpen] = useState(false);
     const [search, setSearch] = useState("");
     const [showAddModal, setShowAddModal] = useState(false);
+    const [availableCustomers, setAvailableCustomers] = useState(customers);
+    const [isLoadingCustomers, setIsLoadingCustomers] = useState(false);
 
-    // Filter customers by search
-    const filteredCustomers = [
-        WALK_IN_CUSTOMER,
-        ...customers.filter(
+    useEffect(() => {
+        setAvailableCustomers(customers);
+    }, [customers]);
+
+    useEffect(() => {
+        if (!isPickerOpen) {
+            return;
+        }
+
+        let cancelled = false;
+        const normalizedSearch = search.trim();
+        const timerId = window.setTimeout(async () => {
+            setIsLoadingCustomers(true);
+
+            try {
+                const response = await axios.get(route("customers.lookup"), {
+                    params: {
+                        search: normalizedSearch,
+                        limit: normalizedSearch ? 20 : 12,
+                    },
+                });
+
+                if (!cancelled) {
+                    setAvailableCustomers(response.data?.data || []);
+                }
+            } catch (error) {
+                if (!cancelled) {
+                    console.error("Customer lookup error:", error);
+                }
+            } finally {
+                if (!cancelled) {
+                    setIsLoadingCustomers(false);
+                }
+            }
+        }, 300);
+
+        return () => {
+            cancelled = true;
+            window.clearTimeout(timerId);
+        };
+    }, [isPickerOpen, search]);
+
+    const filteredCustomers = useMemo(() => {
+        const normalizedSearch = search.toLowerCase();
+        const pool = availableCustomers.filter(
             (customer) =>
-                customer.name.toLowerCase().includes(search.toLowerCase()) ||
-                customer.no_telp?.toLowerCase().includes(search.toLowerCase()) ||
-                customer.member_code?.toLowerCase().includes(search.toLowerCase())
-        ),
-    ].filter((customer) =>
-        customer.is_walk_in
-            ? customer.name.toLowerCase().includes(search.toLowerCase()) ||
-              "umum".includes(search.toLowerCase()) ||
-              "walk-in".includes(search.toLowerCase()) ||
-              "walk in".includes(search.toLowerCase())
-            : true
-    );
+                customer.name?.toLowerCase().includes(normalizedSearch) ||
+                customer.no_telp?.toLowerCase().includes(normalizedSearch) ||
+                customer.member_code?.toLowerCase().includes(normalizedSearch)
+        );
+
+        const selectedCustomerIncluded =
+            selected &&
+            !selected.is_walk_in &&
+            !pool.some((customer) => Number(customer.id) === Number(selected.id));
+
+        return [
+            WALK_IN_CUSTOMER,
+            ...(selectedCustomerIncluded ? [selected] : []),
+            ...pool,
+        ].filter((customer, index, array) => {
+            if (customer.is_walk_in) {
+                return (
+                    customer.name.toLowerCase().includes(normalizedSearch) ||
+                    "umum".includes(normalizedSearch) ||
+                    "walk-in".includes(normalizedSearch) ||
+                    "walk in".includes(normalizedSearch)
+                );
+            }
+
+            return (
+                array.findIndex(
+                    (item) => Number(item.id) === Number(customer.id)
+                ) === index
+            );
+        });
+    }, [availableCustomers, search, selected]);
 
     useEffect(() => {
         if (openAddModalSignal > 0) {
@@ -71,8 +132,7 @@ export default function CustomerSelect({
 
     const handleAddCustomerSuccess = (newCustomer) => {
         setShowAddModal(false);
-        // Reload page data to get updated customer list
-        router.reload({ only: ["customers"] });
+        setAvailableCustomers((current) => [newCustomer, ...current]);
         onCustomerAdded?.(newCustomer);
         onSelect?.(newCustomer);
     };
@@ -92,7 +152,13 @@ export default function CustomerSelect({
 
             if (response.data.success) {
                 onSelect?.(response.data.customer);
-                router.reload({ only: ["customers"] });
+                setAvailableCustomers((current) =>
+                    current.map((customer) =>
+                        Number(customer.id) === Number(response.data.customer.id)
+                            ? response.data.customer
+                            : customer
+                    )
+                );
             }
         } catch (error) {
             console.error("Upgrade member error:", error);
@@ -233,6 +299,11 @@ export default function CustomerSelect({
                                     Tambah Baru
                                 </button>
                             </div>
+                            {isLoadingCustomers ? (
+                                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                                    Memuat pelanggan...
+                                </p>
+                            ) : null}
                         </div>
 
                         <div className="max-h-[60vh] overflow-y-auto">

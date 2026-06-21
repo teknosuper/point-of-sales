@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -16,13 +17,15 @@ class PurchaseOrderService
     public function generateDocumentNumber(): string
     {
         $prefix = 'PO-'.now()->format('Ymd').'-';
-        $last = PurchaseOrder::where('document_number', 'like', $prefix.'%')
-            ->orderByDesc('document_number')
-            ->value('document_number');
+        $lockKey = 'purchase-order-document:'.$prefix;
 
-        $next = $last ? (int) Str::afterLast($last, '-') + 1 : 1;
-
-        return $prefix.str_pad((string) $next, 4, '0', STR_PAD_LEFT);
+        try {
+            return Cache::lock($lockKey, 10)->block(5, function () use ($prefix) {
+                return $this->nextDocumentNumber($prefix);
+            });
+        } catch (\Throwable) {
+            return $this->nextDocumentNumber($prefix);
+        }
     }
 
     public function createOrder(array $data, array $items, int $userId): PurchaseOrder
@@ -106,5 +109,16 @@ class PurchaseOrderService
                 meta: ['purchase_order_id' => $order->id],
             );
         });
+    }
+
+    private function nextDocumentNumber(string $prefix): string
+    {
+        $last = PurchaseOrder::where('document_number', 'like', $prefix.'%')
+            ->orderByDesc('document_number')
+            ->value('document_number');
+
+        $next = $last ? (int) Str::afterLast($last, '-') + 1 : 1;
+
+        return $prefix.str_pad((string) $next, 4, '0', STR_PAD_LEFT);
     }
 }

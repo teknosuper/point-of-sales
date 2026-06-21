@@ -11,6 +11,7 @@ use App\Services\CustomerSegmentationService;
 use App\Services\LoyaltyService;
 use App\Services\OutletResolver;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Laravolt\Indonesia\Models\City;
@@ -234,6 +235,42 @@ class CustomerController extends Controller
                 'errors' => [],
             ], 500);
         }
+    }
+
+    public function lookup(Request $request): \Illuminate\Http\JsonResponse
+    {
+        $outletId = $this->activeOutletId($request);
+        $search = trim((string) $request->input('search', ''));
+        $limit = min(20, max(5, (int) $request->input('limit', 10)));
+        $cacheKey = sprintf(
+            'pos:customers:lookup:%s:%s:%s',
+            (string) ($outletId ?? 'global'),
+            md5($search),
+            $limit
+        );
+
+        $customers = Cache::remember($cacheKey, now()->addSeconds(20), function () use ($limit, $outletId, $search) {
+            return Customer::query()
+                ->when($search !== '', function ($query) use ($search) {
+                    $query->where(function ($innerQuery) use ($search) {
+                        $innerQuery
+                            ->where('name', 'like', '%'.$search.'%')
+                            ->orWhere('member_code', 'like', '%'.$search.'%')
+                            ->orWhere('no_telp', 'like', '%'.$search.'%');
+                    });
+                })
+                ->latest()
+                ->limit($limit)
+                ->get()
+                ->map(fn (Customer $customer) => $this->customerListPayload($customer, $outletId))
+                ->values()
+                ->all();
+        });
+
+        return response()->json([
+            'success' => true,
+            'data' => $customers,
+        ]);
     }
 
     /**

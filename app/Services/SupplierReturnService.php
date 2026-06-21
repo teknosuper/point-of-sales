@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\SupplierReturn;
 use App\Models\SupplierReturnItem;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -17,13 +18,15 @@ class SupplierReturnService
     public function generateDocumentNumber(): string
     {
         $prefix = 'SR-'.now()->format('Ymd').'-';
-        $last = SupplierReturn::where('document_number', 'like', $prefix.'%')
-            ->orderByDesc('document_number')
-            ->value('document_number');
+        $lockKey = 'supplier-return-document:'.$prefix;
 
-        $next = $last ? (int) Str::afterLast($last, '-') + 1 : 1;
-
-        return $prefix.str_pad((string) $next, 4, '0', STR_PAD_LEFT);
+        try {
+            return Cache::lock($lockKey, 10)->block(5, function () use ($prefix) {
+                return $this->nextDocumentNumber($prefix);
+            });
+        } catch (\Throwable) {
+            return $this->nextDocumentNumber($prefix);
+        }
     }
 
     public function createReturn(array $data, array $items, int $userId): SupplierReturn
@@ -134,5 +137,16 @@ class SupplierReturnService
                 meta: ['supplier_return_id' => $return->id],
             );
         });
+    }
+
+    private function nextDocumentNumber(string $prefix): string
+    {
+        $last = SupplierReturn::where('document_number', 'like', $prefix.'%')
+            ->orderByDesc('document_number')
+            ->value('document_number');
+
+        $next = $last ? (int) Str::afterLast($last, '-') + 1 : 1;
+
+        return $prefix.str_pad((string) $next, 4, '0', STR_PAD_LEFT);
     }
 }

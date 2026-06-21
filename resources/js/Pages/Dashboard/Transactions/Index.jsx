@@ -180,6 +180,12 @@ export default function Index({
     diningTables: diningTableOptions = [],
     products: productOptions = [],
     categories: categoryOptions = [],
+    productsMeta: productMetaProp = {
+        page: 1,
+        per_page: 120,
+        total: 0,
+        has_more: false,
+    },
     initialPricingPreview = { items: [], summary: {} },
     paymentGateways: paymentGatewayOptions = [],
     defaultPaymentGateway = "cash",
@@ -207,6 +213,10 @@ export default function Index({
     const [searchQuery, setSearchQuery] = useState("");
     const [selectedCategory, setSelectedCategory] = useState(null);
     const [isSearching, setIsSearching] = useState(false);
+    const [remoteProducts, setRemoteProducts] = useState([]);
+    const [catalogProducts, setCatalogProducts] = useState(productOptions);
+    const [productCatalogMeta, setProductCatalogMeta] = useState(productMetaProp);
+    const [isLoadingMoreProducts, setIsLoadingMoreProducts] = useState(false);
     const [addingProductId, setAddingProductId] = useState(null);
     const [removingItemId, setRemovingItemId] = useState(null);
     const [localCarts, setLocalCarts] = useState(carts);
@@ -371,9 +381,12 @@ export default function Index({
 
     const normalizedSelectedCategory =
         selectedCategory === null ? null : Number(selectedCategory);
+    const normalizedSearchQuery = String(searchQuery || "").trim();
+    const shouldUseRemoteProductSearch =
+        !isOfflineMode && normalizedSearchQuery.length >= 2;
     const products =
-        productOptions.length > 0
-            ? productOptions
+        catalogProducts.length > 0
+            ? catalogProducts
             : trustedOfflineBootstrap?.products || [];
     const customers =
         customerOptions.length > 0
@@ -394,12 +407,12 @@ export default function Index({
     const productsById = useMemo(
         () =>
             Object.fromEntries(
-                (productOptions.length > 0
-                    ? productOptions
+                (catalogProducts.length > 0
+                    ? catalogProducts
                     : trustedOfflineBootstrap?.products || []
                 ).map((product) => [Number(product.id), product])
             ),
-        [productOptions, trustedOfflineBootstrap?.products]
+        [catalogProducts, trustedOfflineBootstrap?.products]
     );
     const loyaltyTierOptions =
         loyaltyTierOptionValues.length > 0
@@ -652,6 +665,14 @@ export default function Index({
     }, [initialPricingPreview]);
 
     useEffect(() => {
+        setCatalogProducts(productOptions);
+    }, [productOptions]);
+
+    useEffect(() => {
+        setProductCatalogMeta(productMetaProp);
+    }, [productMetaProp]);
+
+    useEffect(() => {
         if (carts.length > 0) {
             setLocalCarts(
                 normalizeBuyGetRewardCarts(
@@ -768,10 +789,9 @@ export default function Index({
         }
     }, [auth?.user?.id, offlineBootstrap]);
 
-    const persistOfflineSnapshot = useCallback(() => {
+    const persistOfflineSnapshot = useCallback(async () => {
         if (
             isOfflineMode ||
-            productOptions.length === 0 ||
             !activeCashierShiftProp
         ) {
             setIsPreparingOfflineSnapshot(false);
@@ -779,38 +799,33 @@ export default function Index({
         }
 
         setIsPreparingOfflineSnapshot(true);
-        const snapshot = {
-            user_id: auth?.user?.id || null,
-            products: productOptions,
-            customers: customerOptions,
-            categories: categoryOptions,
-            diningTables: diningTableOptions,
-            paymentGateways: paymentGatewayOptions,
-            loyaltyTierOptions: loyaltyTierOptionValues,
-            tenantOutlets: tenantOutletOptions,
-            activeCashierShift: activeCashierShiftProp,
-            activeOutlet: activeOutletProp,
-            storeProfile: storeProfileProp,
-            defaultPaymentGateway,
-        };
 
-        saveOfflinePosBootstrap(snapshot);
-        setOfflineBootstrap(snapshot);
-        setIsPreparingOfflineSnapshot(false);
+        try {
+            const response = await axios.get(
+                route("transactions.offline-bootstrap"),
+                {
+                    timeout: 20000,
+                    headers: {
+                        Accept: "application/json",
+                    },
+                }
+            );
+
+            const snapshot = {
+                saved_at: new Date().toISOString(),
+                ...(response.data?.data || {}),
+            };
+
+            saveOfflinePosBootstrap(snapshot);
+            setOfflineBootstrap(snapshot);
+        } catch (error) {
+            console.error("Offline bootstrap fetch error:", error);
+        } finally {
+            setIsPreparingOfflineSnapshot(false);
+        }
     }, [
         activeCashierShiftProp,
-        activeOutletProp,
-        auth?.user?.id,
-        categoryOptions,
-        customerOptions,
-        defaultPaymentGateway,
-        diningTableOptions,
         isOfflineMode,
-        loyaltyTierOptionValues,
-        paymentGatewayOptions,
-        productOptions,
-        storeProfileProp,
-        tenantOutletOptions,
     ]);
 
     useEffect(() => {
@@ -908,13 +923,17 @@ export default function Index({
                 return;
             }
 
+            if (typeof document !== "undefined" && document.visibilityState !== "visible") {
+                return;
+            }
+
             await checkServerHealth();
         };
 
         safeCheck();
-        const intervalId = window.setInterval(safeCheck, 10000);
+        const intervalId = window.setInterval(safeCheck, 30000);
 
-        const handleWakeUp = () => {
+    const handleWakeUp = () => {
             if (document.visibilityState === "visible") {
                 safeCheck();
             }
@@ -931,25 +950,64 @@ export default function Index({
         };
     }, [checkServerHealth]);
 
+    const openProductSelection = useCallback((product) => {
+        if (!product?.id) return;
+
+        setModifierModalProduct(product);
+        setModifierModalCartTargetId(null);
+        setModifierModalNotes("");
+        setIsModifierPromoDetailOpen(false);
+        setSelectedModifierOptionIds([]);
+        setModifierModalQuantity(1);
+    }, []);
+
     // Barcode scanner integration
     const handleBarcodeScan = useCallback(
-        (barcode) => {
+        async (barcode) => {
             const product = products.find(
                 (p) => p.barcode?.toLowerCase() === barcode.toLowerCase()
             );
 
             if (product) {
                 if (product.stock > 0) {
-                    handleAddToCart(product);
+                    openProductSelection(product);
                     toast.success(`${product.title} ditambahkan (barcode)`);
                 } else {
                     toast.error(`${product.title} stok habis`);
                 }
             } else {
+                if (isOfflineMode) {
+                    toast.error(`Produk tidak ditemukan: ${barcode}`);
+                    return;
+                }
+
+                try {
+                    const response = await axios.post(
+                        route("transactions.searchProduct"),
+                        { barcode },
+                        {
+                            headers: {
+                                Accept: "application/json",
+                            },
+                        }
+                    );
+
+                    const remoteProduct = response.data?.data;
+                    if (remoteProduct) {
+                        openProductSelection(remoteProduct);
+                        toast.success(
+                            `${remoteProduct.title} ditambahkan (barcode)`
+                        );
+                        return;
+                    }
+                } catch (error) {
+                    console.error("Barcode product lookup error:", error);
+                }
+
                 toast.error(`Produk tidak ditemukan: ${barcode}`);
             }
         },
-        [products]
+        [isOfflineMode, openProductSelection, products]
     );
 
     const { isScanning } = useBarcodeScanner(handleBarcodeScan, {
@@ -1056,6 +1114,31 @@ export default function Index({
         () => localCarts.reduce((total, item) => total + Number(item.qty), 0),
         [localCarts]
     );
+    const cartStockIssues = useMemo(
+        () =>
+            localCarts
+                .map((item) => {
+                    const qty = Math.max(0, Number(item?.qty || 0));
+                    const availableStock = Math.max(
+                        0,
+                        Number(item?.product?.stock || 0)
+                    );
+
+                    if (qty <= availableStock) {
+                        return null;
+                    }
+
+                    return {
+                        cartId: item.id,
+                        productTitle: item?.product?.title || "Produk",
+                        qty,
+                        availableStock,
+                    };
+                })
+                .filter(Boolean),
+        [localCarts]
+    );
+    const hasCartStockIssue = cartStockIssues.length > 0;
     const selectedDiningTable = useMemo(
         () =>
             diningTables.find(
@@ -1078,9 +1161,45 @@ export default function Index({
             (orderType !== "dine_in" || Boolean(selectedTableId)),
         [orderReferenceName, orderType, selectedCustomer, selectedTableId]
     );
-    const pricingDependency = useMemo(
-        () => localCarts.map((item) => `${item.id}:${item.qty}`).join("|"),
+    const pricingRelevantDependency = useMemo(
+        () =>
+            localCarts
+                .map((item) => {
+                    const modifierSignature = (item.modifiers || [])
+                        .map(
+                            (modifier) =>
+                                `${modifier.name}:${Number(
+                                    modifier.unit_price || 0
+                                )}:${Number(modifier.qty || 0)}`
+                        )
+                        .sort()
+                        .join(",");
+
+                    return [
+                        item.id,
+                        item.product_id,
+                        item.tenant_outlet_id,
+                        item.qty,
+                        item.price,
+                        item.promo_reward_meta?.rule_name || "",
+                        item.promo_reward_meta?.reward_label || "",
+                        modifierSignature,
+                    ].join(":");
+                })
+                .join("|"),
         [localCarts]
+    );
+    const rewardCartMetaPayload = useMemo(
+        () =>
+            localCarts
+                .filter((item) => item.promo_reward_meta)
+                .map((item) => ({
+                    cart_id: String(item.id),
+                    rule_name: item.promo_reward_meta?.rule_name || null,
+                    reward_label:
+                        item.promo_reward_meta?.reward_label || null,
+                })),
+        [pricingRelevantDependency]
     );
     const isCartSyncing = pendingCartMutations > 0;
     const offlineQueueCount = offlineQueue.length;
@@ -1387,16 +1506,7 @@ export default function Index({
                         shipping_cost: shipping,
                         redeem_points: Number(redeemPointsInput || 0),
                         customer_voucher_id: selectedVoucherId || null,
-                        reward_cart_meta: localCarts
-                            .filter((item) => item.promo_reward_meta)
-                            .map((item) => ({
-                                cart_id: String(item.id),
-                                rule_name:
-                                    item.promo_reward_meta?.rule_name || null,
-                                reward_label:
-                                    item.promo_reward_meta?.reward_label ||
-                                    null,
-                            })),
+                        reward_cart_meta: rewardCartMetaPayload,
                     },
                     {
                         signal: controller.signal,
@@ -1419,7 +1529,7 @@ export default function Index({
                         setIsLoadingPricing(false);
                     }
                 });
-        }, 250);
+        }, 400);
 
         return () => {
             cancelled = true;
@@ -1433,7 +1543,7 @@ export default function Index({
     }, [
         selectedCustomer?.id,
         selectedCustomer?.is_walk_in,
-        pricingDependency,
+        pricingRelevantDependency,
         discount,
         shipping,
         redeemPointsInput,
@@ -1441,7 +1551,7 @@ export default function Index({
         cartSyncVersion,
         isCartSyncing,
         isOfflineMode,
-        localCarts,
+        rewardCartMetaPayload,
     ]);
 
     useEffect(() => {
@@ -1690,6 +1800,14 @@ export default function Index({
             setMobileView("products");
             return;
         }
+        if (hasCartStockIssue) {
+            const firstIssue = cartStockIssues[0];
+            toast.error(
+                `${firstIssue.productTitle} melebihi stok. Kurangi qty sebelum lanjut ke pembayaran.`
+            );
+            setMobileView("cart");
+            return;
+        }
         if (!isCustomerInfoConfirmed || !customerInfoReady) {
             toast.error(
                 "Atur info pelanggan terlebih dahulu sebelum lanjut ke pembayaran."
@@ -1700,11 +1818,115 @@ export default function Index({
 
         setMobileView("payment");
     }, [
+        cartStockIssues,
         customerInfoReady,
+        hasCartStockIssue,
         isCustomerInfoConfirmed,
         openCustomerInfoModal,
         localCarts,
     ]);
+
+    useEffect(() => {
+        if (!shouldUseRemoteProductSearch) {
+            setRemoteProducts([]);
+            setIsSearching(false);
+            return;
+        }
+
+        let cancelled = false;
+        const controller = new AbortController();
+
+        setIsSearching(true);
+
+        const timerId = window.setTimeout(async () => {
+            try {
+                const response = await axios.get(
+                    route("transactions.product-catalog"),
+                    {
+                        params: {
+                            q: normalizedSearchQuery,
+                            category_id: normalizedSelectedCategory || undefined,
+                            limit: 60,
+                        },
+                        signal: controller.signal,
+                    }
+                );
+
+                if (!cancelled) {
+                    setRemoteProducts(response.data?.data || []);
+                    setProductCatalogMeta((current) => ({
+                        ...current,
+                        ...(response.data?.meta || {}),
+                    }));
+                }
+            } catch (error) {
+                if (!cancelled && error?.code !== "ERR_CANCELED") {
+                    setRemoteProducts([]);
+                }
+            } finally {
+                if (!cancelled) {
+                    setIsSearching(false);
+                }
+            }
+        }, 250);
+
+        return () => {
+            cancelled = true;
+            controller.abort();
+            window.clearTimeout(timerId);
+        };
+    }, [
+        normalizedSearchQuery,
+        normalizedSelectedCategory,
+        shouldUseRemoteProductSearch,
+    ]);
+
+    const loadMoreProducts = useCallback(async () => {
+        if (
+            shouldUseRemoteProductSearch ||
+            isLoadingMoreProducts ||
+            !productCatalogMeta?.has_more
+        ) {
+            return;
+        }
+
+        setIsLoadingMoreProducts(true);
+
+        try {
+            const nextPage = Number(productCatalogMeta?.page || 1) + 1;
+            const response = await axios.get(
+                route("transactions.product-catalog"),
+                {
+                    params: {
+                        page: nextPage,
+                        limit: productCatalogMeta?.per_page || 120,
+                    },
+                }
+            );
+
+            const incomingProducts = response.data?.data || [];
+            setCatalogProducts((currentProducts) => {
+                const existingIds = new Set(
+                    currentProducts.map((product) => Number(product.id))
+                );
+
+                return [
+                    ...currentProducts,
+                    ...incomingProducts.filter(
+                        (product) => !existingIds.has(Number(product.id))
+                    ),
+                ];
+            });
+            setProductCatalogMeta((current) => ({
+                ...current,
+                ...(response.data?.meta || {}),
+            }));
+        } catch (error) {
+            console.error("Load more products error:", error);
+        } finally {
+            setIsLoadingMoreProducts(false);
+        }
+    }, [isLoadingMoreProducts, productCatalogMeta, shouldUseRemoteProductSearch]);
 
     const playCartTabSound = useCallback(() => {
         if (typeof window === "undefined" || !hasUnlockedAudioRef.current) {
@@ -2796,16 +3018,9 @@ export default function Index({
     // Handle add product to cart
     const handleAddToCart = useCallback(
         async (product) => {
-            if (!product?.id) return;
-
-            setModifierModalProduct(product);
-            setModifierModalCartTargetId(null);
-            setModifierModalNotes("");
-            setIsModifierPromoDetailOpen(false);
-            setSelectedModifierOptionIds([]);
-            setModifierModalQuantity(1);
+            openProductSelection(product);
         },
-        []
+        [openProductSelection]
     );
 
     const handleToggleModifierOption = useCallback((optionId) => {
@@ -3367,6 +3582,14 @@ export default function Index({
             return false;
         }
 
+        if (hasCartStockIssue) {
+            const firstIssue = cartStockIssues[0];
+            toast.error(
+                `${firstIssue.productTitle} melebihi stok. Qty di keranjang ${firstIssue.qty}, stok tersedia ${firstIssue.availableStock}.`
+            );
+            return false;
+        }
+
         if (isOfflineMode) {
             if (payLater) {
                 toast.error("Nota barang tidak tersedia saat offline");
@@ -3422,6 +3645,8 @@ export default function Index({
         paymentMethod,
         redeemPointsInput,
         selectedBankAccount,
+        hasCartStockIssue,
+        cartStockIssues,
         selectedCustomer?.is_walk_in,
         selectedTableId,
         selectedVoucherId,
@@ -4373,21 +4598,31 @@ export default function Index({
 
     // Filter products including out of stock
     const allProducts = useMemo(() => {
-        return products.filter((product) => {
+        if (shouldUseRemoteProductSearch) {
+            return remoteProducts;
+        }
+
+        return catalogProducts.filter((product) => {
             const matchesCategory =
                 normalizedSelectedCategory === null ||
                 Number(product.category_id) === normalizedSelectedCategory;
             const matchesSearch =
-                !searchQuery ||
+                !normalizedSearchQuery ||
                 product.title
                     .toLowerCase()
-                    .includes(searchQuery.toLowerCase()) ||
+                    .includes(normalizedSearchQuery.toLowerCase()) ||
                 product.barcode
                     ?.toLowerCase()
-                    .includes(searchQuery.toLowerCase());
+                    .includes(normalizedSearchQuery.toLowerCase());
             return matchesCategory && matchesSearch;
         });
-    }, [products, normalizedSelectedCategory, searchQuery]);
+    }, [
+        normalizedSearchQuery,
+        normalizedSelectedCategory,
+        catalogProducts,
+        remoteProducts,
+        shouldUseRemoteProductSearch,
+    ]);
 
     if (!activeCashierShift) {
         return (
@@ -4801,6 +5036,12 @@ export default function Index({
                             addingProductId={addingProductId}
                             searchInputRef={searchInputRef}
                             onBarcodeDetected={handleBarcodeScan}
+                            hasMoreProducts={
+                                !shouldUseRemoteProductSearch &&
+                                Boolean(productCatalogMeta?.has_more)
+                            }
+                            onLoadMoreProducts={loadMoreProducts}
+                            isLoadingMoreProducts={isLoadingMoreProducts}
                         />
                     </div>
 
@@ -4845,6 +5086,16 @@ export default function Index({
                             <div className="p-2.5 dark:border-slate-800 lg:p-3">
                                 {localCarts.length > 0 ? (
                                     <div className="space-y-2 pr-1">
+                                        {hasCartStockIssue ? (
+                                            <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-3 text-xs text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300">
+                                                <p className="font-semibold">
+                                                    Ada item yang stoknya berubah
+                                                </p>
+                                                <p className="mt-1">
+                                                    Keranjang tetap disimpan, tetapi qty item yang melebihi stok harus dikurangi sebelum checkout.
+                                                </p>
+                                            </div>
+                                        ) : null}
                                         {localCarts.map((item) => {
                                             const fallbackProduct =
                                                 productsById[
@@ -4899,6 +5150,15 @@ export default function Index({
                                                     itemRemoving={
                                                         removingItemId ===
                                                         item.id
+                                                    }
+                                                    stockIssue={
+                                                        cartStockIssues.find(
+                                                            (issue) =>
+                                                                Number(
+                                                                    issue.cartId
+                                                                ) ===
+                                                                Number(item.id)
+                                                        ) || null
                                                     }
                                                     highlightRewardProductIds={
                                                         recentRewardProductIds
@@ -4964,7 +5224,8 @@ export default function Index({
                                     onClick={openPaymentInfoTab}
                                     className={`w-full rounded-2xl px-4 py-3 text-sm font-semibold text-white transition ${
                                         isCustomerInfoConfirmed &&
-                                        customerInfoReady
+                                        customerInfoReady &&
+                                        !hasCartStockIssue
                                             ? "bg-gradient-to-r from-primary-500 to-primary-600 shadow-lg shadow-primary-500/30 hover:from-primary-600 hover:to-primary-700"
                                             : "bg-slate-400 hover:bg-slate-500 dark:bg-slate-700 dark:hover:bg-slate-600"
                                     }`}

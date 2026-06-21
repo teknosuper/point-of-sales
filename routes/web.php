@@ -286,6 +286,7 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
         ->name('workspace-sales.product-breakdown.export');
 
     // route customer history
+    Route::get('/customers/lookup', [CustomerController::class, 'lookup'])->middleware('permission:transactions-access')->name('customers.lookup');
     Route::get('/customers/{customer}/history', [CustomerController::class, 'getHistory'])->middleware('permission:transactions-history-access')->name('customers.history');
     Route::put('/customers/{customer}/segments', [CustomerController::class, 'syncSegments'])->middleware('permission:customers-edit')->name('customers.segments.sync');
     Route::match(['post', 'put'], '/customers/{customer}/upgrade-member', [CustomerController::class, 'upgradeToMember'])
@@ -297,6 +298,8 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
 
     // route transaction
     Route::get('/transactions', [TransactionController::class, 'index'])->middleware('permission:transactions-access')->name('transactions.index');
+    Route::get('/transactions/product-catalog', [TransactionController::class, 'productCatalog'])->middleware('permission:transactions-access')->name('transactions.product-catalog');
+    Route::get('/transactions/offline-bootstrap', [TransactionController::class, 'offlineBootstrap'])->middleware(['permission:transactions-access', 'active_shift'])->name('transactions.offline-bootstrap');
 
     // route transaction searchProduct
     Route::post('/transactions/searchProduct', [TransactionController::class, 'searchProduct'])->middleware(['permission:transactions-access', 'active_shift'])->name('transactions.searchProduct');

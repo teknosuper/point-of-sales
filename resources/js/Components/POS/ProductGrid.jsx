@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
     IconShoppingBag,
     IconPhoto,
@@ -353,6 +353,9 @@ export default function ProductGrid({
     addingProductId,
     searchInputRef,
     onBarcodeDetected,
+    hasMoreProducts = false,
+    onLoadMoreProducts,
+    isLoadingMoreProducts = false,
     interactive = true,
     searchPlaceholder,
     emptyMessage,
@@ -406,6 +409,7 @@ export default function ProductGrid({
         );
     });
     const [isCompactLandscape, setIsCompactLandscape] = useState(false);
+    const loadMoreSentinelRef = useRef(null);
     const sortOptions = [
         { value: "alphabetical", label: "Urutan A-Z" },
         { value: "cheapest", label: "Harga Termurah" },
@@ -578,6 +582,43 @@ export default function ProductGrid({
             window.removeEventListener("orientationchange", syncViewportMode);
         };
     }, []);
+
+    useEffect(() => {
+        if (
+            typeof window === "undefined" ||
+            typeof IntersectionObserver === "undefined" ||
+            !hasMoreProducts ||
+            isLoadingMoreProducts ||
+            typeof onLoadMoreProducts !== "function"
+        ) {
+            return;
+        }
+
+        const sentinel = loadMoreSentinelRef.current;
+        if (!sentinel) {
+            return;
+        }
+
+        const observer = new IntersectionObserver(
+            (entries) => {
+                const [entry] = entries;
+                if (entry?.isIntersecting) {
+                    onLoadMoreProducts();
+                }
+            },
+            {
+                root: sentinel.closest(".overflow-y-auto"),
+                rootMargin: "0px 0px 240px 0px",
+                threshold: 0.1,
+            }
+        );
+
+        observer.observe(sentinel);
+
+        return () => {
+            observer.disconnect();
+        };
+    }, [hasMoreProducts, isLoadingMoreProducts, onLoadMoreProducts, sortedProducts.length]);
 
     return (
         <div className="flex h-full min-h-0 flex-col">
@@ -877,6 +918,23 @@ export default function ProductGrid({
                         </p>
                     </div>
                 )}
+                {products.length > 0 && hasMoreProducts ? (
+                    <div
+                        ref={loadMoreSentinelRef}
+                        className="mt-4 flex justify-center"
+                    >
+                        <button
+                            type="button"
+                            onClick={() => onLoadMoreProducts?.()}
+                            disabled={isLoadingMoreProducts}
+                            className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+                        >
+                            {isLoadingMoreProducts
+                                ? "Memuat produk..."
+                                : "Muat lebih banyak"}
+                        </button>
+                    </div>
+                ) : null}
             </div>
         </div>
     );

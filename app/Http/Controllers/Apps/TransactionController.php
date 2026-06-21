@@ -83,24 +83,6 @@ class TransactionController extends Controller
             ->latest()
             ->get();
         
-        // Filter out cart items with insufficient stock
-        $cartsToRemove = [];
-        foreach ($carts as $cart) {
-            if ($cart->product) {
-                $availableStock = (int) ($cart->product->stock ?? 0);
-                
-                if ($availableStock < $cart->qty) {
-                    $cartsToRemove[] = $cart->id;
-                }
-            }
-        }
-        
-        // Remove cart items with insufficient stock
-        if (!empty($cartsToRemove)) {
-            Cart::whereIn('id', $cartsToRemove)->delete();
-            $carts = $carts->filter(fn($cart) => !in_array($cart->id, $cartsToRemove));
-        }
-        
         $activePricingRules = $this->pricingService->getActiveRules(outletId: $outlet?->id);
         $carts = $this->pricingService->normalizeRewardCarts(
             $carts,
@@ -134,7 +116,7 @@ class TransactionController extends Controller
             ->values();
 
         // get all customers
-        $customers = Customer::latest()->get()->map(fn (Customer $customer) => [
+        $customers = Customer::latest()->limit(12)->get()->map(fn (Customer $customer) => [
             ...$customer->toArray(),
             'loyalty_tier' => $this->loyaltyService->resolvedTier($customer, $outlet?->id),
         ]);
@@ -158,41 +140,14 @@ class TransactionController extends Controller
             ])
             ->values();
 
-        // get all products with categories for product grid
-        $productsQuery = Product::with(['category:id,name', 'modifierOptions', 'tenantOutlet:id,name,code,slug,sort_order'])
-            ->select('id', 'barcode', 'title', 'description', 'image', 'buy_price', 'sell_price', 'stock', 'category_id', 'tenant_outlet_id', 'supports_modifiers', 'requires_modifier_selection')
-            ->orderBy('title');
-
-        $soldQtyByProduct = TransactionDetail::query()
-            ->selectRaw('product_id, SUM(qty) as sold_qty')
-            ->whereNotNull('product_id')
-            ->when(
-                Schema::hasColumn('transaction_details', 'is_promo_reward'),
-                fn ($query) => $query->where('is_promo_reward', false)
-            )
-            ->whereHas('transaction', function ($query) use ($outlet) {
-                $query->when($outlet, fn ($innerQuery) => $innerQuery->where('outlet_id', $outlet->id));
-            })
-            ->groupBy('product_id')
-            ->pluck('sold_qty', 'product_id');
-
-        $products = $productsQuery->get()->map(function (Product $product) {
-            $product->setAttribute('stock', (int) ($product->stock ?? 0));
-
-            return $product;
-        })->filter(function (Product $product) {
-            // Filter out products with stock <= 0 BEFORE mapping
-            return $product->stock > 0;
-        });
-        
-        $products = $this->productCatalogService->mapProductsForPosGrid(
-            $products,
-            null,
-            $outlet?->id,
-            [
-                'soldQtyByProduct' => $soldQtyByProduct,
-            ]
+        $initialProductsLimit = 120;
+        $catalogResult = $this->buildPosProductCatalog(
+            $outlet,
+            [],
+            $initialProductsLimit,
+            1
         );
+        $products = $catalogResult['data'];
 
         // get all categories
         $categories = \App\Models\Category::select('id', 'name', 'image')
@@ -281,6 +236,7 @@ class TransactionController extends Controller
             'customers' => $customers,
             'diningTables' => $diningTables,
             'products' => $products,
+            'productsMeta' => $catalogResult['meta'],
             'categories' => $categories,
             'initialPricingPreview' => $initialPricingPreview,
             'paymentGateways' => $paymentSetting?->enabledGateways($outlet?->id) ?? [],
@@ -304,6 +260,123 @@ class TransactionController extends Controller
                     'code' => $tenantOutlet->code,
                 ])
                 ->values(),
+        ]);
+    }
+
+    public function offlineBootstrap(Request $request): JsonResponse
+    {
+        $outlet = $this->resolveActiveOutlet($request);
+        $userId = $request->user()->id;
+        $activeShift = $this->cashierShiftService->getActiveShiftForUser($userId, $outlet?->id);
+
+        if (! $activeShift) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Shift kasir belum aktif.',
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+        }
+
+        $paymentSetting = PaymentSetting::resolveForOutlet($outlet?->id);
+        $defaultGateway = $paymentSetting?->default_gateway ?? 'cash';
+        if (
+            $defaultGateway !== 'cash'
+            && (! $paymentSetting || ! $paymentSetting->isGatewayReady($defaultGateway, $outlet?->id))
+        ) {
+            $defaultGateway = 'cash';
+        }
+
+        $bootstrapCatalog = $this->buildPosProductCatalog(
+            $outlet,
+            [],
+            5000,
+            1
+        );
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'user_id' => $request->user()->id,
+                'products' => $bootstrapCatalog['data'],
+                'customers' => Customer::latest()->get()->map(fn (Customer $customer) => [
+                    ...$customer->toArray(),
+                    'loyalty_tier' => $this->loyaltyService->resolvedTier($customer, $outlet?->id),
+                ])->values(),
+                'categories' => \App\Models\Category::select('id', 'name', 'image')
+                    ->orderBy('name')
+                    ->get()
+                    ->values(),
+                'diningTables' => DiningTable::query()
+                    ->where('outlet_id', $outlet?->id)
+                    ->where('status', 'active')
+                    ->orderBy('sort_order')
+                    ->orderBy('name')
+                    ->get(['id', 'name', 'code', 'capacity', 'created_at'])
+                    ->map(fn (DiningTable $table) => [
+                        'id' => $table->id,
+                        'name' => $table->name,
+                        'code' => $table->code,
+                        'capacity' => (int) $table->capacity,
+                        'latest_transaction_at' => null,
+                    ])
+                    ->values(),
+                'paymentGateways' => $paymentSetting?->enabledGateways($outlet?->id) ?? [],
+                'loyaltyTierOptions' => $this->loyaltyService->tierOptions(),
+                'tenantOutlets' => Outlet::query()
+                    ->active()
+                    ->ordered()
+                    ->get(['id', 'name', 'code'])
+                    ->map(fn (Outlet $tenantOutlet) => [
+                        'id' => $tenantOutlet->id,
+                        'name' => $tenantOutlet->name,
+                        'code' => $tenantOutlet->code,
+                    ])
+                    ->values(),
+                'activeCashierShift' => $this->cashierShiftService->summarizeForDisplay($activeShift),
+                'activeOutlet' => $outlet,
+                'storeProfile' => $this->outletResolver->profilePayload($request),
+                'defaultPaymentGateway' => $defaultGateway,
+            ],
+        ]);
+    }
+
+    /**
+     * productCatalog
+     */
+    public function productCatalog(Request $request): JsonResponse
+    {
+        $outlet = $this->resolveActiveOutlet($request);
+        $validated = $request->validate([
+            'q' => ['nullable', 'string', 'max:100'],
+            'category_id' => ['nullable', 'integer', 'exists:categories,id'],
+            'limit' => ['nullable', 'integer', 'min:1', 'max:200'],
+            'page' => ['nullable', 'integer', 'min:1'],
+        ]);
+
+        $filters = [
+            'q' => trim((string) ($validated['q'] ?? '')),
+            'category_id' => $validated['category_id'] ?? null,
+        ];
+        $limit = (int) ($validated['limit'] ?? 60);
+        $page = (int) ($validated['page'] ?? 1);
+        $cacheKey = sprintf(
+            'pos:product-catalog:%s:%s:%s:%s:%s',
+            (string) ($outlet?->id ?? 'global'),
+            md5((string) ($filters['q'] ?? '')),
+            (string) ($filters['category_id'] ?? 'all'),
+            $limit,
+            $page
+        );
+
+        $catalogResult = Cache::remember(
+            $cacheKey,
+            now()->addSeconds(15),
+            fn () => $this->buildPosProductCatalog($outlet, $filters, $limit, $page)
+        );
+
+        return response()->json([
+            'success' => true,
+            'data' => $catalogResult['data'],
+            'meta' => $catalogResult['meta'],
         ]);
     }
 
@@ -2463,6 +2536,95 @@ class TransactionController extends Controller
             $cart->setAttribute('promo_reward_rule_name', $meta['rule_name']);
             $cart->setAttribute('promo_reward_label', $meta['reward_label']);
         }
+    }
+
+    private function buildPosProductCatalog(?Outlet $outlet, array $filters = [], int $limit = 60, int $page = 1): array
+    {
+        $search = trim((string) ($filters['q'] ?? ''));
+        $categoryId = isset($filters['category_id']) ? (int) $filters['category_id'] : null;
+        $limit = max(1, min(5000, $limit));
+        $page = max(1, $page);
+        $offset = ($page - 1) * $limit;
+
+        $productsQuery = Product::with([
+            'category:id,name',
+            'modifierOptions',
+            'tenantOutlet:id,name,code,slug,sort_order',
+        ])
+            ->select(
+                'id',
+                'barcode',
+                'title',
+                'description',
+                'image',
+                'buy_price',
+                'sell_price',
+                'stock',
+                'category_id',
+                'tenant_outlet_id',
+                'supports_modifiers',
+                'requires_modifier_selection'
+            )
+            ->when($search !== '', function ($query) use ($search) {
+                $query->where(function ($innerQuery) use ($search) {
+                    $innerQuery
+                        ->where('title', 'like', '%'.$search.'%')
+                        ->orWhere('barcode', 'like', '%'.$search.'%');
+                });
+            })
+            ->when($categoryId, fn ($query) => $query->where('category_id', $categoryId))
+            ->orderBy('title');
+
+        $total = (clone $productsQuery)->count();
+
+        $products = $productsQuery
+            ->offset($offset)
+            ->limit($limit)
+            ->get()
+            ->map(function (Product $product) {
+                $product->setAttribute('stock', (int) ($product->stock ?? 0));
+
+                return $product;
+            })
+            ->filter(fn (Product $product) => $product->stock > 0)
+            ->values();
+
+        $soldQtyByProduct = TransactionDetail::query()
+            ->selectRaw('product_id, SUM(qty) as sold_qty')
+            ->whereNotNull('product_id')
+            ->when(
+                Schema::hasColumn('transaction_details', 'is_promo_reward'),
+                fn ($query) => $query->where('is_promo_reward', false)
+            )
+            ->when(
+                $products->isNotEmpty(),
+                fn ($query) => $query->whereIn('product_id', $products->pluck('id')),
+                fn ($query) => $query->whereRaw('1 = 0')
+            )
+            ->whereHas('transaction', function ($query) use ($outlet) {
+                $query->when($outlet, fn ($innerQuery) => $innerQuery->where('outlet_id', $outlet->id));
+            })
+            ->groupBy('product_id')
+            ->pluck('sold_qty', 'product_id');
+
+        $mappedProducts = $this->productCatalogService->mapProductsForPosGrid(
+            $products,
+            null,
+            $outlet?->id,
+            [
+                'soldQtyByProduct' => $soldQtyByProduct,
+            ]
+        );
+
+        return [
+            'data' => $mappedProducts,
+            'meta' => [
+                'page' => $page,
+                'per_page' => $limit,
+                'total' => $total,
+                'has_more' => ($offset + $limit) < $total,
+            ],
+        ];
     }
 
 }

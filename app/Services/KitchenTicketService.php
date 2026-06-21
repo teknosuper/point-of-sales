@@ -10,6 +10,7 @@ use App\Models\Transaction;
 use App\Models\TransactionDetail;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 
 class KitchenTicketService
 {
@@ -40,16 +41,13 @@ class KitchenTicketService
         $tickets = collect();
 
         foreach ($groupedDetails as $stationId => $details) {
-            $ticket = KitchenTicket::create([
-                'outlet_id' => $transaction->outlet_id,
-                'transaction_id' => $transaction->id,
-                'cashier_shift_id' => $transaction->cashier_shift_id,
-                'kitchen_station_id' => (int) $stationId,
-                'ticket_number' => $this->generateTicketNumber($transaction, (int) $stationId),
-                'source_channel' => $sourceChannel,
-                'status' => 'pending',
-                'fired_at' => now(),
-            ]);
+            $ticket = $this->createLockedTicket($transaction, (int) $stationId, $sourceChannel);
+
+            if ($ticket->items()->exists()) {
+                $tickets->push($ticket->load(['items', 'kitchenStation']));
+
+                continue;
+            }
 
             foreach ($details as $detail) {
                 /** @var TransactionDetail $detail */
@@ -162,6 +160,40 @@ class KitchenTicketService
         );
 
         return $ticketNumber;
+    }
+
+    private function createLockedTicket(Transaction $transaction, int $stationId, string $sourceChannel): KitchenTicket
+    {
+        $date = Carbon::now()->format('dmy');
+        $lockKey = sprintf('kitchen-ticket:%d:%d:%s', (int) $transaction->id, $stationId, $date);
+
+        try {
+            return Cache::lock($lockKey, 10)->block(5, function () use ($transaction, $stationId, $sourceChannel) {
+                return KitchenTicket::query()->firstOrCreate([
+                    'transaction_id' => $transaction->id,
+                    'kitchen_station_id' => $stationId,
+                ], [
+                    'outlet_id' => $transaction->outlet_id,
+                    'cashier_shift_id' => $transaction->cashier_shift_id,
+                    'ticket_number' => $this->generateTicketNumber($transaction, $stationId),
+                    'source_channel' => $sourceChannel,
+                    'status' => 'pending',
+                    'fired_at' => now(),
+                ]);
+            });
+        } catch (\Throwable) {
+            return KitchenTicket::query()->firstOrCreate([
+                'transaction_id' => $transaction->id,
+                'kitchen_station_id' => $stationId,
+            ], [
+                'outlet_id' => $transaction->outlet_id,
+                'cashier_shift_id' => $transaction->cashier_shift_id,
+                'ticket_number' => $this->generateTicketNumber($transaction, $stationId),
+                'source_channel' => $sourceChannel,
+                'status' => 'pending',
+                'fired_at' => now(),
+            ]);
+        }
     }
 
     private function buildItemNotes(TransactionDetail $detail): ?string
