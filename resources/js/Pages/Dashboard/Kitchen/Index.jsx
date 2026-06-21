@@ -237,17 +237,40 @@ const kitchenPrintStatusMeta = (ticket) => {
 
 const kitchenPrintSummaryLabel = (ticket) => {
     const successJobs = Number(ticket?.print?.success_jobs || 0);
-    const printedCopies = Number(ticket?.print?.printed_copies || 0);
 
     if (successJobs <= 0) {
         return "Belum ada cetak sukses";
     }
 
-    if (printedCopies > successJobs) {
-        return `${printedCopies} lembar • ${successJobs} job sukses`;
+    if (successJobs === 1) {
+        return "Tercetak 1x";
     }
 
-    return `${successJobs} kali tercetak`;
+    return `Tercetak 1x • Cetak ulang ${successJobs - 1}x`;
+};
+
+const kitchenPrintTimeMeta = (ticket) => {
+    const successJobs = Number(ticket?.print?.success_jobs || 0);
+    const firstPrintedAt = ticket?.print?.first_printed_at;
+    const lastPrintedAt = ticket?.print?.last_printed_at;
+
+    if (successJobs <= 0 || !firstPrintedAt) {
+        return null;
+    }
+
+    if (successJobs === 1) {
+        return {
+            primary: `Cetak pertama: ${formatDateTime(firstPrintedAt)}`,
+            secondary: null,
+        };
+    }
+
+    return {
+        primary: `Cetak pertama: ${formatDateTime(firstPrintedAt)}`,
+        secondary: `Cetak ulang terakhir: ${formatDateTime(
+            lastPrintedAt || firstPrintedAt
+        )}`,
+    };
 };
 
 const kitchenProgressLabel = (ticket) => {
@@ -1896,6 +1919,7 @@ const resolveEligibleKitchenDeliveredItemIds = (ticket) =>
                                             {(() => {
                                                 const ticketStatus = resolveKitchenTicketStatusMeta(ticket);
                                                 const printStatus = kitchenPrintStatusMeta(ticket);
+                                                const printTimeMeta = kitchenPrintTimeMeta(ticket);
 
                                                 return (
                                             <div className="flex items-start justify-between gap-2.5">
@@ -1923,6 +1947,18 @@ const resolveEligibleKitchenDeliveredItemIds = (ticket) =>
                                                         <span className="text-[10px] text-slate-500 dark:text-slate-400">
                                                             {kitchenPrintSummaryLabel(ticket)}
                                                         </span>
+                                                        {printTimeMeta ? (
+                                                            <div className="mt-1 flex flex-col gap-1 text-[10px] leading-4">
+                                                                <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-1 font-semibold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">
+                                                                    {printTimeMeta.primary}
+                                                                </span>
+                                                                {printTimeMeta.secondary ? (
+                                                                    <span className="inline-flex items-center rounded-full bg-indigo-50 px-2 py-1 font-semibold text-indigo-700 dark:bg-indigo-950/30 dark:text-indigo-300">
+                                                                        {printTimeMeta.secondary}
+                                                                    </span>
+                                                                ) : null}
+                                                            </div>
+                                                        ) : null}
                                                     </div>
                                                 </div>
                                                 <span
@@ -2012,6 +2048,22 @@ const resolveEligibleKitchenDeliveredItemIds = (ticket) =>
                                                                 <span className="rounded-full bg-white px-2 py-1 text-slate-600 dark:bg-slate-900 dark:text-slate-300">
                                                                     {kitchenPrintSummaryLabel(ticket)}
                                                                 </span>
+                                                                {(() => {
+                                                                    const printTimeMeta = kitchenPrintTimeMeta(ticket);
+
+                                                                    return printTimeMeta ? (
+                                                                        <div className="flex flex-col gap-1 text-[11px] leading-4">
+                                                                            <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-1 font-semibold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">
+                                                                                {printTimeMeta.primary}
+                                                                            </span>
+                                                                            {printTimeMeta.secondary ? (
+                                                                                <span className="inline-flex items-center rounded-full bg-indigo-50 px-2 py-1 font-semibold text-indigo-700 dark:bg-indigo-950/30 dark:text-indigo-300">
+                                                                                    {printTimeMeta.secondary}
+                                                                                </span>
+                                                                            ) : null}
+                                                                        </div>
+                                                                    ) : null;
+                                                                })()}
                                                             </div>
                                                         </div>
                                                     </div>
@@ -2375,6 +2427,22 @@ const resolveEligibleKitchenDeliveredItemIds = (ticket) =>
                                                                             <span className="text-slate-500 dark:text-slate-400">
                                                                                 {kitchenPrintSummaryLabel(ticket)}
                                                                             </span>
+                                                                            {(() => {
+                                                                                const printTimeMeta = kitchenPrintTimeMeta(ticket);
+
+                                                                                return printTimeMeta ? (
+                                                                                    <div className="flex flex-col gap-1 leading-4">
+                                                                                        <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-1 font-semibold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">
+                                                                                            {printTimeMeta.primary}
+                                                                                        </span>
+                                                                                        {printTimeMeta.secondary ? (
+                                                                                            <span className="inline-flex items-center rounded-full bg-indigo-50 px-2 py-1 font-semibold text-indigo-700 dark:bg-indigo-950/30 dark:text-indigo-300">
+                                                                                                {printTimeMeta.secondary}
+                                                                                            </span>
+                                                                                        ) : null}
+                                                                                    </div>
+                                                                                ) : null;
+                                                                            })()}
                                                                         </div>
                                                                     );
                                                                 })()}

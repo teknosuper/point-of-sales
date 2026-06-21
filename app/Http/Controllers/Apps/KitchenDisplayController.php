@@ -609,6 +609,12 @@ class KitchenDisplayController extends Controller
                 $queuedPrintJobs = $printJobs->whereIn('status', ['queued', 'processing']);
                 $failedPrintJobs = $printJobs->where('status', 'failed');
                 $printedCopies = (int) $successfulPrintJobs->sum(fn ($job) => max(1, (int) ($job->copies ?? 1)));
+                $successfulPrintTimes = $successfulPrintJobs
+                    ->sortBy('processed_at')
+                    ->pluck('processed_at')
+                    ->filter()
+                    ->map(fn ($value) => optional($value)?->toIso8601String())
+                    ->values();
                 $printStatus = match (true) {
                     $queuedPrintJobs->isNotEmpty() && $successfulPrintJobs->isNotEmpty() => 'reprint_queued',
                     $queuedPrintJobs->isNotEmpty() => 'queued',
@@ -659,7 +665,9 @@ class KitchenDisplayController extends Controller
                         'failed_jobs' => $failedPrintJobs->count(),
                         'queued_jobs' => $queuedPrintJobs->count(),
                         'printed_copies' => $printedCopies,
+                        'first_printed_at' => $successfulPrintTimes->first(),
                         'last_printed_at' => optional($successfulPrintJobs->sortByDesc('processed_at')->first()?->processed_at)?->toIso8601String(),
+                        'printed_at_list' => $successfulPrintTimes->all(),
                         'last_failed_at' => optional($failedPrintJobs->sortByDesc('failed_at')->first()?->failed_at)?->toIso8601String(),
                         'last_queued_at' => optional($queuedPrintJobs->sortByDesc('queued_at')->first()?->queued_at)?->toIso8601String(),
                     ],
