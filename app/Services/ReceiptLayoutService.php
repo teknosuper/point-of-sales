@@ -35,6 +35,8 @@ class ReceiptLayoutService
                 ['label' => 'Tgl', 'value' => $transaction->created_at ? $this->formatReceiptDateTime($transaction->created_at, $paperWidth) : '-'],
                 ['label' => 'Kasir', 'value' => $transaction->cashier->name ?? '-'],
                 ['label' => 'Pelanggan', 'value' => $transaction->customer->name ?? 'Umum'],
+                filled($transaction->order_reference_name ?? null) ? ['label' => 'Nama Order', 'value' => $transaction->order_reference_name] : null,
+                filled($transaction->order_reference_notes ?? null) ? ['label' => 'Ket. Order', 'value' => $transaction->order_reference_notes] : null,
                 ['label' => 'Pesanan', 'value' => ($transaction->order_type ?? 'take_away') === 'dine_in' ? 'Dine In' : 'Take Away'],
                 $transaction->diningTable?->name ? ['label' => 'Meja', 'value' => $transaction->diningTable->code ?: $transaction->diningTable->name] : null,
                 $transaction->waiter?->name ? ['label' => 'Waiter', 'value' => $transaction->waiter->name] : null,

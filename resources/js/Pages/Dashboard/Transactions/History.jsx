@@ -388,6 +388,17 @@ const History = ({ transactions, filters }) => {
                                                             ?.name ??
                                                             "Pelanggan Umum"}
                                                     </span>
+                                                    {transaction.order_reference_name && (
+                                                        <div className="text-xs font-medium text-slate-700 dark:text-slate-200">
+                                                            Nama order:{" "}
+                                                            {transaction.order_reference_name}
+                                                        </div>
+                                                    )}
+                                                    {transaction.order_reference_notes && (
+                                                        <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                                                            {transaction.order_reference_notes}
+                                                        </div>
+                                                    )}
                                                     <div>
                                                         <span
                                                             className={`inline-flex items-center rounded-full px-2 py-1 text-[11px] font-medium ${
@@ -685,6 +696,17 @@ const History = ({ transactions, filters }) => {
                                                 {transaction.customer?.name ??
                                                     "Pelanggan Umum"}
                                             </p>
+                                            {transaction.order_reference_name && (
+                                                <p className="mt-1 text-xs font-medium text-slate-700 dark:text-slate-200">
+                                                    Nama order:{" "}
+                                                    {transaction.order_reference_name}
+                                                </p>
+                                            )}
+                                            {transaction.order_reference_notes && (
+                                                <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                                                    {transaction.order_reference_notes}
+                                                </p>
+                                            )}
                                             <span
                                                 className={`mt-1 inline-flex items-center rounded-full px-2 py-1 text-[11px] font-medium ${
                                                     transaction.customer_id

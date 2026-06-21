@@ -84,7 +84,7 @@ class PrintQueueController extends Controller
 
         $query = PrintJob::query()
             ->with([
-                'transaction:id,invoice,order_type,customer_id,table_id,created_at',
+                'transaction:id,invoice,order_type,order_reference_name,order_reference_notes,customer_id,table_id,created_at',
                 'transaction.customer:id,name',
                 'transaction.diningTable:id,name,code',
                 'kitchenTicket:id,kitchen_station_id,transaction_id,ticket_number,status,notes,created_at',
@@ -217,6 +217,22 @@ class PrintQueueController extends Controller
             )
             : null;
 
+        // Add order reference data and notes to layout for encoding
+        if ($layout && $transaction) {
+            $layout['order_reference_name'] = $transaction->order_reference_name;
+            $layout['order_reference_notes'] = $transaction->order_reference_notes;
+            // Collect notes from cart items or transaction-level notes
+            $transactionNotes = $transaction->details
+                ->pluck('notes')
+                ->filter()
+                ->map(fn ($n) => trim((string) $n))
+                ->filter()
+                ->unique()
+                ->values()
+                ->all();
+            $layout['notes'] = ! empty($transactionNotes) ? implode(', ', $transactionNotes) : null;
+        }
+
         return [
             'id' => $job->id,
             'type' => 'receipt',
@@ -237,6 +253,8 @@ class PrintQueueController extends Controller
                 'date' => $transaction->created_at ? \Carbon\Carbon::parse($transaction->created_at)->format('d/m/Y H:i') : null,
                 'cashier' => $transaction->cashier?->name ?? '-',
                 'customer' => $transaction->customer?->name ?? 'Pelanggan Umum',
+                'order_reference_name' => $transaction->order_reference_name,
+                'order_reference_notes' => $transaction->order_reference_notes,
                 'order_type' => $transaction->order_type,
                 'payment_method' => $transaction->payment_method,
                 'payment_method_label' => $this->paymentMethodLabel($transaction),
@@ -408,6 +426,8 @@ class PrintQueueController extends Controller
             'transaction' => $transaction ? [
                 'invoice' => $transaction->invoice,
                 'order_type' => $transaction->order_type,
+                'order_reference_name' => $transaction->order_reference_name,
+                'order_reference_notes' => $transaction->order_reference_notes,
                 'table' => $this->tableLabel(
                     $transaction->diningTable?->code,
                     $transaction->diningTable?->name
@@ -462,6 +482,14 @@ class PrintQueueController extends Controller
 
         $customerName = $transaction?->customer?->name ?: 'Pelanggan Umum';
         $this->appendWrappedLines($chunks, 'Customer: '.$customerName, $cols);
+
+        if ($transaction?->order_reference_name) {
+            $this->appendWrappedLines($chunks, 'Nama / Ket: '.$transaction->order_reference_name, $cols);
+        }
+
+        if ($transaction?->order_reference_notes) {
+            $this->appendWrappedLines($chunks, 'Nama / Ket: '.$transaction->order_reference_notes, $cols);
+        }
 
         if ($transaction?->created_at) {
             $this->appendWrappedLines(
@@ -542,6 +570,8 @@ class PrintQueueController extends Controller
         $totals = $layout['totals'] ?? [];
         $payments = $layout['payments'] ?? [];
         $footerLines = $layout['footer_lines'] ?? [];
+        $orderReferenceName = $layout['order_reference_name'] ?? null;
+        $orderReferenceNotes = $layout['order_reference_notes'] ?? null;
 
         if (! empty($store['name'])) {
             $chunks[] = "\x1B\x45\x01";
@@ -566,6 +596,21 @@ class PrintQueueController extends Controller
             foreach ($this->twoColumnLines((string) ($row['label'] ?? ''), (string) ($row['value'] ?? ''), $cols) as $line) {
                 $this->appendLine($chunks, $line);
             }
+        }
+
+        // Add order reference name and notes to receipt
+        if (! empty($orderReferenceName)) {
+            $this->appendWrappedLines($chunks, 'Nama Order: '.$orderReferenceName, $cols);
+        }
+
+        if (! empty($orderReferenceNotes)) {
+            $this->appendWrappedLines($chunks, 'Ket. Order: '.$orderReferenceNotes, $cols);
+        }
+
+        // Add transaction-level notes if available
+        $transactionNotes = $layout['notes'] ?? null;
+        if (! empty($transactionNotes)) {
+            $this->appendWrappedLines($chunks, 'Catatan: '.$transactionNotes, $cols);
         }
 
         $this->appendLine($chunks, $separator);

@@ -171,6 +171,18 @@
                 <td>Pelanggan</td>
                 <td class="value">: {{ $transaction->customer->name ?? 'Umum' }}</td>
             </tr>
+            @if($transaction->order_reference_name)
+                <tr>
+                    <td>Nama Order</td>
+                    <td class="value">: {{ $transaction->order_reference_name }}</td>
+                </tr>
+            @endif
+            @if($transaction->order_reference_notes)
+                <tr>
+                    <td>Ket. Order</td>
+                    <td class="value">: {{ $transaction->order_reference_notes }}</td>
+                </tr>
+            @endif
             <tr>
                 <td>Pesanan</td>
                 <td class="value">: {{ ($transaction->order_type ?? 'take_away') === 'dine_in' ? 'Dine In' : 'Take Away' }}</td>

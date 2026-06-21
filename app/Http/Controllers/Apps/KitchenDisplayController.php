@@ -539,7 +539,7 @@ class KitchenDisplayController extends Controller
 
         $query = KitchenTicket::query()
             ->with([
-                'transaction:id,invoice,customer_id,order_type,table_id',
+                'transaction:id,invoice,customer_id,order_type,order_reference_name,order_reference_notes,table_id',
                 'transaction.customer:id,name,no_telp',
                 'transaction.diningTable:id,name,code',
                 'items',
@@ -633,6 +633,8 @@ class KitchenDisplayController extends Controller
                     'completed_at' => optional($ticket->completed_at)?->toIso8601String(),
                     'invoice' => $ticket->transaction?->invoice,
                     'customer_name' => $ticket->transaction?->customer?->name,
+                    'order_reference_name' => $ticket->transaction?->order_reference_name,
+                    'order_reference_notes' => $ticket->transaction?->order_reference_notes,
                     'customer_phone' => $ticket->transaction?->customer?->no_telp,
                     'order_type' => $ticket->transaction?->order_type ?? 'take_away',
                     'order_type_label' => $this->humanizeOrderType($ticket->transaction?->order_type),

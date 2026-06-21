@@ -85,6 +85,12 @@
             <tr><td>Tgl</td><td class="value">{{ \Carbon\Carbon::parse($transaction->created_at)->format('d/m/Y H:i') }}</td></tr>
             <tr><td>Kasir</td><td class="value">{{ $transaction->cashier->name ?? '-' }}</td></tr>
             <tr><td>Pelanggan</td><td class="value">{{ $transaction->customer->name ?? 'Umum' }}</td></tr>
+            @if($transaction->order_reference_name)
+                <tr><td>Nama Order</td><td class="value">{{ $transaction->order_reference_name }}</td></tr>
+            @endif
+            @if($transaction->order_reference_notes)
+                <tr><td>Ket. Order</td><td class="value">{{ $transaction->order_reference_notes }}</td></tr>
+            @endif
             <tr><td>Pesanan</td><td class="value">{{ ($transaction->order_type ?? 'take_away') === 'dine_in' ? 'Dine In' : 'Take Away' }}</td></tr>
             @if($transaction->diningTable?->name)
                 <tr><td>Meja</td><td class="value">{{ $transaction->diningTable->code ?: $transaction->diningTable->name }}</td></tr>

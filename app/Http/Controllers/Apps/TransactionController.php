@@ -1147,6 +1147,8 @@ class TransactionController extends Controller
         $validatedMeta = $request->validate([
             'order_type' => ['nullable', 'in:dine_in,take_away'],
             'table_id' => ['nullable', 'exists:dining_tables,id'],
+            'order_reference_name' => ['nullable', 'string', 'max:255'],
+            'order_reference_notes' => ['nullable', 'string', 'max:1000'],
             'reward_cart_meta' => ['nullable', 'array'],
             'reward_cart_meta.*.cart_id' => ['required_with:reward_cart_meta', 'string', 'max:64'],
             'reward_cart_meta.*.rule_name' => ['nullable', 'string', 'max:255'],
@@ -1190,9 +1192,18 @@ class TransactionController extends Controller
         $customer = $request->filled('customer_id')
             ? Customer::find($request->integer('customer_id'))
             : null;
+        $orderReferenceName = trim((string) ($validatedMeta['order_reference_name'] ?? ''));
+        $orderReferenceNotes = trim((string) ($validatedMeta['order_reference_notes'] ?? ''));
         $voucher = $request->filled('customer_voucher_id')
             ? CustomerVoucher::find($request->integer('customer_voucher_id'))
             : null;
+
+        if (! $customer && $orderReferenceName === '') {
+            return $this->transactionStoreErrorResponse(
+                $request,
+                'Nama untuk pelanggan umum wajib diisi.'
+            );
+        }
 
         /** @var Lock|null $storeLock */
         $storeLock = null;
@@ -1274,6 +1285,8 @@ class TransactionController extends Controller
             $outlet,
             $orderType,
             $tableId,
+            $orderReferenceName,
+            $orderReferenceNotes,
             $cartSignature,
             $checkoutPreview,
             $pricingItems,
@@ -1369,6 +1382,8 @@ class TransactionController extends Controller
                 'outlet_id' => $outlet?->id,
                 'customer_id' => $request->customer_id,
                 'order_type' => $orderType,
+                'order_reference_name' => $orderReferenceName !== '' ? $orderReferenceName : ($customer?->name ?? null),
+                'order_reference_notes' => $orderReferenceNotes !== '' ? $orderReferenceNotes : null,
                 'table_id' => $tableId,
                 'invoice' => $invoice,
                 'cash' => $cashAmount,
@@ -1698,6 +1713,8 @@ class TransactionController extends Controller
             'customer_id' => ['nullable', 'integer', 'exists:customers,id'],
             'order_type' => ['nullable', 'in:dine_in,take_away'],
             'table_id' => ['nullable', 'integer', 'exists:dining_tables,id'],
+            'order_reference_name' => ['nullable', 'string', 'max:255'],
+            'order_reference_notes' => ['nullable', 'string', 'max:1000'],
             'cash' => ['required', 'integer', 'min:0'],
             'change' => ['nullable', 'integer', 'min:0'],
             'shipping_cost' => ['nullable', 'integer', 'min:0'],
@@ -1738,6 +1755,14 @@ class TransactionController extends Controller
         $customer = ! empty($validated['customer_id'])
             ? Customer::find($validated['customer_id'])
             : null;
+        $orderReferenceName = trim((string) ($validated['order_reference_name'] ?? ''));
+        $orderReferenceNotes = trim((string) ($validated['order_reference_notes'] ?? ''));
+
+        if (! $customer && $orderReferenceName === '') {
+            return response()->json([
+                'message' => 'Nama untuk pelanggan umum wajib diisi.',
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+        }
 
         /** @var Lock|null $syncLock */
         $syncLock = null;
@@ -1793,7 +1818,7 @@ class TransactionController extends Controller
                 ], Response::HTTP_OK);
             }
 
-            $transaction = DB::transaction(function () use ($validated, $outlet, $orderType, $tableId, $customer, $supportsDetailRewardMeta) {
+            $transaction = DB::transaction(function () use ($validated, $outlet, $orderType, $tableId, $customer, $orderReferenceName, $orderReferenceNotes, $supportsDetailRewardMeta) {
                 $activeShift = $this->cashierShiftService->requireActiveShiftForUser(
                     auth()->id(),
                     $outlet?->id
@@ -1807,6 +1832,8 @@ class TransactionController extends Controller
                 'outlet_id' => $outlet?->id,
                 'customer_id' => $customer?->id,
                 'order_type' => $orderType,
+                'order_reference_name' => $orderReferenceName !== '' ? $orderReferenceName : ($customer?->name ?? null),
+                'order_reference_notes' => $orderReferenceNotes !== '' ? $orderReferenceNotes : null,
                 'table_id' => $tableId,
                 'invoice' => $invoice,
                 'cash' => (int) $validated['cash'],
@@ -2391,6 +2418,8 @@ class TransactionController extends Controller
             'created_at' => optional($transaction->created_at)->toISOString(),
             'created_at_label' => optional($transaction->created_at)->format('d M Y H:i'),
             'order_type' => $transaction->order_type,
+            'order_reference_name' => $transaction->order_reference_name,
+            'order_reference_notes' => $transaction->order_reference_notes,
             'payment_method' => $transaction->payment_method,
             'payment_status' => $transaction->payment_status,
             'grand_total' => (int) $transaction->grand_total,

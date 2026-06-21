@@ -610,7 +610,9 @@ export default function Index({
         ]
     );
     const selectedTableItemNote = useMemo(() => {
-        const normalizedReferenceName = String(orderReferenceName || "").trim();
+        const normalizedReferenceName = String(
+            orderReferenceName || selectedCustomer?.name || ""
+        ).trim();
         const prefix =
             orderType === "dine_in"
                 ? (() => {
@@ -641,7 +643,13 @@ export default function Index({
         }
 
         return `${prefix} - ${normalizedReferenceName}`;
-    }, [diningTableOptions, orderReferenceName, orderType, selectedTableId]);
+    }, [
+        diningTableOptions,
+        orderReferenceName,
+        orderType,
+        selectedCustomer?.name,
+        selectedTableId,
+    ]);
 
     // Ref for search input to enable keyboard focus
     const searchInputRef = useRef(null);
@@ -1157,7 +1165,8 @@ export default function Index({
     const customerInfoReady = useMemo(
         () =>
             Boolean(selectedCustomer) &&
-            Boolean(String(orderReferenceName || "").trim()) &&
+            (!selectedCustomer?.is_walk_in ||
+                Boolean(String(orderReferenceName || "").trim())) &&
             (orderType !== "dine_in" || Boolean(selectedTableId)),
         [orderReferenceName, orderType, selectedCustomer, selectedTableId]
     );
@@ -1712,7 +1721,9 @@ export default function Index({
         setDraftOrderType(orderType || "dine_in");
         setDraftSelectedTableId(selectedTableId || "");
         setDraftOrderReferenceName(
-            orderReferenceName || selectedCustomer?.name || ""
+            selectedCustomer?.is_walk_in
+                ? orderReferenceName || ""
+                : orderReferenceName || selectedCustomer?.name || ""
         );
     }, [
         isCustomerInfoModalOpen,
@@ -1759,10 +1770,17 @@ export default function Index({
         setDraftOrderType(orderType || "dine_in");
         setDraftSelectedTableId(selectedTableId || "");
         setDraftOrderReferenceName(
-            orderReferenceName || selectedCustomer?.name || ""
+            selectedCustomer?.is_walk_in
+                ? orderReferenceName || ""
+                : orderReferenceName || selectedCustomer?.name || ""
         );
         setIsCustomerInfoModalOpen(true);
-    }, [orderReferenceName, orderType, selectedCustomer, selectedTableId]);
+    }, [
+        orderReferenceName,
+        orderType,
+        selectedCustomer,
+        selectedTableId,
+    ]);
     const handleSaveCustomerInfo = useCallback(() => {
         if (!draftCustomer) {
             toast.error("Pilih pelanggan terlebih dahulu.");
@@ -1774,7 +1792,7 @@ export default function Index({
             return;
         }
 
-        if (!draftOrderReferenceName.trim()) {
+        if (draftCustomer?.is_walk_in && !draftOrderReferenceName.trim()) {
             toast.error("Isi nama untuk keterangan order.");
             return;
         }
@@ -3658,6 +3676,12 @@ export default function Index({
                 ? null
                 : selectedCustomer?.id ?? null,
             order_type: orderType,
+            order_reference_name: String(
+                orderReferenceName ||
+                    (selectedCustomer?.is_walk_in
+                        ? ""
+                        : selectedCustomer?.name || "")
+            ).trim(),
             table_id:
                 orderType === "dine_in" && selectedTableId
                     ? Number(selectedTableId)
@@ -3690,6 +3714,7 @@ export default function Index({
             isCashPayment,
             localCarts,
             orderType,
+            orderReferenceName,
             payLater,
             payable,
             paymentMethod,
@@ -4099,6 +4124,12 @@ export default function Index({
                 : selectedCustomer?.id ?? null,
             customer_name: selectedCustomer?.name || "Pelanggan Umum",
             order_type: orderType,
+            order_reference_name: String(
+                orderReferenceName ||
+                    (selectedCustomer?.is_walk_in
+                        ? ""
+                        : selectedCustomer?.name || "")
+            ).trim(),
             table_id:
                 orderType === "dine_in" && selectedTableId
                     ? Number(selectedTableId)
@@ -4130,6 +4161,7 @@ export default function Index({
         cash,
         localCarts,
         orderType,
+        orderReferenceName,
         payable,
         pricingItemsByCartId,
         selectedCustomer?.id,
@@ -5273,7 +5305,9 @@ export default function Index({
                                     Nama Order
                                 </p>
                                 <p className="mt-1 truncate text-sm font-semibold text-slate-800 dark:text-slate-100">
-                                    {orderReferenceName || "-"}
+                                    {orderReferenceName ||
+                                        selectedCustomer?.name ||
+                                        "-"}
                                 </p>
                             </div>
                             <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 dark:border-slate-700 dark:bg-slate-800/50">
@@ -6772,7 +6806,7 @@ export default function Index({
                         className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm"
                         onClick={() => setIsCustomerInfoModalOpen(false)}
                     />
-                    <div className="relative z-10 flex w-full max-w-2xl flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl dark:bg-slate-900 sm:rounded-3xl">
+                    <div className="relative z-10 flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl dark:bg-slate-900 sm:rounded-3xl">
                         <div className="border-b border-slate-200 px-5 py-4 dark:border-slate-800">
                             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary-500">
                                 Info Pelanggan
@@ -6785,7 +6819,8 @@ export default function Index({
                             </p>
                         </div>
 
-                        <div className="space-y-4 px-5 py-4">
+                        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+                            <div className="space-y-4 pb-2">
                             <CustomerSelect
                                 customers={customers}
                                 selected={draftCustomer}
@@ -6839,10 +6874,15 @@ export default function Index({
                                 </div>
                             </div>
 
-                            <div>
-                                <label className="mb-2 block text-xs font-medium text-slate-600 dark:text-slate-400">
-                                    Nama untuk keterangan order
-                                </label>
+                            <div className="rounded-3xl border-2 border-amber-300 bg-gradient-to-br from-amber-50 via-white to-rose-50 px-4 py-4 shadow-sm dark:border-amber-700/60 dark:from-amber-950/30 dark:via-slate-900 dark:to-rose-950/20">
+                                <div className="mb-3 flex items-center justify-between gap-3">
+                                    <label className="block text-sm font-semibold text-slate-800 dark:text-slate-100">
+                                        Nama untuk keterangan order
+                                    </label>
+                                    <span className="rounded-full bg-rose-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">
+                                        Wajib
+                                    </span>
+                                </div>
                                 <input
                                     type="text"
                                     value={draftOrderReferenceName}
@@ -6851,16 +6891,21 @@ export default function Index({
                                             event.target.value
                                         )
                                     }
-                                    placeholder="Contoh: Diah, Pak Budi, Rina"
-                                    className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-700 outline-none transition focus:border-primary-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                    placeholder="Wajib isi nama order, contoh: Diah / Pak Budi / Rina"
+                                    className="h-13 w-full rounded-2xl border-2 border-amber-300 bg-white px-4 text-sm font-medium text-slate-800 outline-none transition focus:border-rose-400 focus:ring-4 focus:ring-amber-200/60 dark:border-amber-700 dark:bg-slate-900 dark:text-slate-100 dark:focus:border-rose-500 dark:focus:ring-amber-900/30"
                                 />
-                                <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
-                                    Keterangan item akan otomatis menjadi{" "}
+                                <p className="mt-3 text-[12px] font-medium text-amber-700 dark:text-amber-300">
+                                    Jangan dikosongkan. Catatan item otomatis menjadi{" "}
                                     {draftOrderType === "dine_in"
                                         ? "Meja ... - Nama"
                                         : "Take Away - Nama"}
                                     .
                                 </p>
+                                {draftCustomer?.is_walk_in && (
+                                    <p className="mt-1 text-[11px] text-rose-600 dark:text-rose-300">
+                                        Untuk pelanggan umum, kasir harus mengisi nama ini secara manual.
+                                    </p>
+                                )}
                             </div>
 
                             {draftOrderType === "dine_in" && (
@@ -6907,6 +6952,7 @@ export default function Index({
                                     ) : null}
                                 </div>
                             )}
+                            </div>
                         </div>
 
                         <div className="grid grid-cols-2 gap-3 border-t border-slate-200 bg-slate-50 px-5 py-4 dark:border-slate-800 dark:bg-slate-950/40">

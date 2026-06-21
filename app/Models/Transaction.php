@@ -42,6 +42,8 @@ class Transaction extends Model
         'outlet_id',
         'customer_id',
         'order_type',
+        'order_reference_name',
+        'order_reference_notes',
         'waiter_id',
         'table_id',
         'invoice',
