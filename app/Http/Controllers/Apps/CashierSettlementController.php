@@ -438,8 +438,13 @@ class CashierSettlementController extends Controller
 
         $lastSequence = 0;
 
-        if (is_string($latestRequestNumber) && preg_match('/(\d{3,})$/', $latestRequestNumber, $matches)) {
-            $lastSequence = (int) $matches[1];
+        if (is_string($latestRequestNumber) && str_starts_with($latestRequestNumber, $prefix)) {
+            $suffix = substr($latestRequestNumber, strlen($prefix));
+            $suffix = ltrim((string) $suffix, '-');
+
+            if ($suffix !== '' && ctype_digit($suffix)) {
+                $lastSequence = (int) $suffix;
+            }
         }
 
         return $prefix.str_pad((string) ($lastSequence + 1), 3, '0', STR_PAD_LEFT);
