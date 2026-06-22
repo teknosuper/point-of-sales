@@ -95,6 +95,29 @@ export default function CartLineItem({
                 <p className="truncate text-sm font-medium text-slate-700 dark:text-slate-300">
                     {item.product?.title || "Produk"}
                 </p>
+                {(item.product?.kitchen_stations || []).length > 0 ? (
+                    <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                        <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">
+                            Dapur
+                        </span>
+                        {(item.product?.kitchen_stations || []).map(
+                            (station) => (
+                                <span
+                                    key={station.id || `${station.name}-${station.code}`}
+                                    className="inline-flex items-center rounded-full bg-white px-2 py-0.5 text-[10px] font-medium text-slate-600 ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-700"
+                                >
+                                    {[station.name, station.code]
+                                        .filter(Boolean)
+                                        .join(" • ")}
+                                </span>
+                            )
+                        )}
+                    </div>
+                ) : (
+                    <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-300">
+                        Produk ini belum punya mapping dapur aktif.
+                    </p>
+                )}
                 {stockIssue ? (
                     <div className="mt-1 rounded-xl border border-amber-200 bg-amber-50 px-2.5 py-2 text-[11px] text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300">
                         <p className="font-semibold">Stok berubah</p>

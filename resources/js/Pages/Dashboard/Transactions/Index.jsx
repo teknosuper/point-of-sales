@@ -192,6 +192,7 @@ export default function Index({
     paymentGatewayMeta = {},
     bankAccounts = [],
     pendingTableOrders = [],
+    kitchenStations: kitchenStationOptions = [],
     openTableOrderId = null,
     outletOpenShift = null,
     loyaltyTierOptions: loyaltyTierOptionValues = [],
@@ -425,6 +426,10 @@ export default function Index({
         tenantOutletOptions.length > 0
             ? tenantOutletOptions
             : trustedOfflineBootstrap?.tenantOutlets || [];
+    const kitchenStations =
+        kitchenStationOptions.length > 0
+            ? kitchenStationOptions
+            : trustedOfflineBootstrap?.kitchenStations || [];
     const activeCashierShift =
         activeCashierShiftProp ||
         (isOfflineMode ? trustedOfflineBootstrap?.activeCashierShift : null) ||
@@ -1858,6 +1863,7 @@ export default function Index({
         const controller = new AbortController();
 
         setIsSearching(true);
+        setRemoteProducts([]);
 
         const timerId = window.setTimeout(async () => {
             try {
@@ -1867,7 +1873,7 @@ export default function Index({
                         params: {
                             q: normalizedSearchQuery,
                             category_id: normalizedSelectedCategory || undefined,
-                            limit: 60,
+                            limit: 24,
                         },
                         signal: controller.signal,
                     }
@@ -3876,6 +3882,7 @@ export default function Index({
                 "carts",
                 "initialPricingPreview",
                 "pendingTableOrders",
+                "activeCashierShift",
                 "shiftSummary",
                 "outletOpenShift",
                 "lowStockNotifications",
@@ -5433,6 +5440,49 @@ export default function Index({
                                         : "-"}
                                 </p>
                             </div>
+                        </div>
+                        <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 dark:border-slate-700 dark:bg-slate-800/50">
+                            <div className="flex items-start justify-between gap-3">
+                                <div>
+                                    <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                                        Dapur Aktif
+                                    </p>
+                                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                        Semua station aktif untuk outlet
+                                        {activeOutlet?.name
+                                            ? ` ${activeOutlet.name}`
+                                            : " ini"}
+                                        .
+                                    </p>
+                                </div>
+                                <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-600 ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-700">
+                                    {kitchenStations.length} station
+                                </span>
+                            </div>
+
+                            {kitchenStations.length > 0 ? (
+                                <div className="mt-3 flex max-h-24 flex-wrap gap-2 overflow-y-auto pr-1">
+                                    {kitchenStations.map((station) => (
+                                        <div
+                                            key={station.id}
+                                            className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-900"
+                                        >
+                                            <p className="font-semibold text-slate-800 dark:text-slate-100">
+                                                {station.name}
+                                            </p>
+                                            <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
+                                                {[station.code, station.station_type, station.processing_mode]
+                                                    .filter(Boolean)
+                                                    .join(" • ")}
+                                            </p>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <p className="mt-3 text-xs text-amber-600 dark:text-amber-300">
+                                    Belum ada station dapur aktif untuk outlet ini.
+                                </p>
+                            )}
                         </div>
                     </div>
 

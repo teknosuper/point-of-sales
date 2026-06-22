@@ -8,6 +8,7 @@ use App\Models\Cart;
 use App\Models\Customer;
 use App\Models\CustomerVoucher;
 use App\Models\DiningTable;
+use App\Models\KitchenStation;
 use App\Models\Outlet;
 use App\Models\PaymentSetting;
 use App\Models\Product;
@@ -76,7 +77,7 @@ class TransactionController extends Controller
         $openTableOrderId = (int) $request->integer('open_table_order');
 
         // Get active cart items (not held)
-        $carts = Cart::with('product.modifierOptions', 'tenantOutlet:id,name,code', 'modifiers')
+        $carts = Cart::with('product.modifierOptions', 'product.kitchenStationMappings.kitchenStation', 'tenantOutlet:id,name,code', 'modifiers')
             ->where('cashier_id', $userId)
             ->when($outlet, fn ($query) => $query->where('outlet_id', $outlet->id))
             ->active()
@@ -228,6 +229,22 @@ class TransactionController extends Controller
             })
             ->values();
 
+        $kitchenStations = KitchenStation::query()
+            ->when($outlet, fn ($query) => $query->where('outlet_id', $outlet->id))
+            ->where('is_active', true)
+            ->orderBy('sort_order')
+            ->orderBy('name')
+            ->get(['id', 'outlet_id', 'name', 'code', 'station_type', 'processing_mode'])
+            ->map(fn (KitchenStation $station) => [
+                'id' => $station->id,
+                'outlet_id' => (int) $station->outlet_id,
+                'name' => $station->name,
+                'code' => $station->code,
+                'station_type' => $station->station_type,
+                'processing_mode' => $station->processing_mode,
+            ])
+            ->values();
+
         return Inertia::render('Dashboard/Transactions/Index', [
             'carts' => $carts
                 ->map(fn (Cart $cart) => $this->serializeCart($cart))
@@ -248,6 +265,7 @@ class TransactionController extends Controller
             ],
             'bankAccounts' => $bankAccounts,
             'pendingTableOrders' => $pendingTableOrders,
+            'kitchenStations' => $kitchenStations,
             'openTableOrderId' => $openTableOrderId > 0 ? $openTableOrderId : null,
             'shiftSummary' => $this->cashierShiftService->summarizeForDisplay($activeShift),
             'outletOpenShift' => $this->cashierShiftService->summarizeForDisplay($outletOpenShift),
@@ -331,6 +349,21 @@ class TransactionController extends Controller
                         'id' => $tenantOutlet->id,
                         'name' => $tenantOutlet->name,
                         'code' => $tenantOutlet->code,
+                    ])
+                    ->values(),
+                'kitchenStations' => KitchenStation::query()
+                    ->when($outlet, fn ($query) => $query->where('outlet_id', $outlet->id))
+                    ->where('is_active', true)
+                    ->orderBy('sort_order')
+                    ->orderBy('name')
+                    ->get(['id', 'outlet_id', 'name', 'code', 'station_type', 'processing_mode'])
+                    ->map(fn (KitchenStation $station) => [
+                        'id' => $station->id,
+                        'outlet_id' => (int) $station->outlet_id,
+                        'name' => $station->name,
+                        'code' => $station->code,
+                        'station_type' => $station->station_type,
+                        'processing_mode' => $station->processing_mode,
                     ])
                     ->values(),
                 'activeCashierShift' => $this->cashierShiftService->summarizeForDisplay($activeShift),
@@ -494,7 +527,7 @@ class TransactionController extends Controller
 
         $cart = null;
         if (! $forceNew) {
-            $cart = Cart::with('product.modifierOptions', 'tenantOutlet:id,name,code', 'modifiers')
+            $cart = Cart::with('product.modifierOptions', 'product.kitchenStationMappings.kitchenStation', 'tenantOutlet:id,name,code', 'modifiers')
                 ->where('product_id', $request->product_id)
                 ->where('cashier_id', auth()->user()->id)
                 ->when($outlet, fn ($query) => $query->where('outlet_id', $outlet->id))
@@ -554,12 +587,12 @@ class TransactionController extends Controller
             $cart = Cart::create($cartAttributes);
 
             $cart = Cart::query()
-                ->with('product.modifierOptions', 'tenantOutlet:id,name,code', 'modifiers')
+                ->with('product.modifierOptions', 'product.kitchenStationMappings.kitchenStation', 'tenantOutlet:id,name,code', 'modifiers')
                 ->whereKey($cart->id)
                 ->first();
         }
 
-        $cart = $cart?->fresh(['product.modifierOptions', 'tenantOutlet:id,name,code', 'modifiers']);
+        $cart = $cart?->fresh(['product.modifierOptions', 'product.kitchenStationMappings.kitchenStation', 'tenantOutlet:id,name,code', 'modifiers']);
 
         if ($request->expectsJson()) {
             return response()->json([
@@ -582,7 +615,7 @@ class TransactionController extends Controller
      */
     public function destroyCart(Request $request, $cart_id)
     {
-        $cart = Cart::with('product.modifierOptions', 'tenantOutlet:id,name,code', 'modifiers')
+        $cart = Cart::with('product.modifierOptions', 'product.kitchenStationMappings.kitchenStation', 'tenantOutlet:id,name,code', 'modifiers')
             ->whereId($cart_id)
             ->where('cashier_id', auth()->id())
             ->when($this->resolveActiveOutlet(), fn ($query, $outlet) => $query->where('outlet_id', $outlet->id))
@@ -630,7 +663,7 @@ class TransactionController extends Controller
             'qty' => 'required|integer|min:1',
         ]);
 
-        $cart = Cart::with('product.modifierOptions', 'tenantOutlet:id,name,code', 'modifiers')->whereId($cart_id)
+        $cart = Cart::with('product.modifierOptions', 'product.kitchenStationMappings.kitchenStation', 'tenantOutlet:id,name,code', 'modifiers')->whereId($cart_id)
             ->where('cashier_id', auth()->user()->id)
             ->when($this->resolveActiveOutlet($request), fn ($query, $outlet) => $query->where('outlet_id', $outlet->id))
             ->first();
@@ -664,7 +697,7 @@ class TransactionController extends Controller
                 'success' => true,
                 'message' => 'Quantity updated successfully',
                 'data' => [
-                    'cart' => $this->serializeCart($cart->fresh(['product.modifierOptions', 'tenantOutlet:id,name,code', 'modifiers'])),
+                    'cart' => $this->serializeCart($cart->fresh(['product.modifierOptions', 'product.kitchenStationMappings.kitchenStation', 'tenantOutlet:id,name,code', 'modifiers'])),
                 ],
             ]);
         }
@@ -678,7 +711,7 @@ class TransactionController extends Controller
             'notes' => ['nullable', 'string', 'max:500'],
         ]);
 
-        $cart = Cart::with('product.modifierOptions', 'tenantOutlet:id,name,code', 'modifiers')
+        $cart = Cart::with('product.modifierOptions', 'product.kitchenStationMappings.kitchenStation', 'tenantOutlet:id,name,code', 'modifiers')
             ->whereId($cart_id)
             ->where('cashier_id', auth()->id())
             ->when($this->resolveActiveOutlet($request), fn ($query, $outlet) => $query->where('outlet_id', $outlet->id))
@@ -700,7 +733,7 @@ class TransactionController extends Controller
             'success' => true,
             'message' => 'Catatan item diperbarui',
             'data' => [
-                'cart' => $this->serializeCart($cart->fresh(['product.modifierOptions', 'tenantOutlet:id,name,code', 'modifiers'])),
+                'cart' => $this->serializeCart($cart->fresh(['product.modifierOptions', 'product.kitchenStationMappings.kitchenStation', 'tenantOutlet:id,name,code', 'modifiers'])),
             ],
         ]);
     }
@@ -737,7 +770,7 @@ class TransactionController extends Controller
             'success' => true,
             'message' => 'Tambahan item berhasil ditambahkan',
             'data' => [
-                'cart' => $this->serializeCart($cart->fresh(['product.modifierOptions', 'tenantOutlet:id,name,code', 'modifiers'])),
+                'cart' => $this->serializeCart($cart->fresh(['product.modifierOptions', 'product.kitchenStationMappings.kitchenStation', 'tenantOutlet:id,name,code', 'modifiers'])),
             ],
         ]);
     }
@@ -774,7 +807,7 @@ class TransactionController extends Controller
             'success' => true,
             'message' => 'Tambahan item diperbarui',
             'data' => [
-                'cart' => $this->serializeCart($cart->fresh(['product.modifierOptions', 'tenantOutlet:id,name,code', 'modifiers'])),
+                'cart' => $this->serializeCart($cart->fresh(['product.modifierOptions', 'product.kitchenStationMappings.kitchenStation', 'tenantOutlet:id,name,code', 'modifiers'])),
             ],
         ]);
     }
@@ -900,6 +933,17 @@ class TransactionController extends Controller
                         'price' => (int) $option->price,
                         'is_required' => (bool) $option->is_required,
                     ])
+                    ->values()
+                    ->all(),
+                'kitchen_stations' => $cart->product->kitchenStationMappings
+                    ->where('is_active', true)
+                    ->sortBy('priority')
+                    ->map(fn ($mapping) => [
+                        'id' => $mapping->kitchenStation?->id,
+                        'name' => $mapping->kitchenStation?->name,
+                        'code' => $mapping->kitchenStation?->code,
+                    ])
+                    ->filter(fn (array $station) => filled($station['name']))
                     ->values()
                     ->all(),
             ] : null,
@@ -2538,7 +2582,7 @@ class TransactionController extends Controller
     private function findEditableCart(Request $request, int|string $cartId): ?Cart
     {
         return Cart::query()
-            ->with('product.modifierOptions', 'tenantOutlet:id,name,code', 'modifiers')
+            ->with('product.modifierOptions', 'product.kitchenStationMappings.kitchenStation', 'tenantOutlet:id,name,code', 'modifiers')
             ->whereKey($cartId)
             ->where('cashier_id', auth()->id())
             ->when($this->resolveActiveOutlet($request), fn ($query, $outlet) => $query->where('outlet_id', $outlet->id))
@@ -2572,12 +2616,14 @@ class TransactionController extends Controller
     private function buildPosProductCatalog(?Outlet $outlet, array $filters = [], int $limit = 60, int $page = 1): array
     {
         $search = trim((string) ($filters['q'] ?? ''));
+        $normalizedSearch = mb_strtolower($search);
         $categoryId = isset($filters['category_id']) ? (int) $filters['category_id'] : null;
         $limit = max(1, min(5000, $limit));
         $page = max(1, $page);
         $offset = ($page - 1) * $limit;
+        $isRemoteSearch = $search !== '';
 
-        $productsQuery = Product::with([
+        $baseProductsQuery = Product::with([
             'category:id,name',
             'modifierOptions',
             'tenantOutlet:id,name,code,slug,sort_order',
@@ -2596,47 +2642,90 @@ class TransactionController extends Controller
                 'supports_modifiers',
                 'requires_modifier_selection'
             )
-            ->when($search !== '', function ($query) use ($search) {
-                $query->where(function ($innerQuery) use ($search) {
-                    $innerQuery
-                        ->where('title', 'like', '%'.$search.'%')
-                        ->orWhere('barcode', 'like', '%'.$search.'%');
-                });
-            })
             ->when($categoryId, fn ($query) => $query->where('category_id', $categoryId))
             ->orderBy('title');
 
-        $total = (clone $productsQuery)->count();
+        $total = $isRemoteSearch ? null : (clone $baseProductsQuery)->count();
 
-        $products = $productsQuery
-            ->offset($offset)
-            ->limit($limit)
-            ->get()
-            ->map(function (Product $product) {
-                $product->setAttribute('stock', (int) ($product->stock ?? 0));
+        if ($isRemoteSearch) {
+            $searchWindow = $limit + 1;
+            $tokens = array_values(array_filter(
+                preg_split('/\s+/', $normalizedSearch) ?: []
+            ));
+            $products = (clone $baseProductsQuery)
+                ->where(fn ($query) => $this->applyPosProductSearch($query, $search))
+                ->limit($searchWindow)
+                ->get();
 
-                return $product;
-            })
-            ->filter(fn (Product $product) => $product->stock > 0)
-            ->values();
+            $products = $products
+                ->map(function (Product $product) {
+                    $product->setAttribute('stock', (int) ($product->stock ?? 0));
 
-        $soldQtyByProduct = TransactionDetail::query()
-            ->selectRaw('product_id, SUM(qty) as sold_qty')
-            ->whereNotNull('product_id')
-            ->when(
-                Schema::hasColumn('transaction_details', 'is_promo_reward'),
-                fn ($query) => $query->where('is_promo_reward', false)
-            )
-            ->when(
-                $products->isNotEmpty(),
-                fn ($query) => $query->whereIn('product_id', $products->pluck('id')),
-                fn ($query) => $query->whereRaw('1 = 0')
-            )
-            ->whereHas('transaction', function ($query) use ($outlet) {
-                $query->when($outlet, fn ($innerQuery) => $innerQuery->where('outlet_id', $outlet->id));
-            })
-            ->groupBy('product_id')
-            ->pluck('sold_qty', 'product_id');
+                    return $product;
+                })
+                ->sortBy(function (Product $product) use ($normalizedSearch, $tokens) {
+                    $title = mb_strtolower((string) ($product->title ?? ''));
+                    $categoryName = mb_strtolower((string) ($product->category?->name ?? ''));
+                    $allTokensInTitle = collect($tokens)->every(
+                        fn ($token) => str_contains($title, $token)
+                    );
+                    $allTokensAtWordStartInTitle = collect($tokens)->every(
+                        fn ($token) => preg_match('/(?:^|\\s)'.preg_quote($token, '/').'/u', $title) === 1
+                    );
+                    $allTokensInCategory = collect($tokens)->every(
+                        fn ($token) => str_contains($categoryName, $token)
+                    );
+
+                    return match (true) {
+                        str_starts_with($title, $normalizedSearch) => 0,
+                        $allTokensAtWordStartInTitle => 1,
+                        $allTokensInTitle => 2,
+                        str_starts_with($categoryName, $normalizedSearch) => 3,
+                        $allTokensInCategory => 4,
+                        default => 6,
+                    };
+                })
+                ->values();
+
+            $hasMore = $products->count() > $limit;
+            if ($hasMore) {
+                $products = $products->take($limit)->values();
+            }
+        } else {
+            $products = (clone $baseProductsQuery)
+                ->offset($offset)
+                ->limit($limit)
+                ->get()
+                ->map(function (Product $product) {
+                    $product->setAttribute('stock', (int) ($product->stock ?? 0));
+
+                    return $product;
+                })
+                ->filter(fn (Product $product) => $product->stock > 0)
+                ->values();
+
+            $hasMore = ($offset + $limit) < (int) $total;
+        }
+
+        $soldQtyByProduct = $isRemoteSearch
+            ? collect()
+            : TransactionDetail::query()
+                ->selectRaw('product_id, SUM(qty) as sold_qty')
+                ->whereNotNull('product_id')
+                ->when(
+                    Schema::hasColumn('transaction_details', 'is_promo_reward'),
+                    fn ($query) => $query->where('is_promo_reward', false)
+                )
+                ->when(
+                    $products->isNotEmpty(),
+                    fn ($query) => $query->whereIn('product_id', $products->pluck('id')),
+                    fn ($query) => $query->whereRaw('1 = 0')
+                )
+                ->whereHas('transaction', function ($query) use ($outlet) {
+                    $query->when($outlet, fn ($innerQuery) => $innerQuery->where('outlet_id', $outlet->id));
+                })
+                ->groupBy('product_id')
+                ->pluck('sold_qty', 'product_id');
 
         $mappedProducts = $this->productCatalogService->mapProductsForPosGrid(
             $products,
@@ -2644,8 +2733,14 @@ class TransactionController extends Controller
             $outlet?->id,
             [
                 'soldQtyByProduct' => $soldQtyByProduct,
+                'includeKitchenStations' => ! $isRemoteSearch,
+                'includePricingBadges' => ! $isRemoteSearch,
             ]
         );
+
+        $total = $isRemoteSearch
+            ? $offset + $mappedProducts->count() + ($hasMore ? 1 : 0)
+            : (int) $total;
 
         return [
             'data' => $mappedProducts,
@@ -2653,9 +2748,27 @@ class TransactionController extends Controller
                 'page' => $page,
                 'per_page' => $limit,
                 'total' => $total,
-                'has_more' => ($offset + $limit) < $total,
+                'has_more' => $hasMore,
             ],
         ];
+    }
+
+    private function applyPosProductSearch(Builder $query, string $search): void
+    {
+        $normalizedSearch = trim($search);
+        $tokens = array_values(array_filter(preg_split('/\s+/', $normalizedSearch) ?: []));
+        $query->where(function (Builder $outerQuery) use ($tokens) {
+            foreach ($tokens as $token) {
+                $outerQuery->where(function (Builder $innerQuery) use ($token) {
+                    $like = '%'.$token.'%';
+
+                    $innerQuery
+                        ->where('title', 'like', $like)
+                        ->orWhereHas('category', fn (Builder $categoryQuery) => $categoryQuery
+                            ->where('name', 'like', $like));
+                });
+            }
+        });
     }
 
 }

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { memo, useEffect, useMemo, useRef, useState } from "react";
 import {
     IconShoppingBag,
     IconPhoto,
@@ -33,7 +33,7 @@ const promoExplanation = (badge) => {
 };
 
 // Single Product Card
-function ProductCard({
+const ProductCard = memo(function ProductCard({
     product,
     onAddToCart,
     isAdding,
@@ -257,7 +257,7 @@ function ProductCard({
 
         </CardTag>
     );
-}
+});
 
 // Category Tab Button
 function CategoryTab({ category, isActive, onClick }) {
@@ -310,7 +310,6 @@ function SearchInput({
                     placeholder-slate-400 dark:placeholder-slate-500
                     focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 dark:focus:border-primary-500
                     transition-all text-base"
-                disabled={isSearching}
             />
             <div className="absolute right-3 top-1/2 flex -translate-y-1/2 items-center gap-1">
                 {enableBarcodeScanner && (
@@ -372,6 +371,7 @@ export default function ProductGrid({
     showFilterSummary = true,
     groupByCategoryWhenTenantFiltered = false,
 }) {
+    const [searchDraft, setSearchDraft] = useState(searchQuery || "");
     const [selectedTenantOutletId, setSelectedTenantOutletId] = useState(null);
     const [isFilterPanelExpanded, setIsFilterPanelExpanded] = useState(() => {
         if (typeof window === "undefined") {
@@ -410,6 +410,7 @@ export default function ProductGrid({
     });
     const [isCompactLandscape, setIsCompactLandscape] = useState(false);
     const loadMoreSentinelRef = useRef(null);
+    const lastEmittedSearchRef = useRef(searchQuery || "");
     const sortOptions = [
         { value: "alphabetical", label: "Urutan A-Z" },
         { value: "cheapest", label: "Harga Termurah" },
@@ -417,104 +418,168 @@ export default function ProductGrid({
         { value: "promo", label: "Promo" },
         { value: "best_seller", label: "Best Seller" },
     ];
-    const tenantTabs = products
-        .map((product) => product.tenant_outlet)
-        .filter((tenant, index, array) =>
-            tenant?.id &&
-            array.findIndex((item) => Number(item?.id) === Number(tenant.id)) ===
-                index
-        )
-        .sort((a, b) => {
-            const sortOrderDiff =
-                Number(a?.sort_order || 0) - Number(b?.sort_order || 0);
+    useEffect(() => {
+        const nextQuery = searchQuery || "";
+        const isSearchInputFocused =
+            typeof document !== "undefined" &&
+            searchInputRef?.current &&
+            document.activeElement === searchInputRef.current;
 
-            if (sortOrderDiff !== 0) {
-                return sortOrderDiff;
+        lastEmittedSearchRef.current = nextQuery;
+
+        if (!isSearchInputFocused || nextQuery === "") {
+            setSearchDraft(nextQuery);
+        }
+    }, [searchQuery]);
+
+    useEffect(() => {
+        const timerId = window.setTimeout(() => {
+            if (lastEmittedSearchRef.current !== searchDraft) {
+                lastEmittedSearchRef.current = searchDraft;
+                onSearchChange?.(searchDraft);
+            }
+        }, 180);
+
+        return () => window.clearTimeout(timerId);
+    }, [onSearchChange, searchDraft]);
+
+    const tenantTabs = useMemo(
+        () =>
+            products
+                .map((product) => product.tenant_outlet)
+                .filter((tenant, index, array) =>
+                    tenant?.id &&
+                    array.findIndex(
+                        (item) => Number(item?.id) === Number(tenant.id)
+                    ) === index
+                )
+                .sort((a, b) => {
+                    const sortOrderDiff =
+                        Number(a?.sort_order || 0) -
+                        Number(b?.sort_order || 0);
+
+                    if (sortOrderDiff !== 0) {
+                        return sortOrderDiff;
+                    }
+
+                    return String(a?.name || "").localeCompare(
+                        String(b?.name || ""),
+                        "id"
+                    );
+                }),
+        [products]
+    );
+
+    const filteredProducts = useMemo(
+        () =>
+            products.filter((product) => {
+                const matchesTenant =
+                    selectedTenantOutletId === null ||
+                    Number(product.tenant_outlet?.id) ===
+                        Number(selectedTenantOutletId);
+                const matchesSearch =
+                    !searchDraft ||
+                    product.title
+                        .toLowerCase()
+                        .includes(searchDraft.toLowerCase()) ||
+                    product.barcode
+                        ?.toLowerCase()
+                        .includes(searchDraft.toLowerCase());
+                return matchesTenant && matchesSearch;
+            }),
+        [products, searchDraft, selectedTenantOutletId]
+    );
+
+    const sortedProducts = useMemo(
+        () =>
+            [...filteredProducts].sort((left, right) => {
+                const leftOutOfStock = Number(left?.stock || 0) <= 0;
+                const rightOutOfStock = Number(right?.stock || 0) <= 0;
+
+                if (leftOutOfStock !== rightOutOfStock) {
+                    return Number(leftOutOfStock) - Number(rightOutOfStock);
+                }
+
+                const leftName = String(left?.title || "");
+                const rightName = String(right?.title || "");
+                const alphabetical = leftName.localeCompare(rightName, "id");
+                const leftPrice = Number(
+                    left?.pricing_badge?.promo_price ?? left?.sell_price ?? 0
+                );
+                const rightPrice = Number(
+                    right?.pricing_badge?.promo_price ?? right?.sell_price ?? 0
+                );
+                const leftHasPromo = Boolean(left?.pricing_badge?.label);
+                const rightHasPromo = Boolean(right?.pricing_badge?.label);
+                const leftSoldQty = Number(left?.sold_qty || 0);
+                const rightSoldQty = Number(right?.sold_qty || 0);
+
+                switch (sortMode) {
+                    case "cheapest":
+                        return leftPrice - rightPrice || alphabetical;
+                    case "expensive":
+                        return rightPrice - leftPrice || alphabetical;
+                    case "promo":
+                        return (
+                            Number(rightHasPromo) - Number(leftHasPromo) ||
+                            leftPrice - rightPrice ||
+                            alphabetical
+                        );
+                    case "best_seller":
+                        return rightSoldQty - leftSoldQty || alphabetical;
+                    default:
+                        return alphabetical;
+                }
+            }),
+        [filteredProducts, sortMode]
+    );
+
+    const groupedCategorySections = useMemo(() => {
+        if (
+            !groupByCategoryWhenTenantFiltered ||
+            selectedTenantOutletId === null
+        ) {
+            return [];
+        }
+
+        return sortedProducts.reduce((sections, product) => {
+            const categoryId = Number(product?.category?.id || 0);
+            const categoryName = String(
+                product?.category?.name || "Tanpa Kategori"
+            );
+            const existingSection = sections.find(
+                (section) => section.categoryId === categoryId
+            );
+
+            if (existingSection) {
+                existingSection.products.push(product);
+                return sections;
             }
 
-            return String(a?.name || "").localeCompare(
-                String(b?.name || ""),
-                "id"
-            );
-        });
+            sections.push({
+                categoryId,
+                categoryName,
+                products: [product],
+            });
 
-    // Filter products by tenant and search
-    const filteredProducts = products.filter((product) => {
-        const matchesTenant =
-            selectedTenantOutletId === null ||
-            Number(product.tenant_outlet?.id) ===
-                Number(selectedTenantOutletId);
-        const matchesSearch =
-            !searchQuery ||
-            product.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            product.barcode?.toLowerCase().includes(searchQuery.toLowerCase());
-        return matchesTenant && matchesSearch;
-    });
-    const sortedProducts = [...filteredProducts].sort((left, right) => {
-        const leftName = String(left?.title || "");
-        const rightName = String(right?.title || "");
-        const alphabetical = leftName.localeCompare(rightName, "id");
-        const leftPrice = Number(
-            left?.pricing_badge?.promo_price ?? left?.sell_price ?? 0
-        );
-        const rightPrice = Number(
-            right?.pricing_badge?.promo_price ?? right?.sell_price ?? 0
-        );
-        const leftHasPromo = Boolean(left?.pricing_badge?.label);
-        const rightHasPromo = Boolean(right?.pricing_badge?.label);
-        const leftSoldQty = Number(left?.sold_qty || 0);
-        const rightSoldQty = Number(right?.sold_qty || 0);
+            return sections;
+        }, []);
+    }, [
+        groupByCategoryWhenTenantFiltered,
+        selectedTenantOutletId,
+        sortedProducts,
+    ]);
 
-        switch (sortMode) {
-            case "cheapest":
-                return leftPrice - rightPrice || alphabetical;
-            case "expensive":
-                return rightPrice - leftPrice || alphabetical;
-            case "promo":
-                return (
-                    Number(rightHasPromo) - Number(leftHasPromo) ||
-                    leftPrice - rightPrice ||
-                    alphabetical
-                );
-            case "best_seller":
-                return rightSoldQty - leftSoldQty || alphabetical;
-            default:
-                return alphabetical;
-        }
-    });
-    const groupedCategorySections =
-        groupByCategoryWhenTenantFiltered && selectedTenantOutletId !== null
-            ? sortedProducts.reduce((sections, product) => {
-                  const categoryId = Number(product?.category?.id || 0);
-                  const categoryName = String(
-                      product?.category?.name || "Tanpa Kategori"
-                  );
-                  const existingSection = sections.find(
-                      (section) => section.categoryId === categoryId
-                  );
-
-                  if (existingSection) {
-                      existingSection.products.push(product);
-                      return sections;
-                  }
-
-                  sections.push({
-                      categoryId,
-                      categoryName,
-                      products: [product],
-                  });
-
-                  return sections;
-              }, [])
-            : [];
-
-    const selectedTenantName =
-        selectedTenantOutletId === null
-            ? allTenantLabel
-            : tenantTabs.find(
-                  (tenant) =>
-                      Number(tenant.id) === Number(selectedTenantOutletId)
-              )?.name || "Tenant";
+    const selectedTenantName = useMemo(
+        () =>
+            selectedTenantOutletId === null
+                ? allTenantLabel
+                : tenantTabs.find(
+                      (tenant) =>
+                          Number(tenant.id) === Number(selectedTenantOutletId)
+                  )?.name || "Tenant",
+        [allTenantLabel, selectedTenantOutletId, tenantTabs]
+    );
 
     useEffect(() => {
         if (typeof window === "undefined") {
@@ -622,6 +687,12 @@ export default function ProductGrid({
 
     return (
         <div className="flex h-full min-h-0 flex-col">
+            <style>{`
+                @keyframes productGridProgress {
+                    0% { transform: translateX(-120%); }
+                    100% { transform: translateX(320%); }
+                }
+            `}</style>
             {/* Search Bar */}
             <div
                 className={`border-b border-slate-200 dark:border-slate-800 ${
@@ -639,8 +710,8 @@ export default function ProductGrid({
                 >
                     <div className="min-w-0 flex-1">
                         <SearchInput
-                            value={searchQuery}
-                            onChange={onSearchChange}
+                            value={searchDraft}
+                            onChange={setSearchDraft}
                             onSearch={onSearch}
                             isSearching={isSearching}
                             placeholder={
@@ -769,6 +840,24 @@ export default function ProductGrid({
                     </div>
                 </div>
 
+                {(isSearching || isLoadingMoreProducts) && (
+                    <div className="border-t border-slate-200/80 bg-slate-50 px-4 py-2 dark:border-slate-800 dark:bg-slate-900/80">
+                        <div className="flex items-center justify-between gap-3 text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                            <span>
+                                {isSearching
+                                    ? `Memuat hasil untuk "${searchDraft}"...`
+                                    : "Memuat produk tambahan..."}
+                            </span>
+                            <span>
+                                {sortedProducts.length} produk tampil
+                            </span>
+                        </div>
+                        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800">
+                            <div className="h-full w-1/3 animate-[productGridProgress_1.1s_ease-in-out_infinite] rounded-full bg-primary-500" />
+                        </div>
+                    </div>
+                )}
+
                 {isFilterPanelExpanded && (
                     <div
                         className={`px-4 pb-3 ${
@@ -845,6 +934,11 @@ export default function ProductGrid({
                     isCompactLandscape ? "p-3" : "p-4"
                 }`}
             >
+                {isSearching && (
+                    <div className="mb-3 rounded-2xl border border-primary-100 bg-primary-50/80 px-4 py-3 text-sm text-primary-700 dark:border-primary-900/40 dark:bg-primary-950/20 dark:text-primary-300">
+                        Menyiapkan hasil pencarian produk...
+                    </div>
+                )}
                 {sortedProducts.length > 0 ? (
                     groupedCategorySections.length > 0 ? (
                         <div className="space-y-5">
@@ -912,7 +1006,7 @@ export default function ProductGrid({
                         />
                         <p className="text-sm">
                             {emptyMessage ||
-                                (searchQuery
+                                (searchDraft
                                     ? "Produk tidak ditemukan"
                                     : "Tidak ada produk")}
                         </p>

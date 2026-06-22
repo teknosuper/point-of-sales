@@ -18,11 +18,14 @@ class ProductCatalogService
         ?int $outletId = null,
         array $options = []
     ): Collection {
-        $pricingBadges = $this->pricingService->previewProducts(
-            $products,
-            $customer,
-            outletId: $outletId
-        );
+        $includePricingBadges = (bool) ($options['includePricingBadges'] ?? true);
+        $pricingBadges = $includePricingBadges
+            ? $this->pricingService->previewProducts(
+                $products,
+                $customer,
+                outletId: $outletId
+            )
+            : collect();
         $soldQtyByProduct = collect($options['soldQtyByProduct'] ?? []);
         $includeKitchenStations = (bool) ($options['includeKitchenStations'] ?? false);
 
