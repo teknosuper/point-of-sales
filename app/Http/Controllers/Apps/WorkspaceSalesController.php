@@ -12,6 +12,7 @@ use App\Models\TransactionTenantAllocation;
 use App\Models\TransactionTenantAllocationItem;
 use App\Models\User;
 use App\Services\OutletResolver;
+use App\Support\ReportTimezone;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
@@ -124,27 +125,36 @@ class WorkspaceSalesController extends Controller
             ? Profit::query()->whereIn('transaction_id', $filteredTransactionIds)->sum('total')
             : 0;
 
+        // Today/Yesterday/Month using source timezone
+        $todayStart = ReportTimezone::localDateStartInSourceTz(now(ReportTimezone::displayTimezone())->toDateString());
+        $todayEnd = ReportTimezone::localDateEndInSourceTz(now(ReportTimezone::displayTimezone())->toDateString());
         $todayTransactions = Transaction::query()
             ->where('outlet_id', $outlet->id)
-            ->whereDate('created_at', Carbon::today());
+            ->where('created_at', '>=', $todayStart)
+            ->where('created_at', '<=', $todayEnd);
         $todaySales = (int) ((clone $todayTransactions)->sum('grand_total') ?? 0);
         $todayBaseTotal = $this->sumBaseValueFromTransactionQuery(clone $todayTransactions);
         $todayPromoTotal = $this->sumPromoDiscountsFromTransactionQuery(clone $todayTransactions);
-        $todayOrders = (clone $todayTransactions)
-            ->count();
+        $todayOrders = (clone $todayTransactions)->count();
 
+        $yesterdayDate = Carbon::now(ReportTimezone::displayTimezone())->subDay()->toDateString();
+        $yesterdayStart = ReportTimezone::localDateStartInSourceTz($yesterdayDate);
+        $yesterdayEnd = ReportTimezone::localDateEndInSourceTz($yesterdayDate);
         $yesterdayTransactions = Transaction::query()
             ->where('outlet_id', $outlet->id)
-            ->whereDate('created_at', Carbon::yesterday());
+            ->where('created_at', '>=', $yesterdayStart)
+            ->where('created_at', '<=', $yesterdayEnd);
         $yesterdaySales = (int) ((clone $yesterdayTransactions)->sum('grand_total') ?? 0);
         $yesterdayBaseTotal = $this->sumBaseValueFromTransactionQuery(clone $yesterdayTransactions);
         $yesterdayPromoTotal = $this->sumPromoDiscountsFromTransactionQuery(clone $yesterdayTransactions);
         $yesterdayOrders = (clone $yesterdayTransactions)->count();
 
+        $monthStart = Carbon::now(ReportTimezone::displayTimezone())->startOfMonth()->setTimezone(ReportTimezone::sourceTimezone());
+        $monthEnd = Carbon::now(ReportTimezone::displayTimezone())->endOfMonth()->setTimezone(ReportTimezone::sourceTimezone());
         $monthTransactions = Transaction::query()
             ->where('outlet_id', $outlet->id)
-            ->whereMonth('created_at', Carbon::now()->month)
-            ->whereYear('created_at', Carbon::now()->year);
+            ->where('created_at', '>=', $monthStart)
+            ->where('created_at', '<=', $monthEnd);
         $monthSales = (int) ((clone $monthTransactions)->sum('grand_total') ?? 0);
         $monthBaseTotal = $this->sumBaseValueFromTransactionQuery(clone $monthTransactions);
         $monthPromoTotal = $this->sumPromoDiscountsFromTransactionQuery(clone $monthTransactions);
@@ -812,9 +822,13 @@ class WorkspaceSalesController extends Controller
 
     private function buildGrossHourlyTrend(int $outletId): Collection
     {
+        $todayStart = ReportTimezone::localDateStartInSourceTz(now(ReportTimezone::displayTimezone())->toDateString());
+        $todayEnd = ReportTimezone::localDateEndInSourceTz(now(ReportTimezone::displayTimezone())->toDateString());
+
         return Transaction::query()
             ->where('outlet_id', $outletId)
-            ->whereDate('created_at', Carbon::today())
+            ->where('created_at', '>=', $todayStart)
+            ->where('created_at', '<=', $todayEnd)
             ->selectRaw('HOUR(created_at) as hour_of_day, COUNT(*) as orders_count, COALESCE(SUM(grand_total), 0) as total_value')
             ->groupBy('hour_of_day')
             ->orderBy('hour_of_day')
@@ -830,10 +844,14 @@ class WorkspaceSalesController extends Controller
 
     private function buildBaseHourlyTrend(int $outletId): Collection
     {
+        $todayStart = ReportTimezone::localDateStartInSourceTz(now(ReportTimezone::displayTimezone())->toDateString());
+        $todayEnd = ReportTimezone::localDateEndInSourceTz(now(ReportTimezone::displayTimezone())->toDateString());
+
         return TransactionDetail::query()
             ->join('transactions', 'transactions.id', '=', 'transaction_details.transaction_id')
             ->where('transactions.outlet_id', $outletId)
-            ->whereDate('transactions.created_at', Carbon::today())
+            ->where('transactions.created_at', '>=', $todayStart)
+            ->where('transactions.created_at', '<=', $todayEnd)
             ->selectRaw('HOUR(transactions.created_at) as hour_of_day, COUNT(DISTINCT transactions.id) as orders_count, COALESCE(SUM(transaction_details.base_unit_price * transaction_details.qty), 0) as total_value')
             ->groupBy('hour_of_day')
             ->orderBy('hour_of_day')
@@ -1298,28 +1316,29 @@ class WorkspaceSalesController extends Controller
 
     private function applyQuickRange(array &$filters): void
     {
-        $today = Carbon::today();
+        $displayTz = ReportTimezone::displayTimezone();
+        $now = now($displayTz);
 
         switch ((string) ($filters['quick_range'] ?? '')) {
             case 'today':
-                $filters['start_date'] = $today->toDateString();
-                $filters['end_date'] = $today->toDateString();
+                $filters['start_date'] = $now->toDateString();
+                $filters['end_date'] = $now->toDateString();
                 break;
             case 'yesterday':
-                $filters['start_date'] = Carbon::yesterday()->toDateString();
-                $filters['end_date'] = Carbon::yesterday()->toDateString();
+                $filters['start_date'] = $now->copy()->subDay()->toDateString();
+                $filters['end_date'] = $now->copy()->subDay()->toDateString();
                 break;
             case '7d':
-                $filters['start_date'] = $today->copy()->subDays(6)->toDateString();
-                $filters['end_date'] = $today->toDateString();
+                $filters['start_date'] = $now->copy()->subDays(6)->toDateString();
+                $filters['end_date'] = $now->toDateString();
                 break;
             case '30d':
-                $filters['start_date'] = $today->copy()->subDays(29)->toDateString();
-                $filters['end_date'] = $today->toDateString();
+                $filters['start_date'] = $now->copy()->subDays(29)->toDateString();
+                $filters['end_date'] = $now->toDateString();
                 break;
             case 'month':
-                $filters['start_date'] = $today->copy()->startOfMonth()->toDateString();
-                $filters['end_date'] = $today->toDateString();
+                $filters['start_date'] = $now->copy()->startOfMonth()->toDateString();
+                $filters['end_date'] = $now->toDateString();
                 break;
             default:
                 break;

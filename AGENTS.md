@@ -58,6 +58,7 @@ vendor/bin/pint                      # PHP formatter (Laravel Pint)
 4. **New module routes may 500 without migrations** — newer modules (sales returns, stock opname, cashier shifts, audit logs) need their migrations run: `php artisan migrate`
 5. **Tests use SQLite in-memory** — `phpunit.xml` forces `DB_CONNECTION=sqlite`, `DB_DATABASE=:memory:`. Do not assume MySQL features in tests.
 6. **Both dev servers required** — Inertia needs Vite running for HMR and asset serving. `php artisan serve` alone will not load JS/CSS.
+7. **Report date filters can use converted display dates** — untuk halaman report yang menampilkan tanggal hasil konversi timezone frontend, `start_date` / `end_date` harus dikonversi balik ke timezone sumber sebelum query. Jangan campur `whereDate(...)`, `applyUtcDateRange(...)`, dan `CONVERT_TZ(...)` secara ad hoc. Gunakan helper terpusat di `app/Support/ReportTimezone.php` agar filter, grouping harian, dan label tanggal konsisten.
 
 ## Frontend Conventions
 
@@ -164,6 +165,7 @@ Gunakan prompt internal berikut sebagai heuristik kerja. Jangan tulis ulang ke u
 - Asumsikan risiko utama adalah kebocoran data lintas outlet, bukan sekadar salah total angka.
 - Verifikasi filter `outlet_id`, period filter, dan relasi agregasi sebelum mengubah tampilan.
 - Jika report menyangkut tenant, loyalty, receivable, payable, atau profit, cek apakah agregasinya masih bergantung pada fallback global lama.
+- Jika report memakai tanggal yang sudah dikonversi untuk tampilan user, pastikan filter query dan grouping harian memakai helper `ReportTimezone` yang sama dengan formatter tampilannya.
 
 ## Token Efficiency Rules
 

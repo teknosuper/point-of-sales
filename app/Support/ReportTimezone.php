@@ -39,6 +39,42 @@ class ReportTimezone
             : sprintf('GMT%s%d:%02d', $sign, $hours, $minutes);
     }
 
+    public static function timezoneOffset(string $timezone): string
+    {
+        return now($timezone)->format('P');
+    }
+
+    public static function databaseOffset(): string
+    {
+        return self::timezoneOffset(self::databaseTimezone());
+    }
+
+    public static function displayOffset(): string
+    {
+        return self::timezoneOffset(self::displayTimezone());
+    }
+
+    public static function convertTzExpression(
+        string $column,
+        ?string $fromTimezone = null,
+        ?string $toTimezone = null
+    ): string {
+        $fromTimezone ??= self::sourceTimezone();
+        $toTimezone ??= self::displayOffset();
+
+        return "CONVERT_TZ({$column}, '{$fromTimezone}', '{$toTimezone}')";
+    }
+
+    public static function sourceToDisplayDateExpression(string $column): string
+    {
+        return 'DATE('.self::convertTzExpression($column, self::sourceTimezone(), self::displayOffset()).')';
+    }
+
+    public static function formatSourceDateLabel(?string $value, string $format = 'd M Y'): ?string
+    {
+        return self::formatSourceDateTime($value, $format);
+    }
+
     public static function applyUtcDateRange($query, string $column, array $filters)
     {
         if (! empty($filters['start_date'])) {

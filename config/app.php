@@ -92,7 +92,7 @@ return [
     |
     */
 
-    'report_source_timezone' => env('REPORT_SOURCE_TIMEZONE', '-05:00'),
+    'report_source_timezone' => env('REPORT_SOURCE_TIMEZONE', env('APP_TIMEZONE', 'Asia/Jakarta')),
     'report_display_timezone' => env('REPORT_DISPLAY_TIMEZONE', env('APP_TIMEZONE', 'Asia/Jakarta')),
 
     /*

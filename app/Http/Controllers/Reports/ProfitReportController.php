@@ -490,7 +490,7 @@ class ProfitReportController extends Controller
     protected function dailyProfitTrend(array $filters, Collection $transactionIds, ?int $outletId): Collection
     {
         $dailyTransactions = $this->applyFilters(Transaction::query(), $filters)
-            ->selectRaw('DATE(created_at) as day')
+            ->selectRaw(ReportTimezone::sourceToDisplayDateExpression('created_at').' as day')
             ->selectRaw('COUNT(*) as orders_count')
             ->selectRaw('COALESCE(SUM(grand_total), 0) as revenue_total')
             ->groupBy('day')
@@ -517,7 +517,7 @@ class ProfitReportController extends Controller
 
                 return [
                     'day' => $day,
-                    'label' => Carbon::parse($day)->format('d M Y'),
+                    'label' => $this->formatTrendDayLabel($day),
                     'orders_count' => (int) ($tx->orders_count ?? 0),
                     'revenue_total' => $revenueTotal,
                     'profit_total' => $ownerProfitTotal > 0 ? $ownerProfitTotal : max(0, $revenueTotal - $baseCostTotal),
@@ -684,11 +684,10 @@ class ProfitReportController extends Controller
         $discountExpression = $hasDiscountTotal
             ? 'COALESCE(transaction_details.discount_total, 0)'
             : '0';
-
         return TransactionDetail::query()
             ->join('transactions', 'transactions.id', '=', 'transaction_details.transaction_id')
             ->whereIn('transaction_details.transaction_id', $transactionIds)
-            ->selectRaw('DATE(transactions.created_at) as day')
+            ->selectRaw(ReportTimezone::sourceToDisplayDateExpression('transactions.created_at').' as day')
             ->selectRaw('COALESCE(SUM(transaction_details.price), 0) as revenue_total')
             ->selectRaw("COALESCE(SUM({$basisExpression}), 0) as base_cost_total")
             ->selectRaw("COALESCE(SUM({$discountExpression}), 0) as discount_total")
@@ -735,11 +734,10 @@ class ProfitReportController extends Controller
         if ($transactionIds->isEmpty() || ! Schema::hasTable('transaction_tenant_allocations')) {
             return collect();
         }
-
         return TransactionTenantAllocation::query()
             ->join('transactions', 'transactions.id', '=', 'transaction_tenant_allocations.transaction_id')
             ->whereIn('transaction_tenant_allocations.transaction_id', $transactionIds)
-            ->selectRaw('DATE(transactions.created_at) as day')
+            ->selectRaw(ReportTimezone::sourceToDisplayDateExpression('transactions.created_at').' as day')
             ->selectRaw('COALESCE(SUM(transaction_tenant_allocations.grand_total), 0) as after_promo_total')
             ->selectRaw('COALESCE(SUM(transaction_tenant_allocations.promo_discount_total + transaction_tenant_allocations.manual_discount_total + transaction_tenant_allocations.loyalty_discount_total + transaction_tenant_allocations.voucher_discount_total), 0) as discount_total')
             ->groupBy('day')
@@ -825,7 +823,9 @@ class ProfitReportController extends Controller
 
         return [
             ...$transaction->toArray(),
-            'created_at' => ReportTimezone::formatDateTime($transaction->created_at),
+            'created_at' => $transaction->created_at
+                ? ReportTimezone::formatSourceDateTime($transaction->getRawOriginal('created_at'), 'd M Y H:i')
+                : null,
             'total_profit' => $ownerProfitTotal,
             'base_cost_total' => $baseCostTotal,
             'markup_total' => $ownerProfitTotal,
@@ -949,7 +949,7 @@ class ProfitReportController extends Controller
                 };
             });
 
-        return ReportTimezone::applyUtcDateRange(
+        return ReportTimezone::applySourceDateRange(
             $query,
             'transactions.created_at',
             $filters
@@ -1155,7 +1155,7 @@ class ProfitReportController extends Controller
                 $q->where('transaction_details.pricing_rule_kind', $kind);
             });
 
-        return ReportTimezone::applyUtcDateRange(
+        return ReportTimezone::applySourceDateRange(
             $query,
             'transactions.created_at',
             $filters
@@ -1176,7 +1176,7 @@ class ProfitReportController extends Controller
             });
 
         if (! empty($filters['start_date']) || ! empty($filters['end_date'])) {
-            $query->whereHas('transaction', fn ($tx) => ReportTimezone::applyUtcDateRange($tx, 'created_at', $filters));
+            $query->whereHas('transaction', fn ($tx) => ReportTimezone::applySourceDateRange($tx, 'created_at', $filters));
         }
 
         return $query;
@@ -1218,7 +1218,9 @@ class ProfitReportController extends Controller
         return [
             'id' => $allocation->id,
             'invoice' => $transaction?->invoice ?? $allocation->allocation_number,
-            'created_at' => ReportTimezone::formatDateTime($transaction?->created_at),
+            'created_at' => $transaction?->created_at
+                ? ReportTimezone::formatSourceDateTime($transaction->getRawOriginal('created_at'), 'd M Y H:i')
+                : null,
             'customer' => $transaction?->customer ? ['name' => $transaction->customer->name] : null,
             'cashier' => $transaction?->cashier ? ['name' => $transaction->cashier->name] : null,
             'grand_total' => (int) ($allocation->grand_total ?? 0),
@@ -1292,7 +1294,7 @@ class ProfitReportController extends Controller
 
                 return [
                     'day' => $day,
-                    'label' => Carbon::parse($day, ReportTimezone::timezone())->format('d M Y'),
+                    'label' => $this->formatTrendDayLabel($day),
                     'orders_count' => (int) $rows->count(),
                     'revenue_total' => $revenueTotal,
                     'profit_total' => (int) $rows->sum('profit_total'),
@@ -1307,5 +1309,11 @@ class ProfitReportController extends Controller
             })
             ->sortBy('day')
             ->values();
+    }
+
+    protected function formatTrendDayLabel(string $day): string
+    {
+        return ReportTimezone::formatSourceDateLabel($day.' 00:00:00', 'd M Y')
+            ?? Carbon::parse($day)->format('d M Y');
     }
 }

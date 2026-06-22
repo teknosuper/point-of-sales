@@ -19,6 +19,7 @@ use App\Models\TransactionTenantAllocation;
 use App\Models\TransactionTenantAllocationItem;
 use App\Services\CashierShiftService;
 use App\Services\OutletResolver;
+use App\Support\ReportTimezone;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
@@ -66,39 +67,60 @@ class DashboardController extends Controller
         $totalRevenue = (clone $transactionQuery)->sum('grand_total');
         $totalProfit = (clone $profitQuery)->sum('total');
         $averageOrder = (clone $transactionQuery)->avg('grand_total') ?? 0;
-        $todayTransactions = (clone $transactionQuery)->whereDate('created_at', Carbon::today())->count();
+
+        // Today's transactions using source timezone
+        $todayStart = ReportTimezone::localDateStartInSourceTz(now(ReportTimezone::displayTimezone())->toDateString());
+        $todayEnd = ReportTimezone::localDateEndInSourceTz(now(ReportTimezone::displayTimezone())->toDateString());
+        $todayTransactions = (clone $transactionQuery)
+            ->where('created_at', '>=', $todayStart)
+            ->where('created_at', '<=', $todayEnd)
+            ->count();
         $walkInTransactions = (clone $transactionQuery)->whereNull('customer_id')->count();
         $memberTransactions = max(0, $totalTransactions - $walkInTransactions);
 
         // New: Today's Sales and Profit
-        $todaySales = (clone $transactionQuery)->whereDate('created_at', Carbon::today())->sum('grand_total');
-        $todayProfit = (clone $profitQuery)->whereDate('created_at', Carbon::today())->sum('total');
-
-        // Monthly targets
-        $monthlyTarget = Setting::get('monthly_sales_target', 0, $outletId);
-        $monthlyProfitTarget = Setting::get('monthly_profit_target', 0, $outletId);
-        $currentMonthSales = (clone $transactionQuery)->whereMonth('created_at', Carbon::now()->month)
-            ->whereYear('created_at', Carbon::now()->year)
+        $todaySales = (clone $transactionQuery)
+            ->where('created_at', '>=', $todayStart)
+            ->where('created_at', '<=', $todayEnd)
             ->sum('grand_total');
-        $currentMonthProfit = (clone $profitQuery)->whereMonth('created_at', Carbon::now()->month)
-            ->whereYear('created_at', Carbon::now()->year)
+        $todayProfit = (clone $profitQuery)
+            ->where('created_at', '>=', $todayStart)
+            ->where('created_at', '<=', $todayEnd)
             ->sum('total');
 
+        // Monthly targets using source timezone
+        $monthlyTarget = Setting::get('monthly_sales_target', 0, $outletId);
+        $monthlyProfitTarget = Setting::get('monthly_profit_target', 0, $outletId);
+        $currentMonthStart = Carbon::now(ReportTimezone::displayTimezone())->startOfMonth()->setTimezone(ReportTimezone::sourceTimezone());
+        $currentMonthEnd = Carbon::now(ReportTimezone::displayTimezone())->endOfMonth()->setTimezone(ReportTimezone::sourceTimezone());
+        $currentMonthSales = (clone $transactionQuery)
+            ->where('created_at', '>=', $currentMonthStart)
+            ->where('created_at', '<=', $currentMonthEnd)
+            ->sum('grand_total');
+        $currentMonthProfit = (clone $profitQuery)
+            ->where('created_at', '>=', $currentMonthStart)
+            ->where('created_at', '<=', $currentMonthEnd)
+            ->sum('total');
+
+        // Revenue trend: last 12 days using source timezone boundaries
+        $trendEnd = ReportTimezone::localDateEndInSourceTz(now(ReportTimezone::displayTimezone())->toDateString());
+        $trendStart = Carbon::parse($trendEnd)->subDays(11)->startOfDay()->setTimezone(ReportTimezone::sourceTimezone());
         $revenueTrend = Transaction::query()
             ->when($outletId, fn ($query) => $query->where('outlet_id', $outletId))
-            ->selectRaw('DATE(created_at) as date, SUM(grand_total) as total')
+            ->where('created_at', '>=', $trendStart)
+            ->where('created_at', '<=', $trendEnd)
+            ->selectRaw("DATE(CONVERT_TZ(created_at, 'UTC', '".ReportTimezone::sourceTimezone()."')) as date, SUM(grand_total) as total")
             ->groupBy('date')
-            ->orderBy('date', 'desc')
+            ->orderBy('date', 'asc')
             ->take(12)
             ->get()
             ->map(function ($row) {
                 return [
                     'date' => $row->date,
-                    'label' => Carbon::parse($row->date)->format('d M'),
+                    'label' => Carbon::parse($row->date, ReportTimezone::sourceTimezone())->format('d M'),
                     'total' => (int) $row->total,
                 ];
             })
-            ->reverse()
             ->values();
 
         $topProducts = (clone $detailQuery)
@@ -383,7 +405,10 @@ class DashboardController extends Controller
         $totalProfit = max(0, $totalRevenue - $totalCost);
         $averageOrder = $totalTransactions > 0 ? (int) round($totalRevenue / $totalTransactions) : 0;
 
-        $todayQuery = (clone $allocationQuery)->whereHas('transaction', fn (Builder $query) => $query->whereDate('created_at', Carbon::today()));
+        // Today's using source timezone
+        $todayStart = ReportTimezone::localDateStartInSourceTz(now(ReportTimezone::displayTimezone())->toDateString());
+        $todayEnd = ReportTimezone::localDateEndInSourceTz(now(ReportTimezone::displayTimezone())->toDateString());
+        $todayQuery = (clone $allocationQuery)->whereHas('transaction', fn (Builder $query) => $query->where('created_at', '>=', $todayStart)->where('created_at', '<=', $todayEnd));
         $todayTransactions = (clone $todayQuery)->count();
         $todaySales = (int) ((clone $todayQuery)->sum('grand_total') ?? 0);
         $todayProfit = max(0, $todaySales - $this->sumTenantAllocationCost((clone $todayQuery)->pluck('id')));
@@ -394,28 +419,34 @@ class DashboardController extends Controller
 
         $monthlyTarget = Setting::get('monthly_sales_target', 0, $tenantOutletId);
         $monthlyProfitTarget = Setting::get('monthly_profit_target', 0, $tenantOutletId);
+        $currentMonthStart = Carbon::now(ReportTimezone::displayTimezone())->startOfMonth()->setTimezone(ReportTimezone::sourceTimezone());
+        $currentMonthEnd = Carbon::now(ReportTimezone::displayTimezone())->endOfMonth()->setTimezone(ReportTimezone::sourceTimezone());
         $currentMonthQuery = (clone $allocationQuery)
-            ->whereHas('transaction', function (Builder $query) {
-                $query->whereMonth('created_at', Carbon::now()->month)
-                    ->whereYear('created_at', Carbon::now()->year);
+            ->whereHas('transaction', function (Builder $query) use ($currentMonthStart, $currentMonthEnd) {
+                $query->where('created_at', '>=', $currentMonthStart)
+                    ->where('created_at', '<=', $currentMonthEnd);
             });
         $currentMonthSales = (int) ((clone $currentMonthQuery)->sum('grand_total') ?? 0);
         $currentMonthProfit = max(0, $currentMonthSales - $this->sumTenantAllocationCost((clone $currentMonthQuery)->pluck('id')));
 
+        // Revenue trend: last 12 days using source timezone boundaries
+        $trendEnd = ReportTimezone::localDateEndInSourceTz(now(ReportTimezone::displayTimezone())->toDateString());
+        $trendStart = Carbon::parse($trendEnd)->subDays(11)->startOfDay()->setTimezone(ReportTimezone::sourceTimezone());
         $revenueTrend = TransactionTenantAllocation::query()
             ->join('transactions', 'transactions.id', '=', 'transaction_tenant_allocations.transaction_id')
             ->where('transaction_tenant_allocations.tenant_outlet_id', $tenantOutletId)
-            ->selectRaw('DATE(transactions.created_at) as date, COALESCE(SUM(transaction_tenant_allocations.grand_total), 0) as total')
+            ->where('transactions.created_at', '>=', $trendStart)
+            ->where('transactions.created_at', '<=', $trendEnd)
+            ->selectRaw("DATE(CONVERT_TZ(transactions.created_at, 'UTC', '".ReportTimezone::sourceTimezone()."')) as date, COALESCE(SUM(transaction_tenant_allocations.grand_total), 0) as total")
             ->groupBy('date')
-            ->orderBy('date', 'desc')
+            ->orderBy('date', 'asc')
             ->take(12)
             ->get()
             ->map(fn ($row) => [
                 'date' => $row->date,
-                'label' => Carbon::parse($row->date)->format('d M'),
+                'label' => Carbon::parse($row->date, ReportTimezone::sourceTimezone())->format('d M'),
                 'total' => (int) $row->total,
             ])
-            ->reverse()
             ->values();
 
         $topProducts = TransactionTenantAllocationItem::query()

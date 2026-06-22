@@ -167,7 +167,7 @@ class ReceiptLayoutService
 
     private function formatReceiptDateTime(mixed $value, string $paperWidth): string
     {
-        $date = \Carbon\Carbon::parse($value);
+        $date = \App\Support\ReportTimezone::sourceToDisplayCarbon($value);
 
         return $paperWidth === '58mm'
             ? $date->format('d/m/y H:i')

@@ -31,6 +31,7 @@ use App\Services\PrintJobService;
 use App\Services\ReceiptLayoutService;
 use App\Services\StockMutationService;
 use App\Services\TransactionInvoiceService;
+use App\Support\ReportTimezone;
 use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -199,7 +200,9 @@ class TransactionController extends Controller
                 'notes' => $order->notes,
                 'grand_total' => $resolvedGrandTotal,
                 'created_at' => optional($order->created_at)->toISOString(),
-                'created_at_label' => optional($order->created_at)->format('d M Y H:i'),
+                'created_at_label' => $order->created_at 
+                    ? ReportTimezone::formatSourceDateTime($order->getRawOriginal('created_at'), 'd M Y H:i')
+                    : '-',
                 'table' => [
                     'name' => $order->diningTable?->name,
                     'code' => $order->diningTable?->code,
@@ -2244,6 +2247,9 @@ class TransactionController extends Controller
 
             return [
                 ...$transaction->toArray(),
+                'created_at_label' => $transaction->created_at 
+                    ? ReportTimezone::formatSourceDateTime($transaction->getRawOriginal('created_at'), 'd M Y H:i')
+                    : '-',
                 'total_discount' => (int) ($transaction->total_promo_discount ?? 0)
                     + (int) ($transaction->discount ?? 0)
                     + (int) ($transaction->loyalty_discount_total ?? 0)
@@ -2462,7 +2468,9 @@ class TransactionController extends Controller
             'id' => $transaction->id,
             'invoice' => $transaction->invoice,
             'created_at' => optional($transaction->created_at)->toISOString(),
-            'created_at_label' => optional($transaction->created_at)->format('d M Y H:i'),
+            'created_at_label' => $transaction->created_at 
+                ? ReportTimezone::formatSourceDateTime($transaction->getRawOriginal('created_at'), 'd M Y H:i')
+                : '-',
             'order_type' => $transaction->order_type,
             'order_reference_name' => $transaction->order_reference_name,
             'order_reference_notes' => $transaction->order_reference_notes,

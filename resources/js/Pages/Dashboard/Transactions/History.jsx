@@ -375,7 +375,7 @@ const History = ({ transactions, filters }) => {
                                                 </div>
                                             </td>
                                             <td className="px-4 py-4 text-sm text-slate-600 dark:text-slate-400">
-                                                {transaction.created_at}
+                                                {transaction.created_at_label}
                                             </td>
                                             <td className="px-4 py-4 text-sm text-slate-600 dark:text-slate-400">
                                                 {transaction.cashier?.name ??
@@ -626,7 +626,7 @@ const History = ({ transactions, filters }) => {
                                                 </div>
                                             )}
                                             <p className="text-xs text-slate-500 dark:text-slate-400">
-                                                {transaction.created_at}
+                                                {transaction.created_at_label}
                                             </p>
                                         </div>
                                         <div className="text-right space-y-2">
