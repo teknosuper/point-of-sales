@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Head, Link, router } from "@inertiajs/react";
+import { Head, router } from "@inertiajs/react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import InputSelect from "@/Components/Dashboard/InputSelect";
 import Button from "@/Components/Dashboard/Button";
@@ -21,7 +21,6 @@ import {
     IconCoin,
     IconDatabaseOff,
     IconDiscount2,
-    IconBuildingStore,
     IconReceipt2,
     IconShoppingBag,
     IconTrendingUp,
@@ -84,6 +83,8 @@ const formatCurrency = (value = 0) =>
 const progressWidth = (value) =>
     `${Math.min(100, Math.max(0, Number(value || 0)))}%`;
 
+const roundToTwo = (value) => Math.round(Number(value || 0) * 100) / 100;
+
 const castFilterString = (value) =>
     typeof value === "number" ? String(value) : value ?? "";
 
@@ -91,7 +92,6 @@ const Sales = ({
     transactions,
     summary,
     targets,
-    tenantSettlement,
     filters,
     cashiers,
     customers,
@@ -268,22 +268,6 @@ const Sales = ({
         walk_in_count: summary?.walk_in_count ?? 0,
         registered_customer_count: summary?.registered_customer_count ?? 0,
     };
-    const tenantSummary = {
-        allocation_count: tenantSettlement?.summary?.allocation_count ?? 0,
-        tenant_count: tenantSettlement?.summary?.tenant_count ?? 0,
-        revenue_total: tenantSettlement?.summary?.revenue_total ?? 0,
-        settled_total: tenantSettlement?.summary?.settled_total ?? 0,
-        outstanding_total: tenantSettlement?.summary?.outstanding_total ?? 0,
-        cost_total: tenantSettlement?.summary?.cost_total ?? 0,
-        profit_total: tenantSettlement?.summary?.profit_total ?? 0,
-        management_fee_total:
-            tenantSettlement?.summary?.management_fee_total ?? 0,
-        tenant_payout_total:
-            tenantSettlement?.summary?.tenant_payout_total ?? 0,
-        margin_percentage: tenantSettlement?.summary?.margin_percentage ?? 0,
-    };
-    const topTenants = tenantSettlement?.top_tenants ?? [];
-    const dailyRecap = tenantSettlement?.daily_recap ?? [];
 
     const summaryCards = [
         {
@@ -325,6 +309,141 @@ const Sales = ({
             value: safeSummary.registered_customer_count.toLocaleString("id-ID"),
             description: `${safeSummary.orders_count > 0 ? ((safeSummary.registered_customer_count / safeSummary.orders_count) * 100).toFixed(0) : 0}% dari transaksi`,
             icon: <IconWallet />,
+        },
+    ];
+    const paymentMethodBreakdown = analytics?.payment_method_breakdown || [];
+    const activePaymentMethodsCount = paymentMethodBreakdown.filter(
+        (item) => (item?.orders_count ?? 0) > 0
+    ).length;
+    const findPaymentMethod = (...methods) =>
+        paymentMethodBreakdown.find((item) =>
+            methods.includes(item?.payment_method)
+        ) ?? {
+            payment_method: methods[0] ?? "unknown",
+            payment_method_label: "Belum ada",
+            orders_count: 0,
+            revenue_total: 0,
+        };
+    const cashPayment = findPaymentMethod("cash");
+    const qrisPayment = findPaymentMethod("qris");
+    const transferPayment = findPaymentMethod("bank_transfer");
+    const otherPayment = paymentMethodBreakdown.reduce(
+        (carry, item) => {
+            if (
+                ["cash", "qris", "bank_transfer"].includes(
+                    item?.payment_method
+                )
+            ) {
+                return carry;
+            }
+
+            return {
+                payment_method: "others",
+                payment_method_label: "Metode Lain",
+                orders_count: carry.orders_count + (item?.orders_count ?? 0),
+                revenue_total:
+                    carry.revenue_total + (item?.revenue_total ?? 0),
+            };
+        },
+        {
+            payment_method: "others",
+            payment_method_label: "Metode Lain",
+            orders_count: 0,
+            revenue_total: 0,
+        }
+    );
+    const cashVsNonCash = {
+        cash_revenue_total: cashPayment.revenue_total ?? 0,
+        non_cash_revenue_total: Math.max(
+            0,
+            (safeSummary.revenue_total ?? 0) - (cashPayment.revenue_total ?? 0)
+        ),
+    };
+    cashVsNonCash.cash_percent =
+        safeSummary.revenue_total > 0
+            ? (
+                  (cashVsNonCash.cash_revenue_total / safeSummary.revenue_total) *
+                  100
+              ).toFixed(1)
+            : "0.0";
+    cashVsNonCash.non_cash_percent =
+        safeSummary.revenue_total > 0
+            ? (
+                  (cashVsNonCash.non_cash_revenue_total /
+                      safeSummary.revenue_total) *
+                  100
+              ).toFixed(1)
+            : "0.0";
+    const dominantPaymentMethod = paymentMethodBreakdown.reduce(
+        (dominant, item) =>
+            (item?.revenue_total ?? 0) > (dominant?.revenue_total ?? 0)
+                ? item
+                : dominant,
+        null
+    );
+    const paymentContributionRows = paymentMethodBreakdown.map((item) => ({
+        ...item,
+        revenue_share_percent:
+            safeSummary.revenue_total > 0
+                ? roundToTwo(
+                      ((item?.revenue_total ?? 0) / safeSummary.revenue_total) *
+                          100
+                  )
+                : 0,
+    }));
+    const paymentHighlights = [
+        {
+            title: "Total Transaksi",
+            value: safeSummary.orders_count.toLocaleString("id-ID"),
+            description: `${safeSummary.items_sold.toLocaleString("id-ID")} item terjual`,
+        },
+        {
+            title: "Jenis Pembayaran Aktif",
+            value: activePaymentMethodsCount.toLocaleString("id-ID"),
+            description:
+                activePaymentMethodsCount > 0
+                    ? "Metode dipakai pada periode ini"
+                    : "Belum ada transaksi",
+        },
+        {
+            title: "Tunai",
+            value: `${cashPayment.orders_count.toLocaleString("id-ID")} trx`,
+            description: formatCurrency(cashPayment.revenue_total ?? 0),
+        },
+        {
+            title: "QRIS",
+            value: `${qrisPayment.orders_count.toLocaleString("id-ID")} trx`,
+            description: formatCurrency(qrisPayment.revenue_total ?? 0),
+        },
+        {
+            title: "Transfer",
+            value: `${transferPayment.orders_count.toLocaleString("id-ID")} trx`,
+            description: formatCurrency(transferPayment.revenue_total ?? 0),
+        },
+        {
+            title: "Metode Lain",
+            value: `${otherPayment.orders_count.toLocaleString("id-ID")} trx`,
+            description: formatCurrency(otherPayment.revenue_total ?? 0),
+        },
+    ];
+    const paymentSummaryBadges = [
+        {
+            title: "Metode Dominan",
+            value: dominantPaymentMethod?.payment_method_label ?? "Belum ada",
+            description: dominantPaymentMethod
+                ? `${formatCurrency(dominantPaymentMethod.revenue_total ?? 0)} • ${dominantPaymentMethod.orders_count ?? 0} trx`
+                : "Belum ada transaksi",
+            tone: "emerald",
+        },
+        {
+            title: "Cash vs Non-Cash",
+            value: `${cashVsNonCash.cash_percent}% : ${cashVsNonCash.non_cash_percent}%`,
+            description: `Cash ${formatCurrency(
+                cashVsNonCash.cash_revenue_total
+            )} • Non-cash ${formatCurrency(
+                cashVsNonCash.non_cash_revenue_total
+            )}`,
+            tone: "blue",
         },
     ];
 
@@ -587,6 +706,131 @@ const Sales = ({
                         </span>
                     </div>
 
+                    <div className="mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                        {paymentHighlights.map((item) => (
+                            <div
+                                key={item.title}
+                                className="rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-50 to-white p-4 dark:border-slate-800 dark:from-slate-950/40 dark:to-slate-900"
+                            >
+                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                    {item.title}
+                                </p>
+                                <p className="mt-2 text-xl font-bold text-slate-900 dark:text-white">
+                                    {item.value}
+                                </p>
+                                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                    {item.description}
+                                </p>
+                            </div>
+                        ))}
+                    </div>
+
+                    <div className="mb-4 grid gap-4 xl:grid-cols-[0.9fr,1.1fr]">
+                        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+                            {paymentSummaryBadges.map((item) => (
+                                <div
+                                    key={item.title}
+                                    className={`rounded-2xl border p-4 ${
+                                        item.tone === "emerald"
+                                            ? "border-emerald-200 bg-emerald-50 dark:border-emerald-900/40 dark:bg-emerald-950/20"
+                                            : "border-blue-200 bg-blue-50 dark:border-blue-900/40 dark:bg-blue-950/20"
+                                    }`}
+                                >
+                                    <p
+                                        className={`text-xs font-semibold uppercase tracking-wide ${
+                                            item.tone === "emerald"
+                                                ? "text-emerald-700 dark:text-emerald-300"
+                                                : "text-blue-700 dark:text-blue-300"
+                                        }`}
+                                    >
+                                        {item.title}
+                                    </p>
+                                    <p className="mt-2 text-lg font-bold text-slate-900 dark:text-white">
+                                        {item.value}
+                                    </p>
+                                    <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+                                        {item.description}
+                                    </p>
+                                </div>
+                            ))}
+                        </div>
+
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/30">
+                            <div className="mb-3 flex items-center justify-between gap-3">
+                                <div>
+                                    <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
+                                        Kontribusi Metode Pembayaran
+                                    </h3>
+                                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                                        Perbandingan nominal dan kontribusi tiap metode pada periode aktif.
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div className="mb-4 grid gap-3 sm:grid-cols-2">
+                                <div className="rounded-xl bg-white px-4 py-3 dark:bg-slate-900">
+                                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                        Total Semua Transaksi
+                                    </p>
+                                    <p className="mt-1 text-lg font-bold text-slate-900 dark:text-white">
+                                        {safeSummary.orders_count.toLocaleString("id-ID")} trx
+                                    </p>
+                                </div>
+                                <div className="rounded-xl bg-white px-4 py-3 dark:bg-slate-900">
+                                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                        Total Nominal Transaksi
+                                    </p>
+                                    <p className="mt-1 text-lg font-bold text-slate-900 dark:text-white">
+                                        {formatCurrency(safeSummary.revenue_total)}
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div className="space-y-3">
+                                {paymentContributionRows.length > 0 ? (
+                                    paymentContributionRows.map((item) => (
+                                        <div key={item.payment_method}>
+                                            <div className="mb-1 flex items-center justify-between gap-3">
+                                                <div>
+                                                    <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                                                        {item.payment_method_label}
+                                                    </p>
+                                                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                                                        {item.orders_count ?? 0} trx
+                                                    </p>
+                                                </div>
+                                                <div className="text-right">
+                                                    <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                                                        {formatCurrency(
+                                                            item.revenue_total ?? 0
+                                                        )}
+                                                    </p>
+                                                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                                                        {item.revenue_share_percent}%
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            <div className="h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800">
+                                                <div
+                                                    className="h-full rounded-full bg-primary-500"
+                                                    style={{
+                                                        width: progressWidth(
+                                                            item.revenue_share_percent
+                                                        ),
+                                                    }}
+                                                />
+                                            </div>
+                                        </div>
+                                    ))
+                                ) : (
+                                    <div className="rounded-xl bg-white px-4 py-5 text-sm text-slate-500 dark:bg-slate-900 dark:text-slate-400">
+                                        Belum ada transaksi pada periode ini.
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+
                     <div className="grid gap-4 lg:grid-cols-2">
                         <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/30">
                             <div className="flex items-center justify-between gap-3">
@@ -696,239 +940,6 @@ const Sales = ({
                     </div>
                 </div>
 
-                <div className="grid gap-4 xl:grid-cols-[1.15fr,0.85fr]">
-                    <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
-                        <div className="mb-4 flex items-center justify-between gap-3">
-                            <div>
-                                <h2 className="text-base font-semibold text-slate-900 dark:text-white">
-                                    Settlement Tenant Foodcourt
-                                </h2>
-                                <p className="text-sm text-slate-500 dark:text-slate-400">
-                                    Rekap pendapatan tenant dari nota gabungan.
-                                </p>
-                            </div>
-                            <div className="rounded-xl bg-primary-50 p-3 text-primary-600 dark:bg-primary-950/40 dark:text-primary-300">
-                                <IconBuildingStore size={20} />
-                            </div>
-                        </div>
-
-                        <div className="grid gap-3 sm:grid-cols-3">
-                            <div className="rounded-xl bg-slate-50 p-4 dark:bg-slate-800/60">
-                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                                    Total Tenant
-                                </p>
-                                <p className="mt-2 text-2xl font-bold text-slate-900 dark:text-white">
-                                    {tenantSummary.tenant_count}
-                                </p>
-                            </div>
-                            <div className="rounded-xl bg-slate-50 p-4 dark:bg-slate-800/60">
-                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                                    Allocation
-                                </p>
-                                <p className="mt-2 text-2xl font-bold text-slate-900 dark:text-white">
-                                    {tenantSummary.allocation_count}
-                                </p>
-                            </div>
-                            <div className="rounded-xl bg-slate-50 p-4 dark:bg-slate-800/60">
-                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                                    Revenue Tenant
-                                </p>
-                                <p className="mt-2 text-lg font-bold text-slate-900 dark:text-white">
-                                    {formatCurrency(tenantSummary.revenue_total)}
-                                </p>
-                            </div>
-                        </div>
-
-                        <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                            <div className="rounded-xl bg-emerald-50 p-4 dark:bg-emerald-950/20">
-                                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
-                                    Sudah Settled
-                                </p>
-                                <p className="mt-2 text-lg font-bold text-emerald-700 dark:text-emerald-300">
-                                    {formatCurrency(tenantSummary.settled_total)}
-                                </p>
-                            </div>
-                            <div className="rounded-xl bg-amber-50 p-4 dark:bg-amber-950/20">
-                                <p className="text-xs font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
-                                    Outstanding
-                                </p>
-                                <p className="mt-2 text-lg font-bold text-amber-700 dark:text-amber-300">
-                                    {formatCurrency(
-                                        tenantSummary.outstanding_total
-                                    )}
-                                </p>
-                            </div>
-                        </div>
-
-                        <div className="mt-3 grid gap-3 sm:grid-cols-3">
-                            <div className="rounded-xl bg-slate-50 p-4 dark:bg-slate-800/60">
-                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                                    Cost Tenant
-                                </p>
-                                <p className="mt-2 text-base font-bold text-slate-900 dark:text-white">
-                                    {formatCurrency(tenantSummary.cost_total)}
-                                </p>
-                            </div>
-                            <div className="rounded-xl bg-cyan-50 p-4 dark:bg-cyan-950/20">
-                                <p className="text-xs font-semibold uppercase tracking-wide text-cyan-600 dark:text-cyan-400">
-                                    Profit Tenant
-                                </p>
-                                <p className="mt-2 text-base font-bold text-cyan-700 dark:text-cyan-300">
-                                    {formatCurrency(
-                                        tenantSummary.profit_total
-                                    )}
-                                </p>
-                            </div>
-                            <div className="rounded-xl bg-violet-50 p-4 dark:bg-violet-950/20">
-                                <p className="text-xs font-semibold uppercase tracking-wide text-violet-600 dark:text-violet-400">
-                                    Margin Tenant
-                                </p>
-                                <p className="mt-2 text-base font-bold text-violet-700 dark:text-violet-300">
-                                    {tenantSummary.margin_percentage}%
-                                </p>
-                            </div>
-                        </div>
-
-                        <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                            <div className="rounded-xl bg-rose-50 p-4 dark:bg-rose-950/20">
-                                <p className="text-xs font-semibold uppercase tracking-wide text-rose-600 dark:text-rose-400">
-                                    Management Fee
-                                </p>
-                                <p className="mt-2 text-base font-bold text-rose-700 dark:text-rose-300">
-                                    {formatCurrency(
-                                        tenantSummary.management_fee_total
-                                    )}
-                                </p>
-                            </div>
-                            <div className="rounded-xl bg-teal-50 p-4 dark:bg-teal-950/20">
-                                <p className="text-xs font-semibold uppercase tracking-wide text-teal-600 dark:text-teal-400">
-                                    Net Payout Tenant
-                                </p>
-                                <p className="mt-2 text-base font-bold text-teal-700 dark:text-teal-300">
-                                    {formatCurrency(
-                                        tenantSummary.tenant_payout_total
-                                    )}
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
-                        <div className="mb-4">
-                            <h2 className="text-base font-semibold text-slate-900 dark:text-white">
-                                Top Tenant
-                            </h2>
-                            <p className="text-sm text-slate-500 dark:text-slate-400">
-                                Tenant dengan omzet tertinggi pada filter aktif.
-                            </p>
-                        </div>
-
-                        {topTenants.length > 0 ? (
-                            <div className="space-y-3">
-                                {topTenants.map((tenant, index) => (
-                                    <div
-                                        key={tenant.tenant_outlet_id}
-                                        className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3 dark:bg-slate-800/60"
-                                    >
-                                        <div>
-                                            <Link
-                                                href={route(
-                                                    "reports.sales.tenant-statement",
-                                                    tenant.tenant_outlet_id
-                                                )}
-                                                className="text-sm font-semibold text-slate-900 hover:text-primary-600 dark:text-white dark:hover:text-primary-300"
-                                            >
-                                                {index + 1}.{" "}
-                                                {tenant.tenant_outlet?.name ||
-                                                    tenant.tenant_outlet?.code ||
-                                                    `Tenant ${tenant.tenant_outlet_id}`}
-                                            </Link>
-                                            <p className="text-xs text-slate-500 dark:text-slate-400">
-                                                {tenant.orders_count ?? 0} nota tenant
-                                            </p>
-                                            <p className="text-xs text-slate-500 dark:text-slate-400">
-                                                Profit{" "}
-                                                {formatCurrency(
-                                                    tenant.profit_total ?? 0
-                                                )}{" "}
-                                                • Margin{" "}
-                                                {tenant.margin_percentage ?? 0}%
-                                            </p>
-                                            <p className="text-xs text-slate-500 dark:text-slate-400">
-                                                Fee{" "}
-                                                {formatCurrency(
-                                                    tenant.management_fee_total ??
-                                                        0
-                                                )}{" "}
-                                                • Payout{" "}
-                                                {formatCurrency(
-                                                    tenant.tenant_payout_total ??
-                                                        0
-                                                )}
-                                            </p>
-                                        </div>
-                                        <p className="text-sm font-bold text-primary-600 dark:text-primary-400">
-                                            {formatCurrency(
-                                                tenant.revenue_total ?? 0
-                                            )}
-                                        </p>
-                                    </div>
-                                ))}
-                            </div>
-                        ) : (
-                            <div className="rounded-xl bg-slate-50 px-4 py-6 text-sm text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">
-                                Belum ada data tenant pada filter ini.
-                            </div>
-                        )}
-                    </div>
-                </div>
-
-                <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
-                    <div className="mb-4">
-                        <h2 className="text-base font-semibold text-slate-900 dark:text-white">
-                            Rekap Settlement Harian
-                        </h2>
-                        <p className="text-sm text-slate-500 dark:text-slate-400">
-                            Ringkasan payout tenant per hari berdasarkan filter aktif.
-                        </p>
-                    </div>
-
-                    {dailyRecap.length > 0 ? (
-                        <div className="overflow-x-auto">
-                            <table className="w-full">
-                                <thead>
-                                    <tr className="border-b border-slate-100 dark:border-slate-800">
-                                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Tanggal</th>
-                                        <th className="px-4 py-3 text-center text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Tenant</th>
-                                        <th className="px-4 py-3 text-center text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Allocation</th>
-                                        <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Revenue</th>
-                                        <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Payout</th>
-                                        <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Settled</th>
-                                        <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Outstanding</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                                    {dailyRecap.map((row) => (
-                                        <tr key={row.date}>
-                                            <td className="px-4 py-3 text-sm font-medium text-slate-900 dark:text-white">{row.label}</td>
-                                            <td className="px-4 py-3 text-center text-sm text-slate-600 dark:text-slate-300">{row.tenant_count}</td>
-                                            <td className="px-4 py-3 text-center text-sm text-slate-600 dark:text-slate-300">{row.allocations_count}</td>
-                                            <td className="px-4 py-3 text-right text-sm text-slate-900 dark:text-white">{formatCurrency(row.revenue_total)}</td>
-                                            <td className="px-4 py-3 text-right text-sm font-semibold text-teal-600 dark:text-teal-300">{formatCurrency(row.tenant_payout_total)}</td>
-                                            <td className="px-4 py-3 text-right text-sm font-semibold text-emerald-600 dark:text-emerald-300">{formatCurrency(row.settled_payout_total)}</td>
-                                            <td className="px-4 py-3 text-right text-sm font-semibold text-amber-600 dark:text-amber-300">{formatCurrency(row.outstanding_payout_total)}</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    ) : (
-                        <div className="rounded-xl bg-slate-50 px-4 py-6 text-sm text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">
-                            Belum ada rekap settlement harian untuk filter ini.
-                        </div>
-                    )}
-                </div>
-
                 {/* Analytics Charts Section */}
                 <div className="space-y-6">
                     <div className="flex items-center justify-between">
@@ -957,7 +968,7 @@ const Sales = ({
 
                     {/* Detailed Products Table */}
                     <DetailedProductsTable 
-                        data={analytics?.top_products || []} 
+                        data={analytics?.full_products || []} 
                         onProductClick={setProductDetailModal} 
                     />
 

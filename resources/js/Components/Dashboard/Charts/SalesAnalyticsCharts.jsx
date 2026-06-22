@@ -50,18 +50,18 @@ export const ProductDetailModal = ({ product, onClose }) => {
                         <div className="rounded-2xl bg-emerald-50 p-4 dark:bg-emerald-950/20">
                             <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
                                 <IconReceipt2 size={16} />
-                                <span className="text-xs font-medium uppercase">Total Penjualan</span>
+                                <span className="text-xs font-medium uppercase">Grand Total</span>
                             </div>
                             <p className="mt-2 text-xl font-bold text-emerald-700 dark:text-emerald-300">
                                 {formatCurrency(product.total_revenue)}
                             </p>
-                            <p className="mt-1 text-xs text-emerald-600 dark:text-emerald-400">pendapatan</p>
+                            <p className="mt-1 text-xs text-emerald-600 dark:text-emerald-400">omzet produk</p>
                         </div>
 
                         <div className="rounded-2xl bg-blue-50 p-4 dark:bg-blue-950/20">
                             <div className="flex items-center gap-2 text-blue-600 dark:text-blue-400">
                                 <IconTrendingUp size={16} />
-                                <span className="text-xs font-medium uppercase">Rata-rata</span>
+                                <span className="text-xs font-medium uppercase">Harga Rata-rata</span>
                             </div>
                             <p className="mt-2 text-xl font-bold text-blue-700 dark:text-blue-300">
                                 {formatCurrency(product.avg_price)}
@@ -94,7 +94,25 @@ export const ProductDetailModal = ({ product, onClose }) => {
                             <div className="flex items-center justify-between">
                                 <span className="text-sm text-slate-500 dark:text-slate-400">Rata-rata per Transaksi</span>
                                 <span className="font-semibold text-slate-900 dark:text-white">
-                                    {product.transaction_count > 0 ? Math.round(product.total_qty / product.transaction_count) : 0} item
+                                    {product.average_qty_per_transaction ?? 0} item
+                                </span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                                <span className="text-sm text-slate-500 dark:text-slate-400">Rata-rata Grand Total per Transaksi</span>
+                                <span className="font-semibold text-slate-900 dark:text-white">
+                                    {formatCurrency(product.average_revenue_per_transaction)}
+                                </span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                                <span className="text-sm text-slate-500 dark:text-slate-400">Kontribusi ke Omzet</span>
+                                <span className="font-semibold text-slate-900 dark:text-white">
+                                    {product.revenue_share_percent ?? 0}%
+                                </span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                                <span className="text-sm text-slate-500 dark:text-slate-400">Kontribusi ke Qty</span>
+                                <span className="font-semibold text-slate-900 dark:text-white">
+                                    {product.qty_share_percent ?? 0}%
                                 </span>
                             </div>
                             <div className="flex items-center justify-between">
@@ -531,10 +549,24 @@ export const DetailedProductsTable = ({ data = [], onProductClick }) => {
     const [sortOrder, setSortOrder] = useState('desc');
 
     const sortedData = [...data].sort((a, b) => {
-        const aVal = a[sortField] || 0;
-        const bVal = b[sortField] || 0;
+        const aVal = a[sortField] ?? '';
+        const bVal = b[sortField] ?? '';
+
+        if (typeof aVal === 'string' || typeof bVal === 'string') {
+            const comparison = String(aVal).localeCompare(String(bVal), 'id', {
+                numeric: true,
+                sensitivity: 'base',
+            });
+
+            return sortOrder === 'desc' ? comparison * -1 : comparison;
+        }
+
         return sortOrder === 'desc' ? bVal - aVal : aVal - bVal;
     });
+    const totalProducts = data.length;
+    const totalQtySold = data.reduce((sum, item) => sum + (item.total_qty || 0), 0);
+    const grandRevenueTotal = data.reduce((sum, item) => sum + (item.total_revenue || 0), 0);
+    const totalTransactions = data.reduce((sum, item) => sum + (item.transaction_count || 0), 0);
 
     const handleSort = (field) => {
         if (sortField === field) {
@@ -554,14 +586,32 @@ export const DetailedProductsTable = ({ data = [], onProductClick }) => {
         return (
             <ChartCard
                 title="Daftar Produk Lengkap"
-                subtitle="Semua produk dengan statistik penjualan"
+                subtitle="Semua produk terjual dengan statistik penjualan lengkap"
                 isEmpty={true}
             />
         );
     }
 
     return (
-        <ChartCard title="Daftar Produk Lengkap" subtitle="Klik produk untuk melihat detail statistik">
+        <ChartCard title="Daftar Produk Lengkap" subtitle="Klik produk untuk melihat detail statistik lengkap">
+            <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <div className="rounded-2xl bg-slate-50 px-4 py-3 dark:bg-slate-800/60">
+                    <div className="text-xs font-medium uppercase text-slate-500 dark:text-slate-400">Produk Terjual</div>
+                    <div className="mt-1 text-lg font-bold text-slate-900 dark:text-white">{totalProducts}</div>
+                </div>
+                <div className="rounded-2xl bg-slate-50 px-4 py-3 dark:bg-slate-800/60">
+                    <div className="text-xs font-medium uppercase text-slate-500 dark:text-slate-400">Jumlah Item Terjual</div>
+                    <div className="mt-1 text-lg font-bold text-slate-900 dark:text-white">{totalQtySold}</div>
+                </div>
+                <div className="rounded-2xl bg-slate-50 px-4 py-3 dark:bg-slate-800/60">
+                    <div className="text-xs font-medium uppercase text-slate-500 dark:text-slate-400">Grand Total</div>
+                    <div className="mt-1 text-lg font-bold text-slate-900 dark:text-white">{formatCurrency(grandRevenueTotal)}</div>
+                </div>
+                <div className="rounded-2xl bg-slate-50 px-4 py-3 dark:bg-slate-800/60">
+                    <div className="text-xs font-medium uppercase text-slate-500 dark:text-slate-400">Total Transaksi Produk</div>
+                    <div className="mt-1 text-lg font-bold text-slate-900 dark:text-white">{totalTransactions}</div>
+                </div>
+            </div>
             <div className="overflow-x-auto">
                 <table className="w-full">
                     <thead>
@@ -598,9 +648,21 @@ export const DetailedProductsTable = ({ data = [], onProductClick }) => {
                             </th>
                             <th 
                                 className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400 cursor-pointer hover:text-primary-500"
+                                onClick={() => handleSort('average_revenue_per_transaction')}
+                            >
+                                Rata-rata / Transaksi<SortIcon field="average_revenue_per_transaction" />
+                            </th>
+                            <th 
+                                className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400 cursor-pointer hover:text-primary-500"
                                 onClick={() => handleSort('total_revenue')}
                             >
-                                Total Penjualan<SortIcon field="total_revenue" />
+                                Grand Total<SortIcon field="total_revenue" />
+                            </th>
+                            <th 
+                                className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400 cursor-pointer hover:text-primary-500"
+                                onClick={() => handleSort('revenue_share_percent')}
+                            >
+                                Kontribusi<SortIcon field="revenue_share_percent" />
                             </th>
                             <th className="px-4 py-3 text-center text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
                                 Stock
@@ -644,10 +706,19 @@ export const DetailedProductsTable = ({ data = [], onProductClick }) => {
                                 <td className="px-4 py-3 text-right text-sm text-slate-600 dark:text-slate-400">
                                     {formatCurrency(item.avg_price)}
                                 </td>
+                                <td className="px-4 py-3 text-right text-sm text-slate-600 dark:text-slate-400">
+                                    <div>{formatCurrency(item.average_revenue_per_transaction)}</div>
+                                    <div className="text-xs text-slate-400">
+                                        {item.average_qty_per_transaction} item / trx
+                                    </div>
+                                </td>
                                 <td className="px-4 py-3 text-right">
                                     <span className="font-semibold text-emerald-600 dark:text-emerald-400">
                                         {formatCurrency(item.total_revenue)}
                                     </span>
+                                </td>
+                                <td className="px-4 py-3 text-right text-sm text-slate-600 dark:text-slate-400">
+                                    {item.revenue_share_percent}%
                                 </td>
                                 <td className="px-4 py-3 text-center">
                                     <span className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${

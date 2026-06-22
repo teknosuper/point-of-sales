@@ -191,6 +191,7 @@ class SalesReportController extends Controller
             'hourly_breakdown' => $this->analyticsService->buildHourlyBreakdown($aggregateQuery),
             'daily_breakdown' => $this->analyticsService->buildDailyBreakdown($aggregateQuery),
             'top_products' => $this->analyticsService->buildTopProducts($transactionIds, 10),
+            'full_products' => $this->analyticsService->buildProductPerformance($transactionIds),
             'slow_moving_products' => $this->analyticsService->buildSlowMovingProducts($transactionIds, 10),
             'category_breakdown' => $this->analyticsService->buildCategoryBreakdown($transactionIds),
             'payment_method_breakdown' => $this->analyticsService->buildPaymentMethodBreakdown($aggregateQuery),
@@ -334,6 +335,7 @@ class SalesReportController extends Controller
             'hourly_breakdown' => $this->analyticsService->buildHourlyBreakdown((clone $tenantAnalyticsQuery)),
             'daily_breakdown' => $this->analyticsService->buildDailyBreakdown((clone $tenantAnalyticsQuery)),
             'top_products' => [],
+            'full_products' => [],
             'slow_moving_products' => [],
             'category_breakdown' => [],
             'payment_method_breakdown' => $this->analyticsService->buildPaymentMethodBreakdown((clone $tenantAnalyticsQuery)),
@@ -922,14 +924,14 @@ class SalesReportController extends Controller
         }
 
         $allocation->forceFill([
-            'settled_at' => Carbon::now(),
+            'settled_at' => Carbon::now(ReportTimezone::sourceTimezone()),
             'validated_by' => $request->user()?->id,
-            'validated_at' => Carbon::now(),
+            'validated_at' => Carbon::now(ReportTimezone::sourceTimezone()),
             'payout_reference' => $validated['payout_reference'] ?? null,
             'payout_notes' => $validated['payout_notes'] ?? null,
             'payout_paid_at' => isset($validated['payout_paid_at'])
-                ? Carbon::parse($validated['payout_paid_at'])
-                : Carbon::now(),
+                ? Carbon::parse($validated['payout_paid_at'], ReportTimezone::timezone())->setTimezone(ReportTimezone::sourceTimezone())
+                : Carbon::now(ReportTimezone::sourceTimezone()),
             'payout_cash_amount' => $cashAmount,
             'payout_transfer_amount' => $transferAmount,
             'payout_other_amount' => $otherAmount,

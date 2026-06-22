@@ -16,7 +16,9 @@ class SalesAnalyticsService
     {
         return (clone $query)
             ->get(['created_at', 'grand_total', 'discount'])
-            ->groupBy(fn ($row) => ReportTimezone::localHourKey($row->created_at))
+            ->groupBy(fn ($row) => ReportTimezone::sourceToDisplayCarbon(
+                method_exists($row, 'getRawOriginal') ? $row->getRawOriginal('created_at') : $row->created_at
+            )?->format('H'))
             ->sortKeys()
             ->map(function ($rows, $hour) {
                 $hourInt = (int) $hour;
@@ -40,7 +42,9 @@ class SalesAnalyticsService
     {
         return (clone $query)
             ->get(['created_at', 'grand_total', 'discount'])
-            ->groupBy(fn ($row) => ReportTimezone::localDateKey($row->created_at))
+            ->groupBy(fn ($row) => ReportTimezone::sourceDateKey(
+                method_exists($row, 'getRawOriginal') ? $row->getRawOriginal('created_at') : $row->created_at
+            ))
             ->sortKeysDesc()
             ->take(30)
             ->map(function ($rows, $date) {
@@ -62,11 +66,19 @@ class SalesAnalyticsService
      */
     public function buildTopProducts($transactionIds, int $limit = 10): array
     {
+        return $this->buildProductPerformance($transactionIds, $limit);
+    }
+
+    /**
+     * Build complete product performance breakdown.
+     */
+    public function buildProductPerformance($transactionIds, ?int $limit = null): array
+    {
         if ($transactionIds->isEmpty()) {
             return [];
         }
 
-        $results = TransactionDetail::query()
+        $query = TransactionDetail::query()
             ->select('product_id')
             ->selectRaw('SUM(qty) as total_qty')
             ->selectRaw('SUM(price) as total_revenue')
@@ -78,26 +90,46 @@ class SalesAnalyticsService
             ->whereNotNull('product_id')
             ->groupBy('product_id')
             ->orderByDesc('total_revenue')
-            ->limit($limit)
             ->with('product:id,title,category_id,stock,sku,barcode')
-            ->with('product.category:id,name')
-            ->get();
+            ->with('product.category:id,name');
 
-        return $results->map(fn ($row) => [
-            'product_id' => $row->product_id,
-            'product_name' => $row->product?->title ?? 'Produk',
-            'product_sku' => $row->product?->sku ?? '-',
-            'category_name' => $row->product?->category?->name ?? 'Tanpa Kategori',
-            'category_id' => $row->product?->category_id,
-            'total_qty' => (int) $row->total_qty,
-            'total_revenue' => (int) $row->total_revenue,
-            'transaction_count' => (int) $row->transaction_count,
-            'average_price' => $row->total_qty > 0 ? (int) round($row->total_revenue / $row->total_qty) : 0,
-            'min_price' => (int) $row->min_price,
-            'max_price' => (int) $row->max_price,
-            'avg_price' => (int) round($row->avg_price),
-            'current_stock' => (int) ($row->product?->stock ?? 0),
-        ])->toArray();
+        if ($limit !== null) {
+            $query->limit($limit);
+        }
+
+        $results = $query->get();
+        $grandRevenueTotal = (int) $results->sum('total_revenue');
+        $grandQtyTotal = (int) $results->sum('total_qty');
+
+        return $results->map(function ($row) use ($grandRevenueTotal, $grandQtyTotal) {
+            $totalQty = (int) $row->total_qty;
+            $totalRevenue = (int) $row->total_revenue;
+            $transactionCount = (int) $row->transaction_count;
+
+            return [
+                'product_id' => $row->product_id,
+                'product_name' => $row->product?->title ?? 'Produk',
+                'product_sku' => $row->product?->sku ?? '-',
+                'category_name' => $row->product?->category?->name ?? 'Tanpa Kategori',
+                'category_id' => $row->product?->category_id,
+                'total_qty' => $totalQty,
+                'total_revenue' => $totalRevenue,
+                'transaction_count' => $transactionCount,
+                'average_price' => $totalQty > 0 ? (int) round($totalRevenue / $totalQty) : 0,
+                'average_qty_per_transaction' => $transactionCount > 0 ? round($totalQty / $transactionCount, 2) : 0,
+                'average_revenue_per_transaction' => $transactionCount > 0 ? (int) round($totalRevenue / $transactionCount) : 0,
+                'min_price' => (int) $row->min_price,
+                'max_price' => (int) $row->max_price,
+                'avg_price' => (int) round($row->avg_price),
+                'current_stock' => (int) ($row->product?->stock ?? 0),
+                'revenue_share_percent' => $grandRevenueTotal > 0
+                    ? round(($totalRevenue / $grandRevenueTotal) * 100, 2)
+                    : 0,
+                'qty_share_percent' => $grandQtyTotal > 0
+                    ? round(($totalQty / $grandQtyTotal) * 100, 2)
+                    : 0,
+            ];
+        })->toArray();
     }
 
     /**
