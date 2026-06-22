@@ -14,6 +14,7 @@ use App\Services\CustomerOutletMetricService;
 use App\Services\LoyaltyService;
 use App\Services\ProductCatalogService;
 use App\Services\TableOrderService;
+use App\Support\ReportTimezone;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -256,10 +257,10 @@ class PublicTableOrderController extends Controller
                 'base_subtotal' => (int) $order->items->sum(fn ($item) => ((int) ($item->base_unit_price ?? $item->unit_price) * (int) $item->qty) + (int) $item->modifiers->sum('total_price')),
                 'discount_total' => (int) $order->items->sum('discount_total'),
                 'grand_total' => $order->resolvedGrandTotal(),
-                'approved_at' => optional($order->approved_at)->toISOString(),
-                'created_at' => optional($order->created_at)->toISOString(),
-                'created_at_label' => optional($order->created_at)->format('d M Y H:i'),
-                'approved_at_label' => optional($order->approved_at)->format('d M Y H:i'),
+                'approved_at' => ReportTimezone::formatSourceIso8601($order->getRawOriginal('approved_at')),
+                'created_at' => ReportTimezone::formatSourceIso8601($order->getRawOriginal('created_at')),
+                'created_at_label' => ReportTimezone::formatSourceDateTime($order->getRawOriginal('created_at'), 'd M Y H:i'),
+                'approved_at_label' => ReportTimezone::formatSourceDateTime($order->getRawOriginal('approved_at'), 'd M Y H:i'),
                 'table' => [
                     'name' => $order->diningTable?->name,
                     'code' => $order->diningTable?->code,
@@ -288,22 +289,18 @@ class PublicTableOrderController extends Controller
                     'invoice' => $order->transaction->invoice,
                     'payment_status' => $order->transaction->payment_status,
                     'payment_method' => $order->transaction->payment_method,
-                    'created_at' => filled($order->transaction->getRawOriginal('created_at'))
-                        ? Carbon::parse($order->transaction->getRawOriginal('created_at'))->toISOString()
-                        : null,
-                    'created_at_label' => filled($order->transaction->getRawOriginal('created_at'))
-                        ? Carbon::parse($order->transaction->getRawOriginal('created_at'))->format('d M Y H:i')
-                        : null,
+                    'created_at' => ReportTimezone::formatSourceIso8601($order->transaction->getRawOriginal('created_at')),
+                    'created_at_label' => ReportTimezone::formatSourceDateTime($order->transaction->getRawOriginal('created_at'), 'd M Y H:i'),
                     'kitchen_tickets' => $order->transaction->kitchenTickets->map(fn ($ticket) => [
                         'id' => $ticket->id,
                         'ticket_number' => $ticket->ticket_number,
                         'status' => $ticket->status,
                         'notes' => $ticket->notes,
-                        'created_at_label' => optional($ticket->created_at)->format('d M Y H:i'),
-                        'fired_at_label' => optional($ticket->fired_at)->format('d M Y H:i'),
-                        'acknowledged_at_label' => optional($ticket->acknowledged_at)->format('d M Y H:i'),
-                        'ready_at_label' => optional($ticket->ready_at)->format('d M Y H:i'),
-                        'completed_at_label' => optional($ticket->completed_at)->format('d M Y H:i'),
+                        'created_at_label' => ReportTimezone::formatSourceDateTime($ticket->getRawOriginal('created_at'), 'd M Y H:i'),
+                        'fired_at_label' => ReportTimezone::formatSourceDateTime($ticket->getRawOriginal('fired_at'), 'd M Y H:i'),
+                        'acknowledged_at_label' => ReportTimezone::formatSourceDateTime($ticket->getRawOriginal('acknowledged_at'), 'd M Y H:i'),
+                        'ready_at_label' => ReportTimezone::formatSourceDateTime($ticket->getRawOriginal('ready_at'), 'd M Y H:i'),
+                        'completed_at_label' => ReportTimezone::formatSourceDateTime($ticket->getRawOriginal('completed_at'), 'd M Y H:i'),
                         'station' => [
                             'name' => $ticket->kitchenStation?->name,
                             'code' => $ticket->kitchenStation?->code,
@@ -314,7 +311,7 @@ class PublicTableOrderController extends Controller
                             'qty' => (int) $item->qty,
                             'status' => $item->status,
                             'notes' => $item->notes,
-                            'completed_at_label' => optional($item->completed_at)->format('d M Y H:i'),
+                            'completed_at_label' => ReportTimezone::formatSourceDateTime($item->getRawOriginal('completed_at'), 'd M Y H:i'),
                         ])->values(),
                     ])->values(),
                 ] : null,
@@ -393,13 +390,13 @@ class PublicTableOrderController extends Controller
             'loyalty_points' => (int) $customer->loyalty_points,
             'loyalty_total_spent' => (int) ($metrics['total_spent'] ?? 0),
             'loyalty_transaction_count' => (int) ($metrics['transaction_count'] ?? 0),
-            'last_purchase_at' => optional($metrics['last_purchase_at'] ?? null)->toIso8601String(),
+            'last_purchase_at' => ReportTimezone::formatSourceIso8601($metrics['last_purchase_at'] ?? null),
             'recent_orders' => $recentTableOrders->map(fn ($order) => [
                 'id' => $order->id,
                 'order_number' => $order->order_number,
                 'grand_total' => $order->resolvedGrandTotal(),
                 'status' => $order->status,
-                'created_at' => optional($order->created_at)->toIso8601String(),
+                'created_at' => ReportTimezone::formatSourceIso8601($order->getRawOriginal('created_at')),
                 'access_token' => $order->access_token,
             ])->values(),
             'recent_transactions' => $recentTransactions->map(fn ($transaction) => [
@@ -407,7 +404,7 @@ class PublicTableOrderController extends Controller
                 'invoice' => $transaction->invoice,
                 'grand_total' => (int) $transaction->grand_total,
                 'payment_status' => $transaction->payment_status,
-                'created_at' => optional($transaction->created_at)->toIso8601String(),
+                'created_at' => ReportTimezone::formatSourceIso8601($transaction->getRawOriginal('created_at')),
                 'outlet_name' => $transaction->outlet?->name,
             ])->values(),
         ];

@@ -1286,7 +1286,7 @@ class ProfitReportController extends Controller
     protected function tenantDailyProfitTrend(Collection $allocations): Collection
     {
         return $allocations
-            ->groupBy(fn (TransactionTenantAllocation $allocation) => ReportTimezone::localDateKey($allocation->transaction?->created_at))
+            ->groupBy(fn (TransactionTenantAllocation $allocation) => ReportTimezone::sourceDateKey($allocation->transaction?->getRawOriginal('created_at')))
             ->filter(fn (Collection $rows, ?string $day) => filled($day))
             ->map(function (Collection $rows, string $day) {
                 $revenueTotal = (int) $rows->sum('grand_total');

@@ -134,11 +134,9 @@ class TransactionController extends Controller
                 'name' => $table->name,
                 'code' => $table->code,
                 'capacity' => (int) $table->capacity,
-                'latest_transaction_at' => $table->transactions->first()?->created_at
-                    ? ($table->transactions->first()->created_at instanceof \Carbon\Carbon
-                        ? $table->transactions->first()->created_at->toISOString()
-                        : \Carbon\Carbon::parse($table->transactions->first()->created_at)->toISOString())
-                    : null,
+                'latest_transaction_at' => ReportTimezone::formatSourceIso8601(
+                    $table->transactions->first()?->getRawOriginal('created_at')
+                ),
             ])
             ->values();
 
@@ -2187,18 +2185,14 @@ class TransactionController extends Controller
             ->when($filters['invoice'], function (Builder $builder, $invoice) {
                 $builder->where('invoice', 'like', '%'.$invoice.'%');
             })
-            ->when($filters['start_date'], function (Builder $builder, $date) {
-                $builder->whereDate('created_at', '>=', $date);
-            })
-            ->when($filters['end_date'], function (Builder $builder, $date) {
-                $builder->whereDate('created_at', '<=', $date);
-            })
             ->when($filters['customer_scope'] === 'walk_in', function (Builder $builder) {
                 $builder->whereNull('customer_id');
             })
             ->when($filters['customer_scope'] === 'registered', function (Builder $builder) {
                 $builder->whereNotNull('customer_id');
             });
+
+        ReportTimezone::applySourceDateRange($query, 'created_at', $filters);
 
         $transactions = $query->paginate(10)->withQueryString();
         $transactions->through(function (Transaction $transaction) use ($salesReturnTablesReady) {
@@ -2290,14 +2284,14 @@ class TransactionController extends Controller
                             ->where('name', 'like', '%'.$keyword.'%'));
                 });
             })
-            ->when($filters['start_date'], fn (Builder $builder, $date) => $builder->whereDate('created_at', '>=', $date))
-            ->when($filters['end_date'], fn (Builder $builder, $date) => $builder->whereDate('created_at', '<=', $date))
             ->when($filters['customer_scope'] === 'walk_in', fn (Builder $builder) => $builder->whereNull('customer_id'))
             ->when($filters['customer_scope'] === 'registered', fn (Builder $builder) => $builder->whereNotNull('customer_id'))
             ->when($filters['payment_status'], fn (Builder $builder, $status) => $builder->where('payment_status', $status))
             ->when($filters['payment_method'], fn (Builder $builder, $method) => $builder->where('payment_method', $method))
             ->orderByDesc('created_at')
             ->orderByDesc('id');
+
+        ReportTimezone::applySourceDateRange($query, 'created_at', $filters);
 
         $transactions = $query->paginate($filters['per_page'])->withQueryString();
 

@@ -10,6 +10,7 @@ use App\Services\CustomerOutletMetricService;
 use App\Services\CustomerSegmentationService;
 use App\Services\LoyaltyService;
 use App\Services\OutletResolver;
+use App\Support\ReportTimezone;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Validation\Rule;
@@ -371,7 +372,7 @@ class CustomerController extends Controller
                 'balance_after' => (int) $history->balance_after,
                 'reference' => $history->reference,
                 'notes' => $history->notes,
-                'created_at' => optional($history->created_at)?->format('d M Y H:i'),
+                'created_at' => ReportTimezone::formatSourceDateTime($history->getRawOriginal('created_at'), 'd M Y H:i'),
             ]);
         $vouchers = $customer->vouchers()
             ->latest()
@@ -452,7 +453,7 @@ class CustomerController extends Controller
                 'points_delta' => (int) $history->points_delta,
                 'amount_delta' => (int) $history->amount_delta,
                 'reference' => $history->reference,
-                'created_at' => optional($history->created_at)?->format('d M Y H:i'),
+                'created_at' => ReportTimezone::formatSourceDateTime($history->getRawOriginal('created_at'), 'd M Y H:i'),
                 'notes' => $history->notes,
             ]);
         $eligibleVouchers = $customer->vouchers()
@@ -473,14 +474,14 @@ class CustomerController extends Controller
             'stats' => [
                 'total_transactions' => (int) ($stats->total_transactions ?? 0),
                 'total_spent' => (int) ($stats->total_spent ?? 0),
-                'last_visit' => $stats->last_visit ? \Carbon\Carbon::parse($stats->last_visit)->format('d M Y') : null,
+                'last_visit' => ReportTimezone::formatSourceDateLabel($stats->last_visit, 'd M Y'),
             ],
             'loyalty' => [
                 'is_member' => (bool) $customer->is_loyalty_member,
                 'member_code' => $customer->member_code,
                 'tier' => $this->loyaltyService->resolvedTier($customer, $outletId),
                 'points' => (int) $customer->loyalty_points,
-                'member_since' => optional($customer->loyalty_member_since)?->format('d M Y'),
+                'member_since' => ReportTimezone::formatSourceDateLabel($customer->getRawOriginal('loyalty_member_since'), 'd M Y'),
             ],
             'recent_transactions' => $recentTransactions,
             'frequent_products' => $frequentProducts,
@@ -578,7 +579,7 @@ class CustomerController extends Controller
                 'invoice' => $t->invoice,
                 'total' => $t->grand_total,
                 'payment_method' => $t->payment_method,
-                'date' => \Carbon\Carbon::parse($t->created_at)->format('d M Y H:i'),
+                'date' => ReportTimezone::formatSourceDateTime($t->getRawOriginal('created_at'), 'd M Y H:i'),
             ]);
     }
 
@@ -615,7 +616,7 @@ class CustomerController extends Controller
             'loyalty_tier' => (string) ($metrics['loyalty_tier'] ?? $customer->loyalty_tier ?? LoyaltyService::TIER_REGULAR),
             'loyalty_total_spent' => (int) ($metrics['total_spent'] ?? 0),
             'loyalty_transaction_count' => (int) ($metrics['transaction_count'] ?? 0),
-            'last_purchase_at' => optional($metrics['last_purchase_at'] ?? null)?->toIso8601String(),
+            'last_purchase_at' => ReportTimezone::formatSourceIso8601($metrics['last_purchase_at'] ?? null),
         ];
     }
 

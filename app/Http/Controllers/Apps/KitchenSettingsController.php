@@ -11,6 +11,7 @@ use App\Models\ProductKitchenStationMapping;
 use App\Models\Setting;
 use App\Models\User;
 use App\Services\OutletResolver;
+use App\Support\ReportTimezone;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -140,9 +141,9 @@ class KitchenSettingsController extends Controller
                     'status' => $job->status,
                     'job_type' => $job->job_type,
                     'copies' => (int) $job->copies,
-                    'queued_at' => optional($job->queued_at)->toIso8601String(),
-                    'processed_at' => optional($job->processed_at)->toIso8601String(),
-                    'failed_at' => optional($job->failed_at)->toIso8601String(),
+                    'queued_at' => ReportTimezone::formatSourceIso8601($job->getRawOriginal('queued_at')),
+                    'processed_at' => ReportTimezone::formatSourceIso8601($job->getRawOriginal('processed_at')),
+                    'failed_at' => ReportTimezone::formatSourceIso8601($job->getRawOriginal('failed_at')),
                     'failure_reason' => $job->failure_reason,
                     'device_name' => $job->device?->name,
                     'station_name' => $job->device?->kitchenStation?->name,
@@ -683,9 +684,9 @@ class KitchenSettingsController extends Controller
                 'latest_print_job' => $latestJob ? [
                     'id' => $latestJob->id,
                     'status' => $latestJob->status,
-                    'queued_at' => optional($latestJob->queued_at)->toIso8601String(),
-                    'processed_at' => optional($latestJob->processed_at)->toIso8601String(),
-                    'failed_at' => optional($latestJob->failed_at)->toIso8601String(),
+                    'queued_at' => ReportTimezone::formatSourceIso8601($latestJob->getRawOriginal('queued_at')),
+                    'processed_at' => ReportTimezone::formatSourceIso8601($latestJob->getRawOriginal('processed_at')),
+                    'failed_at' => ReportTimezone::formatSourceIso8601($latestJob->getRawOriginal('failed_at')),
                     'failure_reason' => $latestJob->failure_reason,
                 ] : null,
             ];

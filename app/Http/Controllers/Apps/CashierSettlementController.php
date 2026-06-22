@@ -15,6 +15,7 @@ use App\Models\User;
 use App\Services\AuditLogService;
 use App\Services\CashierShiftService;
 use App\Services\OutletResolver;
+use App\Support\ReportTimezone;
 use Carbon\Carbon;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Database\Eloquent\Builder;
@@ -414,10 +415,10 @@ class CashierSettlementController extends Controller
 
         return [
             'id' => $shift->id,
-            'label' => 'Shift #'.$shift->id.' • '.optional($shift->opened_at)->format('d/m/Y H:i'),
+            'label' => 'Shift #'.$shift->id.' • '.(ReportTimezone::formatSourceDateTime($shift->getRawOriginal('opened_at'), 'd/m/Y H:i') ?? '-'),
             'status' => $shift->status,
-            'opened_at' => optional($shift->opened_at)?->toISOString(),
-            'closed_at' => optional($shift->closed_at)?->toISOString(),
+            'opened_at' => ReportTimezone::formatSourceIso8601($shift->getRawOriginal('opened_at')),
+            'closed_at' => ReportTimezone::formatSourceIso8601($shift->getRawOriginal('closed_at')),
             'gross_sales_total' => (int) $summary['gross_sales_total'],
             'base_sales_total' => (int) $summary['base_sales_total'],
             'pricing_discount_total' => (int) $summary['pricing_discount_total'],
@@ -483,11 +484,11 @@ class CashierSettlementController extends Controller
             'approval_reference' => $settlement->approval_reference,
             'approval_notes' => $settlement->approval_notes,
             'approval_proof_photos' => $settlement->approval_proof_photos ?? [],
-            'paid_at' => optional($settlement->paid_at)?->toISOString(),
-            'approved_at' => optional($settlement->approved_at)?->toISOString(),
-            'rejected_at' => optional($settlement->rejected_at)?->toISOString(),
+            'paid_at' => ReportTimezone::formatSourceIso8601($settlement->getRawOriginal('paid_at')),
+            'approved_at' => ReportTimezone::formatSourceIso8601($settlement->getRawOriginal('approved_at')),
+            'rejected_at' => ReportTimezone::formatSourceIso8601($settlement->getRawOriginal('rejected_at')),
             'rejection_reason' => $settlement->rejection_reason,
-            'created_at' => optional($settlement->created_at)?->toISOString(),
+            'created_at' => ReportTimezone::formatSourceIso8601($settlement->getRawOriginal('created_at')),
             'cashier' => $settlement->cashier ? [
                 'id' => $settlement->cashier->id,
                 'name' => $settlement->cashier->name,
@@ -495,8 +496,8 @@ class CashierSettlementController extends Controller
             'cashier_shift' => $settlement->cashierShift ? [
                 'id' => $settlement->cashierShift->id,
                 'status' => $settlement->cashierShift->status,
-                'opened_at' => optional($settlement->cashierShift->opened_at)?->toISOString(),
-                'closed_at' => optional($settlement->cashierShift->closed_at)?->toISOString(),
+                'opened_at' => ReportTimezone::formatSourceIso8601($settlement->cashierShift->getRawOriginal('opened_at')),
+                'closed_at' => ReportTimezone::formatSourceIso8601($settlement->cashierShift->getRawOriginal('closed_at')),
             ] : null,
             'recipient_user' => $settlement->recipientUser ? [
                 'id' => $settlement->recipientUser->id,
@@ -634,9 +635,9 @@ class CashierSettlementController extends Controller
                     'tenant_sales_total' => $tenantNetTotal,
                     'owner_markup_total' => $ownerMarkupTotal,
                     'pricing_discount_total' => (int) ($allocation->promo_discount_total ?? 0),
-                    'delivered_at' => optional($allocation->delivered_at)?->toIso8601String(),
-                    'created_at' => optional($allocation->transaction?->created_at)?->toIso8601String(),
-                    'activity_at' => optional($allocation->delivered_at)?->toIso8601String(),
+                    'delivered_at' => ReportTimezone::formatSourceIso8601($allocation->getRawOriginal('delivered_at')),
+                    'created_at' => ReportTimezone::formatSourceIso8601($allocation->transaction?->getRawOriginal('created_at')),
+                    'activity_at' => ReportTimezone::formatSourceIso8601($allocation->getRawOriginal('delivered_at')),
                     'details' => $allocation->items->map(function ($item) {
                         $detail = $item->transactionDetail;
                         $remainingQty = (int) ($item->qty ?? 0);
@@ -727,9 +728,12 @@ class CashierSettlementController extends Controller
                         });
                 });
             })
-            ->when($filters['cashier_id'] !== '', fn (Builder $builder) => $builder->where('cashier_id', (int) $filters['cashier_id']))
-            ->when($filters['date_from'] !== '', fn (Builder $builder) => $builder->whereDate('delivered_at', '>=', $filters['date_from']))
-            ->when($filters['date_to'] !== '', fn (Builder $builder) => $builder->whereDate('delivered_at', '<=', $filters['date_to']));
+            ->when($filters['cashier_id'] !== '', fn (Builder $builder) => $builder->where('cashier_id', (int) $filters['cashier_id']));
+
+        return ReportTimezone::applySourceDateRange($query, 'delivered_at', [
+            'start_date' => $filters['date_from'] ?? '',
+            'end_date' => $filters['date_to'] ?? '',
+        ]);
     }
 
     private function buildTenantWalletReturnRows(User $user, Outlet $activeOutlet, array $filters): \Illuminate\Support\Collection
@@ -763,9 +767,11 @@ class CashierSettlementController extends Controller
                 });
             })
             ->when($filters['cashier_id'] !== '', fn (Builder $builder) => $builder->where('cashier_id', (int) $filters['cashier_id']))
-            ->when($filters['date_from'] !== '', fn (Builder $builder) => $builder->whereDate('completed_at', '>=', $filters['date_from']))
-            ->when($filters['date_to'] !== '', fn (Builder $builder) => $builder->whereDate('completed_at', '<=', $filters['date_to']))
             ->latest('completed_at')
+            ->tap(fn (Builder $builder) => ReportTimezone::applySourceDateRange($builder, 'completed_at', [
+                'start_date' => $filters['date_from'] ?? '',
+                'end_date' => $filters['date_to'] ?? '',
+            ]))
             ->get();
 
         return $salesReturns->map(function (SalesReturn $salesReturn) use ($tenantOutletIds, $activeOutlet) {
@@ -843,9 +849,9 @@ class CashierSettlementController extends Controller
                 'tenant_sales_total' => -$tenantSalesTotal,
                 'owner_markup_total' => -$ownerMarkupTotal,
                 'pricing_discount_total' => -$pricingDiscountTotal,
-                'delivered_at' => optional($salesReturn->completed_at)?->toIso8601String(),
-                'created_at' => optional($salesReturn->created_at)?->toIso8601String(),
-                'activity_at' => optional($salesReturn->completed_at)?->toIso8601String(),
+                'delivered_at' => ReportTimezone::formatSourceIso8601($salesReturn->getRawOriginal('completed_at')),
+                'created_at' => ReportTimezone::formatSourceIso8601($salesReturn->getRawOriginal('created_at')),
+                'activity_at' => ReportTimezone::formatSourceIso8601($salesReturn->getRawOriginal('completed_at')),
                 'details' => $details,
             ];
         })->filter(fn (array $row) => ! empty($row['details']))->values();

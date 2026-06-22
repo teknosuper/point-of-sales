@@ -109,7 +109,7 @@ class DashboardController extends Controller
             ->when($outletId, fn ($query) => $query->where('outlet_id', $outletId))
             ->where('created_at', '>=', $trendStart)
             ->where('created_at', '<=', $trendEnd)
-            ->selectRaw("DATE(CONVERT_TZ(created_at, 'UTC', '".ReportTimezone::sourceTimezone()."')) as date, SUM(grand_total) as total")
+            ->selectRaw(ReportTimezone::sourceToDisplayDateExpression('created_at')." as date, SUM(grand_total) as total")
             ->groupBy('date')
             ->orderBy('date', 'asc')
             ->take(12)
@@ -117,7 +117,7 @@ class DashboardController extends Controller
             ->map(function ($row) {
                 return [
                     'date' => $row->date,
-                    'label' => Carbon::parse($row->date, ReportTimezone::sourceTimezone())->format('d M'),
+                    'label' => Carbon::parse($row->date, ReportTimezone::timezone())->format('d M'),
                     'total' => (int) $row->total,
                 ];
             })
@@ -177,7 +177,7 @@ class DashboardController extends Controller
             ->map(function ($transaction) {
                 return [
                     'invoice' => $transaction->invoice,
-                    'date' => Carbon::parse($transaction->created_at)->format('d M Y'),
+                    'date' => ReportTimezone::formatSourceDateTime($transaction->getRawOriginal('created_at'), 'd M Y'),
                     'customer' => $transaction->customer?->name ?? '-',
                     'cashier' => $transaction->cashier?->name ?? '-',
                     'total' => (int) $transaction->grand_total,
@@ -437,14 +437,14 @@ class DashboardController extends Controller
             ->where('transaction_tenant_allocations.tenant_outlet_id', $tenantOutletId)
             ->where('transactions.created_at', '>=', $trendStart)
             ->where('transactions.created_at', '<=', $trendEnd)
-            ->selectRaw("DATE(CONVERT_TZ(transactions.created_at, 'UTC', '".ReportTimezone::sourceTimezone()."')) as date, COALESCE(SUM(transaction_tenant_allocations.grand_total), 0) as total")
+            ->selectRaw(ReportTimezone::sourceToDisplayDateExpression('transactions.created_at')." as date, COALESCE(SUM(transaction_tenant_allocations.grand_total), 0) as total")
             ->groupBy('date')
             ->orderBy('date', 'asc')
             ->take(12)
             ->get()
             ->map(fn ($row) => [
                 'date' => $row->date,
-                'label' => Carbon::parse($row->date, ReportTimezone::sourceTimezone())->format('d M'),
+                'label' => Carbon::parse($row->date, ReportTimezone::timezone())->format('d M'),
                 'total' => (int) $row->total,
             ])
             ->values();
@@ -505,7 +505,9 @@ class DashboardController extends Controller
             ->map(function (TransactionTenantAllocation $allocation) {
                 return [
                     'invoice' => $allocation->transaction?->invoice ?? $allocation->allocation_number,
-                    'date' => optional($allocation->transaction?->created_at)->format('d M Y'),
+                    'date' => $allocation->transaction?->created_at
+                        ? ReportTimezone::formatSourceDateTime($allocation->transaction->getRawOriginal('created_at'), 'd M Y')
+                        : null,
                     'customer' => $allocation->transaction?->customer?->name ?? '-',
                     'cashier' => $allocation->transaction?->cashier?->name ?? '-',
                     'total' => (int) ($allocation->grand_total ?? 0),

@@ -328,7 +328,7 @@ class SalesReportController extends Controller
         // Build analytics for tenant workspace - query from transaction (has discount column)
         $tenantAnalyticsQuery = Transaction::query()
             ->whereHas('tenantAllocations', fn ($q) => $q->where('tenant_outlet_id', $tenantOutletId));
-        $tenantAnalyticsQuery = ReportTimezone::applyUtcDateRange($tenantAnalyticsQuery, 'created_at', $filters);
+        $tenantAnalyticsQuery = ReportTimezone::applySourceDateRange($tenantAnalyticsQuery, 'created_at', $filters);
 
         $analytics = [
             'hourly_breakdown' => $this->analyticsService->buildHourlyBreakdown((clone $tenantAnalyticsQuery)),
@@ -402,7 +402,7 @@ class SalesReportController extends Controller
                 };
             });
 
-        return ReportTimezone::applyUtcDateRange($query, 'created_at', $filters);
+        return ReportTimezone::applySourceDateRange($query, 'created_at', $filters);
     }
 
     protected function transactionDetailSelectColumns(): array
@@ -444,7 +444,9 @@ class SalesReportController extends Controller
 
         return [
             ...$transaction->toArray(),
-            'created_at' => ReportTimezone::formatDateTime($transaction->created_at),
+            'created_at' => $transaction->created_at
+                ? ReportTimezone::formatSourceDateTime($transaction->getRawOriginal('created_at'), 'd M Y H:i')
+                : null,
             'pre_promo_subtotal' => $prePromoSubtotal,
             'tenant_discount_total' => (int) $transaction->details->sum(
                 fn (TransactionDetail $detail) => (int) ($detail->tenant_discount_total ?? 0)
@@ -484,7 +486,9 @@ class SalesReportController extends Controller
         return [
             'id' => $allocation->id,
             'invoice' => $transaction?->invoice ?? $allocation->allocation_number,
-            'created_at' => ReportTimezone::formatDateTime($transaction?->created_at),
+            'created_at' => $transaction?->created_at
+                ? ReportTimezone::formatSourceDateTime($transaction->getRawOriginal('created_at'), 'd M Y H:i')
+                : null,
             'customer' => $transaction?->customer ? [
                 'name' => $transaction->customer->name,
             ] : null,
@@ -587,7 +591,7 @@ class SalesReportController extends Controller
             });
 
         if (! empty($filters['start_date']) || ! empty($filters['end_date'])) {
-            $query->whereHas('transaction', fn ($transactionQuery) => ReportTimezone::applyUtcDateRange($transactionQuery, 'created_at', $filters));
+            $query->whereHas('transaction', fn ($transactionQuery) => ReportTimezone::applySourceDateRange($transactionQuery, 'created_at', $filters));
         }
 
         return $query;
@@ -1185,7 +1189,7 @@ class SalesReportController extends Controller
                 $createdAt = $allocation->transaction?->created_at;
 
                 return $createdAt
-                    ? ReportTimezone::localDateKey($createdAt)
+                    ? ReportTimezone::sourceDateKey($allocation->transaction?->getRawOriginal('created_at'))
                     : 'tanpa-tanggal';
             })
             ->map(function ($rows, $date) {
@@ -1217,21 +1221,27 @@ class SalesReportController extends Controller
             $row = $allocation->toArray();
 
             if (isset($row['transaction']['created_at'])) {
-                $row['transaction']['created_at'] = ReportTimezone::formatDateTime(
-                    $allocation->transaction?->created_at
-                );
+                $row['transaction']['created_at'] = $allocation->transaction?->created_at
+                    ? ReportTimezone::formatSourceDateTime($allocation->transaction->getRawOriginal('created_at'), 'd M Y H:i')
+                    : null;
             }
 
             if (array_key_exists('settled_at', $row)) {
-                $row['settled_at'] = ReportTimezone::formatDateTime($allocation->settled_at);
+                $row['settled_at'] = $allocation->settled_at
+                    ? ReportTimezone::formatSourceDateTime($allocation->getRawOriginal('settled_at'), 'd M Y H:i')
+                    : null;
             }
 
             if (array_key_exists('validated_at', $row)) {
-                $row['validated_at'] = ReportTimezone::formatDateTime($allocation->validated_at);
+                $row['validated_at'] = $allocation->validated_at
+                    ? ReportTimezone::formatSourceDateTime($allocation->getRawOriginal('validated_at'), 'd M Y H:i')
+                    : null;
             }
 
             if (array_key_exists('payout_paid_at', $row)) {
-                $row['payout_paid_at'] = ReportTimezone::formatDateTime($allocation->payout_paid_at);
+                $row['payout_paid_at'] = $allocation->payout_paid_at
+                    ? ReportTimezone::formatSourceDateTime($allocation->getRawOriginal('payout_paid_at'), 'd M Y H:i')
+                    : null;
             }
 
             return $row;

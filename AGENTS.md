@@ -59,6 +59,7 @@ vendor/bin/pint                      # PHP formatter (Laravel Pint)
 5. **Tests use SQLite in-memory** — `phpunit.xml` forces `DB_CONNECTION=sqlite`, `DB_DATABASE=:memory:`. Do not assume MySQL features in tests.
 6. **Both dev servers required** — Inertia needs Vite running for HMR and asset serving. `php artisan serve` alone will not load JS/CSS.
 7. **Report date filters can use converted display dates** — untuk halaman report yang menampilkan tanggal hasil konversi timezone frontend, `start_date` / `end_date` harus dikonversi balik ke timezone sumber sebelum query. Jangan campur `whereDate(...)`, `applyUtcDateRange(...)`, dan `CONVERT_TZ(...)` secara ad hoc. Gunakan helper terpusat di `app/Support/ReportTimezone.php` agar filter, grouping harian, dan label tanggal konsisten.
+8. **Date bucket harian harus source-aware** — jika `created_at` disimpan/dibaca sebagai `REPORT_SOURCE_TIMEZONE`, maka key harian untuk chart, summary, atau regrouping collection harus dibuat lewat helper source-aware di `ReportTimezone`, bukan lewat `localDateKey()` umum atau parsing mentah.
 
 ## Frontend Conventions
 

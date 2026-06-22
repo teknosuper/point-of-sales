@@ -10,6 +10,7 @@ use App\Services\CustomerOutletMetricService;
 use App\Services\CustomerSegmentationService;
 use App\Services\LoyaltyService;
 use App\Services\OutletResolver;
+use App\Support\ReportTimezone;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
@@ -167,7 +168,7 @@ class MemberController extends Controller
                 'balance_after' => (int) $history->balance_after,
                 'reference' => $history->reference,
                 'notes' => $history->notes,
-                'created_at' => optional($history->created_at)?->format('d M Y H:i'),
+                'created_at' => ReportTimezone::formatSourceDateTime($history->getRawOriginal('created_at'), 'd M Y H:i'),
             ]);
         $vouchers = $member->vouchers()
             ->latest()
@@ -311,7 +312,7 @@ class MemberController extends Controller
                 'invoice' => $transaction->invoice,
                 'total' => $transaction->grand_total,
                 'payment_method' => $transaction->payment_method,
-                'date' => $transaction->created_at?->toISOString(),
+                'date' => ReportTimezone::formatSourceIso8601($transaction->getRawOriginal('created_at')),
             ]);
     }
 
@@ -348,7 +349,7 @@ class MemberController extends Controller
             'loyalty_tier' => (string) ($metrics['loyalty_tier'] ?? $member->loyalty_tier ?? LoyaltyService::TIER_REGULAR),
             'loyalty_total_spent' => (int) ($metrics['total_spent'] ?? 0),
             'loyalty_transaction_count' => (int) ($metrics['transaction_count'] ?? 0),
-            'last_purchase_at' => optional($metrics['last_purchase_at'] ?? null)?->toIso8601String(),
+            'last_purchase_at' => ReportTimezone::formatSourceIso8601($metrics['last_purchase_at'] ?? null),
         ];
     }
 

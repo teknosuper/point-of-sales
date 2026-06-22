@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
 
 class ReportTimezone
 {
@@ -44,6 +45,11 @@ class ReportTimezone
         return now($timezone)->format('P');
     }
 
+    public static function timezoneOffsetMinutes(string $timezone): int
+    {
+        return Carbon::now($timezone)->utcOffset();
+    }
+
     public static function databaseOffset(): string
     {
         return self::timezoneOffset(self::databaseTimezone());
@@ -62,6 +68,13 @@ class ReportTimezone
         $fromTimezone ??= self::sourceTimezone();
         $toTimezone ??= self::displayOffset();
 
+        if (DB::connection()->getDriverName() === 'sqlite') {
+            $offsetMinutes = self::timezoneOffsetMinutes($toTimezone) - self::timezoneOffsetMinutes($fromTimezone);
+            $modifier = sprintf('%+d minutes', $offsetMinutes);
+
+            return "datetime({$column}, '{$modifier}')";
+        }
+
         return "CONVERT_TZ({$column}, '{$fromTimezone}', '{$toTimezone}')";
     }
 
@@ -70,9 +83,32 @@ class ReportTimezone
         return 'DATE('.self::convertTzExpression($column, self::sourceTimezone(), self::displayOffset()).')';
     }
 
+    public static function sourceToDisplayHourExpression(string $column): string
+    {
+        $expression = self::convertTzExpression($column, self::sourceTimezone(), self::displayOffset());
+
+        return DB::connection()->getDriverName() === 'sqlite'
+            ? "CAST(strftime('%H', {$expression}) AS INTEGER)"
+            : "HOUR({$expression})";
+    }
+
     public static function formatSourceDateLabel(?string $value, string $format = 'd M Y'): ?string
     {
         return self::formatSourceDateTime($value, $format);
+    }
+
+    public static function formatSourceIso8601($value): ?string
+    {
+        return self::sourceToDisplayCarbon($value)?->toIso8601String();
+    }
+
+    public static function sourceDateKey($value): ?string
+    {
+        if (! $value) {
+            return null;
+        }
+
+        return self::sourceToDisplayCarbon($value)?->format('Y-m-d');
     }
 
     public static function applyUtcDateRange($query, string $column, array $filters)

@@ -149,12 +149,12 @@ class AdvancedSalesInsightsController extends Controller
                 $q->whereHas('details', fn (Builder $detailQuery) => $detailQuery->where('tenant_outlet_id', $tenantOutletId));
             });
 
-        return ReportTimezone::applyUtcDateRange($query, 'transactions.created_at', $filters);
+        return ReportTimezone::applySourceDateRange($query, 'transactions.created_at', $filters);
     }
 
     protected function detailMetricsQuery(array $filters)
     {
-        return ReportTimezone::applyUtcDateRange(
+        return ReportTimezone::applySourceDateRange(
             DB::table('transaction_details as td')
             ->join('transactions as t', 't.id', '=', 'td.transaction_id')
             ->join('products as p', 'p.id', '=', 'td.product_id')
@@ -209,7 +209,7 @@ class AdvancedSalesInsightsController extends Controller
                 'qty_sold' => (int) $row->qty_sold,
                 'revenue_total' => (int) round($row->revenue_total),
                 'profit_total' => (int) round($row->profit_total),
-                'last_sold_at' => $row->last_sold_at ? Carbon::parse($row->last_sold_at)->toIso8601String() : null,
+                'last_sold_at' => ReportTimezone::formatSourceIso8601($row->last_sold_at),
             ])
             ->all();
     }
@@ -264,7 +264,7 @@ class AdvancedSalesInsightsController extends Controller
                 'qty_sold' => (int) $row->qty_sold,
                 'revenue_total' => (int) round($row->revenue_total),
                 'profit_total' => (int) round($row->profit_total),
-                'last_sold_at' => $row->last_sold_at ? Carbon::parse($row->last_sold_at)->toIso8601String() : null,
+                'last_sold_at' => ReportTimezone::formatSourceIso8601($row->last_sold_at),
             ])
             ->all();
     }
@@ -340,7 +340,7 @@ class AdvancedSalesInsightsController extends Controller
 
     protected function salesByHour(array $filters): array
     {
-        $hourExpression = $this->hourBucketExpression();
+        $hourExpression = ReportTimezone::sourceToDisplayHourExpression('created_at');
 
         $rows = $this->applyTransactionFilters(Transaction::query(), $filters)
             ->selectRaw("{$hourExpression} as hour_bucket, COUNT(*) as orders_count, COALESCE(SUM(grand_total), 0) as revenue_total")
@@ -366,13 +366,13 @@ class AdvancedSalesInsightsController extends Controller
     protected function salesByDay(array $filters): array
     {
         return $this->applyTransactionFilters(Transaction::query(), $filters)
-            ->selectRaw('DATE(created_at) as sales_date, COUNT(*) as orders_count, COALESCE(SUM(grand_total), 0) as revenue_total')
-            ->groupBy(DB::raw('DATE(created_at)'))
-            ->orderBy(DB::raw('DATE(created_at)'))
+            ->selectRaw(ReportTimezone::sourceToDisplayDateExpression('created_at').' as sales_date, COUNT(*) as orders_count, COALESCE(SUM(grand_total), 0) as revenue_total')
+            ->groupBy('sales_date')
+            ->orderBy('sales_date')
             ->get()
             ->map(fn ($row) => [
                 'date' => $row->sales_date,
-                'label' => Carbon::parse($row->sales_date)->format('d M'),
+                'label' => Carbon::parse($row->sales_date, ReportTimezone::timezone())->format('d M'),
                 'orders_count' => (int) $row->orders_count,
                 'revenue_total' => (int) round($row->revenue_total),
             ])
@@ -480,9 +480,7 @@ class AdvancedSalesInsightsController extends Controller
                 'average_basket' => (int) ($row->orders_count > 0
                     ? round($row->revenue_total / $row->orders_count)
                     : 0),
-                'last_purchase_at' => $row->last_purchase_at
-                    ? Carbon::parse($row->last_purchase_at)->toIso8601String()
-                    : null,
+                'last_purchase_at' => ReportTimezone::formatSourceIso8601($row->last_purchase_at),
             ];
         });
 
@@ -574,9 +572,7 @@ class AdvancedSalesInsightsController extends Controller
                     'average_daily_qty' => $averageDailyQty,
                     'coverage_days' => $coverageDays,
                     'coverage_status' => $this->coverageStatus($currentStock, $qtySold, $coverageDays),
-                    'last_sold_at' => $row->last_sold_at
-                        ? Carbon::parse($row->last_sold_at)->toIso8601String()
-                        : null,
+                    'last_sold_at' => ReportTimezone::formatSourceIso8601($row->last_sold_at),
                 ];
             });
 
@@ -620,8 +616,8 @@ class AdvancedSalesInsightsController extends Controller
     protected function salesWindowDays(array $filters): int
     {
         if (($filters['start_date'] ?? null) && ($filters['end_date'] ?? null)) {
-            $start = Carbon::parse($filters['start_date']);
-            $end = Carbon::parse($filters['end_date']);
+            $start = Carbon::parse($filters['start_date'], ReportTimezone::timezone());
+            $end = Carbon::parse($filters['end_date'], ReportTimezone::timezone());
 
             return max(1, $start->diffInDays($end) + 1);
         }
@@ -636,7 +632,9 @@ class AdvancedSalesInsightsController extends Controller
 
         return max(
             1,
-            Carbon::parse($range->min_date)->diffInDays(Carbon::parse($range->max_date)) + 1
+            ReportTimezone::sourceToDisplayCarbon($range->min_date)->diffInDays(
+                ReportTimezone::sourceToDisplayCarbon($range->max_date)
+            ) + 1
         );
     }
 
@@ -704,7 +702,7 @@ class AdvancedSalesInsightsController extends Controller
                     'id' => $log->id,
                     'event' => $log->event,
                     'description' => $log->description,
-                    'created_at' => optional($log->created_at)?->toIso8601String(),
+                    'created_at' => ReportTimezone::formatSourceIso8601($log->getRawOriginal('created_at')),
                 ])
                 ->all(),
         ];
@@ -819,8 +817,8 @@ class AdvancedSalesInsightsController extends Controller
                     'status' => $campaign->status,
                     'channel' => $campaign->channel,
                     'logs_count' => (int) $campaign->logs_count,
-                    'processed_at' => optional($campaign->processed_at)?->toIso8601String(),
-                    'created_at' => optional($campaign->created_at)?->toIso8601String(),
+                    'processed_at' => ReportTimezone::formatSourceIso8601($campaign->getRawOriginal('processed_at')),
+                    'created_at' => ReportTimezone::formatSourceIso8601($campaign->getRawOriginal('created_at')),
                 ])
                 ->all(),
         ];
@@ -828,7 +826,7 @@ class AdvancedSalesInsightsController extends Controller
 
     protected function applyDateRangeFilter($query, string $column, array $filters): void
     {
-        ReportTimezone::applyUtcDateRange($query, $column, $filters);
+        ReportTimezone::applySourceDateRange($query, $column, $filters);
     }
 
     protected function serializePromoRule(PricingRule $rule): array
@@ -843,15 +841,8 @@ class AdvancedSalesInsightsController extends Controller
             'customer_scope' => $rule->customer_scope,
             'product_title' => $rule->product?->title,
             'category_name' => $rule->category?->name,
-            'starts_at' => optional($rule->starts_at)?->toIso8601String(),
-            'ends_at' => optional($rule->ends_at)?->toIso8601String(),
+            'starts_at' => ReportTimezone::formatSourceIso8601($rule->getRawOriginal('starts_at')),
+            'ends_at' => ReportTimezone::formatSourceIso8601($rule->getRawOriginal('ends_at')),
         ];
-    }
-
-    protected function hourBucketExpression(): string
-    {
-        return DB::connection()->getDriverName() === 'sqlite'
-            ? "CAST(strftime('%H', created_at) AS INTEGER)"
-            : 'HOUR(created_at)';
     }
 }

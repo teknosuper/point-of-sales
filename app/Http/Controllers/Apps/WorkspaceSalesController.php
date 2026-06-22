@@ -111,9 +111,7 @@ class WorkspaceSalesController extends Controller
                     'pre_discount_total' => $preDiscountTotal,
                     'markup_total' => max(0, $grossTotal - $baseTotal),
                     'display_total' => $isKitchenWorkspace ? $baseTotal : $grossTotal,
-                    'created_at' => optional($transaction->getRawOriginal('created_at'))
-                        ? Carbon::parse($transaction->getRawOriginal('created_at'))->toIso8601String()
-                        : null,
+                    'created_at' => ReportTimezone::formatSourceIso8601($transaction->getRawOriginal('created_at')),
                 ];
             });
 
@@ -466,10 +464,8 @@ class WorkspaceSalesController extends Controller
                     'service_status' => $allocation->waiter_status,
                     'service_status_label' => $this->humanizeServiceStatus($allocation->waiter_status),
                     'settlement_reference_total' => $tenantSaleTotal,
-                    'created_at' => optional($transaction?->getRawOriginal('created_at'))
-                        ? Carbon::parse($transaction->getRawOriginal('created_at'))->toIso8601String()
-                        : null,
-                    'delivered_at' => optional($allocation->delivered_at)?->toIso8601String(),
+                    'created_at' => ReportTimezone::formatSourceIso8601($transaction?->getRawOriginal('created_at')),
+                    'delivered_at' => ReportTimezone::formatSourceIso8601($allocation->getRawOriginal('delivered_at')),
                 ];
             });
 
@@ -482,7 +478,8 @@ class WorkspaceSalesController extends Controller
                 fn (Builder $query) => $query->whereIn('tenant_outlet_id', $tenantOutletIds->all()),
                 fn (Builder $query) => $query->whereRaw('1 = 0')
             )
-            ->whereDate('delivered_at', Carbon::today());
+            ->where('delivered_at', '>=', ReportTimezone::localDateStartInSourceTz(now(ReportTimezone::displayTimezone())->toDateString()))
+            ->where('delivered_at', '<=', ReportTimezone::localDateEndInSourceTz(now(ReportTimezone::displayTimezone())->toDateString()));
         $todayTenantSales = (int) ((clone $todayAllocations)->sum('subtotal') ?? 0);
         $todayBaseTotal = $this->sumBaseValueFromAllocationQuery(clone $todayAllocations);
         $todayOrders = (clone $todayAllocations)->count();
@@ -498,7 +495,8 @@ class WorkspaceSalesController extends Controller
                 fn (Builder $query) => $query->whereIn('tenant_outlet_id', $tenantOutletIds->all()),
                 fn (Builder $query) => $query->whereRaw('1 = 0')
             )
-            ->whereDate('delivered_at', Carbon::yesterday());
+            ->where('delivered_at', '>=', ReportTimezone::localDateStartInSourceTz(now(ReportTimezone::displayTimezone())->subDay()->toDateString()))
+            ->where('delivered_at', '<=', ReportTimezone::localDateEndInSourceTz(now(ReportTimezone::displayTimezone())->subDay()->toDateString()));
         $yesterdayTenantSales = (int) ((clone $yesterdayAllocations)->sum('subtotal') ?? 0);
         $yesterdayBaseTotal = $this->sumBaseValueFromAllocationQuery(clone $yesterdayAllocations);
         $yesterdayOrders = (clone $yesterdayAllocations)->count();
@@ -644,7 +642,7 @@ class WorkspaceSalesController extends Controller
         return $this->applyKitchenAllocationFilters($allocationQuery, $filters)
             ->with('transaction:id,payment_method')
             ->get()
-            ->groupBy(fn (TransactionTenantAllocation $allocation) => optional($allocation->delivered_at)->toDateString() ?: 'tanpa-tanggal')
+            ->groupBy(fn (TransactionTenantAllocation $allocation) => ReportTimezone::sourceDateKey($allocation->getRawOriginal('delivered_at')) ?: 'tanpa-tanggal')
             ->map(function (Collection $allocations, string $date) {
                 $cashCount = $allocations->filter(fn (TransactionTenantAllocation $allocation) => $allocation->transaction?->payment_method === 'cash')->count();
                 $ordersCount = $allocations->count();
@@ -652,7 +650,7 @@ class WorkspaceSalesController extends Controller
 
                 return [
                     'date' => $date,
-                    'label' => $date !== 'tanpa-tanggal' ? Carbon::parse($date)->translatedFormat('d M Y') : 'Tanpa tanggal',
+                    'label' => $date !== 'tanpa-tanggal' ? Carbon::parse($date, ReportTimezone::timezone())->translatedFormat('d M Y') : 'Tanpa tanggal',
                     'orders_count' => $ordersCount,
                     'sales_total' => $salesTotal,
                     'average_order' => $ordersCount > 0 ? (int) round($salesTotal / $ordersCount) : 0,
@@ -668,7 +666,7 @@ class WorkspaceSalesController extends Controller
     {
         return collect(range(0, 23))->map(function (int $hour) use ($allocationQuery, $filters) {
             $hourQuery = $this->applyKitchenAllocationFilters(clone $allocationQuery, $filters)
-                ->whereRaw('HOUR(delivered_at) = ?', [$hour]);
+                ->whereRaw(ReportTimezone::sourceToDisplayHourExpression('delivered_at').' = ?', [$hour]);
 
             $ordersCount = (int) (clone $hourQuery)->count();
             $cashCount = (int) (clone $hourQuery)
@@ -779,18 +777,19 @@ class WorkspaceSalesController extends Controller
 
     private function buildGrossTrend(int $outletId, array $filters): Collection
     {
-        return Transaction::query()
-            ->where('outlet_id', $outletId)
-            ->when($filters['start_date'], fn ($query, $startDate) => $query->whereDate('created_at', '>=', $startDate))
-            ->when($filters['end_date'], fn ($query, $endDate) => $query->whereDate('created_at', '<=', $endDate))
-            ->selectRaw('DATE(created_at) as day, COUNT(*) as orders_count, COALESCE(SUM(grand_total), 0) as total_value')
+        return ReportTimezone::applySourceDateRange(
+            Transaction::query()->where('outlet_id', $outletId),
+            'created_at',
+            $filters
+        )
+            ->selectRaw(ReportTimezone::sourceToDisplayDateExpression('created_at').' as day, COUNT(*) as orders_count, COALESCE(SUM(grand_total), 0) as total_value')
             ->groupBy('day')
             ->orderBy('day')
             ->limit(14)
             ->get()
             ->map(fn ($row) => [
                 'day' => $row->day,
-                'label' => Carbon::parse($row->day)->format('d M'),
+                'label' => Carbon::parse($row->day, ReportTimezone::timezone())->format('d M'),
                 'orders_count' => (int) $row->orders_count,
                 'total_value' => (int) $row->total_value,
             ])
@@ -806,14 +805,14 @@ class WorkspaceSalesController extends Controller
         return TransactionDetail::query()
             ->join('transactions', 'transactions.id', '=', 'transaction_details.transaction_id')
             ->whereIn('transaction_details.transaction_id', $transactionIds)
-            ->selectRaw('DATE(transactions.created_at) as day, COUNT(DISTINCT transactions.id) as orders_count, COALESCE(SUM(transaction_details.base_unit_price * transaction_details.qty), 0) as total_value')
+            ->selectRaw(ReportTimezone::sourceToDisplayDateExpression('transactions.created_at').' as day, COUNT(DISTINCT transactions.id) as orders_count, COALESCE(SUM(transaction_details.base_unit_price * transaction_details.qty), 0) as total_value')
             ->groupBy('day')
             ->orderBy('day')
             ->limit(14)
             ->get()
             ->map(fn ($row) => [
                 'day' => $row->day,
-                'label' => Carbon::parse($row->day)->format('d M'),
+                'label' => Carbon::parse($row->day, ReportTimezone::timezone())->format('d M'),
                 'orders_count' => (int) $row->orders_count,
                 'total_value' => (int) $row->total_value,
             ])
@@ -829,7 +828,7 @@ class WorkspaceSalesController extends Controller
             ->where('outlet_id', $outletId)
             ->where('created_at', '>=', $todayStart)
             ->where('created_at', '<=', $todayEnd)
-            ->selectRaw('HOUR(created_at) as hour_of_day, COUNT(*) as orders_count, COALESCE(SUM(grand_total), 0) as total_value')
+            ->selectRaw(ReportTimezone::sourceToDisplayHourExpression('created_at').' as hour_of_day, COUNT(*) as orders_count, COALESCE(SUM(grand_total), 0) as total_value')
             ->groupBy('hour_of_day')
             ->orderBy('hour_of_day')
             ->get()
@@ -852,7 +851,7 @@ class WorkspaceSalesController extends Controller
             ->where('transactions.outlet_id', $outletId)
             ->where('transactions.created_at', '>=', $todayStart)
             ->where('transactions.created_at', '<=', $todayEnd)
-            ->selectRaw('HOUR(transactions.created_at) as hour_of_day, COUNT(DISTINCT transactions.id) as orders_count, COALESCE(SUM(transaction_details.base_unit_price * transaction_details.qty), 0) as total_value')
+            ->selectRaw(ReportTimezone::sourceToDisplayHourExpression('transactions.created_at').' as hour_of_day, COUNT(DISTINCT transactions.id) as orders_count, COALESCE(SUM(transaction_details.base_unit_price * transaction_details.qty), 0) as total_value')
             ->groupBy('hour_of_day')
             ->orderBy('hour_of_day')
             ->get()
@@ -987,7 +986,7 @@ class WorkspaceSalesController extends Controller
             ->join('transactions', 'transactions.id', '=', 'transaction_tenant_allocations.transaction_id')
             ->where('transaction_tenant_allocations.outlet_id', $outletId)
             ->whereIn('transaction_tenant_allocations.transaction_id', $transactionIds)
-            ->selectRaw('DATE(transactions.created_at) as day')
+            ->selectRaw(ReportTimezone::sourceToDisplayDateExpression('transactions.created_at').' as day')
             ->selectRaw('COUNT(DISTINCT transaction_tenant_allocations.transaction_id) as orders_count')
             ->selectRaw('COALESCE(SUM(transaction_tenant_allocations.promo_discount_total + transaction_tenant_allocations.voucher_discount_total + transaction_tenant_allocations.loyalty_discount_total + transaction_tenant_allocations.manual_discount_total), 0) as promo_total')
             ->groupBy('day')
@@ -996,7 +995,7 @@ class WorkspaceSalesController extends Controller
             ->get()
             ->map(fn ($row) => [
                 'day' => $row->day,
-                'label' => Carbon::parse($row->day)->format('d M'),
+                'label' => Carbon::parse($row->day, ReportTimezone::timezone())->format('d M'),
                 'orders_count' => (int) $row->orders_count,
                 'promo_total' => (int) $row->promo_total,
             ])
@@ -1057,7 +1056,7 @@ class WorkspaceSalesController extends Controller
 
     private function applyKitchenAllocationFilters($query, array $filters)
     {
-        return $query
+        $query = $query
             ->when($filters['q'] ?? null, function ($builder, $search) {
                 $builder->where(function ($innerQuery) use ($search) {
                     $innerQuery
@@ -1072,12 +1071,12 @@ class WorkspaceSalesController extends Controller
                         });
                 });
             })
-            ->when($filters['start_date'] ?? null, fn ($builder, $startDate) => $builder->whereDate('delivered_at', '>=', $startDate))
-            ->when($filters['end_date'] ?? null, fn ($builder, $endDate) => $builder->whereDate('delivered_at', '<=', $endDate))
             ->when($filters['payment_method'] ?? null, fn ($builder, $paymentMethod) => $builder->whereHas('transaction', fn (Builder $transactionQuery) => $transactionQuery->where('payment_method', $paymentMethod)))
             ->when($filters['payment_status'] ?? null, fn ($builder, $paymentStatus) => $builder->whereHas('transaction', fn (Builder $transactionQuery) => $transactionQuery->where('payment_status', $paymentStatus)))
             ->when($filters['order_type'] ?? null, fn ($builder, $orderType) => $builder->whereHas('transaction', fn (Builder $transactionQuery) => $transactionQuery->where('order_type', $orderType)))
             ->when($filters['cashier_id'] ?? null, fn ($builder, $cashierId) => $builder->whereHas('transaction', fn (Builder $transactionQuery) => $transactionQuery->where('cashier_id', $cashierId)));
+
+        return ReportTimezone::applySourceDateRange($query, 'delivered_at', $filters);
     }
 
     private function buildTenantTrend(int $outletId, Collection $tenantOutletIds, array $filters): Collection
@@ -1095,14 +1094,14 @@ class WorkspaceSalesController extends Controller
                 ),
             $filters
         )
-            ->selectRaw('DATE(transaction_tenant_allocations.delivered_at) as day, COUNT(DISTINCT transaction_tenant_allocations.id) as orders_count, COALESCE(SUM(transaction_tenant_allocation_items.line_total), 0) as total_value')
+            ->selectRaw(ReportTimezone::sourceToDisplayDateExpression('transaction_tenant_allocations.delivered_at').' as day, COUNT(DISTINCT transaction_tenant_allocations.id) as orders_count, COALESCE(SUM(transaction_tenant_allocation_items.line_total), 0) as total_value')
             ->groupBy('day')
             ->orderBy('day')
             ->limit(14)
             ->get()
             ->map(fn ($row) => [
                 'day' => $row->day,
-                'label' => Carbon::parse($row->day)->format('d M'),
+                'label' => Carbon::parse($row->day, ReportTimezone::timezone())->format('d M'),
                 'orders_count' => (int) $row->orders_count,
                 'total_value' => (int) $row->total_value,
             ])
@@ -1121,8 +1120,9 @@ class WorkspaceSalesController extends Controller
                 fn (Builder $query) => $query->whereIn('transaction_tenant_allocations.tenant_outlet_id', $tenantOutletIds->all()),
                 fn (Builder $query) => $query->whereRaw('1 = 0')
             )
-            ->whereDate('transaction_tenant_allocations.delivered_at', Carbon::today())
-            ->selectRaw('HOUR(transaction_tenant_allocations.delivered_at) as hour_of_day, COUNT(DISTINCT transaction_tenant_allocations.id) as orders_count, COALESCE(SUM(transaction_tenant_allocation_items.line_total), 0) as total_value')
+            ->where('transaction_tenant_allocations.delivered_at', '>=', ReportTimezone::localDateStartInSourceTz(now(ReportTimezone::displayTimezone())->toDateString()))
+            ->where('transaction_tenant_allocations.delivered_at', '<=', ReportTimezone::localDateEndInSourceTz(now(ReportTimezone::displayTimezone())->toDateString()))
+            ->selectRaw(ReportTimezone::sourceToDisplayHourExpression('transaction_tenant_allocations.delivered_at').' as hour_of_day, COUNT(DISTINCT transaction_tenant_allocations.id) as orders_count, COALESCE(SUM(transaction_tenant_allocation_items.line_total), 0) as total_value')
             ->groupBy('hour_of_day')
             ->orderBy('hour_of_day')
             ->get()
@@ -1295,7 +1295,7 @@ class WorkspaceSalesController extends Controller
 
     private function applyFilters($query, array $filters)
     {
-        return $query
+        return ReportTimezone::applySourceDateRange($query
             ->when($filters['q'] ?? null, function ($builder, $search) {
                 $builder->where(function ($innerQuery) use ($search) {
                     $innerQuery
@@ -1306,12 +1306,13 @@ class WorkspaceSalesController extends Controller
                         ->orWhereHas('cashier', fn ($cashierQuery) => $cashierQuery->where('name', 'like', '%'.$search.'%'));
                 });
             })
-            ->when($filters['start_date'] ?? null, fn ($builder, $startDate) => $builder->whereDate('created_at', '>=', $startDate))
-            ->when($filters['end_date'] ?? null, fn ($builder, $endDate) => $builder->whereDate('created_at', '<=', $endDate))
             ->when($filters['payment_method'] ?? null, fn ($builder, $paymentMethod) => $builder->where('payment_method', $paymentMethod))
             ->when($filters['payment_status'] ?? null, fn ($builder, $paymentStatus) => $builder->where('payment_status', $paymentStatus))
             ->when($filters['order_type'] ?? null, fn ($builder, $orderType) => $builder->where('order_type', $orderType))
-            ->when($filters['cashier_id'] ?? null, fn ($builder, $cashierId) => $builder->where('cashier_id', $cashierId));
+            ->when($filters['cashier_id'] ?? null, fn ($builder, $cashierId) => $builder->where('cashier_id', $cashierId)),
+            'created_at',
+            $filters
+        );
     }
 
     private function applyQuickRange(array &$filters): void

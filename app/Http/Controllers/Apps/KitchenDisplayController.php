@@ -13,6 +13,7 @@ use App\Models\TransactionTenantAllocation;
 use App\Services\OutletResolver;
 use App\Services\PrintJobService;
 use App\Services\WaiterFulfillmentService;
+use App\Support\ReportTimezone;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -613,7 +614,7 @@ class KitchenDisplayController extends Controller
                     ->sortBy('processed_at')
                     ->pluck('processed_at')
                     ->filter()
-                    ->map(fn ($value) => optional($value)?->toIso8601String())
+                    ->map(fn ($value) => ReportTimezone::formatSourceIso8601($value))
                     ->values();
                 $printStatus = match (true) {
                     $queuedPrintJobs->isNotEmpty() && $successfulPrintJobs->isNotEmpty() => 'reprint_queued',
@@ -627,10 +628,10 @@ class KitchenDisplayController extends Controller
                     'id' => $ticket->id,
                     'ticket_number' => $ticket->ticket_number,
                     'status' => $ticket->status,
-                    'fired_at' => optional($ticket->fired_at)?->toIso8601String(),
-                    'acknowledged_at' => optional($ticket->acknowledged_at)?->toIso8601String(),
-                    'ready_at' => optional($ticket->ready_at)?->toIso8601String(),
-                    'completed_at' => optional($ticket->completed_at)?->toIso8601String(),
+                    'fired_at' => ReportTimezone::formatSourceIso8601($ticket->getRawOriginal('fired_at')),
+                    'acknowledged_at' => ReportTimezone::formatSourceIso8601($ticket->getRawOriginal('acknowledged_at')),
+                    'ready_at' => ReportTimezone::formatSourceIso8601($ticket->getRawOriginal('ready_at')),
+                    'completed_at' => ReportTimezone::formatSourceIso8601($ticket->getRawOriginal('completed_at')),
                     'invoice' => $ticket->transaction?->invoice,
                     'customer_name' => $ticket->transaction?->customer?->name,
                     'order_reference_name' => $ticket->transaction?->order_reference_name,
@@ -652,7 +653,7 @@ class KitchenDisplayController extends Controller
                             'ticket.dispatch_failed' => 'failed',
                             default => 'dispatched',
                         },
-                        'dispatched_at' => optional($latestDispatchEvent->created_at)?->toIso8601String(),
+                        'dispatched_at' => ReportTimezone::formatSourceIso8601($latestDispatchEvent->getRawOriginal('created_at')),
                         'device_id' => data_get($latestDispatchEvent->payload, 'device_id'),
                         'device_name' => data_get($latestDispatchEvent->payload, 'device_name'),
                         'device_type' => data_get($latestDispatchEvent->payload, 'device_type'),
@@ -668,10 +669,10 @@ class KitchenDisplayController extends Controller
                         'queued_jobs' => $queuedPrintJobs->count(),
                         'printed_copies' => $printedCopies,
                         'first_printed_at' => $successfulPrintTimes->first(),
-                        'last_printed_at' => optional($successfulPrintJobs->sortByDesc('processed_at')->first()?->processed_at)?->toIso8601String(),
+                        'last_printed_at' => ReportTimezone::formatSourceIso8601($successfulPrintJobs->sortByDesc('processed_at')->first()?->getRawOriginal('processed_at')),
                         'printed_at_list' => $successfulPrintTimes->all(),
-                        'last_failed_at' => optional($failedPrintJobs->sortByDesc('failed_at')->first()?->failed_at)?->toIso8601String(),
-                        'last_queued_at' => optional($queuedPrintJobs->sortByDesc('queued_at')->first()?->queued_at)?->toIso8601String(),
+                        'last_failed_at' => ReportTimezone::formatSourceIso8601($failedPrintJobs->sortByDesc('failed_at')->first()?->getRawOriginal('failed_at')),
+                        'last_queued_at' => ReportTimezone::formatSourceIso8601($queuedPrintJobs->sortByDesc('queued_at')->first()?->getRawOriginal('queued_at')),
                     ],
                     'items' => $ticket->items->map(fn ($item) => [
                         'resolved_service_status' => (($serviceStatusMap->get((int) $item->transaction_detail_id)?->service_status === 'not_required')
@@ -684,15 +685,15 @@ class KitchenDisplayController extends Controller
                         'qty' => (int) $item->qty,
                         'status' => $item->status,
                         'notes' => $item->notes,
-                        'completed_at' => optional($item->completed_at)?->toIso8601String(),
+                        'completed_at' => ReportTimezone::formatSourceIso8601($item->getRawOriginal('completed_at')),
                         'service_status' => (($serviceStatusMap->get((int) $item->transaction_detail_id)?->service_status === 'not_required')
                             && $item->status === 'completed')
                             ? 'ready'
                             : (optional($serviceStatusMap->get((int) $item->transaction_detail_id))->service_status
                                 ?? ($item->status === 'completed' ? 'ready' : 'pending')),
-                        'ready_at' => optional(optional($serviceStatusMap->get((int) $item->transaction_detail_id))->ready_at)?->toIso8601String(),
-                        'picked_up_at' => optional(optional($serviceStatusMap->get((int) $item->transaction_detail_id))->picked_up_at)?->toIso8601String(),
-                        'delivered_at' => optional(optional($serviceStatusMap->get((int) $item->transaction_detail_id))->delivered_at)?->toIso8601String(),
+                        'ready_at' => ReportTimezone::formatSourceIso8601(optional($serviceStatusMap->get((int) $item->transaction_detail_id))->ready_at),
+                        'picked_up_at' => ReportTimezone::formatSourceIso8601(optional($serviceStatusMap->get((int) $item->transaction_detail_id))->picked_up_at),
+                        'delivered_at' => ReportTimezone::formatSourceIso8601(optional($serviceStatusMap->get((int) $item->transaction_detail_id))->delivered_at),
                     ])->values(),
                 ];
             });
