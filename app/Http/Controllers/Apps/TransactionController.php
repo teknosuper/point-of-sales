@@ -205,6 +205,7 @@ class TransactionController extends Controller
                 ],
                 'items' => $order->items->map(fn ($item) => [
                     'id' => $item->id,
+                    'product_id' => (int) $item->product_id,
                     'product_title' => $item->product_title,
                     'qty' => (int) $item->qty,
                     'base_unit_price' => (int) ($item->base_unit_price ?? $item->unit_price),
@@ -216,6 +217,7 @@ class TransactionController extends Controller
                     'notes' => $item->notes,
                     'modifiers' => $item->modifiers->map(fn ($modifier) => [
                         'id' => $modifier->id,
+                        'product_modifier_option_id' => (int) ($modifier->product_modifier_option_id ?? 0),
                         'name' => $modifier->name,
                         'qty' => (int) $modifier->qty,
                         'unit_price' => (int) $modifier->unit_price,

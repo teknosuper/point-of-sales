@@ -174,4 +174,44 @@ class TableOrderController extends Controller
             ->route($redirectTo === 'transactions' ? 'transactions.index' : 'table-orders.index')
             ->with('success', "Order {$tableOrder->order_number} berhasil dibatalkan.");
     }
+
+    public function updateItems(Request $request, TableOrder $tableOrder)
+    {
+        $outlet = app(\App\Services\OutletResolver::class)->resolve($request, $request->user());
+        if ($outlet && (int) $tableOrder->outlet_id !== (int) $outlet->id) {
+            abort(404);
+        }
+
+        $validated = $request->validate([
+            'items' => ['required', 'array'],
+            'items.*.product_id' => ['required', 'integer'],
+            'items.*.qty' => ['required', 'integer', 'min:0'],
+            'items.*.notes' => ['nullable', 'string', 'max:300'],
+            'items.*.modifier_ids' => ['nullable', 'array'],
+            'items.*.modifier_ids.*.id' => ['required', 'integer'],
+        ]);
+
+        $updatedTableOrder = $this->tableOrderService->updateItems(
+            $tableOrder,
+            $validated['items'],
+            $request->user()
+        );
+
+        $wasCancelled = $updatedTableOrder->status === 'cancelled';
+        $message = $wasCancelled
+            ? "Order {$tableOrder->order_number} dibatalkan karena semua item dihapus."
+            : "Order {$tableOrder->order_number} berhasil diupdate.";
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => $message,
+                'data' => $updatedTableOrder,
+            ]);
+        }
+
+        return redirect()
+            ->route('transactions.index', $wasCancelled ? [] : ['open_table_order' => $tableOrder->id])
+            ->with('success', $message);
+    }
 }

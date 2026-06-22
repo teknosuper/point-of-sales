@@ -482,6 +482,128 @@ class TableOrderService
         return $transaction;
     }
 
+    public function updateItems(TableOrder $tableOrder, array $items, User $actor): TableOrder
+    {
+        if ($tableOrder->status !== 'pending_cashier_payment') {
+            throw ValidationException::withMessages([
+                'order' => 'Order ini tidak bisa diedit karena sudah diproses.',
+            ]);
+        }
+
+        $validatedItems = collect($items ?? [])
+            ->map(function (array $item) {
+                return [
+                    'product_id' => (int) ($item['product_id'] ?? 0),
+                    'qty' => max(0, (int) ($item['qty'] ?? 0)),
+                    'notes' => filled($item['notes'] ?? null) ? (string) $item['notes'] : null,
+                    'modifier_ids' => collect($item['modifier_ids'] ?? [])
+                        ->map(fn (array $modifier) => (int) ($modifier['id'] ?? 0))
+                        ->filter(fn (int $id) => $id > 0)
+                        ->unique()
+                        ->values(),
+                ];
+            })
+            ->filter(fn (array $item) => $item['product_id'] > 0 && $item['qty'] > 0)
+            ->values();
+
+        if ($validatedItems->isEmpty()) {
+            return $this->cancel(
+                $tableOrder,
+                $actor,
+                'Semua item dihapus melalui edit pesanan.'
+            );
+        }
+
+        $productIds = $validatedItems->pluck('product_id')->all();
+        $products = Product::query()
+            ->with(['tenantOutlet:id,name,code'])
+            ->whereIn('id', $productIds)
+            ->orderBy('title')
+            ->get()
+            ->keyBy('id');
+
+        $modifierOptions = ProductModifierOption::query()
+            ->whereIn('product_id', $productIds)
+            ->where('is_active', true)
+            ->get()
+            ->groupBy('product_id');
+
+        $requestedQtyByProduct = $validatedItems
+            ->groupBy('product_id')
+            ->map(fn (Collection $group) => (int) $group->sum('qty'));
+
+        $orderItems = $validatedItems->map(function (array $item) use ($products, $modifierOptions, $tableOrder, $requestedQtyByProduct) {
+            $product = $products->get($item['product_id']);
+            if (! $product) {
+                throw ValidationException::withMessages([
+                    'items' => 'Ada produk yang tidak ditemukan.',
+                ]);
+            }
+
+            $availableStock = $this->resolveAvailableStock($product, $tableOrder->outlet_id);
+            $requestedQty = (int) ($requestedQtyByProduct->get($product->id) ?? $item['qty']);
+
+            if ($availableStock < $requestedQty) {
+                throw ValidationException::withMessages([
+                    'items' => "Stok produk {$product->title} tidak mencukupi.",
+                ]);
+            }
+
+            $unitPrice = (int) ($product->sell_price ?? 0);
+            $productModifierOptions = $modifierOptions->get($product->id, collect());
+            $selectedModifiers = $productModifierOptions
+                ->whereIn('id', $item['modifier_ids']->all())
+                ->values();
+
+            $modifierUnitTotal = (int) $selectedModifiers->sum(fn (ProductModifierOption $option) => (int) $option->price);
+
+            return [
+                'product_id' => $product->id,
+                'tenant_outlet_id' => $product->tenant_outlet_id ?: $tableOrder->outlet_id,
+                'product_title' => $product->title,
+                'qty' => $item['qty'],
+                'base_unit_price' => $unitPrice,
+                'unit_price' => $unitPrice + $modifierUnitTotal,
+                'line_total' => ($unitPrice + $modifierUnitTotal) * $item['qty'],
+                'discount_total' => 0,
+                'notes' => $item['notes'],
+                'modifiers' => $selectedModifiers->map(fn (ProductModifierOption $option) => [
+                    'product_modifier_option_id' => $option->id,
+                    'name' => $option->name,
+                    'qty' => $item['qty'],
+                    'unit_price' => (int) $option->price,
+                    'total_price' => (int) $option->price * $item['qty'],
+                ])->values()->all(),
+            ];
+        });
+
+        return DB::transaction(function () use ($tableOrder, $orderItems) {
+            // Delete old items
+            $tableOrder->items()->delete();
+
+            // Create new items
+            $grandTotal = 0;
+            foreach ($orderItems as $item) {
+                $modifiers = collect($item['modifiers']);
+                unset($item['modifiers']);
+                
+                $tableOrderItem = $tableOrder->items()->create($item);
+                $grandTotal += (int) $item['line_total'];
+
+                foreach ($modifiers as $modifier) {
+                    $tableOrderItem->modifiers()->create($modifier);
+                }
+            }
+
+            $tableOrder->update([
+                'grand_total' => $grandTotal,
+                'subtotal' => $grandTotal,
+            ]);
+
+            return $tableOrder->fresh(['items.modifiers', 'diningTable', 'customer']);
+        });
+    }
+
     public function cancel(TableOrder $tableOrder, User $actor, ?string $reason = null): TableOrder
     {
         if ($tableOrder->status !== 'pending_cashier_payment') {

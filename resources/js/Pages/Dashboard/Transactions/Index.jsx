@@ -72,7 +72,7 @@ import {
     IconWallet,
     IconX,
     IconCheck,
-    IconChevronDown,
+    IconChevronDown, IconMinus, IconPlus,
     IconChevronUp,
 } from "@/Utils/icons";
 
@@ -331,6 +331,9 @@ export default function Index({
     const [tableOrderCancelTarget, setTableOrderCancelTarget] = useState(null);
     const [tableOrderCancelReason, setTableOrderCancelReason] = useState("");
     const [isCancellingTableOrder, setIsCancellingTableOrder] = useState(false);
+    const [isEditingTableOrder, setIsEditingTableOrder] = useState(false);
+    const [tableOrderEditItems, setTableOrderEditItems] = useState([]);
+    const [isUpdatingTableOrder, setIsUpdatingTableOrder] = useState(false);
     const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
     const [isHistoryFilterExpanded, setIsHistoryFilterExpanded] =
         useState(false);
@@ -2112,6 +2115,24 @@ export default function Index({
         setTableOrderPaymentMethod("cash");
     };
 
+    const clearOpenTableOrderQuery = () => {
+        if (!window.location.search.includes("open_table_order=")) {
+            return;
+        }
+
+        const currentUrl = new URL(window.location.href);
+        const nextFilters = Object.fromEntries(
+            currentUrl.searchParams.entries()
+        );
+        delete nextFilters.open_table_order;
+
+        router.get(route("transactions.index"), nextFilters, {
+            preserveState: true,
+            preserveScroll: true,
+            replace: true,
+        });
+    };
+
     const closeTableOrderApproval = () => {
         if (isApprovingTableOrder) {
             return;
@@ -2120,18 +2141,7 @@ export default function Index({
         setTableOrderApprovalTarget(null);
         setTableOrderCashInput("");
         setTableOrderPaymentMethod("cash");
-
-        if (window.location.search.includes("open_table_order=")) {
-            const currentUrl = new URL(window.location.href);
-            const nextFilters = Object.fromEntries(currentUrl.searchParams.entries());
-            delete nextFilters.open_table_order;
-
-            router.get(route("transactions.index"), nextFilters, {
-                preserveState: true,
-                preserveScroll: true,
-                replace: true,
-            });
-        }
+        clearOpenTableOrderQuery();
     };
 
     const confirmQrisPayment = () =>
@@ -2242,6 +2252,83 @@ export default function Index({
         setTableOrderCancelReason("");
     };
 
+    const openTableOrderEdit = (order) => {
+        setIsEditingTableOrder(true);
+        setTableOrderEditItems(
+            (order.items || []).map((item) => ({
+                product_id: item.product_id,
+                product_title: item.product_title,
+                qty: item.qty,
+                unit_price: item.unit_price,
+                line_total: item.line_total,
+                notes: item.notes || "",
+                modifiers: item.modifiers || [],
+            }))
+        );
+    };
+
+    const closeTableOrderEdit = () => {
+        setIsEditingTableOrder(false);
+        setTableOrderEditItems([]);
+    };
+
+    const updateTableOrderItemQty = (index, newQty) => {
+        setTableOrderEditItems((prev) =>
+            prev.map((item, i) =>
+                i === index
+                    ? { ...item, qty: newQty, line_total: item.unit_price * newQty }
+                    : item
+            )
+        );
+    };
+
+    const removeTableOrderItem = (index) => {
+        setTableOrderEditItems((prev) => prev.filter((_, i) => i !== index));
+    };
+
+    const submitTableOrderEdit = async () => {
+        if (!tableOrderApprovalTarget) return;
+
+        setIsUpdatingTableOrder(true);
+        try {
+            await axios.patch(
+                route("table-orders.update-items", tableOrderApprovalTarget.id),
+                {
+                    items: tableOrderEditItems
+                        .filter((item) => item.qty > 0)
+                        .map((item) => ({
+                            product_id: Number(item.product_id || 0),
+                            qty: Number(item.qty || 0),
+                            notes: item.notes || null,
+                            modifier_ids: (item.modifiers || [])
+                                .map((modifier) => ({
+                                    id: Number(
+                                        modifier.product_modifier_option_id ||
+                                            modifier.id ||
+                                            0
+                                    ),
+                                }))
+                                .filter((modifier) => modifier.id > 0),
+                        })),
+                }
+            );
+
+            // Refresh the page to get updated data
+            window.location.href = route("transactions.index", {
+                open_table_order: tableOrderApprovalTarget.id
+            });
+        } catch (error) {
+            console.error(error);
+            toast.error(
+                error.response?.data?.message ||
+                error.response?.data?.error ||
+                "Gagal update pesanan"
+            );
+        } finally {
+            setIsUpdatingTableOrder(false);
+        }
+    };
+
     const closeTableOrderCancel = () => {
         if (isCancellingTableOrder) {
             return;
@@ -2266,6 +2353,14 @@ export default function Index({
             },
             {
                 preserveScroll: true,
+                onSuccess: () => {
+                    setTableOrderCancelTarget(null);
+                    setTableOrderCancelReason("");
+                    setTableOrderApprovalTarget(null);
+                    setTableOrderCashInput("");
+                    setTableOrderPaymentMethod("cash");
+                    clearOpenTableOrderQuery();
+                },
                 onFinish: () => setIsCancellingTableOrder(false),
             }
         );
@@ -6693,7 +6788,7 @@ export default function Index({
                             </div>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-3 border-t border-slate-200 bg-slate-50 px-5 py-4 dark:border-slate-800 dark:bg-slate-900/80">
+                        <div className="grid grid-cols-3 gap-3 border-t border-slate-200 bg-slate-50 px-5 py-4 dark:border-slate-800 dark:bg-slate-900/80">
                             <button
                                 type="button"
                                 onClick={closeTableOrderApproval}
@@ -6701,6 +6796,25 @@ export default function Index({
                                 className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
                             >
                                 Batal
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    closeTableOrderApproval();
+                                    openTableOrderCancel(tableOrderApprovalTarget);
+                                }}
+                                disabled={isApprovingTableOrder}
+                                className="rounded-2xl border border-rose-200 bg-white px-4 py-3 text-sm font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-60 dark:border-rose-900 dark:text-rose-400 dark:hover:bg-rose-950/30"
+                            >
+                                Batalkan Pesanan
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => openTableOrderEdit(tableOrderApprovalTarget)}
+                                disabled={isApprovingTableOrder}
+                                className="rounded-2xl border border-blue-200 bg-white px-4 py-3 text-sm font-semibold text-blue-600 hover:bg-blue-50 disabled:opacity-60 dark:border-blue-900 dark:text-blue-400 dark:hover:bg-blue-950/30"
+                            >
+                                Edit Pesanan
                             </button>
                             <button
                                 type="button"
@@ -6719,7 +6833,117 @@ export default function Index({
                 </div>
             )}
 
-            {tableOrderCancelTarget && (
+            
+
+            {isEditingTableOrder && tableOrderApprovalTarget && (
+                <div className="fixed inset-0 z-[60] flex items-end justify-center p-0 sm:items-center sm:p-4">
+                    <div
+                        className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm"
+                        onClick={closeTableOrderEdit}
+                    />
+                    <div className="relative z-10 flex max-h-[calc(100dvh-1rem)] w-full max-w-lg flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl dark:bg-slate-900 sm:max-h-[calc(100vh-2rem)] sm:rounded-3xl">
+                        <div className="border-b border-slate-200 px-5 py-4 dark:border-slate-800">
+                            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-blue-600">
+                                Edit Pesanan
+                            </p>
+                            <h3 className="mt-1 text-lg font-bold text-slate-900 dark:text-white">
+                                {tableOrderApprovalTarget.order_number}
+                            </h3>
+                            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                Ubah jumlah item atau hapus item yang tidak jadi dipesan
+                            </p>
+                        </div>
+
+                        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+                            <div className="space-y-3">
+                                {tableOrderEditItems.map((item, index) => (
+                                    <div
+                                        key={`${item.product_id}-${index}`}
+                                        className="rounded-2xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-950/70"
+                                    >
+                                        <div className="flex items-start justify-between gap-3">
+                                            <div className="min-w-0 flex-1">
+                                                <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                                                    {item.product_title}
+                                                </p>
+                                                <p className="text-xs text-slate-500 dark:text-slate-400">
+                                                    {formatPrice(item.unit_price)} / porsi
+                                                </p>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => removeTableOrderItem(index)}
+                                                className="rounded-full p-1 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30"
+                                            >
+                                                <IconX size={16} />
+                                            </button>
+                                        </div>
+                                        <div className="mt-2 flex items-center gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => updateTableOrderItemQty(index, Math.max(0, item.qty - 1))}
+                                                className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"
+                                            >
+                                                <IconMinus size={14} />
+                                            </button>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                value={item.qty}
+                                                onChange={(e) => updateTableOrderItemQty(index, Math.max(0, parseInt(e.target.value) || 0))}
+                                                className="h-8 w-16 rounded-lg border border-slate-200 bg-white text-center text-sm font-semibold text-slate-800 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() => updateTableOrderItemQty(index, item.qty + 1)}
+                                                className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"
+                                            >
+                                                <IconPlus size={14} />
+                                            </button>
+                                            <span className="ml-auto text-sm font-bold text-slate-900 dark:text-white">
+                                                {formatPrice(item.line_total)}
+                                            </span>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                            <div className="mt-4 rounded-2xl bg-slate-50 p-4 dark:bg-slate-800/60">
+                                <div className="flex items-center justify-between text-sm">
+                                    <span className="text-slate-500">Total</span>
+                                    <span className="text-xl font-bold text-slate-900 dark:text-white">
+                                        {formatPrice(tableOrderEditItems.reduce((sum, item) => sum + item.line_total, 0))}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3 border-t border-slate-200 bg-slate-50 px-5 py-4 dark:border-slate-800 dark:bg-slate-900/80">
+                            <button
+                                type="button"
+                                onClick={closeTableOrderEdit}
+                                disabled={isUpdatingTableOrder}
+                                className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                            >
+                                Batal
+                            </button>
+                            <button
+                                type="button"
+                                onClick={submitTableOrderEdit}
+                                disabled={isUpdatingTableOrder}
+                                className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white disabled:opacity-60"
+                            >
+                                {isUpdatingTableOrder
+                                    ? "Menyimpan..."
+                                    : tableOrderEditItems.some((item) => item.qty > 0)
+                                      ? "Simpan Perubahan"
+                                      : "Hapus Semua & Batalkan Order"}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+{tableOrderCancelTarget && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
                     <div
                         className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm"
@@ -6760,7 +6984,7 @@ export default function Index({
                             </div>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-3 border-t border-slate-200 bg-slate-50 px-5 py-4 dark:border-slate-800 dark:bg-slate-900/80">
+                        <div className="grid grid-cols-3 gap-3 border-t border-slate-200 bg-slate-50 px-5 py-4 dark:border-slate-800 dark:bg-slate-900/80">
                             <button
                                 type="button"
                                 onClick={closeTableOrderCancel}
@@ -6959,7 +7183,7 @@ export default function Index({
                             </div>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-3 border-t border-slate-200 bg-slate-50 px-5 py-4 dark:border-slate-800 dark:bg-slate-950/40">
+                        <div className="grid grid-cols-3 gap-3 border-t border-slate-200 bg-slate-50 px-5 py-4 dark:border-slate-800 dark:bg-slate-950/40">
                             <button
                                 type="button"
                                 onClick={() =>
@@ -7250,7 +7474,7 @@ export default function Index({
                             </div>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-3 border-t border-slate-200 bg-slate-50 px-5 py-4 dark:border-slate-800 dark:bg-slate-900/80">
+                        <div className="grid grid-cols-3 gap-3 border-t border-slate-200 bg-slate-50 px-5 py-4 dark:border-slate-800 dark:bg-slate-900/80">
                             <button
                                 type="button"
                                 onClick={() => setIsCashPaymentModalOpen(false)}
@@ -8161,7 +8385,7 @@ export default function Index({
                             </div>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-3 border-t border-slate-200 bg-slate-50 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/80 xl:grid-cols-[1fr,1fr,1fr,1.2fr]">
+                        <div className="grid grid-cols-3 gap-3 border-t border-slate-200 bg-slate-50 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/80 xl:grid-cols-[1fr,1fr,1fr,1.2fr]">
                             <button
                                 type="button"
                                 onClick={closeHistoryModal}
