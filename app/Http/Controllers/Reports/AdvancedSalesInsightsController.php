@@ -39,6 +39,7 @@ class AdvancedSalesInsightsController extends Controller
         $activeOutlet = $this->outletResolver->resolve($request, $request->user());
         $outletId = $activeOutlet?->id;
         $isTenantWorkspace = (string) ($activeOutlet?->outlet_type ?? '') === 'tenant';
+        $activeTab = $this->resolveActiveTab($request);
         $filters = [
             'start_date' => $request->input('start_date'),
             'end_date' => $request->input('end_date'),
@@ -54,39 +55,72 @@ class AdvancedSalesInsightsController extends Controller
             $filters
         );
 
-        $transactionIds = (clone $transactionQuery)->pluck('id');
-        $transactionCount = $transactionIds->count();
+        if ($isTenantWorkspace) {
+            $summaryRaw = $this->tenantWorkspaceSummary($filters);
+            $transactionCount = (int) ($summaryRaw->orders_count ?? 0);
+            $itemsSold = (int) ($summaryRaw->items_sold ?? 0);
+            $profitTotal = (int) round($summaryRaw->profit_total ?? 0);
+        } else {
+            $transactionIds = (clone $transactionQuery)->pluck('id');
+            $transactionCount = $transactionIds->count();
+            $summaryRaw = (clone $transactionQuery)
+                ->selectRaw('COUNT(*) as orders_count, COALESCE(SUM(grand_total), 0) as revenue_total, COALESCE(SUM(discount), 0) as manual_discount_total')
+                ->first();
+            $itemsSold = $transactionIds->isNotEmpty()
+                ? (int) DB::table('transaction_details')
+                    ->whereIn('transaction_id', $transactionIds)
+                    ->sum('qty')
+                : 0;
+            $profitTotal = $transactionIds->isNotEmpty()
+                ? (int) DB::table('profits')
+                    ->whereIn('transaction_id', $transactionIds)
+                    ->sum('total')
+                : 0;
+        }
 
-        $summaryRaw = (clone $transactionQuery)
-            ->selectRaw('COUNT(*) as orders_count, COALESCE(SUM(grand_total), 0) as revenue_total, COALESCE(SUM(discount), 0) as manual_discount_total')
-            ->first();
+        $salesByHour = [];
+        $salesByDay = [];
+        $cashierPerformance = [];
+        $topSellingProducts = [];
+        $lowPerformingProducts = [];
+        $marginByProduct = [];
+        $marginByCategory = [];
+        $stockCoverage = ['summary' => [], 'products' => []];
+        $repeatCustomerMetrics = ['summary' => [], 'top_customers' => []];
+        $promoMonitor = ['summary' => [], 'active_rules' => [], 'scheduled_rules' => [], 'recent_audits' => []];
+        $loyaltyPerformance = ['summary' => [], 'top_members' => []];
+        $crmOperations = ['summary' => [], 'recent_campaigns' => []];
 
-        $itemsSold = $transactionIds->isNotEmpty()
-            ? DB::table('transaction_details')
-                ->whereIn('transaction_id', $transactionIds)
-                ->sum('qty')
-            : 0;
+        if ($activeTab === 'overview') {
+            $salesByHour = $this->salesByHour($filters);
+            $salesByDay = $this->salesByDay($filters);
+            $cashierPerformance = $this->cashierPerformance($filters);
+        }
 
-        $profitTotal = $transactionIds->isNotEmpty()
-            ? DB::table('profits')
-                ->whereIn('transaction_id', $transactionIds)
-                ->sum('total')
-            : 0;
+        if ($activeTab === 'products') {
+            $topSellingProducts = $this->topSellingProducts($filters);
+            $lowPerformingProducts = $this->lowPerformingProducts($filters);
+            $marginByProduct = $this->marginByProduct($filters);
+            $marginByCategory = $this->marginByCategory($filters);
+            $stockCoverage = $this->stockCoverageAnalysis($filters);
+        }
 
-        $topSellingProducts = $this->topSellingProducts($filters);
-        $lowPerformingProducts = $this->lowPerformingProducts($filters);
-        $marginByProduct = $this->marginByProduct($filters);
-        $marginByCategory = $this->marginByCategory($filters);
-        $salesByHour = $this->salesByHour($filters);
-        $salesByDay = $this->salesByDay($filters);
-        $cashierPerformance = $this->cashierPerformance($filters);
-        $repeatCustomerMetrics = $this->repeatCustomerMetrics($filters);
-        $stockCoverage = $this->stockCoverageAnalysis($filters);
-        $promoMonitor = $this->promoMonitor();
-        $loyaltyPerformance = $this->loyaltyPerformance($filters);
-        $crmOperations = $this->crmOperations($filters);
+        if ($activeTab === 'customers') {
+            $repeatCustomerMetrics = $this->repeatCustomerMetrics($filters);
+            $loyaltyPerformance = $isTenantWorkspace
+                ? ['summary' => [], 'top_members' => []]
+                : $this->loyaltyPerformance($filters);
+            $crmOperations = $isTenantWorkspace
+                ? ['summary' => [], 'recent_campaigns' => []]
+                : $this->crmOperations($filters);
+        }
+
+        if ($activeTab === 'promos') {
+            $promoMonitor = $this->promoMonitor($filters);
+        }
 
         return Inertia::render('Dashboard/Reports/Insights', [
+            'activeTab' => $activeTab,
             'filters' => $filters,
             'cashiers' => User::select('id', 'name')->orderBy('name')->get(),
             'customers' => Customer::select('id', 'name')->orderBy('name')->get(),
@@ -120,11 +154,29 @@ class AdvancedSalesInsightsController extends Controller
             'promoMonitor' => $promoMonitor,
             'loyaltyPerformance' => $loyaltyPerformance,
             'crmOperations' => $crmOperations,
+            'workspace' => [
+                'is_tenant_workspace' => $isTenantWorkspace,
+                'active_outlet' => $activeOutlet ? [
+                    'id' => $activeOutlet->id,
+                    'name' => $activeOutlet->name,
+                    'code' => $activeOutlet->code,
+                    'outlet_type' => $activeOutlet->outlet_type,
+                ] : null,
+            ],
             'reportMeta' => [
                 'timezone' => ReportTimezone::timezone(),
                 'timezone_label' => ReportTimezone::timezoneLabel(),
             ],
         ]);
+    }
+
+    protected function resolveActiveTab(Request $request): string
+    {
+        $tab = (string) $request->query('tab', 'overview');
+
+        return in_array($tab, ['overview', 'products', 'customers', 'promos'], true)
+            ? $tab
+            : 'overview';
     }
 
     protected function applyTransactionFilters(Builder $query, array $filters): Builder
@@ -340,6 +392,10 @@ class AdvancedSalesInsightsController extends Controller
 
     protected function salesByHour(array $filters): array
     {
+        if ($this->isTenantWorkspace($filters)) {
+            return $this->tenantSalesByHour($filters);
+        }
+
         $hourExpression = ReportTimezone::sourceToDisplayHourExpression('created_at');
 
         $rows = $this->applyTransactionFilters(Transaction::query(), $filters)
@@ -365,6 +421,10 @@ class AdvancedSalesInsightsController extends Controller
 
     protected function salesByDay(array $filters): array
     {
+        if ($this->isTenantWorkspace($filters)) {
+            return $this->tenantSalesByDay($filters);
+        }
+
         return $this->applyTransactionFilters(Transaction::query(), $filters)
             ->selectRaw(ReportTimezone::sourceToDisplayDateExpression('created_at').' as sales_date, COUNT(*) as orders_count, COALESCE(SUM(grand_total), 0) as revenue_total')
             ->groupBy('sales_date')
@@ -381,6 +441,10 @@ class AdvancedSalesInsightsController extends Controller
 
     protected function cashierPerformance(array $filters): array
     {
+        if ($this->isTenantWorkspace($filters)) {
+            return $this->tenantCashierPerformance($filters);
+        }
+
         $transactionsByCashier = $this->applyTransactionFilters(Transaction::query(), $filters)
             ->selectRaw('
                 cashier_id,
@@ -441,6 +505,10 @@ class AdvancedSalesInsightsController extends Controller
 
     protected function repeatCustomerMetrics(array $filters): array
     {
+        if ($this->isTenantWorkspace($filters)) {
+            return $this->tenantRepeatCustomerMetrics($filters);
+        }
+
         $baseTransactionQuery = $this->applyTransactionFilters(Transaction::query(), $filters);
         $rows = $this->applyTransactionFilters(Transaction::query(), $filters)
             ->whereNotNull('transactions.customer_id')
@@ -460,21 +528,22 @@ class AdvancedSalesInsightsController extends Controller
             )
             ->get();
 
+        $metricOutletId = $this->workspaceOutletId($filters);
         $customers = Customer::query()
             ->with(['outletMetrics' => fn ($query) => $query
-                ->when($filters['outlet_id'] ?? null, fn ($metricQuery, $outletId) => $metricQuery->where('outlet_id', $outletId))])
+                ->when($metricOutletId, fn ($metricQuery, $outletId) => $metricQuery->where('outlet_id', $outletId))])
             ->whereIn('id', $rows->pluck('customer_id')->filter()->all())
             ->get()
             ->keyBy('id');
 
-        $rows = $rows->map(function ($row) use ($customers, $filters) {
+        $rows = $rows->map(function ($row) use ($customers, $metricOutletId) {
             $customer = $customers->get((int) $row->customer_id);
 
             return [
                 'customer_id' => (int) $row->customer_id,
                 'customer_name' => $row->customer_name,
                 'is_loyalty_member' => (bool) $row->is_loyalty_member,
-                'loyalty_tier' => $customer ? $this->loyaltyService->resolvedTier($customer, $filters['outlet_id'] ?? null) : null,
+                'loyalty_tier' => $customer ? $this->loyaltyService->resolvedTier($customer, $metricOutletId) : null,
                 'orders_count' => (int) $row->orders_count,
                 'revenue_total' => (int) round($row->revenue_total),
                 'average_basket' => (int) ($row->orders_count > 0
@@ -659,10 +728,12 @@ class AdvancedSalesInsightsController extends Controller
         return 'healthy';
     }
 
-    protected function promoMonitor(): array
+    protected function promoMonitor(array $filters): array
     {
+        $workspaceOutletId = $this->workspaceOutletId($filters);
         $rules = PricingRule::query()
             ->with(['product:id,title', 'category:id,name'])
+            ->when($workspaceOutletId, fn ($query, $outletId) => $query->where('outlet_id', $outletId))
             ->orderByDesc('priority')
             ->orderBy('name')
             ->get();
@@ -695,6 +766,7 @@ class AdvancedSalesInsightsController extends Controller
                 ->all(),
             'recent_audits' => AuditLog::query()
                 ->where('module', 'pricing_rules')
+                ->when($workspaceOutletId, fn ($query, $outletId) => $query->where('outlet_id', $outletId))
                 ->latest('id')
                 ->limit(5)
                 ->get()
@@ -710,18 +782,25 @@ class AdvancedSalesInsightsController extends Controller
 
     protected function loyaltyPerformance(array $filters): array
     {
-        $outletId = $filters['outlet_id'] ?? null;
+        $outletId = $this->workspaceOutletId($filters);
 
         $members = Customer::query()
+            ->where('is_loyalty_member', true)
+            ->when($outletId, fn ($query, $resolvedOutletId) => $query->whereHas('outletMetrics', fn ($metricQuery) => $metricQuery->where('outlet_id', $resolvedOutletId)))
             ->with(['outletMetrics' => fn ($query) => $query
                 ->when($outletId, fn ($metricQuery) => $metricQuery->where('outlet_id', $outletId))])
-            ->where('is_loyalty_member', true)
             ->get();
 
-        $historyQuery = LoyaltyPointHistory::query();
-        $this->applyDateRangeFilter($historyQuery, 'created_at', $filters);
+        $historyQuery = LoyaltyPointHistory::query()
+            ->leftJoin('transactions', 'transactions.id', '=', 'loyalty_point_histories.transaction_id');
+        if ($outletId) {
+            $historyQuery->where('transactions.outlet_id', $outletId);
+        }
+        $this->applyDateRangeFilter($historyQuery, 'loyalty_point_histories.created_at', $filters);
 
-        $vouchers = CustomerVoucher::query()->get();
+        $vouchers = CustomerVoucher::query()
+            ->when($outletId, fn ($query, $resolvedOutletId) => $query->whereHas('customer.outletMetrics', fn ($metricQuery) => $metricQuery->where('outlet_id', $resolvedOutletId)))
+            ->get();
 
         return [
             'summary' => [
@@ -729,13 +808,13 @@ class AdvancedSalesInsightsController extends Controller
                 'points_balance_total' => (int) $members->sum('loyalty_points'),
                 'points_earned' => (int) (clone $historyQuery)
                     ->where('type', LoyaltyPointHistory::TYPE_EARN)
-                    ->sum('points_delta'),
+                    ->sum('loyalty_point_histories.points_delta'),
                 'points_redeemed' => (int) abs((int) (clone $historyQuery)
                     ->where('type', LoyaltyPointHistory::TYPE_REDEEM)
-                    ->sum('points_delta')),
+                    ->sum('loyalty_point_histories.points_delta')),
                 'voucher_discount_total' => (int) (clone $historyQuery)
                     ->where('type', LoyaltyPointHistory::TYPE_VOUCHER)
-                    ->sum('amount_delta'),
+                    ->sum('loyalty_point_histories.amount_delta'),
                 'tier_distribution' => [
                     'regular' => $members->filter(fn (Customer $customer) => $this->loyaltyService->resolvedTier($customer, $outletId) === 'regular')->count(),
                     'silver' => $members->filter(fn (Customer $customer) => $this->loyaltyService->resolvedTier($customer, $outletId) === 'silver')->count(),
@@ -778,13 +857,24 @@ class AdvancedSalesInsightsController extends Controller
 
     protected function crmOperations(array $filters): array
     {
-        $segments = CustomerSegment::query()->withCount('memberships')->get();
+        $workspaceOutletId = $this->workspaceOutletId($filters);
+        $segments = CustomerSegment::query()
+            ->withCount(['memberships as scoped_memberships_count' => fn ($query) => $query
+                ->when($workspaceOutletId, fn ($membershipQuery, $outletId) => $membershipQuery->where('outlet_id', $outletId))])
+            ->when($workspaceOutletId, fn ($query, $outletId) => $query->whereHas('memberships', fn ($membershipQuery) => $membershipQuery->where('outlet_id', $outletId)))
+            ->get();
 
         $campaignsQuery = CustomerCampaign::query()->withCount('logs');
+        if ($workspaceOutletId) {
+            $campaignsQuery->where('outlet_id', $workspaceOutletId);
+        }
         $this->applyDateRangeFilter($campaignsQuery, 'created_at', $filters);
         $campaigns = $campaignsQuery->get();
 
         $logsQuery = CustomerCampaignLog::query();
+        if ($workspaceOutletId) {
+            $logsQuery->where('outlet_id', $workspaceOutletId);
+        }
         $this->applyDateRangeFilter($logsQuery, 'created_at', $filters);
         $logs = $logsQuery->get();
 
@@ -794,7 +884,7 @@ class AdvancedSalesInsightsController extends Controller
                 'segments_manual' => $segments->where('type', CustomerSegment::TYPE_MANUAL)->count(),
                 'segments_auto' => $segments->where('type', CustomerSegment::TYPE_AUTO)->count(),
                 'segments_active' => $segments->where('is_active', true)->count(),
-                'memberships_total' => (int) $segments->sum('memberships_count'),
+                'memberships_total' => (int) $segments->sum('scoped_memberships_count'),
                 'campaigns_total' => $campaigns->count(),
                 'campaigns_draft' => $campaigns->where('status', CustomerCampaign::STATUS_DRAFT)->count(),
                 'campaigns_ready' => $campaigns->where('status', CustomerCampaign::STATUS_READY)->count(),
@@ -807,6 +897,7 @@ class AdvancedSalesInsightsController extends Controller
             ],
             'recent_campaigns' => CustomerCampaign::query()
                 ->withCount('logs')
+                ->when($workspaceOutletId, fn ($query, $outletId) => $query->where('outlet_id', $outletId))
                 ->latest('id')
                 ->limit(5)
                 ->get()
@@ -843,6 +934,197 @@ class AdvancedSalesInsightsController extends Controller
             'category_name' => $rule->category?->name,
             'starts_at' => ReportTimezone::formatSourceIso8601($rule->getRawOriginal('starts_at')),
             'ends_at' => ReportTimezone::formatSourceIso8601($rule->getRawOriginal('ends_at')),
+        ];
+    }
+
+    protected function isTenantWorkspace(array $filters): bool
+    {
+        return filled($filters['tenant_outlet_id'] ?? null) && blank($filters['outlet_id'] ?? null);
+    }
+
+    protected function workspaceOutletId(array $filters): ?int
+    {
+        return filled($filters['outlet_id'] ?? null)
+            ? (int) $filters['outlet_id']
+            : (filled($filters['tenant_outlet_id'] ?? null) ? (int) $filters['tenant_outlet_id'] : null);
+    }
+
+    protected function detailProfitExpression(): string
+    {
+        return 'SUM((td.price - ROUND((COALESCE(t.discount, 0) * td.price) / NULLIF(tx.subtotal_after_promo, 0))) - (p.buy_price * td.qty))';
+    }
+
+    protected function tenantWorkspaceSummary(array $filters): object
+    {
+        return $this->detailMetricsQuery($filters)
+            ->joinSub(
+                DB::table('transaction_details')
+                    ->selectRaw('transaction_id, SUM(price) as subtotal_after_promo')
+                    ->groupBy('transaction_id'),
+                'tx',
+                fn ($join) => $join->on('tx.transaction_id', '=', 'td.transaction_id')
+            )
+            ->selectRaw('COUNT(DISTINCT t.id) as orders_count')
+            ->selectRaw('COALESCE(SUM(td.price), 0) as revenue_total')
+            ->selectRaw('COALESCE(SUM(td.qty), 0) as items_sold')
+            ->selectRaw('COALESCE(SUM(td.discount_total), 0) as manual_discount_total')
+            ->selectRaw('COALESCE('.$this->detailProfitExpression().', 0) as profit_total')
+            ->first();
+    }
+
+    protected function tenantSalesByHour(array $filters): array
+    {
+        $hourExpression = ReportTimezone::sourceToDisplayHourExpression('t.created_at');
+
+        $rows = $this->detailMetricsQuery($filters)
+            ->selectRaw("{$hourExpression} as hour_bucket")
+            ->selectRaw('COUNT(DISTINCT t.id) as orders_count')
+            ->selectRaw('COALESCE(SUM(td.price), 0) as revenue_total')
+            ->groupBy(DB::raw($hourExpression))
+            ->orderBy(DB::raw($hourExpression))
+            ->get()
+            ->keyBy(fn ($row) => (int) $row->hour_bucket);
+
+        return collect(range(0, 23))
+            ->map(function (int $hour) use ($rows) {
+                $row = $rows->get($hour);
+
+                return [
+                    'hour' => $hour,
+                    'label' => sprintf('%02d:00', $hour),
+                    'orders_count' => (int) ($row->orders_count ?? 0),
+                    'revenue_total' => (int) round($row->revenue_total ?? 0),
+                ];
+            })
+            ->all();
+    }
+
+    protected function tenantSalesByDay(array $filters): array
+    {
+        return $this->detailMetricsQuery($filters)
+            ->selectRaw(ReportTimezone::sourceToDisplayDateExpression('t.created_at').' as sales_date')
+            ->selectRaw('COUNT(DISTINCT t.id) as orders_count')
+            ->selectRaw('COALESCE(SUM(td.price), 0) as revenue_total')
+            ->groupBy('sales_date')
+            ->orderBy('sales_date')
+            ->get()
+            ->map(fn ($row) => [
+                'date' => $row->sales_date,
+                'label' => Carbon::parse($row->sales_date, ReportTimezone::timezone())->format('d M'),
+                'orders_count' => (int) $row->orders_count,
+                'revenue_total' => (int) round($row->revenue_total),
+            ])
+            ->all();
+    }
+
+    protected function tenantCashierPerformance(array $filters): array
+    {
+        return $this->detailMetricsQuery($filters)
+            ->joinSub(
+                DB::table('transaction_details')
+                    ->selectRaw('transaction_id, SUM(price) as subtotal_after_promo')
+                    ->groupBy('transaction_id'),
+                'tx',
+                fn ($join) => $join->on('tx.transaction_id', '=', 'td.transaction_id')
+            )
+            ->leftJoin('users', 'users.id', '=', 't.cashier_id')
+            ->selectRaw('t.cashier_id, users.name as cashier_name')
+            ->selectRaw('COUNT(DISTINCT t.id) as orders_count')
+            ->selectRaw('COALESCE(SUM(td.qty), 0) as items_sold')
+            ->selectRaw('COALESCE(SUM(td.price), 0) as revenue_total')
+            ->selectRaw('COUNT(DISTINCT CASE WHEN t.customer_id IS NULL THEN t.id END) as walk_in_orders_count')
+            ->selectRaw('COALESCE(SUM(CASE WHEN t.customer_id IS NULL THEN td.price ELSE 0 END), 0) as walk_in_revenue_total')
+            ->selectRaw('COALESCE('.$this->detailProfitExpression().', 0) as profit_total')
+            ->groupBy('t.cashier_id', 'users.name')
+            ->orderByDesc('items_sold')
+            ->orderByDesc('revenue_total')
+            ->get()
+            ->map(fn ($row) => [
+                'cashier_id' => (int) $row->cashier_id,
+                'cashier_name' => $row->cashier_name,
+                'orders_count' => (int) $row->orders_count,
+                'walk_in_orders_count' => (int) ($row->walk_in_orders_count ?? 0),
+                'registered_orders_count' => max(0, (int) $row->orders_count - (int) ($row->walk_in_orders_count ?? 0)),
+                'items_sold' => (int) $row->items_sold,
+                'revenue_total' => (int) round($row->revenue_total),
+                'walk_in_revenue_total' => (int) round($row->walk_in_revenue_total ?? 0),
+                'registered_revenue_total' => max(0, (int) round($row->revenue_total) - (int) round($row->walk_in_revenue_total ?? 0)),
+                'profit_total' => (int) round($row->profit_total),
+                'average_basket' => (int) ($row->orders_count > 0
+                    ? round($row->revenue_total / $row->orders_count)
+                    : 0),
+                'walk_in_share' => (int) $row->orders_count > 0
+                    ? round((((int) ($row->walk_in_orders_count ?? 0)) / (int) $row->orders_count) * 100, 2)
+                    : 0,
+            ])
+            ->all();
+    }
+
+    protected function tenantRepeatCustomerMetrics(array $filters): array
+    {
+        $rows = $this->detailMetricsQuery($filters)
+            ->leftJoin('customers', 'customers.id', '=', 't.customer_id')
+            ->selectRaw('t.customer_id, customers.name as customer_name, customers.is_loyalty_member as is_loyalty_member')
+            ->selectRaw('COUNT(DISTINCT t.id) as orders_count')
+            ->selectRaw('COALESCE(SUM(td.price), 0) as revenue_total')
+            ->selectRaw('MAX(t.created_at) as last_purchase_at')
+            ->whereNotNull('t.customer_id')
+            ->groupBy('t.customer_id', 'customers.name', 'customers.is_loyalty_member')
+            ->get()
+            ->map(fn ($row) => [
+                'customer_id' => (int) $row->customer_id,
+                'customer_name' => $row->customer_name,
+                'is_loyalty_member' => (bool) $row->is_loyalty_member,
+                'loyalty_tier' => null,
+                'orders_count' => (int) $row->orders_count,
+                'revenue_total' => (int) round($row->revenue_total),
+                'average_basket' => (int) ($row->orders_count > 0
+                    ? round($row->revenue_total / $row->orders_count)
+                    : 0),
+                'last_purchase_at' => ReportTimezone::formatSourceIso8601($row->last_purchase_at),
+            ]);
+
+        $activeCustomers = $rows->count();
+        $repeatCustomers = $rows->filter(fn (array $row) => $row['orders_count'] > 1)->values();
+        $newCustomers = $rows->filter(fn (array $row) => $row['orders_count'] === 1)->values();
+        $memberRevenue = $rows->where('is_loyalty_member', true)->sum('revenue_total');
+        $nonMemberRevenue = $rows->where('is_loyalty_member', false)->sum('revenue_total');
+        $repeatRevenue = $repeatCustomers->sum('revenue_total');
+
+        $walkInRow = $this->detailMetricsQuery($filters)
+            ->whereNull('t.customer_id')
+            ->selectRaw('COUNT(DISTINCT t.id) as walk_in_count, COALESCE(SUM(td.price), 0) as walk_in_revenue_total')
+            ->first();
+
+        $registeredRevenue = $rows->sum('revenue_total');
+        $walkInRevenue = (int) round($walkInRow->walk_in_revenue_total ?? 0);
+
+        return [
+            'summary' => [
+                'active_customers' => $activeCustomers,
+                'repeat_customers' => $repeatCustomers->count(),
+                'new_customers' => $newCustomers->count(),
+                'repeat_rate' => $activeCustomers > 0
+                    ? round(($repeatCustomers->count() / $activeCustomers) * 100, 2)
+                    : 0,
+                'repeat_revenue_total' => (int) $repeatRevenue,
+                'member_revenue_total' => (int) $memberRevenue,
+                'non_member_revenue_total' => (int) $nonMemberRevenue,
+                'walk_in_count' => (int) ($walkInRow->walk_in_count ?? 0),
+                'walk_in_revenue_total' => $walkInRevenue,
+                'registered_revenue_total' => (int) $registeredRevenue,
+                'walk_in_revenue_share' => ($walkInRevenue + $registeredRevenue) > 0
+                    ? round(($walkInRevenue / ($walkInRevenue + $registeredRevenue)) * 100, 2)
+                    : 0,
+                'member_revenue_share' => ($memberRevenue + $nonMemberRevenue) > 0
+                    ? round(($memberRevenue / ($memberRevenue + $nonMemberRevenue)) * 100, 2)
+                    : 0,
+            ],
+            'top_customers' => $repeatCustomers
+                ->sortByDesc(fn (array $row) => [$row['orders_count'], $row['revenue_total']])
+                ->take(10)
+                ->values()
+                ->all(),
         ];
     }
 }

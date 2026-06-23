@@ -11,6 +11,7 @@ use App\Http\Controllers\Apps\CustomerSegmentController;
 use App\Http\Controllers\Apps\CustomerVoucherController;
 use App\Http\Controllers\Apps\DataRepairController;
 use App\Http\Controllers\Apps\DiningTableController;
+use App\Http\Controllers\Apps\ExpenseController;
 use App\Http\Controllers\Apps\GoodsReceivingController;
 use App\Http\Controllers\Apps\KitchenSettingsController;
 use App\Http\Controllers\Apps\KitchenDisplayController;
@@ -407,6 +408,10 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
     // settings target penjualan
     Route::get('/settings/target', [\App\Http\Controllers\Apps\SettingController::class, 'target'])->middleware('permission:business-settings-access')->name('settings.target');
     Route::post('/settings/target', [\App\Http\Controllers\Apps\SettingController::class, 'updateTarget'])->middleware('permission:business-settings-update')->name('settings.target.update');
+    Route::get('/settings/expenses', [ExpenseController::class, 'index'])->middleware('permission:business-settings-access')->name('settings.expenses.index');
+    Route::post('/settings/expenses', [ExpenseController::class, 'store'])->middleware('permission:business-settings-update')->name('settings.expenses.store');
+    Route::put('/settings/expenses/{expense}', [ExpenseController::class, 'update'])->middleware('permission:business-settings-update')->name('settings.expenses.update');
+    Route::delete('/settings/expenses/{expense}', [ExpenseController::class, 'destroy'])->middleware('permission:business-settings-update')->name('settings.expenses.destroy');
     Route::get('/settings/store', [\App\Http\Controllers\Apps\SettingController::class, 'storeProfile'])->middleware('permission:business-settings-access')->name('settings.store');
     Route::post('/settings/store', [\App\Http\Controllers\Apps\SettingController::class, 'updateStoreProfile'])->middleware('permission:business-settings-update')->name('settings.store.update');
     Route::get('/settings/printer', [\App\Http\Controllers\Apps\PrinterSettingController::class, 'index'])->middleware(['permission:business-settings-access', 'outlet_access'])->name('settings.printer');
@@ -460,6 +465,7 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
     Route::get('/reports/setup-audit', [SetupAuditController::class, 'index'])->middleware('permission:reports-access')->name('reports.setup-audit.index');
     Route::get('/reports/profits', [ProfitReportController::class, 'index'])->middleware('permission:profits-access')->name('reports.profits.index');
     Route::get('/reports/profits/filter-options', [ProfitReportController::class, 'filterOptions'])->middleware('permission:profits-access')->name('reports.profits.filter-options');
+    Route::get('/reports/profits/transactions/{recordId}', [ProfitReportController::class, 'transactionDetail'])->middleware('permission:profits-access')->name('reports.profits.transactions.show');
     Route::get('/reports/profits/items/export', [ProfitReportController::class, 'exportItems'])->middleware('permission:profits-access')->name('reports.profits.items.export');
     Route::get('/reports/procurement', [ProcurementReportController::class, 'index'])->middleware('permission:reports-access')->name('reports.procurement.index');
     Route::get('/reports/procurement/export', [ProcurementReportController::class, 'export'])->middleware('permission:reports-access')->name('reports.procurement.export');

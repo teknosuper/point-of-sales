@@ -30,6 +30,13 @@ const defaultFilters = {
     pricing_rule_kind: "",
 };
 
+const reportTabs = [
+    { key: "overview", label: "Overview" },
+    { key: "products", label: "Produk" },
+    { key: "analysis", label: "Analisis" },
+    { key: "transactions", label: "Transaksi" },
+];
+
 const WALK_IN_CUSTOMER_OPTION = {
     id: "walk_in",
     name: "Transaksi Umum / Walk-in",
@@ -78,16 +85,16 @@ const datePresets = (timeZone) => {
 };
 
 const BreakdownPanel = ({ title, rows = [] }) => (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+    <div className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
         <p className="text-sm font-semibold text-slate-900 dark:text-white">{title}</p>
         <div className="mt-4 space-y-3">
             {rows.map((row) => (
                 <div key={row.label}>
-                    <div className="flex items-center justify-between gap-3 text-sm">
-                        <span className="text-slate-600 dark:text-slate-300">
+                    <div className="flex items-start justify-between gap-3 text-sm">
+                        <span className="min-w-0 break-words text-slate-600 dark:text-slate-300">
                             {row.label}
                         </span>
-                        <span className="font-semibold text-slate-900 dark:text-white">
+                        <span className="max-w-[45%] shrink-0 break-words text-right font-semibold text-slate-900 dark:text-white">
                             {row.value}
                         </span>
                     </div>
@@ -100,7 +107,7 @@ const BreakdownPanel = ({ title, rows = [] }) => (
                         </div>
                     ) : null}
                     {row.note ? (
-                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                        <p className="mt-1 break-words text-xs text-slate-500 dark:text-slate-400">
                             {row.note}
                         </p>
                     ) : null}
@@ -111,19 +118,19 @@ const BreakdownPanel = ({ title, rows = [] }) => (
 );
 
 const SectionCard = ({ title, description, actions = null, children }) => (
-    <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <div className="min-w-0 overflow-hidden rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
         <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div>
+            <div className="min-w-0">
                 <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
                     {title}
                 </h2>
                 {description ? (
-                    <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                    <p className="mt-1 break-words text-sm text-slate-500 dark:text-slate-400">
                         {description}
                     </p>
                 ) : null}
             </div>
-            {actions}
+            {actions ? <div className="flex w-full flex-wrap gap-3 lg:w-auto lg:justify-end">{actions}</div> : null}
         </div>
         {children}
     </div>
@@ -368,6 +375,7 @@ const ProfitReport = ({
     pricingRuleKinds = [],
     tenantOutlets = [],
     workspace = {},
+    activeTab = "overview",
     reportMeta = {},
 }) => {
     const isTenantWorkspace = Boolean(workspace?.is_tenant_workspace);
@@ -389,6 +397,8 @@ const ProfitReport = ({
     const [activeDay, setActiveDay] = useState(null);
     const [activeTenantId, setActiveTenantId] = useState(null);
     const [activeTransactionDetail, setActiveTransactionDetail] = useState(null);
+    const [activeTransactionRecord, setActiveTransactionRecord] = useState(null);
+    const [isTransactionDetailLoading, setIsTransactionDetailLoading] = useState(false);
     const profitTrendChartRef = useRef(null);
     const profitTrendChartInstance = useRef(null);
     const compositionTrendChartRef = useRef(null);
@@ -452,7 +462,7 @@ const ProfitReport = ({
 
     const applyFilters = (event) => {
         event.preventDefault();
-        router.get(route("reports.profits.index"), filterData, {
+        router.get(route("reports.profits.index"), { ...filterData, tab: activeTab }, {
             preserveState: true,
             preserveScroll: true,
         });
@@ -464,10 +474,21 @@ const ProfitReport = ({
         setSelectedCashier(null);
         setSelectedCustomer(null);
         setSelectedTenantOutlet(null);
-        router.get(route("reports.profits.index"), defaultFilters, {
+        router.get(route("reports.profits.index"), { ...defaultFilters, tab: activeTab }, {
             replace: true,
             preserveScroll: true,
         });
+    };
+
+    const changeTab = (tab) => {
+        router.get(
+            route("reports.profits.index"),
+            { ...filterData, tab },
+            {
+                preserveState: true,
+                preserveScroll: true,
+            }
+        );
     };
 
     const rows = transactions?.data ?? [];
@@ -580,7 +601,29 @@ const ProfitReport = ({
                 value: formatCurrency(summary?.tenant_revenue_total ?? 0),
                 note: "Penjualan setelah promo pada lini tenant.",
             });
+            rows.push({
+                label: "Payout Tenant Sudah Dibayar",
+                value: formatCurrency(summary?.tenant_payout_approved_total ?? 0),
+                note: `Setoran tenant yang sudah dibayar owner pada periode aktif. Saldo tenant ${formatCurrency(summary?.tenant_payout_balance_total ?? 0)}.`,
+            });
+            rows.push({
+                label: "Outstanding ke Tenant",
+                value: formatCurrency(summary?.tenant_payout_outstanding_total ?? 0),
+                note: "Saldo tenant periode aktif dikurangi setoran yang sudah dibayar.",
+            });
+            rows.push({
+                label: "Pengajuan Payout Tenant Pending",
+                value: formatCurrency(summary?.tenant_payout_pending_approval_total ?? 0),
+                note: "Pengajuan tenant yang belum disetujui owner.",
+            });
         }
+
+        rows.push({
+            label: "Expense Operasional",
+            value: formatCurrency(summary?.expense_total ?? 0),
+            note: `Paid ${formatCurrency(summary?.expense_paid_total ?? 0)} • Unpaid ${formatCurrency(summary?.expense_unpaid_total ?? 0)}`,
+            valueClassName: "text-rose-600 dark:text-rose-400",
+        });
 
         rows.push({
             label: "Laba Bersih",
@@ -589,6 +632,30 @@ const ProfitReport = ({
             emphasis: true,
             valueClassName: "text-emerald-600 dark:text-emerald-400",
         });
+        rows.push({
+            label: "Laba Setelah Expense",
+            value: formatCurrency(summary?.profit_after_expense_total ?? 0),
+            note: "Laba owner / tenant setelah dikurangi expense operasional.",
+            emphasis: true,
+            valueClassName: "text-blue-600 dark:text-blue-400",
+        });
+
+        if (!isTenantWorkspace) {
+            rows.push({
+                label: "Sisa Uang Setelah Pengeluaran Aktual",
+                value: formatCurrency(summary?.remaining_cash_after_paid_total ?? 0),
+                note: "Omzet dikurangi payout tenant yang sudah dibayar dan expense yang sudah paid.",
+                emphasis: true,
+                valueClassName: "text-violet-600 dark:text-violet-400",
+            });
+            rows.push({
+                label: "Sisa Uang Setelah Semua Kewajiban Disetujui",
+                value: formatCurrency(summary?.remaining_cash_after_approved_total ?? 0),
+                note: "Omzet dikurangi seluruh saldo tenant periode aktif dan seluruh expense periode aktif.",
+                emphasis: true,
+                valueClassName: "text-amber-600 dark:text-amber-400",
+            });
+        }
 
         return rows;
     }, [costBasisLabel, grossMarginLabel, isTenantWorkspace, summary]);
@@ -629,8 +696,22 @@ const ProfitReport = ({
                           ).toFixed(1)}% dari transaksi`
                         : "Belum ada transaksi",
             },
+            {
+                label: "Expense Operasional",
+                value: formatCurrency(summary?.expense_total ?? 0),
+                note: `Paid ${formatCurrency(summary?.expense_paid_total ?? 0)} • Unpaid ${formatCurrency(summary?.expense_unpaid_total ?? 0)}`,
+            },
+            ...(!isTenantWorkspace
+                ? [
+                      {
+                          label: "Saldo dan Payout Tenant",
+                          value: formatCurrency(summary?.tenant_payout_balance_total ?? 0),
+                          note: `Sudah dibayar ${formatCurrency(summary?.tenant_payout_paid_total ?? 0)} • Outstanding ${formatCurrency(summary?.tenant_payout_outstanding_total ?? 0)}`,
+                      },
+                  ]
+                : []),
         ];
-    }, [summary]);
+    }, [isTenantWorkspace, summary]);
 
     const ratioRows = useMemo(() => {
         const revenue = Number(summary?.revenue_total ?? 0);
@@ -690,6 +771,58 @@ const ProfitReport = ({
         ],
         [targets]
     );
+
+    const cashflowCards = useMemo(() => {
+        if (isTenantWorkspace) {
+            return [
+                {
+                    title: "Laba Kotor Tenant",
+                    value: formatCurrency(summary?.profit_total ?? 0),
+                    note: "Selisih omzet dan HPP tenant.",
+                    tone: "emerald",
+                },
+                {
+                    title: "Expense Operasional",
+                    value: formatCurrency(summary?.expense_total ?? 0),
+                    note: `Paid ${formatCurrency(summary?.expense_paid_total ?? 0)}`,
+                    tone: "rose",
+                },
+                {
+                    title: "Laba Setelah Expense",
+                    value: formatCurrency(summary?.profit_after_expense_total ?? 0),
+                    note: "Laba tenant setelah pengeluaran.",
+                    tone: "blue",
+                },
+            ];
+        }
+
+        return [
+            {
+                title: "Markup Owner",
+                value: formatCurrency(summary?.markup_total ?? 0),
+                note: "Laba kotor owner dari penjualan periode aktif.",
+                tone: "emerald",
+            },
+            {
+                title: "Outstanding ke Tenant",
+                value: formatCurrency(summary?.tenant_payout_outstanding_total ?? 0),
+                note: `Saldo tenant ${formatCurrency(summary?.tenant_payout_balance_total ?? 0)} • Sudah dibayar ${formatCurrency(summary?.tenant_payout_paid_total ?? 0)}`,
+                tone: "amber",
+            },
+            {
+                title: "Expense Operasional",
+                value: formatCurrency(summary?.expense_total ?? 0),
+                note: `Paid ${formatCurrency(summary?.expense_paid_total ?? 0)} • Unpaid ${formatCurrency(summary?.expense_unpaid_total ?? 0)}`,
+                tone: "rose",
+            },
+            {
+                title: "Sisa Uang Aktual",
+                value: formatCurrency(summary?.remaining_cash_after_paid_total ?? 0),
+                note: "Omzet dikurangi payout tenant paid dan expense paid.",
+                tone: "violet",
+            },
+        ];
+    }, [isTenantWorkspace, summary]);
 
     useEffect(() => {
         if (profitTrendChartInstance.current) {
@@ -859,13 +992,38 @@ const ProfitReport = ({
         );
     }, [rows]);
 
-    const activeTransactionRecord = useMemo(
-        () =>
-            rows.find(
-                (trx) => String(trx.id) === String(activeTransactionDetail)
-            ) || null,
-        [rows, activeTransactionDetail]
-    );
+    useEffect(() => {
+        if (!activeTransactionDetail) {
+            setActiveTransactionRecord(null);
+            setIsTransactionDetailLoading(false);
+            return;
+        }
+
+        const controller = new AbortController();
+        setIsTransactionDetailLoading(true);
+
+        axios
+            .get(route("reports.profits.transactions.show", activeTransactionDetail), {
+                signal: controller.signal,
+            })
+            .then((response) => {
+                setActiveTransactionRecord(response.data?.data ?? null);
+            })
+            .catch((error) => {
+                if (axios.isCancel?.(error) || error?.name === "CanceledError") {
+                    return;
+                }
+
+                setActiveTransactionRecord(null);
+            })
+            .finally(() => {
+                if (!controller.signal.aborted) {
+                    setIsTransactionDetailLoading(false);
+                }
+            });
+
+        return () => controller.abort();
+    }, [activeTransactionDetail]);
 
     const reportRecapRows = useMemo(() => {
         const totalDiscount =
@@ -922,6 +1080,39 @@ const ProfitReport = ({
                 valueClassName: "text-emerald-600 dark:text-emerald-400",
             },
             {
+                label: "Jumlah Expense Operasional",
+                value: formatCurrency(summary?.expense_total ?? 0),
+                note: `Paid ${formatCurrency(summary?.expense_paid_total ?? 0)} • Unpaid ${formatCurrency(summary?.expense_unpaid_total ?? 0)}`,
+                valueClassName: "text-rose-600 dark:text-rose-400",
+            },
+            ...(!isTenantWorkspace
+                ? [
+                      {
+                          label: "Jumlah Saldo Tenant Periode",
+                          value: formatCurrency(summary?.tenant_payout_balance_total ?? 0),
+                          note: `Paid ${formatCurrency(summary?.tenant_payout_paid_total ?? 0)} • Outstanding ${formatCurrency(summary?.tenant_payout_outstanding_total ?? 0)} • Pending approval ${formatCurrency(summary?.tenant_payout_pending_approval_total ?? 0)}`,
+                      },
+                      {
+                          label: "Jumlah Sisa Uang Setelah Pengeluaran Aktual",
+                          value: formatCurrency(summary?.remaining_cash_after_paid_total ?? 0),
+                          note: "Omzet dikurangi payout tenant paid dan expense paid.",
+                          valueClassName: "text-violet-600 dark:text-violet-400",
+                      },
+                      {
+                          label: "Jumlah Sisa Uang Setelah Semua Kewajiban Disetujui",
+                          value: formatCurrency(summary?.remaining_cash_after_approved_total ?? 0),
+                          note: "Omzet dikurangi seluruh saldo tenant periode aktif dan seluruh expense.",
+                          valueClassName: "text-amber-600 dark:text-amber-400",
+                      },
+                  ]
+                : []),
+            {
+                label: "Jumlah Laba Setelah Expense",
+                value: formatCurrency(summary?.profit_after_expense_total ?? 0),
+                note: "Laba bersih setelah dikurangi expense operasional.",
+                valueClassName: "text-blue-600 dark:text-blue-400",
+            },
+            {
                 label: "Rata-rata Penjualan per Invoice",
                 value: formatCurrency(averageRevenue),
                 note: `Rata-rata laba ${formatCurrency(summary?.average_profit ?? 0)} per invoice.`,
@@ -939,9 +1130,9 @@ const ProfitReport = ({
             <Head title="Laporan Laba Rugi" />
 
             <div className="space-y-6">
-                <div className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+                <div className="overflow-hidden rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
                     <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
-                        <div>
+                        <div className="min-w-0">
                             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400 dark:text-slate-500">
                                 Profit And Loss
                             </p>
@@ -958,16 +1149,16 @@ const ProfitReport = ({
                                     Periode {targets?.period_label || "aktif"}
                                 </span>
                                 {workspace?.active_outlet?.name ? (
-                                    <span className="rounded-full border border-primary-200 bg-primary-50 px-3 py-1 text-xs font-semibold text-primary-700 dark:border-primary-800 dark:bg-primary-950/30 dark:text-primary-300">
+                                    <span className="max-w-full rounded-full border border-primary-200 bg-primary-50 px-3 py-1 text-left text-xs font-semibold text-primary-700 dark:border-primary-800 dark:bg-primary-950/30 dark:text-primary-300">
                                         {workspace.active_outlet.code} - {workspace.active_outlet.name}
                                     </span>
                                 ) : null}
                             </div>
                         </div>
-                        <div className="flex flex-wrap gap-3">
+                        <div className="flex w-full flex-wrap gap-3 xl:w-auto xl:justify-end">
                             <button
                                 onClick={() => setShowFilters((current) => !current)}
-                                className={`inline-flex items-center gap-2 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition-colors ${
+                                className={`inline-flex w-full items-center justify-center gap-2 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition-colors sm:w-auto ${
                                     showFilters || hasActiveFilters
                                         ? "border-primary-200 bg-primary-50 text-primary-700 dark:border-primary-800 dark:bg-primary-950/40 dark:text-primary-300"
                                         : "border-slate-200 bg-white text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
@@ -1127,6 +1318,54 @@ const ProfitReport = ({
                     </SectionCard>
                 )}
 
+                <div className={`grid gap-4 ${isTenantWorkspace ? "md:grid-cols-3" : "md:grid-cols-2 xl:grid-cols-4"}`}>
+                    {cashflowCards.map((card) => (
+                        <div
+                            key={card.title}
+                            className={`min-w-0 overflow-hidden rounded-3xl border p-5 shadow-sm ${
+                                card.tone === "emerald"
+                                    ? "border-emerald-200 bg-emerald-50 dark:border-emerald-900/40 dark:bg-emerald-950/20"
+                                    : card.tone === "amber"
+                                    ? "border-amber-200 bg-amber-50 dark:border-amber-900/40 dark:bg-amber-950/20"
+                                    : card.tone === "rose"
+                                    ? "border-rose-200 bg-rose-50 dark:border-rose-900/40 dark:bg-rose-950/20"
+                                    : card.tone === "violet"
+                                    ? "border-violet-200 bg-violet-50 dark:border-violet-900/40 dark:bg-violet-950/20"
+                                    : "border-blue-200 bg-blue-50 dark:border-blue-900/40 dark:bg-blue-950/20"
+                            }`}
+                        >
+                            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
+                                {card.title}
+                            </p>
+                            <p className="mt-3 break-words text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
+                                {card.value}
+                            </p>
+                            <p className="mt-2 break-words text-sm text-slate-600 dark:text-slate-300">
+                                {card.note}
+                            </p>
+                        </div>
+                    ))}
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                    {reportTabs.map((tab) => (
+                        <button
+                            key={tab.key}
+                            type="button"
+                            onClick={() => changeTab(tab.key)}
+                            className={`rounded-2xl px-4 py-2.5 text-sm font-semibold transition ${
+                                activeTab === tab.key
+                                    ? "border border-primary-200 bg-primary-50 text-primary-700 dark:border-primary-800 dark:bg-primary-950/30 dark:text-primary-300"
+                                    : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                            }`}
+                        >
+                            {tab.label}
+                        </button>
+                    ))}
+                </div>
+
+                {activeTab === "overview" && (
+                <>
                 <div className="grid gap-6 xl:grid-cols-[1.35fr,0.65fr]">
                     <SectionCard
                         title="Laporan Laba Rugi"
@@ -1176,7 +1415,10 @@ const ProfitReport = ({
                         isEmpty={dailyProfitTrend.length === 0}
                     />
                 </div>
+                </>
+                )}
 
+                {activeTab === "products" && (
                 <SectionCard
                     title="Profitabilitas Produk"
                     description={`Membaca kontribusi laba per SKU: volume, omzet bersih, ${costBasisLabel.toLowerCase()}, ${grossMarginLabel.toLowerCase()}, dan pembebanan diskon.`}
@@ -1287,7 +1529,10 @@ const ProfitReport = ({
                         </div>
                     )}
                 </SectionCard>
+                )}
 
+                {activeTab === "analysis" && (
+                <>
                 <div className="grid gap-6 xl:grid-cols-[1.6fr,1fr]">
                     <SectionCard
                         title="Ledger Harian"
@@ -1677,7 +1922,10 @@ const ProfitReport = ({
                         </div>
                     </SectionCard>
                 )}
+                </>
+                )}
 
+                {activeTab === "transactions" && (
                 <SectionCard
                     title="Audit Invoice Dan Ledger Item"
                     description={
@@ -1851,8 +2099,9 @@ const ProfitReport = ({
                         </div>
                     )}
                 </SectionCard>
+                )}
 
-                {activeTransactionRecord ? (
+                {activeTransactionDetail ? (
                     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4">
                         <div className="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-900">
                             <div className="flex items-start justify-between gap-4">
@@ -1860,14 +2109,22 @@ const ProfitReport = ({
                                     <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400 dark:text-slate-500">
                                         Detail Invoice
                                     </p>
-                                    <h3 className="mt-2 text-2xl font-bold text-slate-900 dark:text-white">
-                                        {activeTransactionRecord.invoice}
-                                    </h3>
-                                    <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
-                                        {activeTransactionRecord.created_at} • Kasir{" "}
-                                        {activeTransactionRecord.cashier?.name ?? "-"} •{" "}
-                                        {activeTransactionRecord.customer?.name ?? "Umum / Walk-in"}
-                                    </p>
+                                    {activeTransactionRecord ? (
+                                        <>
+                                            <h3 className="mt-2 text-2xl font-bold text-slate-900 dark:text-white">
+                                                {activeTransactionRecord.invoice}
+                                            </h3>
+                                            <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+                                                {activeTransactionRecord.created_at} • Kasir{" "}
+                                                {activeTransactionRecord.cashier?.name ?? "-"} •{" "}
+                                                {activeTransactionRecord.customer?.name ?? "Umum / Walk-in"}
+                                            </p>
+                                        </>
+                                    ) : (
+                                        <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+                                            Memuat detail invoice...
+                                        </p>
+                                    )}
                                 </div>
                                 <button
                                     type="button"
@@ -1878,6 +2135,12 @@ const ProfitReport = ({
                                 </button>
                             </div>
 
+                            {isTransactionDetailLoading || !activeTransactionRecord ? (
+                                <div className="mt-6 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-950/30 dark:text-slate-400">
+                                    Memuat breakdown invoice...
+                                </div>
+                            ) : (
+                            <>
                             <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                                 <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/30">
                                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
@@ -2094,6 +2357,8 @@ const ProfitReport = ({
                                     </div>
                                 </div>
                             </div>
+                            </>
+                            )}
                         </div>
                     </div>
                 ) : null}

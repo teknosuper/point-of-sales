@@ -1,7 +1,7 @@
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import InputSelect from "@/Components/Dashboard/InputSelect";
 import Table from "@/Components/Dashboard/Table";
-import { Head, router } from "@inertiajs/react";
+import { Head, Link, router } from "@inertiajs/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Chart from "chart.js/auto";
 import {
@@ -168,6 +168,7 @@ function ChartCard({ title, subtitle, chartRef, hasData }) {
 }
 
 export default function Insights({
+    activeTab = "overview",
     filters,
     cashiers,
     customers,
@@ -185,6 +186,7 @@ export default function Insights({
     promoMonitor,
     loyaltyPerformance,
     crmOperations,
+    workspace,
 }) {
     const [showFilters, setShowFilters] = useState(false);
     const [marginView, setMarginView] = useState("product");
@@ -316,7 +318,7 @@ export default function Insights({
 
     const applyFilters = (event) => {
         event.preventDefault();
-        router.get(route("reports.insights.index"), filterData, {
+        router.get(route("reports.insights.index"), { ...filterData, tab: activeTab }, {
             preserveState: true,
             preserveScroll: true,
         });
@@ -328,7 +330,7 @@ export default function Insights({
         setSelectedCashier(null);
         setSelectedCustomer(null);
         setSelectedCategory(null);
-        router.get(route("reports.insights.index"), defaultFilters, {
+        router.get(route("reports.insights.index"), { ...defaultFilters, tab: activeTab }, {
             preserveState: true,
             preserveScroll: true,
             replace: true,
@@ -349,6 +351,13 @@ export default function Insights({
     const loyaltyTopMembers = loyaltyPerformance?.top_members || [];
     const crmSummary = crmOperations?.summary || {};
     const crmRecentCampaigns = crmOperations?.recent_campaigns || [];
+    const isTenantWorkspace = Boolean(workspace?.is_tenant_workspace);
+    const tabLinks = [
+        ["overview", "Overview", "Tren omzet dan performa kasir."],
+        ["products", "Produk", "Top seller, margin, dan stok."],
+        ["customers", "Pelanggan", isTenantWorkspace ? "Repeat customer tenant aktif." : "Repeat customer, loyalty, dan CRM."],
+        ["promos", "Promo", "Rule aktif, terjadwal, dan audit."],
+    ];
 
     return (
         <>
@@ -361,7 +370,9 @@ export default function Insights({
                             Insight Penjualan
                         </h1>
                         <p className="text-sm text-slate-500 dark:text-slate-400">
-                            Cek pola penjualan, margin, produk, dan pelanggan dalam satu halaman.
+                            {isTenantWorkspace
+                                ? "Insight tenant aktif tanpa mencampur data outlet utama."
+                                : "Cek pola penjualan, margin, produk, dan pelanggan per outlet aktif."}
                         </p>
                     </div>
                     <button
@@ -398,9 +409,9 @@ export default function Insights({
                         icon={IconPackage}
                     />
                     <SummaryCard
-                        title="Kasir di Data Ini"
-                        value={cashierPerformance.length.toLocaleString("id-ID")}
-                        description="Leaderboard performa kasir"
+                        title="Workspace Aktif"
+                        value={workspace?.active_outlet?.code || workspace?.active_outlet?.name || "-"}
+                        description={isTenantWorkspace ? "Mode tenant aktif" : "Mode outlet aktif"}
                         icon={IconUsers}
                     />
                 </div>
@@ -491,10 +502,31 @@ export default function Insights({
                     </div>
                 )}
 
+                <div className="grid gap-3 lg:grid-cols-4">
+                    {tabLinks.map(([key, label, description]) => (
+                        <Link
+                            key={key}
+                            href={route("reports.insights.index", { ...filters, tab: key })}
+                            preserveScroll
+                            className={`rounded-2xl border p-4 transition-colors ${
+                                activeTab === key
+                                    ? "border-primary-300 bg-primary-50 text-primary-700 dark:border-primary-800 dark:bg-primary-950/40 dark:text-primary-300"
+                                    : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+                            }`}
+                        >
+                            <p className="text-sm font-semibold">{label}</p>
+                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                {description}
+                            </p>
+                        </Link>
+                    ))}
+                </div>
+
+                {activeTab === "overview" && (
                 <div className="grid gap-6 xl:grid-cols-2">
                     <ChartCard
                         title="Penjualan per Jam"
-                        subtitle="Pola omzet per jam dari transaksi yang lolos filter."
+                        subtitle="Pola omzet per jam pada workspace aktif."
                         chartRef={salesHourChartRef}
                         hasData={hourChartData.length > 0}
                     />
@@ -505,7 +537,9 @@ export default function Insights({
                         hasData={dayChartData.length > 0}
                     />
                 </div>
+                )}
 
+                {activeTab === "customers" && (
                 <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                     <SummaryCard
                         title="Customer Aktif"
@@ -535,17 +569,10 @@ export default function Insights({
                         )}
                         icon={IconUsers}
                     />
-                    <SummaryCard
-                        title="Stok Perlu Perhatian"
-                        value={(
-                            (stockCoverageSummary.critical ?? 0) +
-                            (stockCoverageSummary.low ?? 0)
-                        ).toLocaleString("id-ID")}
-                        description={`${stockCoverageSummary.window_days ?? 0} hari jendela analisa`}
-                        icon={IconClock}
-                    />
                 </div>
+                )}
 
+                {activeTab === "products" && (
                 <Table.Card title="Top Selling Products">
                     <Table>
                         <Table.Thead>
@@ -583,7 +610,9 @@ export default function Insights({
                         </Table.Tbody>
                     </Table>
                 </Table.Card>
+                )}
 
+                {activeTab === "products" && (
                 <Table.Card title="Low Performing Products">
                     <Table>
                         <Table.Thead>
@@ -621,7 +650,9 @@ export default function Insights({
                         </Table.Tbody>
                     </Table>
                 </Table.Card>
+                )}
 
+                {activeTab === "products" && (
                 <div className="rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
                     <div className="flex flex-col gap-3 border-b border-slate-100 p-5 dark:border-slate-800 sm:flex-row sm:items-center sm:justify-between">
                         <div>
@@ -680,7 +711,9 @@ export default function Insights({
                         </Table.Tbody>
                     </Table>
                 </div>
+                )}
 
+                {activeTab === "overview" && (
                 <Table.Card title="Cashier Performance">
                     <Table>
                         <Table.Thead>
@@ -720,7 +753,9 @@ export default function Insights({
                         </Table.Tbody>
                     </Table>
                 </Table.Card>
+                )}
 
+                {activeTab === "customers" && (
                 <Table.Card title="Repeat Customer Metrics">
                     <div className="mb-4 grid gap-3 md:grid-cols-4">
                         <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-800/60">
@@ -829,7 +864,9 @@ export default function Insights({
                         </Table.Tbody>
                     </Table>
                 </Table.Card>
+                )}
 
+                {activeTab === "products" && (
                 <Table.Card title="Stock Coverage Analysis">
                     <div className="mb-4 grid gap-3 md:grid-cols-4">
                         <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-800/60">
@@ -940,7 +977,9 @@ export default function Insights({
                         </Table.Tbody>
                     </Table>
                 </Table.Card>
+                )}
 
+                {activeTab === "promos" && (
                 <div className="grid gap-6 xl:grid-cols-2">
                     <Table.Card title="Promo Active Monitor">
                         <div className="mb-4 grid gap-3 md:grid-cols-2">
@@ -1073,7 +1112,10 @@ export default function Insights({
                             )}
                         </div>
                     </Table.Card>
+                </div>
+                )}
 
+                {!isTenantWorkspace && activeTab === "customers" && (
                     <Table.Card title="Loyalty Performance Summary">
                         <div className="mb-4 grid gap-3 md:grid-cols-2">
                             <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-800/60">
@@ -1197,8 +1239,14 @@ export default function Insights({
                             </Table.Tbody>
                         </Table>
                     </Table.Card>
-                </div>
+                )}
+                {isTenantWorkspace && activeTab === "customers" && (
+                    <div className="rounded-2xl border border-slate-200 bg-white p-5 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+                        Loyalty dan CRM owner-level tidak ditampilkan di workspace tenant agar angka tidak tercampur dengan outlet utama.
+                    </div>
+                )}
 
+                {!isTenantWorkspace && activeTab === "customers" && (
                 <Table.Card title="CRM Operational Snapshot">
                     <div className="mb-4 grid gap-3 md:grid-cols-4">
                         <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-800/60">
@@ -1308,6 +1356,7 @@ export default function Insights({
                         </Table.Tbody>
                     </Table>
                 </Table.Card>
+                )}
             </div>
         </>
     );

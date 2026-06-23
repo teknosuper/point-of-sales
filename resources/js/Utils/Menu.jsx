@@ -13,6 +13,7 @@ import {
     IconClipboardCheck,
     IconCreditCard,
     IconCrown,
+    IconReceipt2,
     IconFileCertificate,
     IconFileDescription,
     IconFolder,
@@ -356,6 +357,13 @@ export default function Menu() {
                     route("settings.target"),
                     url.startsWith("/dashboard/settings/target"),
                     <IconCirclePlus size={20} strokeWidth={1.5} />,
+                    ["business-settings-access"]
+                ),
+                menuItem(
+                    "Pengeluaran",
+                    route("settings.expenses.index"),
+                    url.startsWith("/dashboard/settings/expenses"),
+                    <IconReceipt2 size={20} strokeWidth={1.5} />,
                     ["business-settings-access"]
                 ),
                 menuItem(

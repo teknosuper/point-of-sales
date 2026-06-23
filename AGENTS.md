@@ -60,6 +60,8 @@ vendor/bin/pint                      # PHP formatter (Laravel Pint)
 6. **Both dev servers required** — Inertia needs Vite running for HMR and asset serving. `php artisan serve` alone will not load JS/CSS.
 7. **Report date filters can use converted display dates** — untuk halaman report yang menampilkan tanggal hasil konversi timezone frontend, `start_date` / `end_date` harus dikonversi balik ke timezone sumber sebelum query. Jangan campur `whereDate(...)`, `applyUtcDateRange(...)`, dan `CONVERT_TZ(...)` secara ad hoc. Gunakan helper terpusat di `app/Support/ReportTimezone.php` agar filter, grouping harian, dan label tanggal konsisten.
 8. **Date bucket harian harus source-aware** — jika `created_at` disimpan/dibaca sebagai `REPORT_SOURCE_TIMEZONE`, maka key harian untuk chart, summary, atau regrouping collection harus dibuat lewat helper source-aware di `ReportTimezone`, bukan lewat `localDateKey()` umum atau parsing mentah.
+9. **Insights tenant tidak boleh pakai total invoice penuh** — pada `/dashboard/reports/insights`, jika workspace aktif adalah tenant maka agregasi omzet/profit/order tidak boleh memakai `transactions.grand_total` atau `profits.total` per invoice penuh hanya karena ada satu detail tenant. Gunakan agregasi scoped detail/allocation tenant. Jika modul seperti loyalty atau CRM belum punya sumber data tenant-safe, sembunyikan blok owner-level itu di workspace tenant agar data tidak tercampur.
+9. **Profit report tenant payout punya 3 angka yang tidak boleh dicampur** — `saldo tenant` dihitung dari `transaction_tenant_allocations`. Untuk kebutuhan outstanding, saldo ini dibaca kumulatif sampai `end_date` report, bukan dipotong `start_date`. `payout sudah dibayar` diambil dari `cashier_settlement_requests.approved_amount` untuk request tenant (`cashier_shift_id = null`, `status = approved`) dengan cutoff `paid_at <= end_date`. `outstanding ke tenant = saldo tenant kumulatif - payout sudah dibayar kumulatif`. Jangan pakai settlement approved sebagai pengganti saldo tenant, dan jangan pakai allocation payout estimate sebagai pengganti payout aktual.
 
 ## Frontend Conventions
 
@@ -167,6 +169,10 @@ Gunakan prompt internal berikut sebagai heuristik kerja. Jangan tulis ulang ke u
 - Verifikasi filter `outlet_id`, period filter, dan relasi agregasi sebelum mengubah tampilan.
 - Jika report menyangkut tenant, loyalty, receivable, payable, atau profit, cek apakah agregasinya masih bergantung pada fallback global lama.
 - Jika report memakai tanggal yang sudah dikonversi untuk tampilan user, pastikan filter query dan grouping harian memakai helper `ReportTimezone` yang sama dengan formatter tampilannya.
+- Jika report profit menyentuh payout tenant, pisahkan selalu:
+  - saldo tenant kumulatif sampai akhir periode: dari `transaction_tenant_allocations`
+  - payout sudah dibayar kumulatif sampai akhir periode: dari `cashier_settlement_requests` tenant yang `approved`
+  - outstanding ke tenant: `saldo tenant kumulatif - payout sudah dibayar kumulatif`
 
 ## Token Efficiency Rules
 
