@@ -81,6 +81,8 @@ class AdvancedSalesInsightsController extends Controller
         $salesByHour = [];
         $salesByDay = [];
         $cashierPerformance = [];
+        $orderSourceStats = [];
+        $orderTypeStats = [];
         $topSellingProducts = [];
         $lowPerformingProducts = [];
         $marginByProduct = [];
@@ -95,6 +97,8 @@ class AdvancedSalesInsightsController extends Controller
             $salesByHour = $this->salesByHour($filters);
             $salesByDay = $this->salesByDay($filters);
             $cashierPerformance = $this->cashierPerformance($filters);
+            $orderSourceStats = $this->orderSourceStats($filters);
+            $orderTypeStats = $this->orderTypeStats($filters);
         }
 
         if ($activeTab === 'products') {
@@ -149,6 +153,8 @@ class AdvancedSalesInsightsController extends Controller
             'marginByProduct' => $marginByProduct,
             'marginByCategory' => $marginByCategory,
             'cashierPerformance' => $cashierPerformance,
+            'orderSourceStats' => $orderSourceStats,
+            'orderTypeStats' => $orderTypeStats,
             'repeatCustomerMetrics' => $repeatCustomerMetrics,
             'stockCoverage' => $stockCoverage,
             'promoMonitor' => $promoMonitor,
@@ -501,6 +507,308 @@ class AdvancedSalesInsightsController extends Controller
                     : 0,
             ])
             ->all();
+    }
+
+    protected function orderSourceStats(array $filters): array
+    {
+        return $this->isTenantWorkspace($filters)
+            ? $this->tenantOrderSourceStats($filters)
+            : $this->ownerOrderSourceStats($filters);
+    }
+
+    protected function ownerOrderSourceStats(array $filters): array
+    {
+        if (! Schema::hasColumn('transactions', 'source_channel')) {
+            $summary = (clone $this->applyTransactionFilters(Transaction::query(), $filters))
+                ->selectRaw('COUNT(*) as orders_count, COALESCE(SUM(grand_total), 0) as revenue_total')
+                ->first();
+
+            $itemsSold = $this->detailMetricsQuery($filters)
+                ->selectRaw('COALESCE(SUM(td.qty), 0) as items_sold')
+                ->value('items_sold');
+
+            return $this->formatOrderSourceStats(collect([
+                (object) [
+                    'source_channel' => 'pos',
+                    'orders_count' => (int) ($summary->orders_count ?? 0),
+                    'revenue_total' => (int) round($summary->revenue_total ?? 0),
+                    'items_sold' => (int) round($itemsSold ?? 0),
+                ],
+            ]));
+        }
+
+        $itemSubquery = $this->detailMetricsQuery($filters)
+            ->selectRaw('td.transaction_id, COALESCE(SUM(td.qty), 0) as items_sold')
+            ->groupBy('td.transaction_id');
+
+        $rows = $this->applyTransactionFilters(Transaction::query(), $filters)
+            ->leftJoinSub($itemSubquery, 'items', fn ($join) => $join->on('items.transaction_id', '=', 'transactions.id'))
+            ->selectRaw("COALESCE(transactions.source_channel, 'pos') as source_channel")
+            ->selectRaw('COUNT(*) as orders_count')
+            ->selectRaw('COALESCE(SUM(transactions.grand_total), 0) as revenue_total')
+            ->selectRaw('COALESCE(SUM(COALESCE(items.items_sold, 0)), 0) as items_sold')
+            ->groupBy('source_channel')
+            ->get();
+
+        return $this->formatOrderSourceStats($rows);
+    }
+
+    protected function tenantOrderSourceStats(array $filters): array
+    {
+        if (! Schema::hasColumn('transactions', 'source_channel')) {
+            $summary = $this->detailMetricsQuery($filters)
+                ->selectRaw('COUNT(DISTINCT t.id) as orders_count')
+                ->selectRaw('COALESCE(SUM(td.price), 0) as revenue_total')
+                ->selectRaw('COALESCE(SUM(td.qty), 0) as items_sold')
+                ->first();
+
+            return $this->formatOrderSourceStats(collect([
+                (object) [
+                    'source_channel' => 'pos',
+                    'orders_count' => (int) ($summary->orders_count ?? 0),
+                    'revenue_total' => (int) round($summary->revenue_total ?? 0),
+                    'items_sold' => (int) round($summary->items_sold ?? 0),
+                ],
+            ]));
+        }
+
+        $rows = $this->detailMetricsQuery($filters)
+            ->selectRaw("COALESCE(t.source_channel, 'pos') as source_channel")
+            ->selectRaw('COUNT(DISTINCT t.id) as orders_count')
+            ->selectRaw('COALESCE(SUM(td.price), 0) as revenue_total')
+            ->selectRaw('COALESCE(SUM(td.qty), 0) as items_sold')
+            ->groupBy('source_channel')
+            ->get();
+
+        return $this->formatOrderSourceStats($rows);
+    }
+
+    protected function formatOrderSourceStats($rows): array
+    {
+        $stats = collect([
+            'pos' => [
+                'key' => 'pos',
+                'label' => 'Kasir',
+                'orders_count' => 0,
+                'revenue_total' => 0,
+                'items_sold' => 0,
+                'average_order' => 0,
+                'revenue_share' => 0,
+                'orders_share' => 0,
+            ],
+            'table_qr' => [
+                'key' => 'table_qr',
+                'label' => 'Self Order',
+                'orders_count' => 0,
+                'revenue_total' => 0,
+                'items_sold' => 0,
+                'average_order' => 0,
+                'revenue_share' => 0,
+                'orders_share' => 0,
+            ],
+            'other' => [
+                'key' => 'other',
+                'label' => 'Channel Lain',
+                'orders_count' => 0,
+                'revenue_total' => 0,
+                'items_sold' => 0,
+                'average_order' => 0,
+                'revenue_share' => 0,
+                'orders_share' => 0,
+            ],
+        ]);
+
+        foreach ($rows as $row) {
+            $rawKey = (string) ($row->source_channel ?? 'pos');
+            $key = in_array($rawKey, ['pos', 'table_qr'], true) ? $rawKey : 'other';
+            $current = $stats->get($key);
+            $ordersCount = (int) ($row->orders_count ?? 0);
+            $revenueTotal = (int) round($row->revenue_total ?? 0);
+            $itemsSold = (int) round($row->items_sold ?? 0);
+
+            $current['orders_count'] += $ordersCount;
+            $current['revenue_total'] += $revenueTotal;
+            $current['items_sold'] += $itemsSold;
+
+            $stats->put($key, $current);
+        }
+
+        $totalOrders = (int) $stats->sum('orders_count');
+        $totalRevenue = (int) $stats->sum('revenue_total');
+
+        return [
+            'summary' => [
+                'total_orders' => $totalOrders,
+                'total_revenue' => $totalRevenue,
+            ],
+            'channels' => $stats
+                ->map(function (array $row) use ($totalOrders, $totalRevenue) {
+                    $row['average_order'] = $row['orders_count'] > 0
+                        ? (int) round($row['revenue_total'] / $row['orders_count'])
+                        : 0;
+                    $row['revenue_share'] = $totalRevenue > 0
+                        ? round(($row['revenue_total'] / $totalRevenue) * 100, 2)
+                        : 0;
+                    $row['orders_share'] = $totalOrders > 0
+                        ? round(($row['orders_count'] / $totalOrders) * 100, 2)
+                        : 0;
+
+                    return $row;
+                })
+                ->values()
+                ->all(),
+        ];
+    }
+
+    protected function orderTypeStats(array $filters): array
+    {
+        return $this->isTenantWorkspace($filters)
+            ? $this->tenantOrderTypeStats($filters)
+            : $this->ownerOrderTypeStats($filters);
+    }
+
+    protected function ownerOrderTypeStats(array $filters): array
+    {
+        if (! Schema::hasColumn('transactions', 'order_type')) {
+            $summary = (clone $this->applyTransactionFilters(Transaction::query(), $filters))
+                ->selectRaw('COUNT(*) as orders_count, COALESCE(SUM(grand_total), 0) as revenue_total')
+                ->first();
+
+            $itemsSold = $this->detailMetricsQuery($filters)
+                ->selectRaw('COALESCE(SUM(td.qty), 0) as items_sold')
+                ->value('items_sold');
+
+            return $this->formatOrderTypeStats(collect([
+                (object) [
+                    'order_type' => 'take_away',
+                    'orders_count' => (int) ($summary->orders_count ?? 0),
+                    'revenue_total' => (int) round($summary->revenue_total ?? 0),
+                    'items_sold' => (int) round($itemsSold ?? 0),
+                ],
+            ]));
+        }
+
+        $itemSubquery = $this->detailMetricsQuery($filters)
+            ->selectRaw('td.transaction_id, COALESCE(SUM(td.qty), 0) as items_sold')
+            ->groupBy('td.transaction_id');
+
+        $rows = $this->applyTransactionFilters(Transaction::query(), $filters)
+            ->leftJoinSub($itemSubquery, 'items', fn ($join) => $join->on('items.transaction_id', '=', 'transactions.id'))
+            ->selectRaw("COALESCE(transactions.order_type, 'take_away') as order_type")
+            ->selectRaw('COUNT(*) as orders_count')
+            ->selectRaw('COALESCE(SUM(transactions.grand_total), 0) as revenue_total')
+            ->selectRaw('COALESCE(SUM(COALESCE(items.items_sold, 0)), 0) as items_sold')
+            ->groupBy('order_type')
+            ->get();
+
+        return $this->formatOrderTypeStats($rows);
+    }
+
+    protected function tenantOrderTypeStats(array $filters): array
+    {
+        if (! Schema::hasColumn('transactions', 'order_type')) {
+            $summary = $this->detailMetricsQuery($filters)
+                ->selectRaw('COUNT(DISTINCT t.id) as orders_count')
+                ->selectRaw('COALESCE(SUM(td.price), 0) as revenue_total')
+                ->selectRaw('COALESCE(SUM(td.qty), 0) as items_sold')
+                ->first();
+
+            return $this->formatOrderTypeStats(collect([
+                (object) [
+                    'order_type' => 'take_away',
+                    'orders_count' => (int) ($summary->orders_count ?? 0),
+                    'revenue_total' => (int) round($summary->revenue_total ?? 0),
+                    'items_sold' => (int) round($summary->items_sold ?? 0),
+                ],
+            ]));
+        }
+
+        $rows = $this->detailMetricsQuery($filters)
+            ->selectRaw("COALESCE(t.order_type, 'take_away') as order_type")
+            ->selectRaw('COUNT(DISTINCT t.id) as orders_count')
+            ->selectRaw('COALESCE(SUM(td.price), 0) as revenue_total')
+            ->selectRaw('COALESCE(SUM(td.qty), 0) as items_sold')
+            ->groupBy('order_type')
+            ->get();
+
+        return $this->formatOrderTypeStats($rows);
+    }
+
+    protected function formatOrderTypeStats($rows): array
+    {
+        $stats = collect([
+            'dine_in' => [
+                'key' => 'dine_in',
+                'label' => 'Dine In',
+                'orders_count' => 0,
+                'revenue_total' => 0,
+                'items_sold' => 0,
+                'average_order' => 0,
+                'revenue_share' => 0,
+                'orders_share' => 0,
+            ],
+            'take_away' => [
+                'key' => 'take_away',
+                'label' => 'Take Away',
+                'orders_count' => 0,
+                'revenue_total' => 0,
+                'items_sold' => 0,
+                'average_order' => 0,
+                'revenue_share' => 0,
+                'orders_share' => 0,
+            ],
+            'other' => [
+                'key' => 'other',
+                'label' => 'Order Lain',
+                'orders_count' => 0,
+                'revenue_total' => 0,
+                'items_sold' => 0,
+                'average_order' => 0,
+                'revenue_share' => 0,
+                'orders_share' => 0,
+            ],
+        ]);
+
+        foreach ($rows as $row) {
+            $rawKey = (string) ($row->order_type ?? 'take_away');
+            $key = in_array($rawKey, ['dine_in', 'take_away'], true) ? $rawKey : 'other';
+            $current = $stats->get($key);
+            $ordersCount = (int) ($row->orders_count ?? 0);
+            $revenueTotal = (int) round($row->revenue_total ?? 0);
+            $itemsSold = (int) round($row->items_sold ?? 0);
+
+            $current['orders_count'] += $ordersCount;
+            $current['revenue_total'] += $revenueTotal;
+            $current['items_sold'] += $itemsSold;
+
+            $stats->put($key, $current);
+        }
+
+        $totalOrders = (int) $stats->sum('orders_count');
+        $totalRevenue = (int) $stats->sum('revenue_total');
+
+        return [
+            'summary' => [
+                'total_orders' => $totalOrders,
+                'total_revenue' => $totalRevenue,
+            ],
+            'types' => $stats
+                ->map(function (array $row) use ($totalOrders, $totalRevenue) {
+                    $row['average_order'] = $row['orders_count'] > 0
+                        ? (int) round($row['revenue_total'] / $row['orders_count'])
+                        : 0;
+                    $row['revenue_share'] = $totalRevenue > 0
+                        ? round(($row['revenue_total'] / $totalRevenue) * 100, 2)
+                        : 0;
+                    $row['orders_share'] = $totalOrders > 0
+                        ? round(($row['orders_count'] / $totalOrders) * 100, 2)
+                        : 0;
+
+                    return $row;
+                })
+                ->values()
+                ->all(),
+        ];
     }
 
     protected function repeatCustomerMetrics(array $filters): array

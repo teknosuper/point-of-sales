@@ -181,6 +181,8 @@ export default function Insights({
     marginByProduct,
     marginByCategory,
     cashierPerformance,
+    orderSourceStats,
+    orderTypeStats,
     repeatCustomerMetrics,
     stockCoverage,
     promoMonitor,
@@ -352,6 +354,10 @@ export default function Insights({
     const crmSummary = crmOperations?.summary || {};
     const crmRecentCampaigns = crmOperations?.recent_campaigns || [];
     const isTenantWorkspace = Boolean(workspace?.is_tenant_workspace);
+    const sourceSummary = orderSourceStats?.summary || {};
+    const sourceChannels = orderSourceStats?.channels || [];
+    const typeSummary = orderTypeStats?.summary || {};
+    const orderTypes = orderTypeStats?.types || [];
     const tabLinks = [
         ["overview", "Overview", "Tren omzet dan performa kasir."],
         ["products", "Produk", "Top seller, margin, dan stok."],
@@ -537,6 +543,144 @@ export default function Insights({
                         hasData={dayChartData.length > 0}
                     />
                 </div>
+                )}
+
+                {activeTab === "overview" && (
+                    <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                            <div>
+                                <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+                                    Perbandingan Channel Pesanan
+                                </h2>
+                                <p className="text-sm text-slate-500 dark:text-slate-400">
+                                    Bandingkan transaksi dari kasir dan self order pada periode aktif.
+                                </p>
+                            </div>
+                            <div className="grid gap-2 sm:grid-cols-2">
+                                <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm dark:bg-slate-800/60">
+                                    <div className="text-slate-500 dark:text-slate-400">Total Transaksi</div>
+                                    <div className="mt-1 text-lg font-semibold text-slate-900 dark:text-white">
+                                        {(sourceSummary.total_orders ?? 0).toLocaleString("id-ID")}
+                                    </div>
+                                </div>
+                                <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm dark:bg-slate-800/60">
+                                    <div className="text-slate-500 dark:text-slate-400">Total Omzet</div>
+                                    <div className="mt-1 text-lg font-semibold text-slate-900 dark:text-white">
+                                        {formatCurrency(sourceSummary.total_revenue ?? 0)}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="mt-5 grid gap-4 lg:grid-cols-3">
+                            {sourceChannels.map((channel) => (
+                                <div
+                                    key={channel.key}
+                                    className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-800/50"
+                                >
+                                    <div className="flex items-start justify-between gap-3">
+                                        <div>
+                                            <div className="text-sm font-semibold text-slate-900 dark:text-white">
+                                                {channel.label}
+                                            </div>
+                                            <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                {channel.orders_count.toLocaleString("id-ID")} transaksi • {channel.orders_share}%
+                                            </div>
+                                        </div>
+                                        <div className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-900 dark:text-slate-300">
+                                            {channel.items_sold.toLocaleString("id-ID")} item
+                                        </div>
+                                    </div>
+                                    <div className="mt-4 text-2xl font-bold text-slate-900 dark:text-white">
+                                        {formatCurrency(channel.revenue_total)}
+                                    </div>
+                                    <div className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                        Avg basket {formatCurrency(channel.average_order)}
+                                    </div>
+                                    <div className="mt-4">
+                                        <div className="mb-2 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                                            <span>Kontribusi omzet</span>
+                                            <span>{channel.revenue_share}%</span>
+                                        </div>
+                                        <div className="h-2 rounded-full bg-slate-200 dark:bg-slate-700">
+                                            <div
+                                                className="h-2 rounded-full bg-primary-500"
+                                                style={{ width: `${Math.min(100, channel.revenue_share || 0)}%` }}
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                {activeTab === "overview" && (
+                    <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                            <div>
+                                <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+                                    Perbandingan Tipe Order
+                                </h2>
+                                <p className="text-sm text-slate-500 dark:text-slate-400">
+                                    Bandingkan transaksi dine in dan take away pada periode aktif.
+                                </p>
+                            </div>
+                            <div className="grid gap-2 sm:grid-cols-2">
+                                <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm dark:bg-slate-800/60">
+                                    <div className="text-slate-500 dark:text-slate-400">Total Order</div>
+                                    <div className="mt-1 text-lg font-semibold text-slate-900 dark:text-white">
+                                        {(typeSummary.total_orders ?? 0).toLocaleString("id-ID")}
+                                    </div>
+                                </div>
+                                <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm dark:bg-slate-800/60">
+                                    <div className="text-slate-500 dark:text-slate-400">Total Omzet</div>
+                                    <div className="mt-1 text-lg font-semibold text-slate-900 dark:text-white">
+                                        {formatCurrency(typeSummary.total_revenue ?? 0)}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="mt-5 grid gap-4 lg:grid-cols-3">
+                            {orderTypes.map((type) => (
+                                <div
+                                    key={type.key}
+                                    className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-800/50"
+                                >
+                                    <div className="flex items-start justify-between gap-3">
+                                        <div>
+                                            <div className="text-sm font-semibold text-slate-900 dark:text-white">
+                                                {type.label}
+                                            </div>
+                                            <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                {type.orders_count.toLocaleString("id-ID")} transaksi • {type.orders_share}%
+                                            </div>
+                                        </div>
+                                        <div className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-900 dark:text-slate-300">
+                                            {type.items_sold.toLocaleString("id-ID")} item
+                                        </div>
+                                    </div>
+                                    <div className="mt-4 text-2xl font-bold text-slate-900 dark:text-white">
+                                        {formatCurrency(type.revenue_total)}
+                                    </div>
+                                    <div className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                        Avg basket {formatCurrency(type.average_order)}
+                                    </div>
+                                    <div className="mt-4">
+                                        <div className="mb-2 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                                            <span>Kontribusi omzet</span>
+                                            <span>{type.revenue_share}%</span>
+                                        </div>
+                                        <div className="h-2 rounded-full bg-slate-200 dark:bg-slate-700">
+                                            <div
+                                                className="h-2 rounded-full bg-emerald-500"
+                                                style={{ width: `${Math.min(100, type.revenue_share || 0)}%` }}
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
                 )}
 
                 {activeTab === "customers" && (
