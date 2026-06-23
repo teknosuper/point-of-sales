@@ -14,44 +14,75 @@ export default function OrderNotificationBell({ stationSlug: propStationSlug = '
     const [showPulse, setShowPulse] = useState(false);
     const [stationSlug, setStationSlug] = useState(propStationSlug);
     const [feedUrl, setFeedUrl] = useState('');
-    const [audioEnabled, setAudioEnabled] = useState(false);
-    const [lastNotifiedCount, setLastNotifiedCount] = useState(0);
+    const [audioUnlocked, setAudioUnlocked] = useState(false);
     
     // Refs
     const lastSoundTimeRef = useRef(0);
     const lastActiveCountRef = useRef(0);
     const lastFailedCountRef = useRef(0);
-    const audioRef = useRef(null);
     const intervalRef = useRef(null);
 
-    const enableAudio = useCallback(() => {
+    const playNotificationSound = useCallback((type = 'new_order') => {
+        if (!audioUnlocked) return;
         try {
-            audioRef.current = new Audio('/media/notifikasi.mp3');
-            audioRef.current.volume = 0.7;
-            audioRef.current.play().then(() => {
-                setAudioEnabled(true);
-                toast.success('Suara notifikasi aktif!', { icon: '🔔' });
-            }).catch(() => {
-                toast.error('Gagal enable suara');
-            });
+            const audio = new Audio('/media/notifikasi.mp3');
+            audio.volume = 1.0;
+            
+            if (type === 'new_order') {
+                // Pesanan baru: play 5x untuk urgency
+                audio.play().then(() => {
+                    setTimeout(() => { audio.currentTime = 0; audio.play().catch(()=>{}); }, 600);
+                    setTimeout(() => { audio.currentTime = 0; audio.play().catch(()=>{}); }, 1200);
+                    setTimeout(() => { audio.currentTime = 0; audio.play().catch(()=>{}); }, 1800);
+                    setTimeout(() => { audio.currentTime = 0; audio.play().catch(()=>{}); }, 2400);
+                }).catch((e) => console.warn('Audio play failed:', e));
+            } else if (type === 'reminder') {
+                // Reminder: play 2x
+                audio.play().then(() => {
+                    setTimeout(() => { audio.currentTime = 0; audio.play().catch(()=>{}); }, 800);
+                }).catch((e) => console.warn('Audio play failed:', e));
+            } else {
+                // Default/error: play 3x
+                audio.play().then(() => {
+                    setTimeout(() => { audio.currentTime = 0; audio.play().catch(()=>{}); }, 800);
+                    setTimeout(() => { audio.currentTime = 0; audio.play().catch(()=>{}); }, 1600);
+                }).catch((e) => console.warn('Audio play failed:', e));
+            }
         } catch (e) {
             console.warn('Audio error:', e);
         }
+    }, [audioUnlocked]);
+
+    const unlockAudio = useCallback(() => {
+        const audio = new Audio('/media/notifikasi.mp3');
+        audio.volume = 0.3;
+        audio.play().then(() => {
+            setAudioUnlocked(true);
+            toast.success('🔔 Suara aktif!', { duration: 2000, position: 'top-right' });
+        }).catch(() => {
+            // Silent fail - tetap unlock
+            setAudioUnlocked(true);
+        });
     }, []);
 
-    const playNotificationSound = useCallback(() => {
-        if (!audioRef.current) return;
-        try {
-            audioRef.current.currentTime = 0;
-            audioRef.current.play().catch(() => {});
-        } catch (e) {}
-    }, []);
+    // Unlock audio on first click anywhere
+    useEffect(() => {
+        const handleFirstClick = () => {
+            if (!audioUnlocked) {
+                unlockAudio();
+            }
+        };
+        document.addEventListener('click', handleFirstClick, { once: true });
+        document.addEventListener('touchstart', handleFirstClick, { once: true });
+        return () => {
+            document.removeEventListener('click', handleFirstClick);
+            document.removeEventListener('touchstart', handleFirstClick);
+        };
+    }, [audioUnlocked, unlockAudio]);
 
-    const triggerNotification = useCallback((message, type = 'warning') => {
+    const triggerNotification = useCallback((message, type = 'warning', soundType = 'new_order') => {
         setShowPulse(true);
-        if (audioEnabled) {
-            playNotificationSound();
-        }
+        playNotificationSound(soundType);
         toast(message, {
             duration: 5000,
             position: 'top-right',
@@ -64,7 +95,7 @@ export default function OrderNotificationBell({ stationSlug: propStationSlug = '
         });
         lastSoundTimeRef.current = Date.now();
         setTimeout(() => setShowPulse(false), 2000);
-    }, [audioEnabled, playNotificationSound]);
+    }, [playNotificationSound]);
 
     // Build feed URL
     useEffect(() => {
@@ -120,30 +151,27 @@ export default function OrderNotificationBell({ stationSlug: propStationSlug = '
             // 1. Pesanan baru masuk (count meningkat)
             if (activeCount > prevActive && prevActive > 0) {
                 const newOrders = activeCount - prevActive;
-                triggerNotification(`${newOrders} pesanan baru masuk!`, 'warning');
+                triggerNotification(`${newOrders} pesanan baru masuk!`, 'warning', 'new_order');
             }
             // 2. Pesanan pertama (dari 0 ke >0)
             else if (activeCount > 0 && prevActive === 0) {
-                triggerNotification(`${activeCount} pesanan aktif!`, 'warning');
+                triggerNotification(`${activeCount} pesanan aktif!`, 'warning', 'new_order');
             }
             // 3. Reminder setiap 30 detik jika ada yang belum selesai
             else if (activeCount + failedCount > 0 && timeSinceLastSound >= 30000) {
                 const parts = [];
                 if (activeCount > 0) parts.push(`${activeCount} aktif`);
                 if (failedCount > 0) parts.push(`${failedCount} gagal`);
-                triggerNotification(`Reminder: ${parts.join(', ')}`, 'warning');
+                triggerNotification(`Reminder: ${parts.join(', ')}`, 'warning', 'reminder');
             }
             // 4. Semua selesai
             else if (activeCount === 0 && failedCount === 0 && prevActive > 0) {
-                toast.success('Semua pesanan selesai! 🎉', {
-                    duration: 3000,
-                    position: 'top-right',
-                });
+                triggerNotification('Semua pesanan selesai! 🎉', 'success', 'complete');
             }
             
             // 5. Pencetakan gagal
             if (failedCount > prevFailed && prevFailed >= 0) {
-                triggerNotification(`${failedCount} pencetakan gagal!`, 'error');
+                triggerNotification(`${failedCount} pencetakan gagal!`, 'error', 'error');
             }
 
             lastActiveCountRef.current = activeCount;
@@ -191,9 +219,9 @@ export default function OrderNotificationBell({ stationSlug: propStationSlug = '
 
     return (
         <div className="relative" title={`${totalActive} pesanan aktif, ${failedJobs} cetak gagal`}>
-            {!audioEnabled && (
+            {!audioUnlocked && (
                 <button
-                    onClick={enableAudio}
+                    onClick={unlockAudio}
                     className="absolute -top-8 left-1/2 -translate-x-1/2 px-2 py-1 text-xs bg-primary-600 text-white rounded-full whitespace-nowrap z-50 animate-bounce"
                 >
                     🔔 Aktifkan Suara
