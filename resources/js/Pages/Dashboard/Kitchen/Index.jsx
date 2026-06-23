@@ -719,6 +719,7 @@ export default function KitchenIndex({
         buildBoardFilters(filters, selectedDevice)
     );
     const audioContextRef = useRef(null);
+    const audioRef = useRef(null);
     const audioUnlockedRef = useRef(false);
     const seenTicketIdsRef = useRef(new Set((tickets?.data || []).map((ticket) => ticket.id)));
 
@@ -795,6 +796,20 @@ export default function KitchenIndex({
 
         const markAudioUnlocked = () => {
             audioUnlockedRef.current = true;
+
+            // Inisialisasi AudioContext dan Audio setelah user interaction
+            try {
+                audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+            } catch (e) {
+                console.warn("AudioContext tidak tersedia:", e);
+            }
+
+            // Preload audio agar siap diputar
+            if (!audioRef.current) {
+                audioRef.current = new Audio("/media/notifikasi.mp3");
+                audioRef.current.volume = 1.0;
+                audioRef.current.load();
+            }
         };
 
         window.addEventListener("pointerdown", markAudioUnlocked, { once: true });
@@ -812,34 +827,16 @@ export default function KitchenIndex({
         }
 
         try {
-            if (!audioContextRef.current) {
-                const AudioContextClass =
-                    window.AudioContext || window.webkitAudioContext;
-                if (!AudioContextClass) return;
-                audioContextRef.current = new AudioContextClass();
+            // Gunakan Audio element untuk memainkan file MP3
+            if (!audioRef.current) {
+                audioRef.current = new Audio("/media/notifikasi.mp3");
+                audioRef.current.volume = 1.0;
             }
 
-            const context = audioContextRef.current;
-
-            if (context.state === "suspended") {
-                await context.resume();
-            }
-
-            const now = context.currentTime;
-            const oscillator = context.createOscillator();
-            const gain = context.createGain();
-
-            oscillator.type = "sine";
-            oscillator.frequency.setValueAtTime(880, now);
-            oscillator.frequency.exponentialRampToValueAtTime(660, now + 0.18);
-            gain.gain.setValueAtTime(0.0001, now);
-            gain.gain.exponentialRampToValueAtTime(0.12, now + 0.02);
-            gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
-
-            oscillator.connect(gain);
-            gain.connect(context.destination);
-            oscillator.start(now);
-            oscillator.stop(now + 0.24);
+            audioRef.current.currentTime = 0;
+            await audioRef.current.play().catch((err) => {
+                console.warn("Autoplay diblokir browser:", err.message);
+            });
         } catch (error) {
             console.error("Gagal memutar suara notifikasi dapur", error);
         }

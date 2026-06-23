@@ -194,3 +194,85 @@ self.addEventListener("message", (event) => {
     event.waitUntil(work);
   }
 });
+
+// Push notification handler
+self.addEventListener("push", (event) => {
+  if (!event.data) return;
+
+  let data = {};
+  try {
+    data = event.data.json();
+  } catch (e) {
+    data = { body: event.data.text() };
+  }
+
+  const title = data.title || "GTC KASIR";
+  const options = {
+    body: data.body || "Notifikasi baru",
+    icon: "/pwa-icon.svg",
+    badge: "/pwa-icon.svg",
+    tag: data.tag || "gtc-notification",
+    data: data.data || {},
+    requireInteraction: data.requireInteraction || false,
+    silent: false,
+  };
+
+  event.waitUntil(
+    self.registration.showNotification(title, options)
+  );
+});
+
+// Notification click handler
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+
+  const url = event.notification.data?.url || "/dashboard";
+
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
+      // Focus existing window if available
+      for (const client of clients) {
+        if (client.url.includes(url) && "focus" in client) {
+          return client.focus();
+        }
+      }
+      // Open new window
+      if (self.clients.openWindow) {
+        return self.clients.openWindow(url);
+      }
+    })
+  );
+});
+
+// Play sound when push notification received
+self.addEventListener("push", (event) => {
+  if (!event.data) return;
+
+  let data = {};
+  try {
+    data = event.data.json();
+  } catch (e) {
+    data = { body: event.data.text() };
+  }
+
+  const title = data.title || "GTC KASIR";
+  const options = {
+    body: data.body || "Notifikasi baru",
+    icon: "/pwa-icon.svg",
+    badge: "/pwa-icon.svg",
+    tag: data.tag || "gtc-notification",
+    data: data.data || {},
+    requireInteraction: data.requireInteraction || false,
+    silent: false,
+  };
+
+  event.waitUntil(
+    Promise.all([
+      self.registration.showNotification(title, options),
+      // Try to play sound
+      self.registration.active.then((reg) => {
+        return reg.audio ? reg.audio.play() : Promise.resolve();
+      }).catch(() => {})
+    ])
+  );
+});

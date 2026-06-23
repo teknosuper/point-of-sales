@@ -318,16 +318,22 @@
             if (window.ReceiptChannel) {
                 window.ReceiptChannel.postMessage(JSON.stringify(payload));
                 log(`✅ Job #${job.id} dikirim ke printer (${job.type})`);
+                
+                // Mark print job as done for Android WebView (printer connected)
+                if (job.id) {
+                    await markJobDone(job.id, config);
+                }
+                stats.printed++;
             } else {
                 console.log("ESC/POS Payload:", payload);
-                log(`✅ Job #${job.id} encoded (browser mode — no printer connected)`);
+                log(`⚠️ Job #${job.id} encoded (browser mode — no printer connected)`);
+                
+                // Mark as failed in browser mode - no printer connected
+                if (job.id) {
+                    await markJobFailed(job.id, config, "Browser mode - printer tidak terhubung. Gunakan WebPrint app Android.");
+                }
+                stats.failed++;
             }
-
-            // Mark print job as done for both cashier receipt and kitchen ticket queues.
-            if (job.id) {
-                await markJobDone(job.id, config);
-            }
-            stats.printed++;
             updateStats();
             setStatus('🔄 Polling aktif — menunggu print job...', 'status-polling');
 
