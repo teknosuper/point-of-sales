@@ -59,17 +59,38 @@ Route::get('/public/docs', PublicApiDocsController::class)
     ->name('public.api.docs');
 
     // Kitchen notification endpoint - untuk polling dari hook
-    Route::get('/kitchen/pending-count', function (\Illuminate\Http\Request $request) {
+Route::get('/kitchen/pending-count', function (Illuminate\Http\Request $request) {
         $outletId = (int) $request->query('outlet_id', 0);
+        $stationSlug = $request->query('station_slug', '');
         
-        $count = \App\Models\PrintJob::query()
-            ->where('job_type', \App\Models\PrintJob::TYPE_KITCHEN_TICKET)
-            ->whereIn('status', [\App\Models\PrintJob::STATUS_QUEUED, \App\Models\PrintJob::STATUS_PROCESSING])
-            ->when($outletId > 0, fn ($q) => $q->where('outlet_id', $outletId))
-            ->count();
+        $query = \App\Models\KitchenTicket::query()
+            ->where('status', 'pending');
+            
+        if ($stationSlug) {
+            $station = \App\Models\KitchenStation::where('slug', $stationSlug)->first();
+            if ($station) {
+                $query->where('kitchen_station_id', $station->id);
+            }
+        } elseif ($outletId > 0) {
+            // Cek apakah ini outlet tenant
+            $outlet = \App\Models\Outlet::find($outletId);
+            if ($outlet && $outlet->outlet_type === 'tenant') {
+                // Tenant: cari tickets berdasarkan tenant_outlet_id di transaction_details
+                $query->whereRaw('transaction_id IN (
+                    SELECT DISTINCT td.transaction_id 
+                    FROM transaction_details td 
+                    WHERE td.tenant_outlet_id = ?
+                )', [$outletId]);
+            } else {
+                $query->where('outlet_id', $outletId);
+            }
+        }
+        
+        $count = $query->count();
         
         return response()->json([
             'success' => true,
             'pendingCount' => $count,
         ]);
     })->name('kitchen.pending-count');
+

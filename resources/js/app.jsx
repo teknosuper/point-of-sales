@@ -21,7 +21,7 @@ createInertiaApp({
         // Cek apakah outlet aktif adalah outlet dapur
         const activeOutlet = props.pageProps?.activeOutlet;
         const outletType = activeOutlet?.outlet_type || 'main';
-        const isKitchenOutlet = ['kitchen', 'dapur'].includes(outletType.toLowerCase());
+        const isKitchenOutlet = ['kitchen', 'dapur', 'tenant'].includes(outletType.toLowerCase());
 
         root.render(
             <ThemeSwitcherProvider>

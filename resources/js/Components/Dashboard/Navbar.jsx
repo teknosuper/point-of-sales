@@ -5,6 +5,7 @@ import AuthDropdown from "@/Components/Dashboard/AuthDropdown";
 import Menu from "@/Utils/Menu";
 import Notification from "@/Components/Dashboard/Notification";
 import QRNotification from "@/Components/Dashboard/QRNotification";
+import OrderNotificationBell from "@/Components/OrderNotificationBell";
 import OutletSwitcher from "@/Components/Dashboard/OutletSwitcher";
 import PWADropdown from "@/Components/Dashboard/PWADropdown";
 
@@ -154,6 +155,7 @@ export default function Navbar({
                     </Link>
                 )}
                 {showQrNotification ? <QRNotification /> : null}
+                {activeOutlet?.outlet_type === 'tenant' || activeOutlet?.outlet_type === 'kitchen' ? <OrderNotificationBell outletId={activeOutlet?.id} /> : null}
 
                 {/* Notifications */}
                 {showGeneralNotification ? <Notification /> : null}

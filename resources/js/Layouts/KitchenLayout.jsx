@@ -16,6 +16,7 @@ import {
     brandPlaceholderDataUri,
     setFallbackImage,
 } from "@/Utils/imagePlaceholder";
+import OrderNotificationBell from "@/Components/OrderNotificationBell";
 
 export default function KitchenLayout({ children }) {
     const { auth, activeOutlet, storeProfile, flash, kioskMode } = usePage().props;
@@ -232,6 +233,7 @@ export default function KitchenLayout({ children }) {
                             <IconLogout size={16} />
                             Keluar
                         </button>
+                        <OrderNotificationBell />
                     </div>
                 </div>
             </header>

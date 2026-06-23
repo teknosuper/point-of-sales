@@ -166,6 +166,7 @@ class PrintQueueController extends Controller
         $queuedReceipts = (clone $baseQuery)->where('job_type', PrintJob::TYPE_RECEIPT)->whereIn('status', [PrintJob::STATUS_QUEUED, PrintJob::STATUS_PROCESSING])->count();
         $queuedKitchen = (clone $baseQuery)->where('job_type', PrintJob::TYPE_KITCHEN_TICKET)->whereIn('status', [PrintJob::STATUS_QUEUED, PrintJob::STATUS_PROCESSING])->count();
         $processingCount = (clone $baseQuery)->where('status', PrintJob::STATUS_PROCESSING)->count();
+        $failedCount = (clone $baseQuery)->where('status', PrintJob::STATUS_FAILED)->count();
 
         return response()->json([
             'success' => true,
@@ -175,6 +176,7 @@ class PrintQueueController extends Controller
                 'processing' => $processingCount,
                 'total_pending' => $queuedReceipts + $queuedKitchen,
             ],
+            'failedCount' => $failedCount,
             'timestamp' => now()->toIso8601String(),
         ]);
     }

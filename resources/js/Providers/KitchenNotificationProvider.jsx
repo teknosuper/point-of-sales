@@ -1,10 +1,16 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useMemo } from 'react';
 
 /**
  * Komponen Provider untuk notifikasi pesanan kitchen
  * Di-inject di app.jsx agar berfungsi di semua halaman
  */
 export default function KitchenNotificationProvider({ children, outletId = null, enabled = true }) {
+    // Extract station slug from URL if on kitchen page
+    const stationSlug = useMemo(() => {
+        if (typeof window === 'undefined') return '';
+        const match = window.location.pathname.match(/\/kitchen(?:\/([^/]+))?/);
+        return match ? match[1] || '' : '';
+    }, []);
     const audioRef = useRef(null);
     const audioUnlockedRef = useRef(false);
     const lastOrderCountRef = useRef(0);
@@ -75,8 +81,9 @@ export default function KitchenNotificationProvider({ children, outletId = null,
     const checkNewOrders = useCallback(async () => {
         if (!enabled) return;
         const params = new URLSearchParams();
-        console.log('[KitchenNotification] Enabled:', enabled, 'outletId:', outletId, 'Polling with outlet_id:', outletId);
-        if (outletId) {
+        if (stationSlug) {
+            params.append('station_slug', stationSlug);
+        } else if (outletId) {
             params.append('outlet_id', outletId);
         }
 
