@@ -25,29 +25,32 @@ export default function OrderNotificationBell({ stationSlug: propStationSlug = '
     const playNotificationSound = useCallback((type = 'new_order') => {
         if (!audioUnlocked) return;
         try {
-            const audio = new Audio('/media/notifikasi.mp3');
-            audio.volume = 1.0;
+            // Pakai file berbeda sesuai type
+            let audioFile = '/media/notifikasi.mp3';
+            let repeatCount = 1;
             
             if (type === 'new_order') {
-                // Pesanan baru: play 5x untuk urgency
-                audio.play().then(() => {
-                    setTimeout(() => { audio.currentTime = 0; audio.play().catch(()=>{}); }, 600);
-                    setTimeout(() => { audio.currentTime = 0; audio.play().catch(()=>{}); }, 1200);
-                    setTimeout(() => { audio.currentTime = 0; audio.play().catch(()=>{}); }, 1800);
-                    setTimeout(() => { audio.currentTime = 0; audio.play().catch(()=>{}); }, 2400);
-                }).catch((e) => console.warn('Audio play failed:', e));
+                audioFile = '/media/pesananbaru.mp3'; // File khusus pesanan baru
+                repeatCount = 2; // Play 2x
             } else if (type === 'reminder') {
-                // Reminder: play 2x
-                audio.play().then(() => {
-                    setTimeout(() => { audio.currentTime = 0; audio.play().catch(()=>{}); }, 800);
-                }).catch((e) => console.warn('Audio play failed:', e));
+                audioFile = '/media/notifikasi.mp3';
+                repeatCount = 1;
+            } else if (type === 'error') {
+                audioFile = '/media/notifikasi.mp3';
+                repeatCount = 3;
             } else {
-                // Default/error: play 3x
-                audio.play().then(() => {
-                    setTimeout(() => { audio.currentTime = 0; audio.play().catch(()=>{}); }, 800);
-                    setTimeout(() => { audio.currentTime = 0; audio.play().catch(()=>{}); }, 1600);
-                }).catch((e) => console.warn('Audio play failed:', e));
+                audioFile = '/media/notifikasi.mp3';
+                repeatCount = 2;
             }
+            
+            const audio = new Audio(audioFile);
+            audio.volume = 1.0;
+            
+            audio.play().then(() => {
+                for (let i = 1; i < repeatCount; i++) {
+                    setTimeout(() => { audio.currentTime = 0; audio.play().catch(()=>{}); }, 800 * i);
+                }
+            }).catch((e) => console.warn('Audio play failed:', e));
         } catch (e) {
             console.warn('Audio error:', e);
         }
