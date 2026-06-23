@@ -532,7 +532,6 @@ class TransactionController extends Controller
                 ->where('product_id', $request->product_id)
                 ->where('cashier_id', auth()->user()->id)
                 ->when($outlet, fn ($query) => $query->where('outlet_id', $outlet->id))
-                ->whereNull('notes')
                 ->when(
                     $supportsPromoRewardMeta,
                     fn ($query) => $query->where('is_promo_reward', false)
@@ -552,11 +551,11 @@ class TransactionController extends Controller
             if ($request->expectsJson()) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Out of Stock Product!.',
+                    'message' => 'Stok outlet tidak mencukupi untuk produk ' . $product->title . '.',
                 ], 422);
             }
 
-            return redirect()->back()->with('error', 'Out of Stock Product!.');
+            return redirect()->back()->with('error', 'Stok outlet tidak mencukupi untuk produk ' . $product->title . '.');
         }
 
         if ($cart) {
@@ -684,7 +683,7 @@ class TransactionController extends Controller
         if ($availableStock < $request->qty) {
             return response()->json([
                 'success' => false,
-                'message' => 'Stok tidak mencukupi. Tersedia: '.$availableStock,
+                'message' => 'Stok outlet tidak mencukupi untuk produk ' . $cart->product->title . '. Stok tersedia: '.$availableStock,
             ], 422);
         }
 

@@ -8,6 +8,7 @@ import { ThemeSwitcherProvider } from './Context/ThemeSwitcherContext';
 import GlobalLoadingIndicator from './Components/GlobalLoadingIndicator';
 import PWAInstallPrompt from './Components/PWAInstallPrompt';
 import PWAStartupSplash from './Components/PWAStartupSplash';
+import KitchenNotificationProvider from './Providers/KitchenNotificationProvider';
 const appName = import.meta.env.VITE_APP_NAME || 'GTC KASIR';
 const pwaConfig = typeof window !== "undefined" ? window.__PWA_CONFIG || null : null;
 
@@ -17,12 +18,22 @@ createInertiaApp({
     setup({ el, App, props }) {
         const root = createRoot(el);
 
+        // Cek apakah outlet aktif adalah outlet dapur
+        const activeOutlet = props.pageProps?.activeOutlet;
+        const outletType = activeOutlet?.outlet_type || 'main';
+        const isKitchenOutlet = ['kitchen', 'dapur'].includes(outletType.toLowerCase());
+
         root.render(
             <ThemeSwitcherProvider>
                 <PWAStartupSplash />
                 <GlobalLoadingIndicator />
                 <PWAInstallPrompt />
-                <App {...props} />
+                <KitchenNotificationProvider 
+                    outletId={activeOutlet?.id}
+                    enabled={isKitchenOutlet}
+                >
+                    <App {...props} />
+                </KitchenNotificationProvider>
             </ThemeSwitcherProvider>
         );
     },

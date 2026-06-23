@@ -1155,6 +1155,39 @@ export default function Index({
         [localCarts]
     );
     const hasCartStockIssue = cartStockIssues.length > 0;
+    
+    // Auto-remove cart items with zero or insufficient stock
+    const stockAlertShownRef = useRef(false);
+    useEffect(() => {
+        if (!cartStockIssues || cartStockIssues.length === 0) {
+            stockAlertShownRef.current = false;
+            return;
+        }
+        if (stockAlertShownRef.current) return;
+        stockAlertShownRef.current = true;
+        
+        // Show notification for stock issues
+        const zeroStockItems = cartStockIssues.filter(issue => issue.availableStock === 0);
+        const lowStockItems = cartStockIssues.filter(issue => issue.availableStock > 0);
+        
+        if (zeroStockItems.length > 0) {
+            const productNames = zeroStockItems.map(i => i.productTitle).join(', ');
+            toast.error(`${productNames} dihapus dari keranjang karena stok habis.`, {
+                duration: 5000,
+            });
+        }
+        
+        if (lowStockItems.length > 0) {
+            const firstIssue = lowStockItems[0];
+            toast(`⚠️ ${firstIssue.productTitle}: qty ${firstIssue.qty} melebihi stok ${firstIssue.availableStock}.`, {
+                duration: 5000,
+            });
+        }
+        
+        // Auto-remove items with zero stock
+        const zeroStockCartIds = new Set(zeroStockItems.map(i => i.cartId));
+        setLocalCarts(prev => prev.filter(item => !zeroStockCartIds.has(item.id)));
+    }, [cartStockIssues]);
     const selectedDiningTable = useMemo(
         () =>
             diningTables.find(
@@ -2471,13 +2504,16 @@ export default function Index({
             ? options.modifiers.filter((item) => item?.name)
             : [];
         const quantity = Math.max(1, Number(options.qty || 1));
-        const normalizedNotes =
-            String(options.notes || "").trim() || selectedTableItemNote;
+        // Use product-specific notes for display (but not for shouldForceNew)
+        const normalizedNotes = String(options.notes || "").trim();
         const rewardPromoMeta = options.rewardPromoMeta || null;
+        // Note: selectedTableItemNote (table info) should NOT trigger forceNew
+        // Only product-specific notes should trigger forceNew
+        const productSpecificNotes = String(options.notes || "").trim();
         const shouldForceNew =
             modifiers.length > 0 ||
             Boolean(rewardPromoMeta) ||
-            normalizedNotes.length > 0;
+            productSpecificNotes.length > 0;
 
         if (isOfflineMode) {
             const tempId = `offline-${product.id}-${Date.now()}`;

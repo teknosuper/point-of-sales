@@ -57,3 +57,19 @@ Route::prefix('public/catalog')
 Route::get('/public/docs', PublicApiDocsController::class)
     ->middleware(AllowPublicApiCors::class)
     ->name('public.api.docs');
+
+    // Kitchen notification endpoint - untuk polling dari hook
+    Route::get('/kitchen/pending-count', function (\Illuminate\Http\Request $request) {
+        $outletId = (int) $request->query('outlet_id', 0);
+        
+        $count = \App\Models\PrintJob::query()
+            ->where('job_type', \App\Models\PrintJob::TYPE_KITCHEN_TICKET)
+            ->whereIn('status', [\App\Models\PrintJob::STATUS_QUEUED, \App\Models\PrintJob::STATUS_PROCESSING])
+            ->when($outletId > 0, fn ($q) => $q->where('outlet_id', $outletId))
+            ->count();
+        
+        return response()->json([
+            'success' => true,
+            'pendingCount' => $count,
+        ]);
+    })->name('kitchen.pending-count');

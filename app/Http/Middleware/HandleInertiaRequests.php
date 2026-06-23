@@ -318,6 +318,7 @@ class HandleInertiaRequests extends Middleware
             'activeCashierShift' => $activeCashierShift,
             'activeOutlet' => $activeOutlet ? [
                 'id' => $activeOutlet->id,
+                'outlet_type' => $activeOutlet->outlet_type ?? 'main',
                 'code' => $activeOutlet->code,
                 'slug' => $activeOutlet->slug,
                 'name' => $activeOutlet->name,
