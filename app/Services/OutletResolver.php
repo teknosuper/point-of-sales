@@ -29,6 +29,31 @@ class OutletResolver
         $requestedOutletId = $request?->session()->get('active_outlet_id');
 
         if ($user) {
+            // For tenant owner (has direct tenant access), return their tenant outlet directly
+            if ($requestedOutletId) {
+                $matchedOutlet = $user->accessibleOutletsQuery()
+                    ->where('outlets.id', $requestedOutletId)
+                    ->active()
+                    ->first();
+
+                if ($matchedOutlet) {
+                    return $matchedOutlet;
+                }
+            }
+
+            // If user has only tenant outlets (not main), return the primary tenant outlet
+            $primaryTenantOutlet = $user->outlets()
+                ->active()
+                ->where('outlets.outlet_type', 'tenant')
+                ->orderByDesc('outlet_user.is_primary')
+                ->orderBy('outlets.sort_order')
+                ->orderBy('outlets.name')
+                ->first();
+
+            if ($primaryTenantOutlet) {
+                return $primaryTenantOutlet;
+            }
+
             if ($this->shouldRestrictCashierToMainOutlet($user)) {
                 $mainOutlet = $this->resolveCashierMainOutlet($user, $requestedOutletId);
 

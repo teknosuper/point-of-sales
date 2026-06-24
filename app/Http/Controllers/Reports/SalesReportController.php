@@ -59,6 +59,11 @@ class SalesReportController extends Controller
             $filters
         )->orderByDesc('created_at');
 
+        // Filter by tenant_outlet_id if owner selected a specific tenant
+        if (! $isTenantOutlet && ($filters['tenant_outlet_id'] ?? null)) {
+            $baseListQuery->whereHas('details', fn ($q) => $q->where('tenant_outlet_id', $filters['tenant_outlet_id']));
+        }
+
         $detailColumns = $this->transactionDetailSelectColumns();
 
         $transactions = (clone $baseListQuery)
@@ -186,16 +191,37 @@ class SalesReportController extends Controller
         $dailyRecap = $this->buildAllocationDailyRecap($tenantMetricAllocations);
         $targets = $this->targetSummary($summary, $outletId, $filters);
 
-        // Build enhanced analytics using service
-        $analytics = [
-            'hourly_breakdown' => $this->analyticsService->buildHourlyBreakdown($aggregateQuery),
-            'daily_breakdown' => $this->analyticsService->buildDailyBreakdown($aggregateQuery),
-            'top_products' => $this->analyticsService->buildTopProducts($transactionIds, 10),
-            'full_products' => $this->analyticsService->buildProductPerformance($transactionIds),
-            'slow_moving_products' => $this->analyticsService->buildSlowMovingProducts($transactionIds, 10),
-            'category_breakdown' => $this->analyticsService->buildCategoryBreakdown($transactionIds),
-            'payment_method_breakdown' => $this->analyticsService->buildPaymentMethodBreakdown($aggregateQuery),
-        ];
+        // Build analytics - filter by tenant_outlet_id if owner selected a specific tenant
+        if (! $isTenantOutlet && ($filters['tenant_outlet_id'] ?? null)) {
+            $tenantDetailIds = TransactionDetail::query()
+                ->where('tenant_outlet_id', $filters['tenant_outlet_id'])
+                ->whereIn('transaction_id', $transactionIds)
+                ->pluck('transaction_id')
+                ->unique();
+
+            $tenantFilteredIds = $tenantDetailIds->isNotEmpty() ? $tenantDetailIds : collect([-1]);
+            $tenantFilteredQuery = Transaction::query()->whereIn('id', $tenantFilteredIds);
+
+            $analytics = [
+                'hourly_breakdown' => $this->analyticsService->buildHourlyBreakdown((clone $tenantFilteredQuery)),
+                'daily_breakdown' => $this->analyticsService->buildDailyBreakdown((clone $tenantFilteredQuery)),
+                'top_products' => $this->analyticsService->buildTopProducts($tenantFilteredIds, 10, $filters['tenant_outlet_id']),
+                'full_products' => $this->analyticsService->buildProductPerformance($tenantFilteredIds, null, $filters['tenant_outlet_id']),
+                'slow_moving_products' => $this->analyticsService->buildSlowMovingProducts($tenantFilteredIds, 10, $filters['tenant_outlet_id']),
+                'category_breakdown' => $this->analyticsService->buildCategoryBreakdown($tenantFilteredIds, $filters['tenant_outlet_id']),
+                'payment_method_breakdown' => $this->analyticsService->buildPaymentMethodBreakdown((clone $tenantFilteredQuery)),
+            ];
+        } else {
+            $analytics = [
+                'hourly_breakdown' => $this->analyticsService->buildHourlyBreakdown($aggregateQuery),
+                'daily_breakdown' => $this->analyticsService->buildDailyBreakdown($aggregateQuery),
+                'top_products' => $this->analyticsService->buildTopProducts($transactionIds, 10),
+                'full_products' => $this->analyticsService->buildProductPerformance($transactionIds),
+                'slow_moving_products' => $this->analyticsService->buildSlowMovingProducts($transactionIds, 10),
+                'category_breakdown' => $this->analyticsService->buildCategoryBreakdown($transactionIds),
+                'payment_method_breakdown' => $this->analyticsService->buildPaymentMethodBreakdown($aggregateQuery),
+            ];
+        }
 
         return Inertia::render('Dashboard/Reports/Sales', [
             'transactions' => $transactions,
@@ -326,19 +352,46 @@ class SalesReportController extends Controller
 
         $targets = $this->targetSummary($summary, $tenantOutletId, $filters);
 
-        // Build analytics for tenant workspace - query from transaction (has discount column)
+        // Build analytics for tenant workspace - filter by tenant_outlet_id in transaction_details
         $tenantAnalyticsQuery = Transaction::query()
             ->whereHas('tenantAllocations', fn ($q) => $q->where('tenant_outlet_id', $tenantOutletId));
         $tenantAnalyticsQuery = ReportTimezone::applySourceDateRange($tenantAnalyticsQuery, 'created_at', $filters);
 
+        // Get transaction IDs filtered by tenant_outlet_id
+        $tenantTransactionIds = TransactionDetail::query()
+            ->where('tenant_outlet_id', $tenantOutletId)
+            ->whereIn('transaction_id', $tenantAnalyticsQuery->pluck('id'))
+            ->pluck('transaction_id')
+            ->unique();
+
+        // Build all analytics using tenant-filtered transaction IDs
+        $topProducts = [];
+        $fullProducts = [];
+        $slowMovingProducts = [];
+        $categoryBreakdown = [];
+        $hourlyBreakdown = [];
+        $dailyBreakdown = [];
+        $paymentMethodBreakdown = [];
+
+        if ($tenantTransactionIds->isNotEmpty()) {
+            $tenantFilteredQuery = Transaction::query()->whereIn('id', $tenantTransactionIds);
+            $topProducts = $this->analyticsService->buildTopProducts($tenantTransactionIds, 10, $tenantOutletId);
+            $fullProducts = $this->analyticsService->buildProductPerformance($tenantTransactionIds, null, $tenantOutletId);
+            $slowMovingProducts = $this->analyticsService->buildSlowMovingProducts($tenantTransactionIds, 10, $tenantOutletId);
+            $categoryBreakdown = $this->analyticsService->buildCategoryBreakdown($tenantTransactionIds, $tenantOutletId);
+            $hourlyBreakdown = $this->analyticsService->buildHourlyBreakdown((clone $tenantFilteredQuery));
+            $dailyBreakdown = $this->analyticsService->buildDailyBreakdown((clone $tenantFilteredQuery));
+            $paymentMethodBreakdown = $this->analyticsService->buildPaymentMethodBreakdown((clone $tenantFilteredQuery));
+        }
+
         $analytics = [
-            'hourly_breakdown' => $this->analyticsService->buildHourlyBreakdown((clone $tenantAnalyticsQuery)),
-            'daily_breakdown' => $this->analyticsService->buildDailyBreakdown((clone $tenantAnalyticsQuery)),
-            'top_products' => [],
-            'full_products' => [],
-            'slow_moving_products' => [],
-            'category_breakdown' => [],
-            'payment_method_breakdown' => $this->analyticsService->buildPaymentMethodBreakdown((clone $tenantAnalyticsQuery)),
+            'hourly_breakdown' => $hourlyBreakdown,
+            'daily_breakdown' => $dailyBreakdown,
+            'top_products' => $topProducts,
+            'full_products' => $fullProducts,
+            'slow_moving_products' => $slowMovingProducts,
+            'category_breakdown' => $categoryBreakdown,
+            'payment_method_breakdown' => $paymentMethodBreakdown,
         ];
 
         return Inertia::render('Dashboard/Reports/Sales', [

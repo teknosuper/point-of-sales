@@ -64,15 +64,15 @@ class SalesAnalyticsService
     /**
      * Build top selling products with detailed stats
      */
-    public function buildTopProducts($transactionIds, int $limit = 10): array
+    public function buildTopProducts($transactionIds, int $limit = 10, ?int $tenantOutletId = null): array
     {
-        return $this->buildProductPerformance($transactionIds, $limit);
+        return $this->buildProductPerformance($transactionIds, $limit, $tenantOutletId);
     }
 
     /**
      * Build complete product performance breakdown.
      */
-    public function buildProductPerformance($transactionIds, ?int $limit = null): array
+    public function buildProductPerformance($transactionIds, ?int $limit = null, ?int $tenantOutletId = null): array
     {
         if ($transactionIds->isEmpty()) {
             return [];
@@ -87,8 +87,14 @@ class SalesAnalyticsService
             ->selectRaw('MIN(price) as min_price')
             ->selectRaw('MAX(price) as max_price')
             ->whereIn('transaction_id', $transactionIds)
-            ->whereNotNull('product_id')
-            ->groupBy('product_id')
+            ->whereNotNull('product_id');
+
+        // Filter by tenant_outlet_id if specified (for tenant workspace)
+        if ($tenantOutletId !== null) {
+            $query->where('tenant_outlet_id', $tenantOutletId);
+        }
+
+        $query->groupBy('product_id')
             ->orderByDesc('total_revenue')
             ->with('product:id,title,category_id,stock,sku,barcode')
             ->with('product.category:id,name');
@@ -135,20 +141,25 @@ class SalesAnalyticsService
     /**
      * Build slow moving products (products with lowest sales)
      */
-    public function buildSlowMovingProducts($transactionIds, int $limit = 10): array
+    public function buildSlowMovingProducts($transactionIds, int $limit = 10, ?int $tenantOutletId = null): array
     {
         if ($transactionIds->isEmpty()) {
             return [];
         }
 
-        $results = TransactionDetail::query()
+        $query = TransactionDetail::query()
             ->select('product_id')
             ->selectRaw('SUM(qty) as total_qty')
             ->selectRaw('SUM(price) as total_revenue')
             ->selectRaw('COUNT(DISTINCT transaction_id) as transaction_count')
             ->whereIn('transaction_id', $transactionIds)
-            ->whereNotNull('product_id')
-            ->groupBy('product_id')
+            ->whereNotNull('product_id');
+
+        if ($tenantOutletId !== null) {
+            $query->where('tenant_outlet_id', $tenantOutletId);
+        }
+
+        $results = $query->groupBy('product_id')
             ->orderBy('total_qty')
             ->limit($limit)
             ->with('product:id,title,category_id,stock')
@@ -170,21 +181,26 @@ class SalesAnalyticsService
     /**
      * Build sales breakdown by category
      */
-    public function buildCategoryBreakdown($transactionIds): array
+    public function buildCategoryBreakdown($transactionIds, ?int $tenantOutletId = null): array
     {
         if ($transactionIds->isEmpty()) {
             return [];
         }
 
-        $results = DB::table('transaction_details')
+        $query = DB::table('transaction_details')
             ->join('products', 'transaction_details.product_id', '=', 'products.id')
             ->leftJoin('categories', 'products.category_id', '=', 'categories.id')
             ->select('categories.id as category_id', 'categories.name as category_name')
             ->selectRaw('SUM(transaction_details.qty) as total_qty')
             ->selectRaw('SUM(transaction_details.price) as total_revenue')
             ->selectRaw('COUNT(DISTINCT transaction_details.transaction_id) as transaction_count')
-            ->whereIn('transaction_details.transaction_id', $transactionIds)
-            ->groupBy('categories.id', 'categories.name')
+            ->whereIn('transaction_details.transaction_id', $transactionIds);
+
+        if ($tenantOutletId !== null) {
+            $query->where('transaction_details.tenant_outlet_id', $tenantOutletId);
+        }
+
+        $results = $query->groupBy('categories.id', 'categories.name')
             ->orderByDesc('total_revenue')
             ->get();
 
