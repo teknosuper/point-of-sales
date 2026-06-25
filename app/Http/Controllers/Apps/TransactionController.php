@@ -2366,10 +2366,6 @@ class TransactionController extends Controller
             abort(404);
         }
 
-        if (! $request->user()->isSuperAdmin() && (int) $transaction->cashier_id !== (int) $request->user()->id) {
-            abort(404);
-        }
-
         if ($transaction->payment_status !== 'paid') {
             return response()->json([
                 'message' => 'Hanya transaksi lunas yang bisa diminta cetak ulang ke queue.',
