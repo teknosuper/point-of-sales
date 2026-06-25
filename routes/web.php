@@ -445,6 +445,15 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
     Route::patch('/settings/bank-accounts/{bankAccount}/toggle', [\App\Http\Controllers\Apps\BankAccountController::class, 'toggleActive'])->middleware(['permission:payment-settings-update', 'step_up', 'outlet_access'])->name('settings.bank-accounts.toggle');
     Route::post('/settings/bank-accounts/order', [\App\Http\Controllers\Apps\BankAccountController::class, 'updateOrder'])->middleware(['permission:payment-settings-update', 'step_up'])->name('settings.bank-accounts.order');
 
+    // notification sounds
+    Route::get('/settings/notification-sounds', [\App\Http\Controllers\Apps\NotificationSoundController::class, 'index'])->middleware('permission:business-settings-access')->name('settings.notification-sounds.index');
+    Route::get('/settings/notification-sounds/data', [\App\Http\Controllers\Apps\NotificationSoundController::class, 'data'])->middleware('auth')->name('settings.notification-sounds.data');
+    Route::post('/settings/notification-sounds', [\App\Http\Controllers\Apps\NotificationSoundController::class, 'store'])->middleware('permission:business-settings-access')->name('settings.notification-sounds.store');
+    Route::put('/settings/notification-sounds/{sound}', [\App\Http\Controllers\Apps\NotificationSoundController::class, 'update'])->middleware('permission:business-settings-access')->name('settings.notification-sounds.update');
+    Route::patch('/settings/notification-sounds/{sound}/set-active', [\App\Http\Controllers\Apps\NotificationSoundController::class, 'setActive'])->middleware('permission:business-settings-access')->name('settings.notification-sounds.set-active');
+    Route::delete('/settings/notification-sounds/{sound}', [\App\Http\Controllers\Apps\NotificationSoundController::class, 'destroy'])->middleware('permission:business-settings-access')->name('settings.notification-sounds.destroy');
+    Route::get('/settings/notification-sounds/{sound}/play', [\App\Http\Controllers\Apps\NotificationSoundController::class, 'play'])->middleware('permission:business-settings-access')->name('settings.notification-sounds.play');
+
     // confirm payment for bank transfer
     Route::patch('/transactions/{transaction}/confirm-payment', [TransactionController::class, 'confirmPayment'])->middleware(['permission:transactions-confirm-payment', 'step_up', 'outlet_access'])->name('transactions.confirm-payment');
     Route::get('/waiter-board', [WaiterBoardController::class, 'index'])->middleware('permission:waiter-board-access')->name('waiter-board.index');
