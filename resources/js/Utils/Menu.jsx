@@ -1,6 +1,7 @@
 import React from "react";
 import { usePage } from "@inertiajs/react";
 import {
+    IconBell,
     IconBooks,
     IconDeviceMobile,
     IconBox,
@@ -411,6 +412,13 @@ export default function Menu() {
                     url.startsWith("/dashboard/settings/bank-accounts"),
                     <IconWallet size={20} strokeWidth={1.5} />,
                     ["payment-settings-access"]
+                ),
+                menuItem(
+                    "Suara Notifikasi",
+                    route("settings.notification-sounds.index"),
+                    url.startsWith("/dashboard/settings/notification-sounds"),
+                    <IconBell size={20} strokeWidth={1.5} />,
+                    ["business-settings-access"]
                 ),
             ],
         },

@@ -2,6 +2,7 @@ import DashboardLayout from "@/Layouts/DashboardLayout";
 import KitchenLayout from "@/Layouts/KitchenLayout";
 import KitchenTicketPreview from "@/Components/Dashboard/KitchenTicketPreview";
 import Modal from "@/Components/Dashboard/Modal";
+import SoundTestPanel from "@/Components/Dashboard/SoundTestPanel";
 import { Head, Link, router, usePage } from "@inertiajs/react";
 import { useEffect, useRef, useState } from "react";
 import Swal from "sweetalert2";
@@ -703,6 +704,7 @@ export default function KitchenIndex({
     const [showStationControls, setShowStationControls] = useState(false);
     const [showAdvancedFilter, setShowAdvancedFilter] = useState(false);
     const [showGuideModal, setShowGuideModal] = useState(false);
+    const [showSoundTestPanel, setShowSoundTestPanel] = useState(false);
     const [showPreviewModal, setShowPreviewModal] = useState(false);
     const [showPrinterLinkModal, setShowPrinterLinkModal] = useState(false);
     const [ticketDetailModal, setTicketDetailModal] = useState(null);
@@ -791,25 +793,12 @@ export default function KitchenIndex({
         return () => window.clearInterval(timer);
     }, [boardState.activeStation?.slug, boardState.filters, boardState.refreshMeta?.interval_seconds]);
 
+    // Audio unlock handler - sounds now come from database
     useEffect(() => {
         if (typeof window === "undefined") return undefined;
 
         const markAudioUnlocked = () => {
             audioUnlockedRef.current = true;
-
-            // Inisialisasi AudioContext dan Audio setelah user interaction
-            try {
-                audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
-            } catch (e) {
-                console.warn("AudioContext tidak tersedia:", e);
-            }
-
-            // Preload audio agar siap diputar
-            if (!audioRef.current) {
-                audioRef.current = new Audio("/media/notifikasi.mp3");
-                audioRef.current.volume = 1.0;
-                audioRef.current.load();
-            }
         };
 
         window.addEventListener("pointerdown", markAudioUnlocked, { once: true });
@@ -821,26 +810,7 @@ export default function KitchenIndex({
         };
     }, []);
 
-    const playNotificationSound = async () => {
-        if (!audioUnlockedRef.current || typeof window === "undefined") {
-            return;
-        }
-
-        try {
-            // Gunakan Audio element untuk memainkan file MP3
-            if (!audioRef.current) {
-                audioRef.current = new Audio("/media/notifikasi.mp3");
-                audioRef.current.volume = 1.0;
-            }
-
-            audioRef.current.currentTime = 0;
-            await audioRef.current.play().catch((err) => {
-                console.warn("Autoplay diblokir browser:", err.message);
-            });
-        } catch (error) {
-            console.error("Gagal memutar suara notifikasi dapur", error);
-        }
-    };
+    // playNotificationSound - now uses database sounds via KitchenNotificationProvider
 
     const findTicketById = (ticketId) =>
         (boardState.tickets?.data || []).find((ticket) => ticket.id === ticketId) || null;
@@ -1565,6 +1535,13 @@ const resolveEligibleKitchenDeliveredItemIds = (ticket) =>
                                 >
                                     <IconInfoCircle size={15} />
                                     Panduan
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowSoundTestPanel((current) => !current)}
+                                    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                >
+                                    🔊 Testing Suara
                                 </button>
                                 <button
                                     type="button"
@@ -2578,6 +2555,28 @@ const resolveEligibleKitchenDeliveredItemIds = (ticket) =>
                     </div>
                 )}
             </div>
+
+            {showSoundTestPanel ? (
+                <div className="fixed inset-0 z-[120] flex items-end justify-center bg-slate-950/55 p-4 sm:items-center">
+                    <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-800 dark:bg-slate-900">
+                        <div className="flex items-start justify-between gap-4">
+                            <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+                                🔊 Testing Suara Notifikasi
+                            </h2>
+                            <button
+                                type="button"
+                                onClick={() => setShowSoundTestPanel(false)}
+                                className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 text-slate-500 transition hover:border-rose-300 hover:text-rose-600 dark:border-slate-700 dark:text-slate-300"
+                            >
+                                <IconX size={18} />
+                            </button>
+                        </div>
+                        <div className="mt-4">
+                            <SoundTestPanel />
+                        </div>
+                    </div>
+                </div>
+            ) : null}
 
             {showGuideModal ? (
                 <div className="fixed inset-0 z-[120] flex items-end justify-center bg-slate-950/55 p-4 sm:items-center">

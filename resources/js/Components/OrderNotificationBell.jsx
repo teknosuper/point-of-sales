@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 
 /**
  * Komponen Bell untuk notifikasi pesanan kitchen
+ * Menggunakan suara dari database NotificationSound
  */
 export default function OrderNotificationBell({ stationSlug: propStationSlug = '', outletId = null }) {
     const { props } = usePage();
@@ -15,6 +16,12 @@ export default function OrderNotificationBell({ stationSlug: propStationSlug = '
     const [stationSlug, setStationSlug] = useState(propStationSlug);
     const [feedUrl, setFeedUrl] = useState('');
     const [audioUnlocked, setAudioUnlocked] = useState(false);
+    const [soundUrls, setSoundUrls] = useState({
+        general: null,
+        new_order: null,
+        error: null,
+        reminder: null,
+    });
     
     // Refs
     const lastSoundTimeRef = useRef(0);
@@ -22,29 +29,83 @@ export default function OrderNotificationBell({ stationSlug: propStationSlug = '
     const lastFailedCountRef = useRef(0);
     const intervalRef = useRef(null);
 
-    const playNotificationSound = useCallback((type = 'new_order') => {
-        if (!audioUnlocked) return;
+    // Fetch active sounds from database
+    const fetchSounds = useCallback(async () => {
         try {
-            // Pakai file berbeda sesuai type
-            let audioFile = '/media/notifikasi.mp3';
-            let repeatCount = 1;
+            // Use absolute URL to avoid auth redirect issues
+            const baseUrl = window.location.origin;
+            const response = await fetch(`${baseUrl}/dashboard/settings/notification-sounds/data`, {
+                credentials: 'include',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'Accept': 'application/json',
+                }
+            });
             
-            if (type === 'new_order') {
-                audioFile = '/media/pesananbaru.mp3'; // File khusus pesanan baru
-                repeatCount = 2; // Play 2x
-            } else if (type === 'reminder') {
-                audioFile = '/media/notifikasi.mp3';
-                repeatCount = 1;
-            } else if (type === 'error') {
-                audioFile = '/media/notifikasi.mp3';
-                repeatCount = 3;
-            } else {
-                audioFile = '/media/notifikasi.mp3';
-                repeatCount = 2;
+            // Skip if response is not JSON (e.g., login page redirect)
+            const contentType = response.headers.get('content-type');
+            if (!contentType || !contentType.includes('application/json')) {
+                const text = await response.text().catch(() => 'Unable to read response');
+                console.debug('Skipping sound fetch - not authenticated or not JSON response:', contentType, text.substring(0, 100));
+                return;
             }
             
-            const audio = new Audio(audioFile);
+            if (!response.ok) {
+                console.warn('Failed to fetch sounds, status:', response.status);
+                return;
+            }
+            
+            const data = await response.json();
+            
+            if (data.success && data.data) {
+                const urls = {
+                    general: null,
+                    new_order: null,
+                    error: null,
+                    reminder: null,
+                };
+                
+                data.data.forEach(sound => {
+                    if (sound.is_active && sound.url) {
+                        urls[sound.type] = sound.url;
+                    }
+                });
+                
+                setSoundUrls(urls);
+            }
+        } catch (e) {
+            console.warn('Failed to fetch notification sounds:', e);
+        }
+    }, []);
+
+    // Fetch sounds on mount
+    useEffect(() => {
+        fetchSounds();
+    }, [fetchSounds]);
+
+    const playNotificationSound = useCallback((type = 'new_order') => {
+        if (!audioUnlocked) return;
+        
+        // Get sound URL from database only - no fallback
+        let audioUrl = soundUrls[type];
+        
+        // Jika tidak ada suara yang dikonfigurasi, skip
+        if (!audioUrl) {
+            console.debug(`No sound configured for type: ${type}`);
+            return;
+        }
+        
+        try {
+            const audio = new Audio(audioUrl);
             audio.volume = 1.0;
+            
+            // Repeat based on type
+            let repeatCount = 1;
+            if (type === 'new_order') {
+                repeatCount = 2;
+            } else if (type === 'error') {
+                repeatCount = 3;
+            }
             
             audio.play().then(() => {
                 for (let i = 1; i < repeatCount; i++) {
@@ -54,18 +115,11 @@ export default function OrderNotificationBell({ stationSlug: propStationSlug = '
         } catch (e) {
             console.warn('Audio error:', e);
         }
-    }, [audioUnlocked]);
+    }, [audioUnlocked, soundUrls]);
 
     const unlockAudio = useCallback(() => {
-        const audio = new Audio('/media/notifikasi.mp3');
-        audio.volume = 0.3;
-        audio.play().then(() => {
-            setAudioUnlocked(true);
-            toast.success('🔔 Suara aktif!', { duration: 2000, position: 'top-right' });
-        }).catch(() => {
-            // Silent fail - tetap unlock
-            setAudioUnlocked(true);
-        });
+        setAudioUnlocked(true);
+        toast.success('🔔 Suara aktif!', { duration: 2000, position: 'top-right' });
     }, []);
 
     // Unlock audio on first click anywhere
@@ -160,8 +214,8 @@ export default function OrderNotificationBell({ stationSlug: propStationSlug = '
             else if (activeCount > 0 && prevActive === 0) {
                 triggerNotification(`${activeCount} pesanan aktif!`, 'warning', 'new_order');
             }
-            // 3. Reminder setiap 30 detik jika ada yang belum selesai
-            else if (activeCount + failedCount > 0 && timeSinceLastSound >= 30000) {
+            // 3. Reminder setiap 2 menit jika ada yang belum selesai
+            else if (activeCount + failedCount > 0 && timeSinceLastSound >= 120000) {
                 const parts = [];
                 if (activeCount > 0) parts.push(`${activeCount} aktif`);
                 if (failedCount > 0) parts.push(`${failedCount} gagal`);
@@ -169,7 +223,7 @@ export default function OrderNotificationBell({ stationSlug: propStationSlug = '
             }
             // 4. Semua selesai
             else if (activeCount === 0 && failedCount === 0 && prevActive > 0) {
-                triggerNotification('Semua pesanan selesai! 🎉', 'success', 'complete');
+                triggerNotification('Semua pesanan selesai! 🎉', 'success', 'general');
             }
             
             // 5. Pencetakan gagal
