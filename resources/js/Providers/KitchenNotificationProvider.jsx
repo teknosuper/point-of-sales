@@ -20,7 +20,7 @@ export default function KitchenNotificationProvider({ children, outletId = null,
     });
     const audioRef = useRef(null);
     const audioUnlockedRef = useRef(false);
-    const lastOrderCountRef = useRef(0);
+    const lastActiveCountRef = useRef(0);
     const intervalRef = useRef(null);
 
     // Fetch sounds from database
@@ -164,9 +164,9 @@ export default function KitchenNotificationProvider({ children, outletId = null,
             const response = await fetch(`/api/kitchen/pending-count?${params.toString()}`);
             const data = await response.json();
             
-            const count = data.pendingCount || 0;
-            
-            if (count > lastOrderCountRef.current && lastOrderCountRef.current > 0) {
+            const count = Number(data.activeCount ?? data.pendingCount ?? 0);
+
+            if (count > lastActiveCountRef.current && lastActiveCountRef.current > 0) {
                 // Ada pesanan baru!
                 playNotificationSound();
                 showBrowserNotification(
@@ -174,8 +174,8 @@ export default function KitchenNotificationProvider({ children, outletId = null,
                     `Ada ${count} pesanan yang menunggu.`
                 );
             }
-            
-            lastOrderCountRef.current = count;
+
+            lastActiveCountRef.current = count;
         } catch (error) {
             // Silent fail untuk polling
         }
@@ -197,6 +197,31 @@ export default function KitchenNotificationProvider({ children, outletId = null,
             window.removeEventListener('touchstart', handleInteraction);
         };
     }, [initAudio]);
+
+    // Listen to explicit kitchen board events so toast and sound stay in sync.
+    useEffect(() => {
+        const handleNewOrderEvent = (event) => {
+            if (!enabled) {
+                return;
+            }
+
+            const count = Number(event?.detail?.count || 0);
+            playNotificationSound('new_order');
+
+            if (count > 0) {
+                showBrowserNotification(
+                    '🍳 Pesanan Baru dari Dapur!',
+                    `Ada ${count} pesanan baru masuk.`
+                );
+            }
+        };
+
+        window.addEventListener('kitchen:new-order', handleNewOrderEvent);
+
+        return () => {
+            window.removeEventListener('kitchen:new-order', handleNewOrderEvent);
+        };
+    }, [enabled, playNotificationSound, showBrowserNotification]);
 
     // Start polling
     useEffect(() => {

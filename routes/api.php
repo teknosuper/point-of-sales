@@ -63,8 +63,7 @@ Route::get('/kitchen/pending-count', function (Illuminate\Http\Request $request)
         $outletId = (int) $request->query('outlet_id', 0);
         $stationSlug = $request->query('station_slug', '');
         
-        $query = \App\Models\KitchenTicket::query()
-            ->where('status', 'pending');
+        $query = \App\Models\KitchenTicket::query();
             
         if ($stationSlug) {
             $station = \App\Models\KitchenStation::where('slug', $stationSlug)->first();
@@ -86,11 +85,16 @@ Route::get('/kitchen/pending-count', function (Illuminate\Http\Request $request)
             }
         }
         
-        $count = $query->count();
+        $pendingCount = (clone $query)
+            ->where('status', 'pending')
+            ->count();
+        $activeCount = (clone $query)
+            ->whereIn('status', ['pending', 'acknowledged', 'ready'])
+            ->count();
         
         return response()->json([
             'success' => true,
-            'pendingCount' => $count,
+            'pendingCount' => $pendingCount,
+            'activeCount' => $activeCount,
         ]);
     })->name('kitchen.pending-count');
-

@@ -22,6 +22,11 @@ createInertiaApp({
         const activeOutlet = props.pageProps?.activeOutlet;
         const outletType = activeOutlet?.outlet_type || 'main';
         const isKitchenOutlet = ['kitchen', 'dapur', 'tenant'].includes(outletType.toLowerCase());
+        const currentPath =
+            typeof window !== 'undefined' ? window.location.pathname : '';
+        const isKitchenBoardPage =
+            currentPath === '/dashboard/kitchen' ||
+            currentPath.startsWith('/dashboard/kitchen/');
 
         root.render(
             <ThemeSwitcherProvider>
@@ -30,7 +35,7 @@ createInertiaApp({
                 <PWAInstallPrompt />
                 <KitchenNotificationProvider 
                     outletId={activeOutlet?.id}
-                    enabled={isKitchenOutlet}
+                    enabled={isKitchenOutlet || isKitchenBoardPage}
                 >
                     <App {...props} />
                 </KitchenNotificationProvider>

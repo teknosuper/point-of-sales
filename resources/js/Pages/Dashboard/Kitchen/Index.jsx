@@ -723,7 +723,13 @@ export default function KitchenIndex({
     const audioContextRef = useRef(null);
     const audioRef = useRef(null);
     const audioUnlockedRef = useRef(false);
+    const fetchBoardDataRef = useRef(null);
+    const boardStateRef = useRef(
+        buildBoardState({ activeStation, tickets, refreshMeta, filters, selectedDevice })
+    );
     const seenTicketIdsRef = useRef(new Set((tickets?.data || []).map((ticket) => ticket.id)));
+    const pollAbortControllerRef = useRef(null);
+    const pollInFlightRef = useRef(false);
 
     useEffect(() => {
         if (flash?.success) {
@@ -754,12 +760,27 @@ export default function KitchenIndex({
         });
 
         setBoardState(nextBoardState);
+        boardStateRef.current = nextBoardState;
         setDraftFilters(nextBoardState.filters);
         seenTicketIdsRef.current = new Set(
             (nextBoardState.tickets?.data || []).map((ticket) => ticket.id)
         );
         setSelectedItemIdsByTicket((current) =>
             reconcileSelectedItemsByTicket(current, nextBoardState.tickets?.data || [])
+        );
+        setTicketDetailModal((current) =>
+            current
+                ? (nextBoardState.tickets?.data || []).find(
+                      (ticket) => Number(ticket.id) === Number(current.id)
+                  ) || null
+                : null
+        );
+        setPreviewTicket((current) =>
+            current
+                ? (nextBoardState.tickets?.data || []).find(
+                      (ticket) => Number(ticket.id) === Number(current.id)
+                  ) || null
+                : null
         );
     }, [activeStation, tickets, refreshMeta, filters, selectedDevice]);
 
@@ -781,17 +802,42 @@ export default function KitchenIndex({
     }, [activeStation, selectedDevice]);
 
     useEffect(() => {
+        fetchBoardDataRef.current = fetchBoardData;
+    });
+
+    useEffect(() => {
         if (!boardState.activeStation?.slug) {
             return undefined;
         }
 
         const intervalSeconds = Number(boardState.refreshMeta?.interval_seconds || 15);
-        const timer = window.setInterval(() => {
-            fetchBoardData(boardState.filters);
-        }, intervalSeconds * 1000);
+        let stopped = false;
+        let timer = null;
 
-        return () => window.clearInterval(timer);
-    }, [boardState.activeStation?.slug, boardState.filters, boardState.refreshMeta?.interval_seconds]);
+        const scheduleNextPoll = () => {
+            if (stopped) {
+                return;
+            }
+
+            timer = window.setTimeout(async () => {
+                await fetchBoardDataRef.current?.();
+                scheduleNextPoll();
+            }, intervalSeconds * 1000);
+        };
+
+        scheduleNextPoll();
+
+        return () => {
+            stopped = true;
+            if (timer) {
+                window.clearTimeout(timer);
+            }
+
+            pollAbortControllerRef.current?.abort();
+            pollAbortControllerRef.current = null;
+            pollInFlightRef.current = false;
+        };
+    }, [boardState.activeStation?.slug, boardState.refreshMeta?.interval_seconds]);
 
     // Audio unlock handler - sounds now come from database
     useEffect(() => {
@@ -1282,17 +1328,32 @@ const resolveEligibleKitchenDeliveredItemIds = (ticket) =>
         nextFilters = boardState.filters,
         options = {}
     ) => {
-        if (!boardState.activeStation?.slug) {
+        const currentBoardState = boardStateRef.current;
+
+        if (!currentBoardState.activeStation?.slug) {
             return false;
         }
 
         const { showToast = false, manual = false } = options;
+        if (pollInFlightRef.current) {
+            if (!manual) {
+                return false;
+            }
+
+            pollAbortControllerRef.current?.abort();
+        }
 
         const requestFilters = {
-            ...boardState.filters,
+            ...currentBoardState.filters,
             ...nextFilters,
-            device_id: boardState.selectedDevice?.id || nextFilters?.device_id || "",
+            device_id:
+                currentBoardState.selectedDevice?.id || nextFilters?.device_id || "",
         };
+
+        pollAbortControllerRef.current?.abort();
+        const abortController = new AbortController();
+        pollAbortControllerRef.current = abortController;
+        pollInFlightRef.current = true;
 
         const searchParams = new URLSearchParams();
         searchParams.set("status", requestFilters.status || "active");
@@ -1313,7 +1374,18 @@ const resolveEligibleKitchenDeliveredItemIds = (ticket) =>
             }
 
             const response = await fetch(
-                `${route("kitchen.feed", boardState.activeStation.slug)}?${searchParams.toString()}`
+                `${route("kitchen.feed", currentBoardState.activeStation.slug)}?${searchParams.toString()}`,
+                {
+                    signal: abortController.signal,
+                    credentials: "same-origin",
+                    cache: "no-store",
+                    headers: {
+                        Accept: "application/json",
+                        "X-Requested-With": "XMLHttpRequest",
+                        "Cache-Control": "no-cache, no-store, must-revalidate",
+                        Pragma: "no-cache",
+                    },
+                }
             );
 
             if (!response.ok) {
@@ -1330,17 +1402,43 @@ const resolveEligibleKitchenDeliveredItemIds = (ticket) =>
             );
 
             if (newTickets.length > 0) {
-                playNotificationSound();
+                if (typeof window !== "undefined") {
+                    window.dispatchEvent(
+                        new CustomEvent("kitchen:new-order", {
+                            detail: { count: newTickets.length },
+                        })
+                    );
+                }
                 toast.success(`${newTickets.length} tiket dapur baru masuk.`);
             }
 
             seenTicketIdsRef.current = nextIds;
 
-            setBoardState((current) => ({
-                ...current,
-                ...payload,
-                filters: buildBoardFilters(payload.filters, payload.selectedDevice),
-            }));
+            setBoardState((current) => {
+                const nextBoardState = {
+                    ...current,
+                    ...payload,
+                    filters: buildBoardFilters(payload.filters, payload.selectedDevice),
+                };
+
+                boardStateRef.current = nextBoardState;
+
+                return nextBoardState;
+            });
+            setTicketDetailModal((current) =>
+                current
+                    ? (payload.tickets?.data || []).find(
+                          (ticket) => Number(ticket.id) === Number(current.id)
+                      ) || null
+                    : null
+            );
+            setPreviewTicket((current) =>
+                current
+                    ? (payload.tickets?.data || []).find(
+                          (ticket) => Number(ticket.id) === Number(current.id)
+                      ) || null
+                    : null
+            );
             setSelectedItemIdsByTicket((current) =>
                 reconcileSelectedItemsByTicket(current, payload.tickets?.data || [])
             );
@@ -1358,9 +1456,18 @@ const resolveEligibleKitchenDeliveredItemIds = (ticket) =>
 
             return true;
         } catch (error) {
+            if (error?.name === "AbortError") {
+                return false;
+            }
+
             console.error("Gagal menyegarkan papan antrean dapur", error);
             return false;
         } finally {
+            if (pollAbortControllerRef.current === abortController) {
+                pollAbortControllerRef.current = null;
+            }
+
+            pollInFlightRef.current = false;
             if (manual) {
                 setIsRefreshing(false);
             }
