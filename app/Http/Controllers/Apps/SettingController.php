@@ -428,17 +428,11 @@ class SettingController extends Controller
 
     public function toppingMarkup()
     {
-        $outlet = $this->resolvedOutlet(request());
-
         return Inertia::render('Dashboard/Settings/ToppingMarkup', [
-            'settings' => $this->modifierMarkupService->settingsPayload($outlet?->id),
+            'settings' => $this->modifierMarkupService->settingsPayload(),
             'workspace' => [
-                'active_outlet' => $outlet ? [
-                    'id' => $outlet->id,
-                    'name' => $outlet->name,
-                    'code' => $outlet->code,
-                    'outlet_type' => $outlet->outlet_type,
-                ] : null,
+                'active_outlet' => null,
+                'scope_label' => 'Global',
             ],
         ]);
     }
@@ -456,9 +450,7 @@ class SettingController extends Controller
             'rules.*.is_active' => ['nullable', 'boolean'],
         ]);
 
-        $outlet = $this->resolvedOutlet($request);
-        $outletId = $outlet?->id;
-        $before = $this->modifierMarkupService->settingsPayload($outletId);
+        $before = $this->modifierMarkupService->settingsPayload();
 
         $rules = collect($validated['rules'] ?? [])
             ->values()
@@ -489,10 +481,10 @@ class SettingController extends Controller
             'modifier_markup_rules',
             json_encode($rules),
             'Aturan markup default topping/modifier.',
-            $outletId
+            null
         );
 
-        $after = $this->modifierMarkupService->settingsPayload($outletId);
+        $after = $this->modifierMarkupService->settingsPayload();
 
         $this->auditLogService->log(
             event: 'settings.modifier_markup.updated',

@@ -71,7 +71,7 @@ class SalesReportController extends Controller
         $transactions = (clone $baseListQuery)
             ->with(['details' => fn ($query) => $query
                 ->select($detailColumns)
-                ->with(['product:id,title'])])
+                ->with(['product:id,title', 'modifiers:id,transaction_detail_id,total_price'])])
             ->paginate(10)
             ->withQueryString();
         $transactions->setCollection(
@@ -524,7 +524,7 @@ class SalesReportController extends Controller
                     'id' => $detail->id,
                     'product_name' => $detail->product?->title ?? 'Produk',
                     'qty' => (int) $detail->qty,
-                    'line_total' => (int) $detail->price,
+                    'line_total' => $this->detailRevenueTotal($detail),
                     'pre_promo_total' => (int) ($detail->customer_base_unit_price ?? $detail->unit_price ?? 0) * (int) $detail->qty,
                     'tenant_discount_total' => (int) ($detail->tenant_discount_total ?? 0),
                     'owner_discount_total' => (int) ($detail->owner_discount_total ?? 0),
@@ -536,6 +536,20 @@ class SalesReportController extends Controller
                 ->values()
                 ->all(),
         ];
+    }
+
+    protected function detailRevenueTotal(TransactionDetail $detail): int
+    {
+        return (int) $detail->price + $this->detailModifierTotal($detail);
+    }
+
+    protected function detailModifierTotal(TransactionDetail $detail): int
+    {
+        if (! $detail->relationLoaded('modifiers')) {
+            return 0;
+        }
+
+        return (int) $detail->modifiers->sum(fn ($modifier) => (int) ($modifier->total_price ?? 0));
     }
 
     protected function transformTenantAllocationTransactionRow(TransactionTenantAllocation $allocation): array

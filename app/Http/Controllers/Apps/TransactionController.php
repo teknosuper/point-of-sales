@@ -814,6 +814,53 @@ class TransactionController extends Controller
         ]);
     }
 
+    public function syncCartModifiers(Request $request, $cart_id): JsonResponse
+    {
+        $validated = $request->validate([
+            'modifiers' => ['nullable', 'array'],
+            'modifiers.*.name' => ['required_with:modifiers', 'string', 'max:120'],
+            'modifiers.*.qty' => ['nullable', 'integer', 'min:1', 'max:99'],
+            'modifiers.*.unit_price' => ['nullable', 'integer', 'min:0', 'max:100000000'],
+            'notes' => ['nullable', 'string', 'max:2000'],
+        ]);
+
+        $cart = $this->findEditableCart($request, $cart_id);
+        if (! $cart) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Cart item not found',
+            ], 404);
+        }
+
+        $cart->modifiers()->delete();
+
+        foreach (($validated['modifiers'] ?? []) as $modifier) {
+            $qty = max(1, (int) ($modifier['qty'] ?? 1));
+            $unitPrice = max(0, (int) ($modifier['unit_price'] ?? 0));
+
+            $cart->modifiers()->create([
+                'name' => trim((string) $modifier['name']),
+                'qty' => $qty,
+                'unit_price' => $unitPrice,
+                'total_price' => $qty * $unitPrice,
+            ]);
+        }
+
+        $cart->forceFill([
+            'notes' => filled($validated['notes'] ?? null) ? trim((string) $validated['notes']) : null,
+        ])->save();
+
+        $this->ensureRequiredModifiersSatisfied($cart->fresh(['product.modifierOptions', 'modifiers']));
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Topping item berhasil diperbarui',
+            'data' => [
+                'cart' => $this->serializeCart($cart->fresh(['product.modifierOptions', 'product.kitchenStationMappings.kitchenStation', 'tenantOutlet:id,name,code', 'modifiers'])),
+            ],
+        ]);
+    }
+
     public function destroyCartModifier(Request $request, $cart_id, CartModifier $modifier): JsonResponse
     {
         $cart = $this->findEditableCart($request, $cart_id);
@@ -898,6 +945,13 @@ class TransactionController extends Controller
                 : (int) $cart->product->stock)
             : 0;
 
+        $modifierOptionPayloads = $cart->product
+            ? $cart->product->modifierOptions
+                ->where('is_active', true)
+                ->map(fn ($option) => $this->modifierMarkupService->payloadForOption($option, $cart->outlet_id))
+                ->values()
+            : collect();
+
         return [
             'id' => $cart->id,
             'cashier_id' => $cart->cashier_id,
@@ -927,11 +981,7 @@ class TransactionController extends Controller
                 'tenant_outlet_id' => $cart->product->tenant_outlet_id,
                 'supports_modifiers' => (bool) $cart->product->supports_modifiers,
                 'requires_modifier_selection' => (bool) $cart->product->requires_modifier_selection,
-                'modifier_options' => $cart->product->modifierOptions
-                    ->where('is_active', true)
-                    ->map(fn ($option) => $this->modifierMarkupService->payloadForOption($option, $cart->outlet_id))
-                    ->values()
-                    ->all(),
+                'modifier_options' => $modifierOptionPayloads->all(),
                 'kitchen_stations' => $cart->product->kitchenStationMappings
                     ->where('is_active', true)
                     ->sortBy('priority')
@@ -950,13 +1000,21 @@ class TransactionController extends Controller
                 'code' => $cart->tenantOutlet->code,
             ] : null,
             'modifiers' => $cart->modifiers
-                ->map(fn ($modifier) => [
-                    'id' => $modifier->id,
-                    'name' => $modifier->name,
-                    'qty' => (int) $modifier->qty,
-                    'unit_price' => (int) $modifier->unit_price,
-                    'total_price' => (int) $modifier->total_price,
-                ])
+                ->map(function ($modifier) use ($modifierOptionPayloads) {
+                    $matchedOption = $modifierOptionPayloads->first(fn ($option) => trim((string) ($option['name'] ?? '')) === trim((string) $modifier->name)
+                        && (int) ($option['price'] ?? 0) === (int) $modifier->unit_price);
+
+                    return [
+                        'id' => $modifier->id,
+                        'product_modifier_option_id' => (int) ($matchedOption['id'] ?? 0),
+                        'group_name' => $matchedOption['group_name'] ?? null,
+                        'selection_mode' => $matchedOption['selection_mode'] ?? null,
+                        'name' => $modifier->name,
+                        'qty' => (int) $modifier->qty,
+                        'unit_price' => (int) $modifier->unit_price,
+                        'total_price' => (int) $modifier->total_price,
+                    ];
+                })
                 ->values()
                 ->all(),
         ];
@@ -968,33 +1026,61 @@ class TransactionController extends Controller
             return;
         }
 
-        $requiredOptions = $cart->product->modifierOptions
+        $activeOptions = $cart->product->modifierOptions
             ->where('is_active', true)
-            ->where('is_required', true)
-            ->pluck('name')
-            ->map(fn ($name) => trim((string) $name))
-            ->filter()
             ->values();
 
-        $selectedModifierNames = $cart->modifiers
-            ->pluck('name')
-            ->map(fn ($name) => trim((string) $name))
-            ->filter()
+        $selectedModifierKeys = $cart->modifiers
+            ->map(fn ($modifier) => trim((string) $modifier->name).':'.(int) ($modifier->unit_price ?? 0))
+            ->filter(fn ($value) => ! str_starts_with($value, ':'))
             ->values();
 
-        $hasRequiredSelection = $requiredOptions->isNotEmpty()
-            ? $selectedModifierNames->intersect($requiredOptions)->isNotEmpty()
-            : $selectedModifierNames->isNotEmpty();
+        $groupedOptions = $activeOptions->groupBy(function ($option) {
+            $groupName = trim((string) ($option->group_name ?? ''));
 
-        if ($requiredOptions->isNotEmpty() && ! $hasRequiredSelection) {
-            throw ValidationException::withMessages([
-                'modifier' => "Produk {$cart->product->title} wajib memilih salah satu topping yang ditandai wajib.",
-            ]);
+            return $groupName !== '' ? $groupName : 'Topping';
+        });
+
+        foreach ($groupedOptions as $groupName => $options) {
+            $firstOption = $options->first();
+            $selectionMode = trim((string) ($firstOption->selection_mode ?? 'optional')) ?: 'optional';
+            $minSelect = max(
+                $selectionMode === 'optional' ? 0 : 1,
+                (int) ($firstOption->min_select ?? 0)
+            );
+            $maxSelectRaw = (int) ($firstOption->max_select ?? 0);
+            $maxSelect = $selectionMode === 'single'
+                ? 1
+                : ($maxSelectRaw > 0 ? $maxSelectRaw : null);
+            $selectedCount = $options
+                ->map(function ($option) use ($cart) {
+                    $payload = $this->modifierMarkupService->payloadForOption($option, $cart->outlet_id);
+
+                    return trim((string) ($payload['name'] ?? $option->name)).':'.(int) ($payload['price'] ?? 0);
+                })
+                ->filter(fn ($key) => $selectedModifierKeys->contains($key))
+                ->count();
+
+            if ($selectedCount < $minSelect) {
+                throw ValidationException::withMessages([
+                    'modifier' => $minSelect <= 1
+                        ? "Kategori topping {$groupName} wajib dipilih."
+                        : "Kategori topping {$groupName} wajib memilih minimal {$minSelect} opsi.",
+                ]);
+            }
+
+            if ($maxSelect !== null && $selectedCount > $maxSelect) {
+                throw ValidationException::withMessages([
+                    'modifier' => $maxSelect <= 1
+                        ? "Kategori topping {$groupName} hanya boleh memilih 1 opsi."
+                        : "Kategori topping {$groupName} maksimal {$maxSelect} opsi.",
+                ]);
+            }
         }
 
-        if ($requiredOptions->isEmpty()
+        if ($groupedOptions->isEmpty()
             && (bool) $cart->product->requires_modifier_selection
-            && $selectedModifierNames->isEmpty()) {
+            && $selectedModifierKeys->isEmpty()) {
             throw ValidationException::withMessages([
                 'modifier' => "Produk {$cart->product->title} wajib memilih minimal satu topping.",
             ]);

@@ -9,6 +9,12 @@ import {
 } from "@/Utils/pricingRules";
 import { IconShoppingCart, IconTrash, IconX } from "@/Utils/icons";
 
+const normalizeModifierGroupName = (value) => {
+    const normalized = String(value || "").trim();
+
+    return normalized !== "" ? normalized : "Topping";
+};
+
 export default function CartLineItem({
     item,
     promoState,
@@ -29,6 +35,18 @@ export default function CartLineItem({
     notePlaceholder = "Catatan item...",
     modifierActionLabel = "Tambah topping / extra",
 }) {
+    const groupedModifiers = (item.modifiers || []).reduce((groups, modifier) => {
+        const groupName = normalizeModifierGroupName(modifier.group_name);
+
+        if (!groups[groupName]) {
+            groups[groupName] = [];
+        }
+
+        groups[groupName].push(modifier);
+
+        return groups;
+    }, {});
+    const modifierGroups = Object.entries(groupedModifiers);
     const {
         resolvedLine,
         pricingRule,
@@ -230,59 +248,66 @@ export default function CartLineItem({
                                     {modifierActionLabel}
                                 </button>
                             )}
-                            {(item.modifiers || []).map((modifier) => (
+                            {modifierGroups.map(([groupName, modifiers]) => (
                                 <div
-                                    key={modifier.id}
-                                    className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[11px] dark:border-slate-700 dark:bg-slate-900"
+                                    key={groupName}
+                                    className="rounded-xl border border-slate-200 bg-white px-2.5 py-2 dark:border-slate-700 dark:bg-slate-900"
                                 >
-                                    <div className="min-w-0">
-                                        <p className="truncate font-medium text-slate-700 dark:text-slate-200">
-                                            {modifier.name}
-                                        </p>
-                                        <p className="text-slate-500 dark:text-slate-400">
-                                            {formatPrice(modifier.total_price)}
-                                        </p>
+                                    <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-primary-600 dark:text-primary-300">
+                                        {groupName}
+                                    </p>
+                                    <div className="space-y-1">
+                                        {modifiers.map((modifier) => (
+                                            <div
+                                                key={modifier.id}
+                                                className="flex items-center justify-between gap-2 rounded-lg bg-slate-50 px-2 py-1.5 text-[11px] dark:bg-slate-800/60"
+                                            >
+                                                <div className="min-w-0">
+                                                    <p className="truncate font-medium text-slate-700 dark:text-slate-200">
+                                                        {modifier.name}
+                                                    </p>
+                                                    <p className="text-slate-500 dark:text-slate-400">
+                                                        {formatPrice(
+                                                            modifier.total_price
+                                                        )}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        ))}
                                     </div>
-                                    <button
-                                        type="button"
-                                        onClick={() =>
-                                            onRemoveModifier?.(item.id, modifier.id)
-                                        }
-                                        disabled={modifierSaving}
-                                        className="rounded-lg p-1 text-slate-400 hover:bg-danger-50 hover:text-danger-500 disabled:opacity-60 dark:hover:bg-danger-950/40"
-                                    >
-                                        <IconX size={12} />
-                                    </button>
                                 </div>
                             ))}
                         </div>
                     </div>
                 ) : (item.modifiers || []).length > 0 ? (
                     <div className="mt-1.5 grid gap-1">
-                        {(item.modifiers || []).map((modifier) => (
+                        {modifierGroups.map(([groupName, modifiers]) => (
                             <div
-                                key={modifier.id}
-                                className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[11px] dark:border-slate-700 dark:bg-slate-900"
+                                key={groupName}
+                                className="rounded-xl border border-slate-200 bg-white px-2.5 py-2 dark:border-slate-700 dark:bg-slate-900"
                             >
-                                <div className="min-w-0">
-                                    <p className="truncate font-medium text-slate-700 dark:text-slate-200">
-                                        {modifier.name}
-                                    </p>
-                                    <p className="text-slate-500 dark:text-slate-400">
-                                        {formatPrice(modifier.total_price)}
-                                    </p>
+                                <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-primary-600 dark:text-primary-300">
+                                    {groupName}
+                                </p>
+                                <div className="space-y-1">
+                                    {modifiers.map((modifier) => (
+                                        <div
+                                            key={modifier.id}
+                                            className="flex items-center justify-between gap-2 rounded-lg bg-slate-50 px-2 py-1.5 text-[11px] dark:bg-slate-800/60"
+                                        >
+                                            <div className="min-w-0">
+                                                <p className="truncate font-medium text-slate-700 dark:text-slate-200">
+                                                    {modifier.name}
+                                                </p>
+                                                <p className="text-slate-500 dark:text-slate-400">
+                                                    {formatPrice(
+                                                        modifier.total_price
+                                                    )}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    ))}
                                 </div>
-                                {onRemoveModifier ? (
-                                    <button
-                                        type="button"
-                                        onClick={() =>
-                                            onRemoveModifier(item.id, modifier.id)
-                                        }
-                                        className="rounded-lg p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-500"
-                                    >
-                                        <IconX size={12} />
-                                    </button>
-                                ) : null}
                             </div>
                         ))}
                     </div>

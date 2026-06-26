@@ -13,6 +13,42 @@ const formatPrice = (value = 0) =>
         minimumFractionDigits: 0,
     });
 
+const normalizeModifierGroupName = (value) => {
+    const normalized = String(value || "").trim();
+
+    return normalized !== "" ? normalized : "Topping";
+};
+
+const resolveSelectionSummary = (group) => {
+    const selectionMode =
+        String(group?.selection_mode || "optional").trim() || "optional";
+    const minSelect = Math.max(
+        selectionMode === "optional" ? 0 : 1,
+        Number(group?.min_select ?? 0)
+    );
+    const maxSelectRaw = Number(group?.max_select ?? 0);
+    const maxSelect =
+        selectionMode === "single" ? 1 : maxSelectRaw > 0 ? maxSelectRaw : null;
+
+    if (selectionMode === "single") {
+        return "Pilih 1 opsi";
+    }
+
+    if (minSelect > 0 && maxSelect !== null) {
+        return `Wajib ${minSelect}-${maxSelect} opsi`;
+    }
+
+    if (minSelect > 0) {
+        return `Wajib minimal ${minSelect} opsi`;
+    }
+
+    if (maxSelect !== null) {
+        return `Opsional maksimal ${maxSelect} opsi`;
+    }
+
+    return "Opsional bebas pilih";
+};
+
 export default function ModifierOptionsModal({
     product = null,
     cartTargetId = null,
@@ -39,17 +75,66 @@ export default function ModifierOptionsModal({
     const hasModifierOptions =
         Array.isArray(product?.modifier_options) &&
         product.modifier_options.length > 0;
-    const requiredOptions = (product?.modifier_options || []).filter(
-        (option) => option?.is_required
+    const selectedOptionIdSet = new Set(
+        (selectedModifierOptionIds || []).map((id) => Number(id || 0))
     );
+    const groupedModifierOptions = (product?.modifier_options || []).reduce(
+        (groups, option) => {
+            const groupName = normalizeModifierGroupName(option?.group_name);
+            const currentGroup = groups[groupName] || {
+                group_name: groupName,
+                selection_mode:
+                    String(option?.selection_mode || "optional").trim() ||
+                    "optional",
+                min_select: Number(option?.min_select ?? 0),
+                max_select: Number(option?.max_select ?? 0),
+                options: [],
+            };
+
+            currentGroup.options.push(option);
+            groups[groupName] = currentGroup;
+
+            return groups;
+        },
+        {}
+    );
+    const modifierGroups = Object.values(groupedModifierOptions);
     const requiresSelection = Boolean(product?.requires_modifier_selection);
-    const hasRequiredOptions = requiredOptions.length > 0;
-    const hasSatisfiedRequiredSelection = hasRequiredOptions
-        ? requiredOptions.some((option) =>
-              selectedModifierOptionIds.includes(option.id)
-          )
-        : selectedModifierOptionIds.length > 0;
-    const selectionIsRequired = hasModifierOptions && (requiresSelection || hasRequiredOptions);
+    const groupValidation = modifierGroups.map((group) => {
+        const selectionMode =
+            String(group.selection_mode || "optional").trim() || "optional";
+        const minSelect = Math.max(
+            selectionMode === "optional" ? 0 : 1,
+            Number(group.min_select ?? 0)
+        );
+        const maxSelectRaw = Number(group.max_select ?? 0);
+        const maxSelect =
+            selectionMode === "single"
+                ? 1
+                : maxSelectRaw > 0
+                  ? maxSelectRaw
+                  : null;
+        const selectedCount = group.options.filter((option) =>
+            selectedOptionIdSet.has(Number(option.id || 0))
+        ).length;
+
+        return {
+            ...group,
+            selectedCount,
+            minSelect,
+            maxSelect,
+            isValid:
+                selectedCount >= minSelect &&
+                (maxSelect === null || selectedCount <= maxSelect),
+        };
+    });
+    const selectionIsRequired =
+        hasModifierOptions &&
+        (requiresSelection || groupValidation.some((group) => group.minSelect > 0));
+    const hasSatisfiedRequiredSelection =
+        groupValidation.length > 0
+            ? groupValidation.every((group) => group.isValid)
+            : selectedOptionIdSet.size > 0;
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -75,8 +160,8 @@ export default function ModifierOptionsModal({
                         </p>
                         {selectionIsRequired ? (
                             <p className="mt-2 text-xs font-semibold text-amber-600 dark:text-amber-300">
-                                {hasRequiredOptions
-                                    ? "Produk ini wajib memilih salah satu topping yang ditandai wajib."
+                                {groupValidation.some((group) => group.minSelect > 0)
+                                    ? "Setiap kategori wajib harus memenuhi aturan pilihannya."
                                     : "Produk ini wajib memilih minimal satu topping sebelum lanjut."}
                             </p>
                         ) : null}
@@ -315,47 +400,84 @@ export default function ModifierOptionsModal({
 
                     {hasModifierOptions ? (
                         <div className="space-y-3 px-5 py-4">
-                            {(product.modifier_options || []).map((option) => {
-                                const active = selectedModifierOptionIds.includes(
-                                    option.id
-                                );
-
-                                return (
-                                    <button
-                                        key={option.id}
-                                        type="button"
-                                        onClick={() => onToggleModifierOption?.(option.id)}
-                                        className={`flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left transition ${
-                                            active
-                                                ? "border-primary-500 bg-primary-50 dark:border-primary-400 dark:bg-primary-950/30"
-                                                : "border-slate-200 bg-white hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-slate-600"
-                                        }`}
-                                    >
-                                        <div>
-                                            <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
-                                                {option.name}
-                                            </p>
-                                            <div className="mt-1 flex flex-wrap items-center gap-2">
-                                                <p className="text-xs text-slate-500 dark:text-slate-400">
-                                                    Tambahan {formatPrice(option.price)}
+                            {groupValidation.map((group) => (
+                                <div
+                                    key={group.group_name}
+                                    className={`overflow-hidden rounded-2xl border ${
+                                        group.isValid
+                                            ? "border-sky-200 bg-sky-50/60 dark:border-sky-900/40 dark:bg-sky-950/10"
+                                            : "border-amber-200 bg-amber-50/70 dark:border-amber-900/40 dark:bg-amber-950/10"
+                                    }`}
+                                >
+                                    <div className="border-b border-current/10 px-4 py-3">
+                                        <div className="flex items-start justify-between gap-3">
+                                            <div>
+                                                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-600 dark:text-sky-300">
+                                                    Kategori Topping
                                                 </p>
-                                                {option.is_required ? (
-                                                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
-                                                        Wajib
-                                                    </span>
-                                                ) : null}
+                                                <p className="mt-1 text-sm font-bold text-slate-900 dark:text-white">
+                                                    {group.group_name}
+                                                </p>
+                                            </div>
+                                            <div className="text-right">
+                                                <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+                                                    {resolveSelectionSummary(group)}
+                                                </p>
+                                                <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                                                    Dipilih {group.selectedCount}
+                                                    {group.maxSelect
+                                                        ? ` / ${group.maxSelect}`
+                                                        : ""}
+                                                </p>
                                             </div>
                                         </div>
-                                        <div
-                                            className={`h-5 w-5 rounded-md border ${
-                                                active
-                                                    ? "border-primary-500 bg-primary-500"
-                                                    : "border-slate-300 dark:border-slate-600"
-                                            }`}
-                                        />
-                                    </button>
-                                );
-                            })}
+                                    </div>
+                                    <div className="space-y-2 p-3">
+                                        {group.options.map((option) => {
+                                            const active =
+                                                selectedOptionIdSet.has(
+                                                    Number(option.id || 0)
+                                                );
+
+                                            return (
+                                                <button
+                                                    key={option.id}
+                                                    type="button"
+                                                    onClick={() =>
+                                                        onToggleModifierOption?.(
+                                                            option.id
+                                                        )
+                                                    }
+                                                    className={`flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left transition ${
+                                                        active
+                                                            ? "border-primary-500 bg-primary-50 dark:border-primary-400 dark:bg-primary-950/30"
+                                                            : "border-slate-200 bg-white hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-slate-600"
+                                                    }`}
+                                                >
+                                                    <div>
+                                                        <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                                                            {option.name}
+                                                        </p>
+                                                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                            Tambahan{" "}
+                                                            {formatPrice(
+                                                                option.price
+                                                            )}
+                                                        </p>
+                                                    </div>
+                                                    <div
+                                                        className={`h-5 w-5 rounded-md border ${
+                                                            active
+                                                                ? "border-primary-500 bg-primary-500"
+                                                                : "border-slate-300 dark:border-slate-600"
+                                                        }`}
+                                                    />
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            ))}
                         </div>
                     ) : (
                         <div className="px-5 py-4">

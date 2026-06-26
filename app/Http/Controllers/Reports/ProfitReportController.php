@@ -303,7 +303,7 @@ class ProfitReportController extends Controller
         $transactionRelations = [
             'details' => fn ($query) => $query
                 ->select($detailColumns)
-                ->with(['product:id,title']),
+                ->with(['product:id,title', 'modifiers:id,transaction_detail_id,total_price']),
             'cashier:id,name',
             'customer:id,name',
         ];
@@ -817,6 +817,7 @@ class ProfitReportController extends Controller
         $hasOwnerNetTotal = Schema::hasColumn('transaction_details', 'owner_net_total');
         $hasTenantDiscountTotal = Schema::hasColumn('transaction_details', 'tenant_discount_total');
         $hasOwnerDiscountTotal = Schema::hasColumn('transaction_details', 'owner_discount_total');
+        $revenueExpression = $this->modifierAwareRevenueExpression();
 
         return TransactionDetail::query()
             ->join('outlets as tenant_outlets', 'tenant_outlets.id', '=', 'transaction_details.tenant_outlet_id')
@@ -829,14 +830,14 @@ class ProfitReportController extends Controller
             ->selectRaw('COALESCE(SUM(transaction_details.qty), 0) as items_sold')
             ->selectRaw($hasCustomerBasePrice
                 ? 'COALESCE(SUM(transaction_details.customer_base_unit_price * transaction_details.qty), 0) as pre_promo_subtotal'
-                : 'COALESCE(SUM(transaction_details.price), 0) as pre_promo_subtotal')
-            ->selectRaw('COALESCE(SUM(transaction_details.price), 0) as after_promo_total')
+                : "COALESCE(SUM({$revenueExpression}), 0) as pre_promo_subtotal")
+            ->selectRaw("COALESCE(SUM({$revenueExpression}), 0) as after_promo_total")
             ->selectRaw($hasTenantNetTotal
                 ? 'COALESCE(SUM(transaction_details.tenant_net_total), 0) as cost_total'
                 : 'COALESCE(SUM(transaction_details.base_unit_price * transaction_details.qty), 0) as cost_total')
             ->selectRaw($hasOwnerNetTotal
                 ? 'COALESCE(SUM(transaction_details.owner_net_total), 0) as profit_total'
-                : 'COALESCE(SUM(transaction_details.price), 0) - COALESCE(SUM(transaction_details.base_unit_price * transaction_details.qty), 0) as profit_total')
+                : "COALESCE(SUM({$revenueExpression}), 0) - COALESCE(SUM(transaction_details.base_unit_price * transaction_details.qty), 0) as profit_total")
             ->selectRaw(($hasTenantDiscountTotal || $hasOwnerDiscountTotal)
                 ? 'COALESCE(SUM('.($hasTenantDiscountTotal ? 'transaction_details.tenant_discount_total' : '0').' + '.($hasOwnerDiscountTotal ? 'transaction_details.owner_discount_total' : '0').'), 0) as discount_total'
                 : '0 as discount_total')
@@ -877,14 +878,15 @@ class ProfitReportController extends Controller
         $hasTenantNetTotal = Schema::hasColumn('transaction_details', 'tenant_net_total');
         $hasOwnerNetTotal = Schema::hasColumn('transaction_details', 'owner_net_total');
         $hasTenantOutletId = Schema::hasColumn('transaction_details', 'tenant_outlet_id');
+        $revenueExpression = $this->modifierAwareRevenueExpression();
         $baseExpression = $hasTenantNetTotal
             ? 'COALESCE(transaction_details.tenant_net_total, 0)'
             : ($hasBaseUnitPrice
                 ? 'COALESCE(transaction_details.base_unit_price, 0) * COALESCE(transaction_details.qty, 0)'
-                : 'COALESCE(transaction_details.price, 0)');
+                : $revenueExpression);
         $profitExpression = $hasOwnerNetTotal
             ? 'COALESCE(transaction_details.owner_net_total, 0)'
-            : "COALESCE(transaction_details.price, 0) - {$baseExpression}";
+            : "{$revenueExpression} - {$baseExpression}";
 
         $rows = TransactionDetail::query()
             ->when(
@@ -895,7 +897,7 @@ class ProfitReportController extends Controller
             ->selectRaw($hasTenantOutletId ? 'transaction_details.tenant_outlet_id' : 'NULL as tenant_outlet_id')
             ->selectRaw('COUNT(*) as rows_count')
             ->selectRaw('COALESCE(SUM(transaction_details.qty), 0) as items_sold')
-            ->selectRaw('COALESCE(SUM(transaction_details.price), 0) as revenue_total')
+            ->selectRaw("COALESCE(SUM({$revenueExpression}), 0) as revenue_total")
             ->selectRaw("COALESCE(SUM({$baseExpression}), 0) as base_cost_total")
             ->selectRaw("COALESCE(SUM({$profitExpression}), 0) as profit_total")
             ->selectRaw($hasTenantOutletId ? 'MAX(tenant_outlets.name) as tenant_name' : 'NULL as tenant_name')
@@ -937,9 +939,10 @@ class ProfitReportController extends Controller
         $hasTenantOutletId = Schema::hasColumn('transaction_details', 'tenant_outlet_id');
         $hasTenantNetTotal = Schema::hasColumn('transaction_details', 'tenant_net_total');
         $hasOwnerNetTotal = Schema::hasColumn('transaction_details', 'owner_net_total');
+        $revenueExpression = $this->modifierAwareRevenueExpression();
         $baseExpression = $hasBaseUnitPrice
             ? 'COALESCE(transaction_details.base_unit_price, 0) * COALESCE(transaction_details.qty, 0)'
-            : 'COALESCE(transaction_details.price, 0)';
+            : $revenueExpression;
         $basisExpression = $hasTenantNetTotal
             ? 'COALESCE(transaction_details.tenant_net_total, 0)'
             : $baseExpression;
@@ -950,22 +953,22 @@ class ProfitReportController extends Controller
             ->join('transactions', 'transactions.id', '=', 'transaction_details.transaction_id')
             ->whereIn('transaction_details.transaction_id', clone $transactionIdQuery)
             ->selectRaw(ReportTimezone::sourceToDisplayDateExpression('transactions.created_at').' as day')
-            ->selectRaw('COALESCE(SUM(transaction_details.price), 0) as revenue_total')
+            ->selectRaw("COALESCE(SUM({$revenueExpression}), 0) as revenue_total")
             ->selectRaw("COALESCE(SUM({$basisExpression}), 0) as base_cost_total")
             ->selectRaw("COALESCE(SUM({$discountExpression}), 0) as discount_total")
             ->selectRaw($hasOwnerNetTotal
                 ? 'COALESCE(SUM(transaction_details.owner_net_total), 0) as owner_profit_total'
-                : "COALESCE(SUM(transaction_details.price), 0) - COALESCE(SUM({$basisExpression}), 0) as owner_profit_total")
+                : "COALESCE(SUM({$revenueExpression}), 0) - COALESCE(SUM({$basisExpression}), 0) as owner_profit_total")
             ->selectRaw($hasTenantOutletId ? "
                 COALESCE(SUM(
                     CASE
                         WHEN transaction_details.tenant_outlet_id IS NULL
                              OR transaction_details.tenant_outlet_id = ".(int) $outletId.'
-                        THEN transaction_details.price
+                        THEN '.$revenueExpression.'
                         ELSE 0
                     END
                 ), 0) as owner_direct_revenue_total
-            ' : 'COALESCE(SUM(transaction_details.price), 0) as owner_direct_revenue_total')
+            ' : "COALESCE(SUM({$revenueExpression}), 0) as owner_direct_revenue_total")
             ->selectRaw($hasTenantOutletId ? "
                 COALESCE(SUM(
                     CASE
@@ -985,7 +988,7 @@ class ProfitReportController extends Controller
                         ELSE 0
                     END
                 ), 0) as owner_direct_profit_total
-            " : "COALESCE(SUM(transaction_details.price), 0) - COALESCE(SUM({$basisExpression}), 0) as owner_direct_profit_total")
+            " : "COALESCE(SUM({$revenueExpression}), 0) - COALESCE(SUM({$basisExpression}), 0) as owner_direct_profit_total")
             ->groupBy('day')
             ->orderBy('day')
             ->get();
@@ -1067,7 +1070,7 @@ class ProfitReportController extends Controller
             : 0;
         $ownerDirectRevenueTotal = (int) $transaction->details
             ->filter(fn (TransactionDetail $detail) => ! $hasTenantOutletId || ! $detail->tenant_outlet_id || (int) $detail->tenant_outlet_id === (int) $outletId)
-            ->sum('price');
+            ->sum(fn (TransactionDetail $detail) => $this->detailRevenueTotal($detail));
         $ownerDirectBaseTotal = (int) $transaction->details
             ->filter(fn (TransactionDetail $detail) => ! $hasTenantOutletId || ! $detail->tenant_outlet_id || (int) $detail->tenant_outlet_id === (int) $outletId)
             ->sum(fn (TransactionDetail $detail) => ((int) ($detail->tenant_net_total ?? 0)) > 0
@@ -1101,7 +1104,7 @@ class ProfitReportController extends Controller
                     'id' => $detail->id,
                     'product_name' => $detail->product?->title ?? 'Produk',
                     'qty' => (int) $detail->qty,
-                    'line_total' => (int) $detail->price,
+                    'line_total' => $this->detailRevenueTotal($detail),
                     'base_cost_total' => ((int) ($detail->tenant_net_total ?? 0)) > 0
                         ? (int) $detail->tenant_net_total
                         : (((int) ($detail->base_unit_price ?? 0)) > 0
@@ -1190,28 +1193,31 @@ class ProfitReportController extends Controller
 
     protected function ownerDirectRevenueExpression(?int $outletId): string
     {
+        $revenueExpression = $this->modifierAwareRevenueExpression();
+
         if (! Schema::hasColumn('transaction_details', 'tenant_outlet_id')) {
-            return 'COALESCE(SUM(COALESCE(price, 0)), 0)';
+            return "COALESCE(SUM({$revenueExpression}), 0)";
         }
 
         return 'COALESCE(SUM(CASE
             WHEN tenant_outlet_id IS NULL OR tenant_outlet_id = '.(int) $outletId.'
-                THEN COALESCE(price, 0)
+                THEN '.$revenueExpression.'
             ELSE 0
         END), 0)';
     }
 
     protected function ownerDirectMarkupExpression(?int $outletId): string
     {
+        $revenueExpression = $this->modifierAwareRevenueExpression();
         $baseExpression = Schema::hasColumn('transaction_details', 'tenant_net_total')
             ? 'COALESCE(tenant_net_total, 0)'
             : (Schema::hasColumn('transaction_details', 'base_unit_price')
                 ? 'COALESCE(base_unit_price, 0) * COALESCE(qty, 0)'
-                : 'COALESCE(price, 0)');
+                : $revenueExpression);
 
         $profitExpression = Schema::hasColumn('transaction_details', 'owner_net_total')
             ? 'COALESCE(owner_net_total, 0)'
-            : 'GREATEST(0, COALESCE(price, 0) - '.$baseExpression.')';
+            : 'GREATEST(0, '.$revenueExpression.' - '.$baseExpression.')';
 
         if (! Schema::hasColumn('transaction_details', 'tenant_outlet_id')) {
             return "COALESCE(SUM({$profitExpression}), 0)";
@@ -1229,28 +1235,29 @@ class ProfitReportController extends Controller
         $hasBaseUnitPrice = Schema::hasColumn('transaction_details', 'base_unit_price');
         $hasTenantNetTotal = Schema::hasColumn('transaction_details', 'tenant_net_total');
         $hasOwnerNetTotal = Schema::hasColumn('transaction_details', 'owner_net_total');
+        $revenueExpression = $this->modifierAwareRevenueExpression();
         $baseCostExpression = $hasTenantNetTotal
             ? 'CASE
                 WHEN COALESCE(transaction_details.tenant_net_total, 0) > 0
                     THEN COALESCE(transaction_details.tenant_net_total, 0)
                 WHEN COALESCE(transaction_details.base_unit_price, 0) > 0
                     THEN COALESCE(transaction_details.base_unit_price, 0) * COALESCE(transaction_details.qty, 0)
-                ELSE COALESCE(transaction_details.price, 0)
+                ELSE '.$revenueExpression.'
             END'
             : ($hasBaseUnitPrice
                 ? 'CASE
                     WHEN COALESCE(transaction_details.base_unit_price, 0) > 0
                         THEN COALESCE(transaction_details.base_unit_price, 0) * COALESCE(transaction_details.qty, 0)
-                    ELSE COALESCE(transaction_details.price, 0)
+                    ELSE '.$revenueExpression.'
                 END'
-                : 'COALESCE(transaction_details.price, 0)');
+                : $revenueExpression);
 
         $aggregateQuery = TransactionDetail::query()
             ->join('transactions', 'transactions.id', '=', 'transaction_details.transaction_id')
             ->whereIn('transaction_details.transaction_id', (clone $baseQuery)->select('transactions.id'))
             ->selectRaw('transaction_details.transaction_id')
             ->selectRaw('MAX(transactions.invoice) as invoice')
-            ->selectRaw('MAX(transactions.grand_total) as grand_total')
+            ->selectRaw("COALESCE(SUM({$revenueExpression}), 0) as grand_total")
             ->selectRaw("COALESCE(SUM({$baseCostExpression}), 0) as base_cost_total")
             ->selectRaw($hasOwnerNetTotal
                 ? 'COALESCE(SUM(transaction_details.owner_net_total), 0) as owner_net_total_sum'
@@ -1469,6 +1476,8 @@ class ProfitReportController extends Controller
         $hasTenantOutletId = $this->hasColumn('transaction_details', 'tenant_outlet_id');
         $hasTenantNetTotal = $this->hasColumn('transaction_details', 'tenant_net_total');
         $hasOwnerNetTotal = $this->hasColumn('transaction_details', 'owner_net_total');
+        $modifierRevenueExpression = 'COALESCE(detail_modifier_totals.modifier_total, 0)';
+        $revenueExpression = "COALESCE(transaction_details.price, 0) + {$modifierRevenueExpression}";
         $baseExpression = $tenantWorkspace
             ? 'COALESCE(products.tenant_hpp_price, transaction_details.base_unit_price, 0) * COALESCE(transaction_details.qty, 0)'
             : ($hasTenantNetTotal
@@ -1477,15 +1486,22 @@ class ProfitReportController extends Controller
                 ? 'COALESCE(transaction_details.base_unit_price, 0) * COALESCE(transaction_details.qty, 0)'
                 : 'COALESCE(transaction_details.price, 0)'));
         $profitExpression = $tenantWorkspace
-            ? "COALESCE(SUM(transaction_details.price), 0) - COALESCE(SUM({$baseExpression}), 0)"
+            ? "COALESCE(SUM({$revenueExpression}), 0) - COALESCE(SUM({$baseExpression}), 0)"
             : ($hasOwnerNetTotal
                 ? 'COALESCE(SUM(transaction_details.owner_net_total), 0)'
-                : "COALESCE(SUM(transaction_details.price), 0) - COALESCE(SUM({$baseExpression}), 0)");
+                : "COALESCE(SUM({$revenueExpression}), 0) - COALESCE(SUM({$baseExpression}), 0)");
 
         return $this->applyItemFilters(
             TransactionDetail::query()
                 ->join('transactions', 'transactions.id', '=', 'transaction_details.transaction_id')
                 ->leftJoin('products', 'products.id', '=', 'transaction_details.product_id')
+                ->leftJoinSub(
+                    DB::table('transaction_detail_modifiers')
+                        ->selectRaw('transaction_detail_id, COALESCE(SUM(total_price), 0) as modifier_total')
+                        ->groupBy('transaction_detail_id'),
+                    'detail_modifier_totals',
+                    fn ($join) => $join->on('detail_modifier_totals.transaction_detail_id', '=', 'transaction_details.id')
+                )
                 ->when(
                     $hasTenantOutletId,
                     fn ($query) => $query->leftJoin('outlets as tenant_outlets', 'tenant_outlets.id', '=', 'transaction_details.tenant_outlet_id')
@@ -1496,7 +1512,7 @@ class ProfitReportController extends Controller
                 ->selectRaw($hasTenantOutletId ? 'MAX(tenant_outlets.name) as tenant_outlet_name' : 'NULL as tenant_outlet_name')
                 ->selectRaw('COUNT(DISTINCT transaction_details.transaction_id) as orders_count')
                 ->selectRaw('COALESCE(SUM(transaction_details.qty), 0) as qty_sold')
-                ->selectRaw('COALESCE(SUM(transaction_details.price), 0) as revenue_total')
+                ->selectRaw("COALESCE(SUM({$revenueExpression}), 0) as revenue_total")
                 ->selectRaw("COALESCE(SUM({$baseExpression}), 0) as base_cost_total")
                 ->selectRaw("{$profitExpression} as gross_profit_total")
                 ->selectRaw($this->hasColumn('transaction_details', 'tenant_discount_total') ? 'COALESCE(SUM(transaction_details.tenant_discount_total), 0) as tenant_discount_total' : '0 as tenant_discount_total')
@@ -1507,6 +1523,25 @@ class ProfitReportController extends Controller
                 ->groupBy('transaction_details.product_id'),
             $filters
         );
+    }
+
+    protected function detailRevenueTotal(TransactionDetail $detail): int
+    {
+        return (int) $detail->price + $this->detailModifierTotal($detail);
+    }
+
+    protected function detailModifierTotal(TransactionDetail $detail): int
+    {
+        if (! $detail->relationLoaded('modifiers')) {
+            return 0;
+        }
+
+        return (int) $detail->modifiers->sum(fn ($modifier) => (int) ($modifier->total_price ?? 0));
+    }
+
+    protected function modifierAwareRevenueExpression(): string
+    {
+        return 'COALESCE(transaction_details.price, 0) + COALESCE((SELECT SUM(transaction_detail_modifiers.total_price) FROM transaction_detail_modifiers WHERE transaction_detail_modifiers.transaction_detail_id = transaction_details.id), 0)';
     }
 
     protected function applyItemFilters($query, array $filters)

@@ -32,7 +32,7 @@ class FoodcourtTenantAllocationService
 
     private function syncAllocationsForTransaction(Transaction $transaction, ?Collection $returnedQtyMap = null): Collection
     {
-        $transaction->loadMissing('details');
+        $transaction->loadMissing('details.modifiers');
         $returnedQtyMap ??= collect();
 
         $details = $transaction->details
@@ -245,10 +245,18 @@ class FoodcourtTenantAllocationService
     private function tenantLineTotal(TransactionDetail $detail): int
     {
         $tenantNetTotal = (int) ($detail->tenant_net_total ?? 0);
+        $modifierTotal = $this->modifierLineTotal($detail);
 
         return $tenantNetTotal > 0
-            ? $tenantNetTotal
+            ? $tenantNetTotal + $modifierTotal
             : (int) ($detail->price ?? 0);
+    }
+
+    private function modifierLineTotal(TransactionDetail $detail): int
+    {
+        return (int) $detail->modifiers->sum(
+            fn ($modifier) => (int) ($modifier->total_price ?? 0)
+        );
     }
 
     private function tenantBaseUnitPrice(TransactionDetail $detail): int

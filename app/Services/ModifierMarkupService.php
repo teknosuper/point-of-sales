@@ -13,13 +13,14 @@ class ModifierMarkupService
     public function settingsPayload(?int $outletId = null): array
     {
         return [
+            'scope' => 'global',
             'rules' => $this->getRules($outletId)->all(),
         ];
     }
 
     public function getRules(?int $outletId = null): Collection
     {
-        $raw = Setting::get(self::SETTING_KEY, '[]', $outletId);
+        $raw = Setting::get(self::SETTING_KEY, '[]', null);
         $decoded = is_string($raw) ? json_decode($raw, true) : $raw;
 
         if (! is_array($decoded)) {

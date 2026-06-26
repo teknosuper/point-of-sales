@@ -318,6 +318,7 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
     Route::patch('/transactions/{cart_id}/updateCart', [TransactionController::class, 'updateCart'])->middleware(['permission:transactions-access', 'active_shift'])->name('transactions.updateCart');
     Route::patch('/transactions/{cart_id}/notes', [TransactionController::class, 'updateCartNotes'])->middleware(['permission:transactions-access', 'active_shift'])->name('transactions.updateCartNotes');
     Route::post('/transactions/{cart_id}/modifiers', [TransactionController::class, 'storeCartModifier'])->middleware(['permission:transactions-access', 'active_shift'])->name('transactions.storeCartModifier');
+    Route::put('/transactions/{cart_id}/modifiers', [TransactionController::class, 'syncCartModifiers'])->middleware(['permission:transactions-access', 'active_shift'])->name('transactions.syncCartModifiers');
     Route::patch('/transactions/{cart_id}/modifiers/{modifier}', [TransactionController::class, 'updateCartModifier'])->middleware(['permission:transactions-access', 'active_shift'])->name('transactions.updateCartModifier');
     Route::delete('/transactions/{cart_id}/modifiers/{modifier}', [TransactionController::class, 'destroyCartModifier'])->middleware(['permission:transactions-access', 'active_shift'])->name('transactions.destroyCartModifier');
     Route::patch('/transactions/{cart_id}/tenant', [TransactionController::class, 'updateCartTenant'])->middleware(['permission:transactions-access', 'active_shift'])->name('transactions.updateCartTenant');

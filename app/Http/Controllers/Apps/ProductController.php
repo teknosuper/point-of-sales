@@ -349,6 +349,7 @@ class ProductController extends Controller
                 ? collect([$activeOutlet])->map(fn (Outlet $outlet) => $outlet->only(['id', 'name', 'code', 'outlet_type']))->values()
                 : $this->accessibleTenantOutlets($request),
             'autoKitchenStations' => $this->autoKitchenStationHints($request),
+            'toppingMarkupSettings' => $this->modifierMarkupService->settingsPayload(),
             'workspace' => [
                 'is_tenant' => $isTenantWorkspace,
                 'active_outlet_id' => $activeOutlet?->id,
@@ -548,6 +549,7 @@ class ProductController extends Controller
                 : $this->accessibleTenantOutlets($request),
             'autoKitchenStations' => $this->autoKitchenStationHints($request),
             'outletStocks' => $outletStocks,
+            'toppingMarkupSettings' => $this->modifierMarkupService->settingsPayload(),
             'activePricingRules' => $this->pricingService->describeProductRules(
                 $product,
                 null,
