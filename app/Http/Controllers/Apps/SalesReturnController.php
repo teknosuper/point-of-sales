@@ -254,7 +254,8 @@ class SalesReturnController extends Controller
 
                     $detail = $item->transactionDetail;
                     $buyPrice = (int) ($item->product?->buy_price ?? 0);
-                    $margin = ((int) $detail->price - $buyPrice) * (int) $item->qty_return;
+                    $unitPrice = (int) ($item->unit_price ?: $this->resolveTransactionDetailUnitPrice($detail));
+                    $margin = ($unitPrice - $buyPrice) * (int) $item->qty_return;
 
                     Profit::create([
                         'transaction_id' => $salesReturn->transaction_id,
@@ -482,6 +483,7 @@ class SalesReturnController extends Controller
 
                 $draftItem = $draftItems->get($detail->id);
                 $qtySold = (int) $detail->qty;
+                $unitPrice = $this->resolveTransactionDetailUnitPrice($detail);
 
                 return [
                     'id' => $detail->id,
@@ -493,7 +495,7 @@ class SalesReturnController extends Controller
                         'sku' => $detail->product->sku,
                     ] : null,
                     'qty' => $qtySold,
-                    'price' => (int) $detail->price,
+                    'price' => $unitPrice,
                     'returned_completed_qty' => $completedReturnedQty,
                     'remaining_returnable_qty' => max(0, $qtySold - $completedReturnedQty),
                     'draft_item' => $draftItem ? [
@@ -576,9 +578,32 @@ class SalesReturnController extends Controller
             $returnType = 'refund_cash';
         }
 
-        $items = collect($validated['items'])
+        $normalizedItems = collect($validated['items'])
+            ->map(function (array $item) {
+                return [
+                    'transaction_detail_id' => (int) ($item['transaction_detail_id'] ?? 0),
+                    'qty_return' => (int) ($item['qty_return'] ?? 0),
+                    'return_reason' => trim((string) ($item['return_reason'] ?? '')),
+                    'restock_to_inventory' => (bool) ($item['restock_to_inventory'] ?? true),
+                ];
+            })
+            ->filter(fn (array $item) => $item['transaction_detail_id'] > 0)
+            ->groupBy('transaction_detail_id')
+            ->map(function (Collection $group) {
+                $last = $group->last();
+
+                return [
+                    'transaction_detail_id' => (int) $last['transaction_detail_id'],
+                    'qty_return' => (int) $last['qty_return'],
+                    'return_reason' => (string) $last['return_reason'],
+                    'restock_to_inventory' => (bool) $last['restock_to_inventory'],
+                ];
+            })
+            ->values();
+
+        $items = $normalizedItems
             ->map(function (array $item) use ($details, $returnedQtyMap) {
-                $detail = $details->get((int) $item['transaction_detail_id']);
+                $detail = $details->get($item['transaction_detail_id']);
 
                 if (! $detail) {
                     throw ValidationException::withMessages([
@@ -607,16 +632,18 @@ class SalesReturnController extends Controller
                     ]);
                 }
 
+                $unitPrice = $this->resolveTransactionDetailUnitPrice($detail);
+
                 return [
                     'transaction_detail_id' => $detail->id,
                     'product_id' => $detail->product_id,
                     'qty_sold' => (int) $detail->qty,
                     'qty_returned_before' => $qtyReturnedBefore,
                     'qty_return' => $qtyReturn,
-                    'unit_price' => (int) $detail->price,
-                    'subtotal' => $qtyReturn * (int) $detail->price,
-                    'return_reason' => trim($item['return_reason']),
-                    'restock_to_inventory' => (bool) ($item['restock_to_inventory'] ?? true),
+                    'unit_price' => $unitPrice,
+                    'subtotal' => $qtyReturn * $unitPrice,
+                    'return_reason' => $item['return_reason'],
+                    'restock_to_inventory' => $item['restock_to_inventory'],
                 ];
             })
             ->filter()
@@ -676,6 +703,20 @@ class SalesReturnController extends Controller
             'credited_amount' => $creditedAmount,
             'receivable_total_after' => $receivableTotalAfter,
         ];
+    }
+
+    private function resolveTransactionDetailUnitPrice(TransactionDetail $detail): int
+    {
+        $unitPrice = (int) ($detail->unit_price ?? 0);
+
+        if ($unitPrice > 0) {
+            return $unitPrice;
+        }
+
+        $qty = max(1, (int) ($detail->qty ?? 0));
+        $lineTotal = (int) ($detail->price ?? 0);
+
+        return (int) round($lineTotal / $qty);
     }
 
     private function determineReceivableStatus(int $total, int $paid, $dueDate): string

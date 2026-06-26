@@ -7,6 +7,7 @@ import {
     IconArrowLeft,
     IconCheck,
     IconDeviceFloppy,
+    IconEdit,
     IconKeyboard,
     IconMinus,
     IconPlus,
@@ -65,6 +66,7 @@ export default function SalesReturnForm({
     completeRoute = null,
 }) {
     const isWalkInTransaction = !transaction.customer;
+    const [isEditingDraft, setIsEditingDraft] = useState(!salesReturn);
     const [numpadState, setNumpadState] = useState({
         open: false,
         itemId: null,
@@ -103,6 +105,8 @@ export default function SalesReturnForm({
         });
     }, [salesReturn, itemDefaults]);
 
+    const isEditable = canEdit && (!salesReturn || isEditingDraft);
+
     const itemStates = useMemo(() => {
         const itemMap = new Map(
             form.data.items.map((item) => [item.transaction_detail_id, item])
@@ -116,6 +120,11 @@ export default function SalesReturnForm({
             };
             const qtyReturn = Number(current.qty_return || 0);
             const subtotal = qtyReturn * Number(detail.price || 0);
+            const savedDraftQty = Number(detail.draft_item?.qty_return || 0);
+            const remainingAfterDraft = Math.max(
+                0,
+                Number(detail.remaining_returnable_qty || 0) - qtyReturn
+            );
 
             return {
                 ...detail,
@@ -123,6 +132,8 @@ export default function SalesReturnForm({
                 return_reason: current.return_reason || "",
                 restock_to_inventory: Boolean(current.restock_to_inventory),
                 subtotal,
+                saved_draft_qty: savedDraftQty,
+                remaining_after_draft_qty: remainingAfterDraft,
             };
         });
     }, [form.data.items, transaction.details]);
@@ -231,6 +242,19 @@ export default function SalesReturnForm({
             return;
         }
 
+        const invalidItem = itemStates.find(
+            (item) =>
+                item.qty_return < 0 ||
+                item.qty_return > Number(item.remaining_returnable_qty || 0)
+        );
+
+        if (invalidItem) {
+            toast.error(
+                `Qty retur untuk ${invalidItem.product?.title || "item terpilih"} melebihi sisa yang bisa diretur.`
+            );
+            return;
+        }
+
         const result = await Swal.fire({
             title: salesReturn ? "Perbarui draft retur?" : "Buat draft retur?",
             html: `
@@ -275,6 +299,30 @@ export default function SalesReturnForm({
         submit({
             preventDefault: () => {},
         });
+
+    const startEditDraft = () => {
+        form.setData({
+            return_type:
+                salesReturn?.return_type && transaction.customer
+                    ? salesReturn.return_type
+                    : "refund_cash",
+            notes: salesReturn?.notes ?? "",
+            items: itemDefaults,
+        });
+        setIsEditingDraft(true);
+    };
+
+    const cancelEditDraft = () => {
+        form.setData({
+            return_type:
+                salesReturn?.return_type && transaction.customer
+                    ? salesReturn.return_type
+                    : "refund_cash",
+            notes: salesReturn?.notes ?? "",
+            items: itemDefaults,
+        });
+        setIsEditingDraft(false);
+    };
 
     const complete = async () => {
         if (!summary.hasSelectedItems) {
@@ -424,19 +472,39 @@ export default function SalesReturnForm({
                                     </div>
                                 )}
                             </div>
-                            {canEdit && (
-                                <Button
-                                    type="submit"
-                                    icon={<IconDeviceFloppy size={18} />}
-                                    className="bg-primary-500 text-white hover:bg-primary-600 lg:self-start"
-                                    label={
-                                        salesReturn
-                                            ? "Perbarui Draft"
-                                            : "Buat Draft"
-                                    }
-                                    disabled={form.processing}
-                                />
-                            )}
+                            <div className="flex flex-wrap gap-2 lg:self-start">
+                                {salesReturn && canEdit && !isEditingDraft ? (
+                                    <Button
+                                        type="button"
+                                        icon={<IconEdit size={18} />}
+                                        className="bg-primary-500 text-white hover:bg-primary-600"
+                                        label="Edit Draft"
+                                        onClick={startEditDraft}
+                                    />
+                                ) : null}
+                                {salesReturn && isEditable ? (
+                                    <Button
+                                        type="button"
+                                        className="border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                        label="Batal Edit"
+                                        onClick={cancelEditDraft}
+                                        disabled={form.processing}
+                                    />
+                                ) : null}
+                                {isEditable ? (
+                                    <Button
+                                        type="submit"
+                                        icon={<IconDeviceFloppy size={18} />}
+                                        className="bg-primary-500 text-white hover:bg-primary-600"
+                                        label={
+                                            salesReturn
+                                                ? "Perbarui Draft"
+                                                : "Buat Draft"
+                                        }
+                                        disabled={form.processing}
+                                    />
+                                ) : null}
+                            </div>
                         </div>
 
                         <div className="space-y-4">
@@ -466,7 +534,7 @@ export default function SalesReturnForm({
                                                 </p>
                                             </div>
 
-                                            <div className="grid gap-2 sm:grid-cols-3">
+                                            <div className="grid gap-2 sm:grid-cols-4">
                                                 <MiniStat
                                                     label="Qty Beli"
                                                     value={item.qty}
@@ -476,8 +544,12 @@ export default function SalesReturnForm({
                                                     value={item.returned_completed_qty}
                                                 />
                                                 <MiniStat
-                                                    label="Sisa Bisa Diretur"
-                                                    value={item.remaining_returnable_qty}
+                                                    label="Di Draft"
+                                                    value={item.saved_draft_qty}
+                                                />
+                                                <MiniStat
+                                                    label="Sisa Setelah Draft"
+                                                    value={item.remaining_after_draft_qty}
                                                     accent
                                                 />
                                             </div>
@@ -506,7 +578,7 @@ export default function SalesReturnForm({
                                                 <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white p-2 dark:border-slate-700 dark:bg-slate-900">
                                                     <button
                                                         type="button"
-                                                        disabled={!canEdit || item.qty_return <= 0}
+                                                        disabled={!isEditable || item.qty_return <= 0}
                                                         onClick={() =>
                                                             adjustQty(
                                                                 item.id,
@@ -519,7 +591,7 @@ export default function SalesReturnForm({
                                                     </button>
                                                     <button
                                                         type="button"
-                                                        disabled={!canEdit}
+                                                        disabled={!isEditable}
                                                         onClick={() => openQtyNumpad(item)}
                                                         className="flex h-11 min-w-0 flex-1 items-center justify-between rounded-xl bg-slate-50 px-4 text-left transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-slate-800 dark:hover:bg-slate-700"
                                                     >
@@ -534,7 +606,7 @@ export default function SalesReturnForm({
                                                     <button
                                                         type="button"
                                                         disabled={
-                                                            !canEdit ||
+                                                            !isEditable ||
                                                             item.qty_return >=
                                                                 item.remaining_returnable_qty
                                                         }
@@ -555,7 +627,7 @@ export default function SalesReturnForm({
                                                     min="0"
                                                     max={item.remaining_returnable_qty}
                                                     value={item.qty_return}
-                                                    disabled={!canEdit}
+                                                    disabled={!isEditable}
                                                     onChange={(event) =>
                                                         adjustQty(
                                                             item.id,
@@ -567,6 +639,9 @@ export default function SalesReturnForm({
                                             </div>
                                             <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
                                                 Maksimal {item.remaining_returnable_qty} item
+                                                {item.qty_return > 0
+                                                    ? ` • sisa setelah draft ${item.remaining_after_draft_qty} item`
+                                                    : ""}
                                             </p>
                                         </div>
 
@@ -577,7 +652,7 @@ export default function SalesReturnForm({
                                             <textarea
                                                 rows={3}
                                                 value={item.return_reason}
-                                                disabled={!canEdit}
+                                                disabled={!isEditable}
                                                 onChange={(event) =>
                                                     updateItem(
                                                         item.id,
@@ -593,7 +668,7 @@ export default function SalesReturnForm({
                                                     <button
                                                         key={reason}
                                                         type="button"
-                                                        disabled={!canEdit}
+                                                        disabled={!isEditable}
                                                         onClick={() =>
                                                             updateItem(
                                                                 item.id,
@@ -618,7 +693,7 @@ export default function SalesReturnForm({
                                         <input
                                             type="checkbox"
                                             checked={item.restock_to_inventory}
-                                            disabled={!canEdit}
+                                            disabled={!isEditable}
                                             onChange={(event) =>
                                                 updateItem(
                                                     item.id,
@@ -663,7 +738,7 @@ export default function SalesReturnForm({
                                     </label>
                                     <select
                                         value={form.data.return_type}
-                                        disabled={!canEdit || isWalkInTransaction}
+                                        disabled={!isEditable || isWalkInTransaction}
                                         onChange={(event) =>
                                             form.setData(
                                                 "return_type",
@@ -697,7 +772,7 @@ export default function SalesReturnForm({
                                     <textarea
                                         rows={4}
                                         value={form.data.notes}
-                                        disabled={!canEdit}
+                                        disabled={!isEditable}
                                         onChange={(event) =>
                                             form.setData(
                                                 "notes",
@@ -813,7 +888,16 @@ export default function SalesReturnForm({
                             Selesaikan
                         </button>
                     ) : null}
-                    {canEdit ? (
+                    {salesReturn && canEdit && !isEditingDraft ? (
+                        <button
+                            type="button"
+                            onClick={startEditDraft}
+                            className="inline-flex h-11 items-center justify-center rounded-xl bg-primary-500 px-4 text-sm font-semibold text-white transition hover:bg-primary-600"
+                        >
+                            Edit Draft
+                        </button>
+                    ) : null}
+                    {isEditable ? (
                         <button
                             type="button"
                             onClick={handleSaveDraftClick}

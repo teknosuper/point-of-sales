@@ -15,6 +15,7 @@ use App\Models\Transaction;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
+use Inertia\Testing\AssertableInertia as Assert;
 use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
 
@@ -130,6 +131,52 @@ class SalesReturnTest extends TestCase
 
         $response->assertInvalid(['items']);
         $this->assertDatabaseCount('sales_returns', 1);
+    }
+
+    public function test_sales_return_create_uses_unit_price_instead_of_line_total_for_multi_qty_item(): void
+    {
+        $user = $this->createUserWithPermissions([
+            'transactions-access',
+            'sales-returns-access',
+            'sales-returns-create',
+        ]);
+
+        [$transaction, $detail] = $this->createTransaction($user, qty: 2);
+
+        $detail->update([
+            'unit_price' => 64000,
+            'price' => 128000,
+        ]);
+
+        $this->actingAs($user)
+            ->get(route('sales-returns.create', $transaction))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Dashboard/SalesReturns/Create')
+                ->where('transaction.details.0.price', 64000)
+                ->where('transaction.details.0.qty', 2)
+            );
+
+        $this->actingAs($user)
+            ->post(route('sales-returns.store', $transaction), [
+                'return_type' => 'refund_cash',
+                'notes' => 'Retur satu item',
+                'items' => [
+                    [
+                        'transaction_detail_id' => $detail->id,
+                        'qty_return' => 1,
+                        'return_reason' => 'Tes harga satuan',
+                        'restock_to_inventory' => true,
+                    ],
+                ],
+            ]);
+
+        $this->assertDatabaseHas('sales_return_items', [
+            'transaction_detail_id' => $detail->id,
+            'qty_return' => 1,
+            'unit_price' => 64000,
+            'subtotal' => 64000,
+        ]);
     }
 
     public function test_complete_sales_return_restocks_product_and_creates_mutation(): void

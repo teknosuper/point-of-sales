@@ -4,7 +4,7 @@ import KitchenTicketPreview from "@/Components/Dashboard/KitchenTicketPreview";
 import Modal from "@/Components/Dashboard/Modal";
 import SoundTestPanel from "@/Components/Dashboard/SoundTestPanel";
 import { Head, Link, router, usePage } from "@inertiajs/react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Swal from "sweetalert2";
 import {
     IconCheck,
@@ -691,8 +691,11 @@ const resolveKitchenSelectionState = (ticket, selectedItemIds = []) => {
     ).length;
     const readyToDeliver = items.filter(
         (item) =>
-            item.status === "completed" &&
-            ["ready", "picked_up"].includes(normalizeKitchenServiceStatus(item))
+            ["pending", "acknowledged"].includes(item.status) ||
+            (item.status === "completed" &&
+                ["ready", "picked_up"].includes(
+                    normalizeKitchenServiceStatus(item)
+                ))
     ).length;
 
     return {
@@ -798,6 +801,7 @@ export default function KitchenIndex({
     const audioContextRef = useRef(null);
     const audioRef = useRef(null);
     const audioUnlockedRef = useRef(false);
+    const errorSoundUrlRef = useRef(undefined);
     const fetchBoardDataRef = useRef(null);
     const boardStateRef = useRef(
         buildBoardState({ activeStation, tickets, refreshMeta, filters, selectedDevice })
@@ -932,6 +936,65 @@ export default function KitchenIndex({
         };
     }, []);
 
+    const loadErrorSoundUrl = useCallback(async () => {
+        if (errorSoundUrlRef.current !== undefined) {
+            return errorSoundUrlRef.current;
+        }
+
+        try {
+            const response = await fetch(
+                `${window.location.origin}/dashboard/settings/notification-sounds/data?type=error`,
+                {
+                    credentials: "include",
+                    headers: {
+                        "X-Requested-With": "XMLHttpRequest",
+                        Accept: "application/json",
+                    },
+                }
+            );
+            const contentType = response.headers.get("content-type");
+
+            if (!response.ok || !contentType?.includes("application/json")) {
+                errorSoundUrlRef.current = null;
+                return null;
+            }
+
+            const data = await response.json();
+            const activeSound = (data?.data || []).find(
+                (sound) => sound?.is_active && sound?.url
+            );
+
+            errorSoundUrlRef.current = activeSound?.url || null;
+
+            return errorSoundUrlRef.current;
+        } catch (_) {
+            errorSoundUrlRef.current = null;
+            return null;
+        }
+    }, []);
+
+    const playErrorSound = useCallback(async () => {
+        if (!audioUnlockedRef.current) {
+            return;
+        }
+
+        const audioUrl = await loadErrorSoundUrl();
+
+        if (!audioUrl) {
+            return;
+        }
+
+        try {
+            if (!audioRef.current || audioRef.current.src !== audioUrl) {
+                audioRef.current = new Audio(audioUrl);
+                audioRef.current.volume = 1.0;
+            }
+
+            audioRef.current.currentTime = 0;
+            await audioRef.current.play();
+        } catch (_) {}
+    }, [loadErrorSoundUrl]);
+
     // Failed print alert modal
     useEffect(() => {
         const tickets = boardState.tickets?.data || [];
@@ -965,6 +1028,8 @@ export default function KitchenIndex({
             )
             .join("");
 
+        void playErrorSound();
+
         Swal.fire({
             icon: "warning",
             title: "Cetak Gagal",
@@ -978,7 +1043,7 @@ export default function KitchenIndex({
                 ? "#e2e8f0"
                 : undefined,
         });
-    }, [boardState.tickets]);
+    }, [boardState.tickets, playErrorSound]);
 
     // playNotificationSound - now uses database sounds via KitchenNotificationProvider
 
@@ -1040,13 +1105,24 @@ const resolveEligibleKitchenDeliveredItemIds = (ticket) =>
         )
         .map((item) => Number(item.id));
 
-    const resolveSelectedKitchenActionItemIds = (ticket, allowedStatuses = []) => {
-        const eligibleItemIds = resolveEligibleKitchenItemIds(ticket, allowedStatuses);
-        const selectedItemIds = (selectedItemIdsByTicket[ticket?.id] || [])
+const resolveSelectedKitchenActionItemIds = (ticket, allowedStatuses = []) => {
+    const eligibleItemIds = resolveEligibleKitchenItemIds(ticket, allowedStatuses);
+    const selectedItemIds = (selectedItemIdsByTicket[ticket?.id] || [])
+        .map(Number)
+        .filter((itemId) => eligibleItemIds.includes(itemId));
+
+    return selectedItemIds.length > 0 ? selectedItemIds : eligibleItemIds;
+};
+
+    const resolveSelectedKitchenDeliveredItemIds = (ticket, selectedItemIds = []) => {
+        const eligibleItemIds = resolveEligibleKitchenDeliveredItemIds(ticket);
+        const filteredSelectedItemIds = selectedItemIds
             .map(Number)
             .filter((itemId) => eligibleItemIds.includes(itemId));
 
-        return selectedItemIds.length > 0 ? selectedItemIds : eligibleItemIds;
+        return filteredSelectedItemIds.length > 0
+            ? filteredSelectedItemIds
+            : eligibleItemIds;
     };
 
     const confirmTicketAction = async ({
@@ -2100,16 +2176,25 @@ const resolveEligibleKitchenDeliveredItemIds = (ticket) =>
                                                 const selectionState = resolveKitchenSelectionState(ticket, selectedIds);
                                                 const selectionMode = resolveKitchenSelectionMode(ticket, selectedIds);
                                                 const readOnlyReturnedTicket = isReturnedKitchenTicket(ticket);
+                                                const readyItemIds = resolveSelectedKitchenActionItemIds(
+                                                    ticket,
+                                                    ["pending", "acknowledged"]
+                                                );
+                                                const deliverItemIds =
+                                                    resolveSelectedKitchenDeliveredItemIds(
+                                                        ticket,
+                                                        selectedIds
+                                                    );
                                                 const canMarkReady =
                                                     !readOnlyReturnedTicket && (selectionState.totalSelected > 0
-                                                        ? selectionState.readyToMark > 0 &&
+                                                        ? readyItemIds.length > 0 &&
                                                           !selectionState.hasMixedAction &&
                                                           selectionState.readyToDeliver === 0
-                                                        : actionCounts.readyToMark > 0);
+                                                        : readyItemIds.length > 0);
                                                 const canDeliver =
                                                     !readOnlyReturnedTicket && (selectionState.totalSelected > 0
-                                                        ? selectionState.readyToDeliver > 0
-                                                        : actionCounts.readyToDeliver > 0);
+                                                        ? deliverItemIds.length > 0
+                                                        : deliverItemIds.length > 0);
                                                 const actionBusy = Boolean(
                                                     submittingActionByTicket[ticket.id]
                                                 );
@@ -2466,16 +2551,25 @@ const resolveEligibleKitchenDeliveredItemIds = (ticket) =>
                                                             const selectionState = resolveKitchenSelectionState(ticket, selectedIds);
                                                             const selectionMode = resolveKitchenSelectionMode(ticket, selectedIds);
                                                             const readOnlyReturnedTicket = isReturnedKitchenTicket(ticket);
+                                                            const readyItemIds = resolveSelectedKitchenActionItemIds(
+                                                                ticket,
+                                                                ["pending", "acknowledged"]
+                                                            );
+                                                            const deliverItemIds =
+                                                                resolveSelectedKitchenDeliveredItemIds(
+                                                                    ticket,
+                                                                    selectedIds
+                                                                );
                                                             const canMarkReady =
                                                                 !readOnlyReturnedTicket && (selectionState.totalSelected > 0
-                                                                    ? selectionState.readyToMark > 0 &&
+                                                                    ? readyItemIds.length > 0 &&
                                                                       !selectionState.hasMixedAction &&
                                                                       selectionState.readyToDeliver === 0
-                                                                    : actionCounts.readyToMark > 0);
+                                                                    : readyItemIds.length > 0);
                                                             const canDeliver =
                                                                 !readOnlyReturnedTicket && (selectionState.totalSelected > 0
-                                                                    ? selectionState.readyToDeliver > 0
-                                                                    : actionCounts.readyToDeliver > 0);
+                                                                    ? deliverItemIds.length > 0
+                                                                    : deliverItemIds.length > 0);
                                                             const actionBusy = Boolean(
                                                                 submittingActionByTicket[ticket.id]
                                                             );

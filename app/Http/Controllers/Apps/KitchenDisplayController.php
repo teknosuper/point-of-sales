@@ -36,6 +36,7 @@ class KitchenDisplayController extends Controller
         $kioskMode = $request->boolean('kiosk');
         $filters = $this->filtersPayload($request);
         $stations = $this->visibleStations($request, $outlet);
+        $stations->each(fn (KitchenStation $station) => $this->autoCompleteDeliveredTickets($station, $request->user()?->id));
 
         $activeStation = $stations->first();
         $this->autoAcknowledgePendingTickets($activeStation, $request->user()?->id);
@@ -98,6 +99,7 @@ class KitchenDisplayController extends Controller
         $kioskMode = $request->boolean('kiosk');
         $filters = $this->filtersPayload($request);
         $stations = $this->visibleStations($request, $outlet);
+        $stations->each(fn (KitchenStation $station) => $this->autoCompleteDeliveredTickets($station, $request->user()?->id));
         $kitchenStation = $stations->firstWhere('slug', $stationSlug);
         abort_if(! $kitchenStation, 404);
         $this->autoAcknowledgePendingTickets($kitchenStation, $request->user()?->id);
@@ -129,6 +131,7 @@ class KitchenDisplayController extends Controller
         $filters = $this->filtersPayload($request);
         $station = $this->visibleStations($request, $outlet)->firstWhere('slug', $stationSlug);
         abort_if(! $station, 404);
+        $this->autoCompleteDeliveredTickets($station, $request->user()?->id);
 
         $preferredStationId = $request->user()?->preferred_kitchen_station_id;
         abort_if(
@@ -330,6 +333,7 @@ class KitchenDisplayController extends Controller
         );
 
         $ticketDetailIds = $kitchenTicket->items()
+            ->get()
             ->pipe(fn (Collection $items) => $this->filterReturnedKitchenTicketItems($items))
             ->pluck('transaction_detail_id')
             ->filter()
@@ -702,12 +706,23 @@ class KitchenDisplayController extends Controller
         $displayStatusKey = $activeItems->isEmpty() && $returnedItems->isNotEmpty()
             ? 'returned'
             : (string) ($ticket->status ?: 'pending');
+        $allActiveItemsDelivered = $activeItems->isNotEmpty()
+            && $activeItems->every(
+                fn (array $item) => $item['status'] === 'completed'
+                    && $item['resolved_service_status'] === 'delivered'
+            );
+        $effectiveTicketStatus = $allActiveItemsDelivered
+            ? 'completed'
+            : (string) ($ticket->status ?: 'pending');
+        $displayStatusKey = $activeItems->isEmpty() && $returnedItems->isNotEmpty()
+            ? 'returned'
+            : $effectiveTicketStatus;
         $displayItems = $statusFilter === 'returned' ? $returnedItems : $activeItems;
 
         return [
             'id' => $ticket->id,
             'ticket_number' => $ticket->ticket_number,
-            'status' => $ticket->status,
+            'status' => $effectiveTicketStatus,
             'display_status_key' => $displayStatusKey,
             'has_return_activity' => $returnedItems->isNotEmpty(),
             'is_fully_returned' => $activeItems->isEmpty() && $returnedItems->isNotEmpty(),
@@ -858,6 +873,69 @@ class KitchenDisplayController extends Controller
                 'created_at' => now(),
             ]);
         }
+    }
+
+    private function autoCompleteDeliveredTickets(?KitchenStation $station, ?int $userId = null): void
+    {
+        if (! $station) {
+            return;
+        }
+
+        KitchenTicket::query()
+            ->with('items:id,kitchen_ticket_id,transaction_detail_id,qty,status')
+            ->where('outlet_id', $station->outlet_id)
+            ->where('kitchen_station_id', $station->id)
+            ->whereIn('status', ['pending', 'acknowledged', 'ready'])
+            ->get()
+            ->each(function (KitchenTicket $ticket) use ($userId) {
+                $activeItems = $this->filterReturnedKitchenTicketItems($ticket->items);
+
+                if ($activeItems->isEmpty()) {
+                    return;
+                }
+
+                $detailIds = $activeItems
+                    ->pluck('transaction_detail_id')
+                    ->filter()
+                    ->map(fn ($id) => (int) $id)
+                    ->unique()
+                    ->values();
+
+                if ($detailIds->isEmpty()) {
+                    return;
+                }
+
+                $serviceStatusMap = TransactionTenantAllocationItem::query()
+                    ->whereIn('transaction_detail_id', $detailIds->all())
+                    ->get(['transaction_detail_id', 'service_status'])
+                    ->keyBy(fn ($item) => (int) $item->transaction_detail_id);
+
+                $allDelivered = $detailIds->every(
+                    fn (int $detailId) => optional($serviceStatusMap->get($detailId))->service_status === 'delivered'
+                );
+
+                if (! $allDelivered) {
+                    return;
+                }
+
+                $timestamp = now();
+
+                $ticket->forceFill([
+                    'status' => 'completed',
+                    'ready_at' => $ticket->ready_at ?? $timestamp,
+                    'completed_at' => $ticket->completed_at ?? $timestamp,
+                ])->save();
+
+                $ticket->events()->create([
+                    'user_id' => $userId,
+                    'event' => 'ticket.auto_completed',
+                    'payload' => [
+                        'station_id' => $ticket->kitchen_station_id,
+                        'reason' => 'all_items_delivered',
+                    ],
+                    'created_at' => $timestamp,
+                ]);
+            });
     }
 
     private function statusFilter(Request $request): string
