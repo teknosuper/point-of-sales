@@ -805,6 +805,7 @@ export default function KitchenIndex({
     const seenTicketIdsRef = useRef(new Set((tickets?.data || []).map((ticket) => ticket.id)));
     const pollAbortControllerRef = useRef(null);
     const pollInFlightRef = useRef(false);
+    const failedPrintWarnedRef = useRef(new Set());
 
     useEffect(() => {
         if (flash?.success) {
@@ -930,6 +931,54 @@ export default function KitchenIndex({
             window.removeEventListener("keydown", markAudioUnlocked);
         };
     }, []);
+
+    // Failed print alert modal
+    useEffect(() => {
+        const tickets = boardState.tickets?.data || [];
+        const failedTickets = tickets.filter(
+            (ticket) => ticket?.print?.status === "failed"
+        );
+
+        if (failedTickets.length === 0) {
+            failedPrintWarnedRef.current = new Set();
+            return;
+        }
+
+        const newFailedIds = failedTickets
+            .map((t) => t.id)
+            .filter((id) => !failedPrintWarnedRef.current.has(id));
+
+        if (newFailedIds.length === 0) {
+            return;
+        }
+
+        // Mark all current failed tickets as warned
+        failedPrintWarnedRef.current = new Set([
+            ...failedPrintWarnedRef.current,
+            ...newFailedIds,
+        ]);
+
+        const ticketList = failedTickets
+            .map(
+                (t) =>
+                    `<li class="mb-1"><strong>${t.ticket_number || "#" + t.id}</strong> — ${kitchenPrintSummaryLabel(t)}</li>`
+            )
+            .join("");
+
+        Swal.fire({
+            icon: "warning",
+            title: "Cetak Gagal",
+            html: `<p class="mb-2 text-sm text-slate-600 dark:text-slate-300">Terdapat pesanan yang masih gagal cetak ke printer:</p><ul class="text-left text-sm text-slate-700 dark:text-slate-200 list-disc pl-5">${ticketList}</ul>`,
+            confirmButtonText: "Mengerti",
+            confirmButtonColor: "#e11d48",
+            background: document.documentElement.classList.contains("dark")
+                ? "#1e293b"
+                : undefined,
+            color: document.documentElement.classList.contains("dark")
+                ? "#e2e8f0"
+                : undefined,
+        });
+    }, [boardState.tickets]);
 
     // playNotificationSound - now uses database sounds via KitchenNotificationProvider
 
