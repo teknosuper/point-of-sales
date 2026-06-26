@@ -30,6 +30,12 @@ const formatPrice = (value = 0) =>
         minimumFractionDigits: 0,
     });
 
+const normalizeModifierGroupName = (value) => {
+    const normalized = String(value || "").trim();
+
+    return normalized !== "" ? normalized : "Topping";
+};
+
 const sanitizePhoneNumber = (value = "") =>
     String(value)
         .replace(/[^\d+]/g, "")
@@ -414,7 +420,11 @@ export default function Menu({
     const modifierModalSelectedModifierTotal = useMemo(
         () =>
             (modifierModalProduct?.modifier_options || [])
-                .filter((option) => selectedModifierOptionIds.includes(option.id))
+                .filter((option) =>
+                    new Set(
+                        selectedModifierOptionIds.map((id) => Number(id || 0))
+                    ).has(Number(option.id || 0))
+                )
                 .reduce((sum, option) => sum + Number(option.price || 0), 0),
         [modifierModalProduct, selectedModifierOptionIds]
     );
@@ -430,9 +440,15 @@ export default function Menu({
             notes: "",
             product: modifierModalProduct,
             modifiers: (modifierModalProduct.modifier_options || [])
-                .filter((option) => selectedModifierOptionIds.includes(option.id))
+                .filter((option) =>
+                    new Set(
+                        selectedModifierOptionIds.map((id) => Number(id || 0))
+                    ).has(Number(option.id || 0))
+                )
                 .map((option) => ({
                     id: Number(option.id),
+                    group_name: option.group_name || null,
+                    selection_mode: option.selection_mode || null,
                     name: option.name,
                     price: Number(option.price || 0),
                     unit_price: Number(option.price || 0),
@@ -827,21 +843,7 @@ export default function Menu({
         );
     }, []);
 
-    const handleRemoveModifier = useCallback((lineId, modifierId) => {
-        setCartLines((current) =>
-            current.map((item) =>
-                String(item.id) === String(lineId)
-                    ? {
-                          ...item,
-                          modifiers: (item.modifiers || []).filter(
-                              (modifier) =>
-                                  Number(modifier.id) !== Number(modifierId)
-                          ),
-                      }
-                    : item
-            )
-        );
-    }, []);
+    const handleRemoveModifier = useCallback(() => {}, []);
 
     const closeModifierModal = useCallback(() => {
         if (isModifierModalSubmitting) {
@@ -854,13 +856,57 @@ export default function Menu({
         setIsModifierPromoDetailOpen(false);
     }, [isModifierModalSubmitting]);
 
-    const handleToggleModifierOption = useCallback((optionId) => {
-        setSelectedModifierOptionIds((current) =>
-            current.includes(optionId)
-                ? current.filter((id) => id !== optionId)
-                : [...current, optionId]
-        );
-    }, []);
+    const handleToggleModifierOption = useCallback(
+        (optionId) => {
+            const normalizedOptionId = Number(optionId || 0);
+            const options = modifierModalProduct?.modifier_options || [];
+            const selectedOption = options.find(
+                (option) => Number(option?.id || 0) === normalizedOptionId
+            );
+
+            if (!selectedOption) {
+                return;
+            }
+
+            const selectedGroupName = normalizeModifierGroupName(
+                selectedOption.group_name
+            );
+            const selectionMode =
+                String(selectedOption.selection_mode || "optional").trim() ||
+                "optional";
+
+            setSelectedModifierOptionIds((current) => {
+                const isActive = current.some(
+                    (id) => Number(id || 0) === normalizedOptionId
+                );
+
+                if (isActive) {
+                    return current.filter(
+                        (id) => Number(id || 0) !== normalizedOptionId
+                    );
+                }
+
+                if (selectionMode === "single") {
+                    const nextWithoutGroup = current.filter((id) => {
+                        const option = options.find(
+                            (candidate) =>
+                                Number(candidate?.id || 0) === Number(id || 0)
+                        );
+
+                        return (
+                            normalizeModifierGroupName(option?.group_name) !==
+                            selectedGroupName
+                        );
+                    });
+
+                    return [...nextWithoutGroup, normalizedOptionId];
+                }
+
+                return [...current, normalizedOptionId];
+            });
+        },
+        [modifierModalProduct]
+    );
 
     const submitModifierModal = useCallback(
         (includeModifiers) => {
@@ -868,35 +914,77 @@ export default function Menu({
                 return;
             }
 
-            const requiredOptions = (modifierModalProduct.modifier_options || []).filter(
-                (option) => option?.is_required
+            const modifierOptions = modifierModalProduct.modifier_options || [];
+            const selectedOptionIdSet = new Set(
+                selectedModifierOptionIds.map((id) => Number(id || 0))
             );
-            const hasRequiredSelection = requiredOptions.length > 0
-                ? requiredOptions.some((option) =>
-                      selectedModifierOptionIds.includes(option.id)
-                  )
-                : selectedModifierOptionIds.length > 0;
-            const requiresSelection = Boolean(modifierModalProduct?.requires_modifier_selection)
-                || requiredOptions.length > 0;
+            const groupedOptions = modifierOptions.reduce((groups, option) => {
+                const groupName = normalizeModifierGroupName(option?.group_name);
 
-            if (
-                includeModifiers &&
-                requiresSelection &&
-                !hasRequiredSelection
-            ) {
-                toast.error(
-                    requiredOptions.length > 0
-                        ? "Pilih salah satu topping yang ditandai wajib."
-                        : "Produk ini wajib memilih minimal satu topping."
-                );
-                return;
+                if (!groups.has(groupName)) {
+                    groups.set(groupName, []);
+                }
+
+                groups.get(groupName).push(option);
+
+                return groups;
+            }, new Map());
+
+            if (includeModifiers) {
+                for (const [groupName, options] of groupedOptions.entries()) {
+                    const firstOption = options[0] || {};
+                    const selectionMode =
+                        String(firstOption.selection_mode || "optional").trim() ||
+                        "optional";
+                    const minSelect = Math.max(
+                        selectionMode === "optional" ? 0 : 1,
+                        Number(firstOption.min_select ?? 0)
+                    );
+                    const maxSelectRaw = Number(firstOption.max_select ?? 0);
+                    const maxSelect =
+                        selectionMode === "single"
+                            ? 1
+                            : maxSelectRaw > 0
+                              ? maxSelectRaw
+                              : null;
+                    const selectedCount = options.filter((option) =>
+                        selectedOptionIdSet.has(Number(option?.id || 0))
+                    ).length;
+
+                    if (selectedCount < minSelect) {
+                        toast.error(
+                            minSelect <= 1
+                                ? `Kategori ${groupName} wajib dipilih.`
+                                : `Kategori ${groupName} wajib memilih minimal ${minSelect} opsi.`
+                        );
+                        return;
+                    }
+
+                    if (maxSelect !== null && selectedCount > maxSelect) {
+                        toast.error(
+                            maxSelect <= 1
+                                ? `Kategori ${groupName} hanya boleh memilih 1 opsi.`
+                                : `Kategori ${groupName} maksimal ${maxSelect} opsi.`
+                        );
+                        return;
+                    }
+                }
+
+                if (
+                    groupedOptions.size === 0 &&
+                    Boolean(modifierModalProduct?.requires_modifier_selection) &&
+                    selectedOptionIdSet.size === 0
+                ) {
+                    toast.error("Produk ini wajib memilih minimal satu topping.");
+                    return;
+                }
             }
 
             setIsModifierModalSubmitting(true);
 
             const selectedModifiers = includeModifiers
-                ? (modifierModalProduct.modifier_options || []).filter((option) =>
-                      selectedModifierOptionIds.includes(option.id)
+                ? modifierOptions.filter((option) =>
+                      selectedOptionIdSet.has(Number(option.id || 0))
                   )
                 : [];
 

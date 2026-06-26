@@ -179,29 +179,12 @@ class TableOrderService
                 ]);
             }
 
-            $requiredOptionIds = $productModifierOptions
-                ->where('is_required', true)
-                ->pluck('id')
-                ->map(fn ($id) => (int) $id)
-                ->values();
-
-            $selectedRequiredIds = $selectedModifiers
-                ->pluck('id')
-                ->map(fn ($id) => (int) $id)
-                ->intersect($requiredOptionIds)
-                ->values();
-
-            if ($requiredOptionIds->isNotEmpty() && $selectedRequiredIds->isEmpty()) {
-                throw ValidationException::withMessages([
-                    'items' => "Produk {$product->title} wajib memilih salah satu topping yang ditandai wajib.",
-                ]);
-            }
-
-            if ($requiredOptionIds->isEmpty() && (bool) $product->requires_modifier_selection && $selectedModifiers->isEmpty()) {
-                throw ValidationException::withMessages([
-                    'items' => "Produk {$product->title} wajib memilih minimal satu topping.",
-                ]);
-            }
+            $this->ensureGroupedModifiersSatisfied(
+                $product,
+                $productModifierOptions,
+                $selectedModifiers,
+                'items'
+            );
 
             $modifierPricing = $selectedModifiers
                 ->mapWithKeys(fn (ProductModifierOption $option) => [
@@ -560,6 +543,19 @@ class TableOrderService
                 ->whereIn('id', $item['modifier_ids']->all())
                 ->values();
 
+            if ($item['modifier_ids']->isNotEmpty() && $selectedModifiers->count() !== $item['modifier_ids']->count()) {
+                throw ValidationException::withMessages([
+                    'items' => "Topping untuk produk {$product->title} tidak valid.",
+                ]);
+            }
+
+            $this->ensureGroupedModifiersSatisfied(
+                $product,
+                $productModifierOptions,
+                $selectedModifiers,
+                'items'
+            );
+
             $modifierPricing = $selectedModifiers
                 ->mapWithKeys(fn (ProductModifierOption $option) => [
                     $option->id => $this->modifierMarkupService->resolveForBasePrice((int) ($option->price ?? 0), (int) $tableOrder->outlet_id),
@@ -674,6 +670,61 @@ class TableOrderService
         );
 
         return $attributes;
+    }
+
+    private function ensureGroupedModifiersSatisfied(
+        Product $product,
+        Collection $productModifierOptions,
+        Collection $selectedModifiers,
+        string $errorKey
+    ): void {
+        $groupedOptions = $productModifierOptions
+            ->where('is_active', true)
+            ->groupBy(function (ProductModifierOption $option) {
+                $groupName = trim((string) ($option->group_name ?? ''));
+
+                return $groupName !== '' ? $groupName : 'Topping';
+            });
+
+        foreach ($groupedOptions as $groupName => $options) {
+            $firstOption = $options->first();
+            $selectionMode = trim((string) ($firstOption->selection_mode ?? 'optional')) ?: 'optional';
+            $minSelect = max(
+                $selectionMode === 'optional' ? 0 : 1,
+                (int) ($firstOption->min_select ?? 0)
+            );
+            $maxSelectRaw = (int) ($firstOption->max_select ?? 0);
+            $maxSelect = $selectionMode === 'single'
+                ? 1
+                : ($maxSelectRaw > 0 ? $maxSelectRaw : null);
+            $selectedCount = $selectedModifiers
+                ->whereIn('id', $options->pluck('id')->all())
+                ->count();
+
+            if ($selectedCount < $minSelect) {
+                throw ValidationException::withMessages([
+                    $errorKey => $minSelect <= 1
+                        ? "Kategori topping {$groupName} wajib dipilih untuk produk {$product->title}."
+                        : "Kategori topping {$groupName} untuk produk {$product->title} wajib memilih minimal {$minSelect} opsi.",
+                ]);
+            }
+
+            if ($maxSelect !== null && $selectedCount > $maxSelect) {
+                throw ValidationException::withMessages([
+                    $errorKey => $maxSelect <= 1
+                        ? "Kategori topping {$groupName} untuk produk {$product->title} hanya boleh memilih 1 opsi."
+                        : "Kategori topping {$groupName} untuk produk {$product->title} maksimal {$maxSelect} opsi.",
+                ]);
+            }
+        }
+
+        if ($groupedOptions->isEmpty()
+            && (bool) $product->requires_modifier_selection
+            && $selectedModifiers->isEmpty()) {
+            throw ValidationException::withMessages([
+                $errorKey => "Produk {$product->title} wajib memilih minimal satu topping.",
+            ]);
+        }
     }
 
     private function supportsTableOrderItemPromoRewardMetadata(): bool
