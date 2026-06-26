@@ -81,6 +81,20 @@ export default function ConcurrentSessionWatcher({ enabled = true }) {
         setShowConcurrentSessionAlert(false);
     };
 
+    const handleMonitorChange = (nextMonitor) => {
+        setSessionMonitor(nextMonitor);
+
+        if (!nextMonitor?.alert?.should_alert || !nextMonitor?.alert?.key) {
+            setShowConcurrentSessionAlert(false);
+            window.sessionStorage.removeItem(
+                "dismissedConcurrentSessionAlertKey"
+            );
+            return;
+        }
+
+        setShowConcurrentSessionAlert(true);
+    };
+
     if (!enabled) {
         return null;
     }
@@ -90,6 +104,7 @@ export default function ConcurrentSessionWatcher({ enabled = true }) {
             monitor={sessionMonitor}
             open={showConcurrentSessionAlert}
             onClose={handleCloseConcurrentSessionAlert}
+            onMonitorChange={handleMonitorChange}
         />
     );
 }

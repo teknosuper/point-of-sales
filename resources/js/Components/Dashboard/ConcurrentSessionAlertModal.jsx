@@ -1,5 +1,6 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import Modal from "@/Components/Dashboard/Modal";
+import toast from "react-hot-toast";
 
 const formatDateTime = (value) => {
     if (!value) return "-";
@@ -14,11 +15,55 @@ export default function ConcurrentSessionAlertModal({
     monitor,
     open,
     onClose,
+    onMonitorChange = () => {},
 }) {
+    const [processingId, setProcessingId] = useState(null);
+    const [processingAll, setProcessingAll] = useState(false);
     const sessions = useMemo(
         () => monitor?.other_sessions || [],
         [monitor]
     );
+
+    const handleLogoutSession = async (sessionId) => {
+        setProcessingId(sessionId);
+
+        try {
+            const response = await window.axios.delete(
+                route("auth.sessions.destroy", sessionId)
+            );
+
+            onMonitorChange(response?.data?.sessionMonitor || null);
+            toast.success(response?.data?.message || "Session berhasil dikeluarkan.");
+        } catch (error) {
+            toast.error(
+                error?.response?.data?.message || "Gagal mengeluarkan session."
+            );
+        } finally {
+            setProcessingId(null);
+        }
+    };
+
+    const handleLogoutAllSessions = async () => {
+        setProcessingAll(true);
+
+        try {
+            const response = await window.axios.post(
+                route("auth.sessions.logout-others")
+            );
+
+            onMonitorChange(response?.data?.sessionMonitor || null);
+            toast.success(
+                response?.data?.message || "Session lain berhasil dikeluarkan."
+            );
+        } catch (error) {
+            toast.error(
+                error?.response?.data?.message ||
+                    "Gagal mengeluarkan session lain."
+            );
+        } finally {
+            setProcessingAll(false);
+        }
+    };
 
     return (
         <Modal
@@ -69,11 +114,35 @@ export default function ConcurrentSessionAlertModal({
                             <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
                                 Aktivitas terakhir: {formatDateTime(session.last_activity_at)}
                             </p>
+                            <div className="mt-3 flex justify-end">
+                                <button
+                                    type="button"
+                                    onClick={() => handleLogoutSession(session.id)}
+                                    disabled={processingId === session.id || processingAll}
+                                    className="rounded-xl border border-rose-200 px-3 py-2 text-xs font-medium text-rose-700 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-rose-900/60 dark:text-rose-300 dark:hover:bg-rose-950/30"
+                                >
+                                    {processingId === session.id
+                                        ? "Mengeluarkan..."
+                                        : "Keluarkan Session Ini"}
+                                </button>
+                            </div>
                         </div>
                     ))}
                 </div>
 
-                <div className="flex justify-end">
+                <div className="flex flex-wrap justify-end gap-2">
+                    {sessions.length > 1 ? (
+                        <button
+                            type="button"
+                            onClick={handleLogoutAllSessions}
+                            disabled={processingAll || processingId !== null}
+                            className="rounded-xl border border-rose-200 px-4 py-2 text-sm font-medium text-rose-700 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-rose-900/60 dark:text-rose-300 dark:hover:bg-rose-950/30"
+                        >
+                            {processingAll
+                                ? "Mengeluarkan Semua..."
+                                : "Keluarkan Semua Session Lain"}
+                        </button>
+                    ) : null}
                     <button
                         type="button"
                         onClick={onClose}

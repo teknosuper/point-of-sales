@@ -10,12 +10,20 @@ use Illuminate\Support\Facades\Schema;
 
 class SessionMonitorService
 {
+    public function supportsDatabaseSessions(): bool
+    {
+        return config('session.driver') === 'database'
+            && Schema::hasTable(config('session.table', 'sessions'));
+    }
+
     public function snapshotForUser(User $user, Request $request): array
     {
-        if (! $this->isSupported()) {
+        if (! $this->supportsDatabaseSessions()) {
             return [
                 'supported' => false,
                 'current_session' => null,
+                'other_sessions_count' => 0,
+                'other_sessions' => [],
                 'other_device_sessions_count' => 0,
                 'other_device_sessions' => [],
                 'alert' => [
@@ -88,10 +96,32 @@ class SessionMonitorService
         ];
     }
 
-    private function isSupported(): bool
+    public function logoutOtherSessions(User $user, string $currentSessionId): int
     {
-        return config('session.driver') === 'database'
-            && Schema::hasTable(config('session.table', 'sessions'));
+        if (! $this->supportsDatabaseSessions()) {
+            return 0;
+        }
+
+        return DB::table(config('session.table', 'sessions'))
+            ->where('user_id', $user->id)
+            ->where('id', '!=', $currentSessionId)
+            ->delete();
+    }
+
+    public function logoutSpecificSession(User $user, string $currentSessionId, string $targetSessionId): bool
+    {
+        if (! $this->supportsDatabaseSessions()) {
+            return false;
+        }
+
+        if ($targetSessionId === $currentSessionId) {
+            return false;
+        }
+
+        return DB::table(config('session.table', 'sessions'))
+            ->where('user_id', $user->id)
+            ->where('id', $targetSessionId)
+            ->delete() > 0;
     }
 
     private function transformSessionRow(object $row, bool $isSameDevice = false): array

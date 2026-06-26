@@ -51,6 +51,10 @@ Route::middleware('guest')->group(function () {
 Route::middleware('auth')->group(function () {
     Route::get('auth/sessions/status', [SessionMonitorController::class, 'show'])
         ->name('auth.sessions.status');
+    Route::post('auth/sessions/logout-others', [SessionMonitorController::class, 'destroyOtherSessions'])
+        ->name('auth.sessions.logout-others');
+    Route::delete('auth/sessions/{sessionId}', [SessionMonitorController::class, 'destroySession'])
+        ->name('auth.sessions.destroy');
 
     Route::get('confirm-password', [ConfirmablePasswordController::class, 'show'])
         ->name('password.confirm');

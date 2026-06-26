@@ -1,8 +1,16 @@
-import React, { useEffect, useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Head, Link, router, useForm } from "@inertiajs/react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import Button from "@/Components/Dashboard/Button";
-import { IconArrowLeft, IconCheck, IconDeviceFloppy } from "@/Utils/icons";
+import NumpadModal from "@/Components/POS/NumpadModal";
+import {
+    IconArrowLeft,
+    IconCheck,
+    IconDeviceFloppy,
+    IconKeyboard,
+    IconMinus,
+    IconPlus,
+} from "@/Utils/icons";
 import Swal from "sweetalert2";
 import toast from "react-hot-toast";
 
@@ -39,6 +47,13 @@ const formatInertiaErrorBag = (errors, fallbackMessage) => {
     return messages.join("\n");
 };
 
+const QUICK_RETURN_REASONS = [
+    "Pesanan dibatalkan customer",
+    "Salah input kasir",
+    "Item rusak / cacat",
+    "Item tidak sesuai pesanan",
+];
+
 export default function SalesReturnForm({
     title,
     transaction,
@@ -50,6 +65,12 @@ export default function SalesReturnForm({
     completeRoute = null,
 }) {
     const isWalkInTransaction = !transaction.customer;
+    const [numpadState, setNumpadState] = useState({
+        open: false,
+        itemId: null,
+        initialValue: 0,
+        maxValue: 0,
+    });
     const itemDefaults = useMemo(
         () =>
             transaction.details.map((detail) => ({
@@ -178,8 +199,37 @@ export default function SalesReturnForm({
         );
     };
 
+    const adjustQty = (transactionDetailId, nextValue) => {
+        const targetItem = itemStates.find((item) => item.id === transactionDetailId);
+
+        if (!targetItem) {
+            return;
+        }
+
+        const normalized = Math.max(
+            0,
+            Math.min(targetItem.remaining_returnable_qty, Number(nextValue || 0))
+        );
+
+        updateItem(transactionDetailId, "qty_return", normalized);
+    };
+
+    const openQtyNumpad = (item) => {
+        setNumpadState({
+            open: true,
+            itemId: item.id,
+            initialValue: item.qty_return,
+            maxValue: item.remaining_returnable_qty,
+        });
+    };
+
     const submit = async (event) => {
         event.preventDefault();
+
+        if (!summary.hasSelectedItems) {
+            toast.error("Pilih minimal satu item retur terlebih dulu.");
+            return;
+        }
 
         const result = await Swal.fire({
             title: salesReturn ? "Perbarui draft retur?" : "Buat draft retur?",
@@ -198,6 +248,7 @@ export default function SalesReturnForm({
             confirmButtonColor: "#16a34a",
             cancelButtonColor: "#64748b",
             reverseButtons: true,
+            focusCancel: true,
         });
 
         if (!result.isConfirmed) {
@@ -220,7 +271,17 @@ export default function SalesReturnForm({
         });
     };
 
+    const handleSaveDraftClick = () =>
+        submit({
+            preventDefault: () => {},
+        });
+
     const complete = async () => {
+        if (!summary.hasSelectedItems) {
+            toast.error("Pilih minimal satu item retur terlebih dulu.");
+            return;
+        }
+
         const result = await Swal.fire({
             title: "Selesaikan retur penjualan?",
             html: `
@@ -240,6 +301,7 @@ export default function SalesReturnForm({
             confirmButtonColor: "#16a34a",
             cancelButtonColor: "#64748b",
             reverseButtons: true,
+            focusCancel: true,
         });
 
         if (!result.isConfirmed) {
@@ -337,7 +399,7 @@ export default function SalesReturnForm({
 
                 <form
                     onSubmit={submit}
-                    className="grid gap-6 xl:grid-cols-[1.7fr_1fr]"
+                    className="grid gap-6 pb-28 xl:grid-cols-[1.7fr_1fr] xl:pb-0"
                 >
                     <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
                         <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -435,26 +497,74 @@ export default function SalesReturnForm({
                                         </div>
                                     </div>
 
-                                    <div className="mt-4 grid gap-4 lg:grid-cols-[180px_1fr]">
+                                    <div className="mt-4 grid gap-4 lg:grid-cols-[220px_1fr]">
                                         <div>
                                             <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
                                                 Qty Retur
                                             </label>
-                                            <input
-                                                type="number"
-                                                min="0"
-                                                max={item.remaining_returnable_qty}
-                                                value={item.qty_return}
-                                                disabled={!canEdit}
-                                                onChange={(event) =>
-                                                    updateItem(
-                                                        item.id,
-                                                        "qty_return",
-                                                        event.target.value
-                                                    )
-                                                }
-                                                className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm text-slate-800 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
-                                            />
+                                            <div className="space-y-3">
+                                                <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white p-2 dark:border-slate-700 dark:bg-slate-900">
+                                                    <button
+                                                        type="button"
+                                                        disabled={!canEdit || item.qty_return <= 0}
+                                                        onClick={() =>
+                                                            adjustQty(
+                                                                item.id,
+                                                                item.qty_return - 1
+                                                            )
+                                                        }
+                                                        className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                                                    >
+                                                        <IconMinus size={18} />
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        disabled={!canEdit}
+                                                        onClick={() => openQtyNumpad(item)}
+                                                        className="flex h-11 min-w-0 flex-1 items-center justify-between rounded-xl bg-slate-50 px-4 text-left transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-slate-800 dark:hover:bg-slate-700"
+                                                    >
+                                                        <span className="text-xl font-semibold text-slate-900 dark:text-white">
+                                                            {item.qty_return}
+                                                        </span>
+                                                        <span className="inline-flex items-center gap-1 text-xs font-medium text-slate-500 dark:text-slate-400">
+                                                            <IconKeyboard size={14} />
+                                                            Keypad
+                                                        </span>
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        disabled={
+                                                            !canEdit ||
+                                                            item.qty_return >=
+                                                                item.remaining_returnable_qty
+                                                        }
+                                                        onClick={() =>
+                                                            adjustQty(
+                                                                item.id,
+                                                                item.qty_return + 1
+                                                            )
+                                                        }
+                                                        className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                                                    >
+                                                        <IconPlus size={18} />
+                                                    </button>
+                                                </div>
+
+                                                <input
+                                                    type="number"
+                                                    min="0"
+                                                    max={item.remaining_returnable_qty}
+                                                    value={item.qty_return}
+                                                    disabled={!canEdit}
+                                                    onChange={(event) =>
+                                                        adjustQty(
+                                                            item.id,
+                                                            event.target.value
+                                                        )
+                                                    }
+                                                    className="hidden h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm text-slate-800 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 sm:block"
+                                                />
+                                            </div>
                                             <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
                                                 Maksimal {item.remaining_returnable_qty} item
                                             </p>
@@ -478,6 +588,29 @@ export default function SalesReturnForm({
                                                 placeholder="Contoh: salah input, item rusak, pesanan dibatalkan customer"
                                                 className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
                                             />
+                                            <div className="mt-3 flex flex-wrap gap-2">
+                                                {QUICK_RETURN_REASONS.map((reason) => (
+                                                    <button
+                                                        key={reason}
+                                                        type="button"
+                                                        disabled={!canEdit}
+                                                        onClick={() =>
+                                                            updateItem(
+                                                                item.id,
+                                                                "return_reason",
+                                                                reason
+                                                            )
+                                                        }
+                                                        className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
+                                                            item.return_reason === reason
+                                                                ? "bg-primary-500 text-white"
+                                                                : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+                                                        }`}
+                                                    >
+                                                        {reason}
+                                                    </button>
+                                                ))}
+                                            </div>
                                         </div>
                                     </div>
 
@@ -655,6 +788,65 @@ export default function SalesReturnForm({
                     </div>
                 </form>
             </div>
+
+            <div className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 px-4 py-3 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95 xl:hidden">
+                <div className="mx-auto flex max-w-7xl items-center gap-3">
+                    <div className="min-w-0 flex-1">
+                        <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                            Nominal Retur
+                        </p>
+                        <p className="truncate text-base font-semibold text-slate-900 dark:text-white">
+                            {formatCurrency(summary.totalAmount)}
+                        </p>
+                    </div>
+                    {canComplete ? (
+                        <button
+                            type="button"
+                            onClick={complete}
+                            disabled={
+                                !summary.hasSelectedItems ||
+                                form.processing ||
+                                form.isDirty
+                            }
+                            className="inline-flex h-11 items-center justify-center rounded-xl bg-success-500 px-4 text-sm font-semibold text-white transition hover:bg-success-600 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                            Selesaikan
+                        </button>
+                    ) : null}
+                    {canEdit ? (
+                        <button
+                            type="button"
+                            onClick={handleSaveDraftClick}
+                            disabled={!summary.hasSelectedItems || form.processing}
+                            className="inline-flex h-11 items-center justify-center rounded-xl bg-primary-500 px-4 text-sm font-semibold text-white transition hover:bg-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                            Simpan Draft
+                        </button>
+                    ) : null}
+                </div>
+            </div>
+
+            <NumpadModal
+                isOpen={numpadState.open}
+                onClose={() =>
+                    setNumpadState({
+                        open: false,
+                        itemId: null,
+                        initialValue: 0,
+                        maxValue: 0,
+                    })
+                }
+                onConfirm={(value) => {
+                    if (numpadState.itemId !== null) {
+                        adjustQty(numpadState.itemId, value);
+                    }
+                }}
+                title="Qty Retur"
+                initialValue={numpadState.initialValue}
+                minValue={0}
+                maxValue={numpadState.maxValue}
+                isCurrency={false}
+            />
         </>
     );
 }
