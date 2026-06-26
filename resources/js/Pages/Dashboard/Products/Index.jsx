@@ -716,6 +716,7 @@ export default function Index({
     const [showBulkStockModal, setShowBulkStockModal] = useState(false);
     const [bulkStockEntries, setBulkStockEntries] = useState([]);
     const [bulkStockNotes, setBulkStockNotes] = useState("");
+    const [bulkStockApplyAllValue, setBulkStockApplyAllValue] = useState("");
 
     const openBulkStockModal = () => {
         const allRows = products?.data ?? [];
@@ -738,6 +739,7 @@ export default function Index({
             }))
         );
         setBulkStockNotes("");
+        setBulkStockApplyAllValue("");
         setShowBulkStockModal(true);
     };
 
@@ -745,6 +747,20 @@ export default function Index({
         setShowBulkStockModal(false);
         setBulkStockEntries([]);
         setBulkStockNotes("");
+        setBulkStockApplyAllValue("");
+    };
+
+    const applyBulkStockToAll = () => {
+        const normalizedValue = String(
+            Math.max(0, Number(bulkStockApplyAllValue || 0))
+        );
+
+        setBulkStockEntries((prev) =>
+            prev.map((entry) => ({
+                ...entry,
+                stock: normalizedValue,
+            }))
+        );
     };
 
     const submitBulkStockUpdate = async (event) => {
@@ -1877,6 +1893,31 @@ export default function Index({
 
                             <form onSubmit={submitBulkStockUpdate} className="flex flex-col min-h-0 flex-1">
                                 <div className="flex-1 overflow-y-auto px-6 py-4">
+                                    <div className="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4 dark:border-emerald-900/40 dark:bg-emerald-950/20">
+                                        <p className="text-sm font-medium text-emerald-800 dark:text-emerald-200">
+                                            Apply ke Semua Produk
+                                        </p>
+                                        <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                value={bulkStockApplyAllValue}
+                                                onChange={(event) =>
+                                                    setBulkStockApplyAllValue(event.target.value)
+                                                }
+                                                className="h-11 flex-1 rounded-xl border border-emerald-200 bg-white px-4 text-sm text-slate-700 outline-none transition focus:border-emerald-400 dark:border-emerald-900/40 dark:bg-slate-900 dark:text-slate-200"
+                                                placeholder="Masukkan stok yang sama untuk semua"
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={applyBulkStockToAll}
+                                                className="inline-flex h-11 items-center justify-center rounded-xl bg-emerald-500 px-4 text-sm font-semibold text-white transition hover:bg-emerald-600"
+                                            >
+                                                Terapkan ke Semua
+                                            </button>
+                                        </div>
+                                    </div>
+
                                     <div className="space-y-1">
                                         {bulkStockEntries.map((entry, index) => (
                                             <div
@@ -1887,10 +1928,10 @@ export default function Index({
                                                     {index + 1}
                                                 </div>
                                                 <div className="col-span-5 min-w-0">
-                                                    <p className="truncate text-sm font-medium text-slate-800 dark:text-slate-200">
+                                                    <p className="break-words text-sm font-medium text-slate-800 dark:text-slate-200">
                                                         {entry.title}
                                                     </p>
-                                                    <p className="truncate text-xs text-slate-400 dark:text-slate-500">
+                                                    <p className="break-all text-xs text-slate-400 dark:text-slate-500">
                                                         {entry.barcode}
                                                     </p>
                                                 </div>
