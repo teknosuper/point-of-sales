@@ -150,8 +150,13 @@ export default function Edit({
         supports_modifiers: !!product.supports_modifiers,
         requires_modifier_selection: !!product.requires_modifier_selection,
         modifier_options: (product.modifier_options || []).map((option) => ({
+            group_name: option.group_name || "Topping",
+            selection_mode: option.selection_mode || "optional",
+            min_select: option.min_select ?? 0,
+            max_select: option.max_select ?? "",
             name: option.name || "",
             price: option.price ?? "",
+            stock: option.stock ?? "",
             is_required: !!option.is_required,
         })),
         description: product.description ?? "",
@@ -318,7 +323,16 @@ export default function Edit({
     const addModifierOption = () => {
         setData("modifier_options", [
             ...data.modifier_options,
-            { name: "", price: "", is_required: false },
+            {
+                group_name: "Topping",
+                selection_mode: "optional",
+                min_select: 0,
+                max_select: "",
+                name: "",
+                price: "",
+                stock: "",
+                is_required: false,
+            },
         ]);
     };
 
@@ -1464,8 +1478,16 @@ export default function Edit({
                                             Preset Topping / Tambahan
                                         </h3>
                                         <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                            Opsi ini muncul di POS dan self order. Tandai `Wajib` pada opsi yang harus dipilih.
+                                            Opsi ini muncul di POS dan self order. Setiap baris sekarang bisa menentukan kategori topping, mode pilihan, batas minimum/maksimum, dan stok opsi.
                                         </p>
+                                        <div className="mt-3">
+                                            <Link
+                                                href={route("settings.topping-markup")}
+                                                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-primary-600 hover:bg-primary-50 dark:border-slate-700 dark:text-primary-300 dark:hover:bg-slate-800"
+                                            >
+                                                Atur Markup Topping
+                                            </Link>
+                                        </div>
                                     </div>
                                     <div className="flex items-center gap-2">
                                         <button
@@ -1497,57 +1519,137 @@ export default function Edit({
                                     {data.modifier_options.map((option, index) => (
                                         <div
                                             key={index}
-                                            className="grid grid-cols-1 gap-3 rounded-xl border border-slate-200 p-3 dark:border-slate-700 md:grid-cols-[minmax(0,1fr)_120px_180px_auto]"
+                                            className="space-y-3 rounded-xl border border-slate-200 p-3 dark:border-slate-700"
                                         >
-                                            <Input
-                                                type="text"
-                                                label={index === 0 ? "Nama Opsi" : ""}
-                                                value={option.name}
-                                                onChange={(e) =>
-                                                    updateModifierOption(
-                                                        index,
-                                                        "name",
-                                                        e.target.value
-                                                    )
-                                                }
-                                                placeholder="Contoh: Extra cheese"
-                                            />
-                                            <Input
-                                                type="number"
-                                                label={index === 0 ? "Harga" : ""}
-                                                value={option.price}
-                                                onChange={(e) =>
-                                                    updateModifierOption(
-                                                        index,
-                                                        "price",
-                                                        e.target.value
-                                                    )
-                                                }
-                                                placeholder="0"
-                                            />
-                                            <label className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={!!option.is_required}
+                                            <div className="grid grid-cols-1 gap-3 lg:grid-cols-12">
+                                            <div className="lg:col-span-3">
+                                                <Input
+                                                    type="text"
+                                                    label={index === 0 ? "Kategori" : ""}
+                                                    value={option.group_name}
                                                     onChange={(e) =>
                                                         updateModifierOption(
                                                             index,
-                                                            "is_required",
-                                                            e.target.checked
+                                                            "group_name",
+                                                            e.target.value
                                                         )
                                                     }
-                                                    className="h-5 w-5 rounded border-slate-300 text-amber-500 focus:ring-amber-500"
+                                                    placeholder="Contoh: Kuah"
                                                 />
-                                                <span>
-                                                    <span className="block font-semibold">
-                                                        Wajib dipilih
+                                            </div>
+                                            <div className="lg:col-span-2">
+                                                <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                                    {index === 0 ? "Mode" : <span className="invisible">Mode</span>}
+                                                </label>
+                                                <select
+                                                    value={option.selection_mode || "optional"}
+                                                    onChange={(e) =>
+                                                        updateModifierOption(index, "selection_mode", e.target.value)
+                                                    }
+                                                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                                >
+                                                    <option value="single">1 opsi</option>
+                                                    <option value="multiple">Bisa >1</option>
+                                                    <option value="optional">Opsional</option>
+                                                </select>
+                                            </div>
+                                            <div className="lg:col-span-4">
+                                                <Input
+                                                    type="text"
+                                                    label={index === 0 ? "Nama Opsi" : ""}
+                                                    value={option.name}
+                                                    onChange={(e) =>
+                                                        updateModifierOption(
+                                                            index,
+                                                            "name",
+                                                            e.target.value
+                                                        )
+                                                    }
+                                                    placeholder="Contoh: Extra cheese"
+                                                />
+                                            </div>
+                                            <div className="lg:col-span-3">
+                                                <label className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={!!option.is_required}
+                                                        onChange={(e) =>
+                                                            updateModifierOption(
+                                                                index,
+                                                                "is_required",
+                                                                e.target.checked
+                                                            )
+                                                        }
+                                                        className="h-5 w-5 rounded border-slate-300 text-amber-500 focus:ring-amber-500"
+                                                    />
+                                                    <span>
+                                                        <span className="block font-semibold">
+                                                            Wajib dipilih
+                                                        </span>
+                                                        <span className="block text-xs text-slate-500 dark:text-slate-400">
+                                                            Salah satu opsi wajib harus dipilih saat order.
+                                                        </span>
                                                     </span>
-                                                    <span className="block text-xs text-slate-500 dark:text-slate-400">
-                                                        Salah satu opsi wajib harus dipilih saat order.
-                                                    </span>
-                                                </span>
-                                            </label>
-                                            <div className="flex items-end">
+                                                </label>
+                                            </div>
+                                            </div>
+                                            <div className="grid grid-cols-2 gap-3 lg:grid-cols-12">
+                                            <div className="lg:col-span-2">
+                                                <Input
+                                                    type="number"
+                                                    label={index === 0 ? "Min" : ""}
+                                                    value={option.min_select}
+                                                    onChange={(e) =>
+                                                        updateModifierOption(index, "min_select", e.target.value)
+                                                    }
+                                                    placeholder="0"
+                                                />
+                                            </div>
+                                            <div className="lg:col-span-2">
+                                                <Input
+                                                    type="number"
+                                                    label={index === 0 ? "Max" : ""}
+                                                    value={option.max_select}
+                                                    onChange={(e) =>
+                                                        updateModifierOption(index, "max_select", e.target.value)
+                                                    }
+                                                    placeholder="∞"
+                                                />
+                                            </div>
+                                            <div className="lg:col-span-3">
+                                                <Input
+                                                    type="number"
+                                                    label={index === 0 ? "Harga Dasar" : ""}
+                                                    value={option.price}
+                                                    onChange={(e) =>
+                                                        updateModifierOption(
+                                                            index,
+                                                            "price",
+                                                            e.target.value
+                                                        )
+                                                    }
+                                                    placeholder="0"
+                                                />
+                                                <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                                                    Markup mengikuti menu `Settings > Profil Toko > Markup Topping`.
+                                                </p>
+                                            </div>
+                                            <div className="lg:col-span-3">
+                                                <Input
+                                                    type="number"
+                                                    label={index === 0 ? "Stok" : ""}
+                                                    value={option.stock}
+                                                    onChange={(e) =>
+                                                        updateModifierOption(
+                                                            index,
+                                                            "stock",
+                                                            e.target.value
+                                                        )
+                                                    }
+                                                    placeholder="Kosong = bebas"
+                                                />
+                                            </div>
+                                            <div className="col-span-2 lg:col-span-2 flex items-end justify-end">
                                                 <button
                                                     type="button"
                                                     onClick={() =>
@@ -1557,6 +1659,7 @@ export default function Edit({
                                                 >
                                                     <IconTrash size={16} />
                                                 </button>
+                                            </div>
                                             </div>
                                         </div>
                                     ))}

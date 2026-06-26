@@ -9,7 +9,8 @@ use Illuminate\Support\Collection;
 class ProductCatalogService
 {
     public function __construct(
-        private readonly PricingService $pricingService
+        private readonly PricingService $pricingService,
+        private readonly ModifierMarkupService $modifierMarkupService
     ) {}
 
     public function mapProductsForPosGrid(
@@ -29,7 +30,7 @@ class ProductCatalogService
         $soldQtyByProduct = collect($options['soldQtyByProduct'] ?? []);
         $includeKitchenStations = (bool) ($options['includeKitchenStations'] ?? false);
 
-        return $products->map(function (Product $product) use ($pricingBadges, $soldQtyByProduct, $includeKitchenStations) {
+        return $products->map(function (Product $product) use ($pricingBadges, $soldQtyByProduct, $includeKitchenStations, $outletId) {
             $pricing = $pricingBadges->get($product->id);
             $pricingRule = $pricing['pricing_rule'] ?? null;
 
@@ -65,12 +66,7 @@ class ProductCatalogService
                 ] : null,
                 'modifier_options' => $product->modifierOptions
                     ->where('is_active', true)
-                    ->map(fn ($option) => [
-                        'id' => $option->id,
-                        'name' => $option->name,
-                        'price' => (int) $option->price,
-                        'is_required' => (bool) $option->is_required,
-                    ])
+                    ->map(fn ($option) => $this->modifierMarkupService->payloadForOption($option, $outletId))
                     ->values()
                     ->all(),
                 'pricing_badge' => $pricing && $pricingRule ? [

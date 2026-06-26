@@ -414,6 +414,8 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
     Route::delete('/settings/expenses/{expense}', [ExpenseController::class, 'destroy'])->middleware('permission:business-settings-update')->name('settings.expenses.destroy');
     Route::get('/settings/store', [\App\Http\Controllers\Apps\SettingController::class, 'storeProfile'])->middleware('permission:business-settings-access')->name('settings.store');
     Route::post('/settings/store', [\App\Http\Controllers\Apps\SettingController::class, 'updateStoreProfile'])->middleware('permission:business-settings-update')->name('settings.store.update');
+    Route::get('/settings/topping-markup', [\App\Http\Controllers\Apps\SettingController::class, 'toppingMarkup'])->middleware('permission:business-settings-access')->name('settings.topping-markup');
+    Route::post('/settings/topping-markup', [\App\Http\Controllers\Apps\SettingController::class, 'updateToppingMarkup'])->middleware('permission:business-settings-update')->name('settings.topping-markup.update');
     Route::get('/settings/printer', [\App\Http\Controllers\Apps\PrinterSettingController::class, 'index'])->middleware(['permission:business-settings-access', 'outlet_access'])->name('settings.printer');
     Route::get('/settings/kitchen-devices', [KitchenSettingsController::class, 'index'])->middleware(['permission:kitchen-manage', 'outlet_access'])->name('settings.kitchen-devices.index');
     Route::post('/settings/kitchen-operations', [KitchenSettingsController::class, 'updateOperational'])->middleware(['permission:kitchen-manage', 'outlet_access'])->name('settings.kitchen-operations.update');

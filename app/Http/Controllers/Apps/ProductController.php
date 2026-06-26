@@ -11,6 +11,7 @@ use App\Models\ProductKitchenStationMapping;
 use App\Models\ProductOutletStock;
 use App\Services\AuditLogService;
 use App\Services\ImageUploadService;
+use App\Services\ModifierMarkupService;
 use App\Services\OutletResolver;
 use App\Services\PricingService;
 use App\Services\StockMutationService;
@@ -31,6 +32,7 @@ class ProductController extends Controller
         private readonly StockMutationService $stockMutationService,
         private readonly AuditLogService $auditLogService,
         private readonly ImageUploadService $imageUploadService,
+        private readonly ModifierMarkupService $modifierMarkupService,
         private readonly OutletResolver $outletResolver,
         private readonly PricingService $pricingService
     ) {}
@@ -227,7 +229,7 @@ class ProductController extends Controller
             ->whereHas('products')
             ->orderBy('name')
             ->get()
-            ->map(function (Category $category) {
+            ->map(function (Category $category) use ($outlet) {
                 return [
                     'id' => $category->id,
                     'name' => $category->name,
@@ -244,12 +246,10 @@ class ProductController extends Controller
                                 'name' => $product->tenantOutlet->name,
                                 'code' => $product->tenantOutlet->code,
                             ] : null,
-                            'modifier_options' => $product->modifierOptions->map(fn ($option) => [
-                                'id' => $option->id,
-                                'name' => $option->name,
-                                'price' => (int) $option->price,
-                                'is_required' => (bool) $option->is_required,
-                            ])->values()->all(),
+                            'modifier_options' => $product->modifierOptions
+                                ->map(fn ($option) => $this->modifierMarkupService->payloadForOption($option, $outlet?->id))
+                                ->values()
+                                ->all(),
                             'supports_modifiers' => (bool) $product->supports_modifiers,
                             'requires_modifier_selection' => (bool) $product->requires_modifier_selection,
                         ];
@@ -382,8 +382,13 @@ class ProductController extends Controller
             'supports_modifiers' => 'nullable|boolean',
             'requires_modifier_selection' => 'nullable|boolean',
             'modifier_options' => 'nullable|array',
+            'modifier_options.*.group_name' => 'nullable|string|max:120',
+            'modifier_options.*.selection_mode' => 'nullable|in:single,multiple,optional',
+            'modifier_options.*.min_select' => 'nullable|integer|min:0|max:50',
+            'modifier_options.*.max_select' => 'nullable|integer|min:0|max:50',
             'modifier_options.*.name' => 'nullable|string|max:120',
             'modifier_options.*.price' => 'nullable|integer|min:0',
+            'modifier_options.*.stock' => 'nullable|integer|min:0',
             'modifier_options.*.is_required' => 'nullable|boolean',
             'tenant_hpp_price' => 'nullable|integer|min:0',
             'buy_price' => 'required|integer|min:0',
@@ -784,8 +789,13 @@ class ProductController extends Controller
             'supports_modifiers' => 'nullable|boolean',
             'requires_modifier_selection' => 'nullable|boolean',
             'modifier_options' => 'nullable|array',
+            'modifier_options.*.group_name' => 'nullable|string|max:120',
+            'modifier_options.*.selection_mode' => 'nullable|in:single,multiple,optional',
+            'modifier_options.*.min_select' => 'nullable|integer|min:0|max:50',
+            'modifier_options.*.max_select' => 'nullable|integer|min:0|max:50',
             'modifier_options.*.name' => 'nullable|string|max:120',
             'modifier_options.*.price' => 'nullable|integer|min:0',
+            'modifier_options.*.stock' => 'nullable|integer|min:0',
             'modifier_options.*.is_required' => 'nullable|boolean',
             'tenant_hpp_price' => 'nullable|integer|min:0',
             'buy_price' => 'nullable|integer|min:0',
@@ -819,10 +829,15 @@ class ProductController extends Controller
             $validated['requires_modifier_selection'] = $product->requires_modifier_selection;
             $validated['modifier_options'] = $product->modifierOptions()
                 ->orderBy('sort_order')
-                ->get(['name', 'price', 'is_required'])
+                ->get(['group_name', 'selection_mode', 'min_select', 'max_select', 'name', 'price', 'stock', 'is_required'])
                 ->map(fn ($option) => [
+                    'group_name' => $option->group_name,
+                    'selection_mode' => $option->selection_mode ?: 'optional',
+                    'min_select' => (int) ($option->min_select ?? 0),
+                    'max_select' => $option->max_select !== null ? (int) $option->max_select : null,
                     'name' => $option->name,
                     'price' => (int) $option->price,
+                    'stock' => $option->stock !== null ? (int) $option->stock : '',
                     'is_required' => (bool) $option->is_required,
                 ])
                 ->all();
@@ -1348,18 +1363,44 @@ class ProductController extends Controller
         $normalized = collect($rows)
             ->map(function ($row, $index) {
                 $name = trim((string) data_get($row, 'name', ''));
+                $groupName = trim((string) data_get($row, 'group_name', ''));
                 $price = (int) data_get($row, 'price', 0);
+                $stock = data_get($row, 'stock');
+                $selectionMode = (string) data_get($row, 'selection_mode', 'optional');
+                $minSelect = max(0, (int) data_get($row, 'min_select', 0));
+                $maxSelect = data_get($row, 'max_select');
 
                 if ($name === '') {
                     return null;
                 }
 
+                if (! in_array($selectionMode, ['single', 'multiple', 'optional'], true)) {
+                    $selectionMode = 'optional';
+                }
+
+                if ($selectionMode === 'single') {
+                    $minSelect = max(0, min(1, $minSelect > 0 ? 1 : 0));
+                    $maxSelect = 1;
+                } else {
+                    $maxSelect = filled($maxSelect) ? max(0, (int) $maxSelect) : null;
+                }
+
+                if ($selectionMode !== 'single' && $maxSelect !== null && $maxSelect < $minSelect) {
+                    $maxSelect = $minSelect;
+                }
+
                 return [
+                    'group_name' => $groupName !== '' ? $groupName : 'Topping',
                     'name' => $name,
                     'price' => max(0, $price),
+                    'stock' => filled($stock) ? max(0, (int) $stock) : null,
                     'is_active' => true,
                     'is_required' => (bool) data_get($row, 'is_required', false),
+                    'selection_mode' => $selectionMode,
+                    'min_select' => $minSelect,
+                    'max_select' => $maxSelect,
                     'sort_order' => $index,
+                    'group_sort_order' => (int) data_get($row, 'group_sort_order', $index),
                 ];
             })
             ->filter()

@@ -10,6 +10,7 @@ use App\Models\TransactionDetail;
 use App\Services\AuditLogService;
 use App\Services\ImageUploadService;
 use App\Services\LoyaltyService;
+use App\Services\ModifierMarkupService;
 use App\Services\OutletResolver;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -23,6 +24,7 @@ class SettingController extends Controller
         private readonly AuditLogService $auditLogService,
         private readonly ImageUploadService $imageUploadService,
         private readonly LoyaltyService $loyaltyService,
+        private readonly ModifierMarkupService $modifierMarkupService,
         private readonly OutletResolver $outletResolver
     ) {}
 
@@ -422,6 +424,86 @@ class SettingController extends Controller
         );
 
         return back()->with('success', 'Profil toko berhasil diperbarui');
+    }
+
+    public function toppingMarkup()
+    {
+        $outlet = $this->resolvedOutlet(request());
+
+        return Inertia::render('Dashboard/Settings/ToppingMarkup', [
+            'settings' => $this->modifierMarkupService->settingsPayload($outlet?->id),
+            'workspace' => [
+                'active_outlet' => $outlet ? [
+                    'id' => $outlet->id,
+                    'name' => $outlet->name,
+                    'code' => $outlet->code,
+                    'outlet_type' => $outlet->outlet_type,
+                ] : null,
+            ],
+        ]);
+    }
+
+    public function updateToppingMarkup(Request $request)
+    {
+        $validated = $request->validate([
+            'rules' => ['nullable', 'array'],
+            'rules.*.label' => ['nullable', 'string', 'max:120'],
+            'rules.*.operator' => ['required', 'in:lt,lte,eq,gte,gt,between'],
+            'rules.*.compare_value' => ['required', 'integer', 'min:0'],
+            'rules.*.compare_value_to' => ['nullable', 'integer', 'min:0'],
+            'rules.*.markup_type' => ['required', 'in:fixed_amount,percentage'],
+            'rules.*.markup_value' => ['required', 'integer', 'min:0'],
+            'rules.*.is_active' => ['nullable', 'boolean'],
+        ]);
+
+        $outlet = $this->resolvedOutlet($request);
+        $outletId = $outlet?->id;
+        $before = $this->modifierMarkupService->settingsPayload($outletId);
+
+        $rules = collect($validated['rules'] ?? [])
+            ->values()
+            ->map(function (array $rule, int $index) {
+                $operator = (string) ($rule['operator'] ?? 'lt');
+                $compareValue = (int) ($rule['compare_value'] ?? 0);
+                $compareValueTo = $rule['compare_value_to'] ?? null;
+
+                if ($operator === 'between' && $compareValueTo === null) {
+                    $compareValueTo = $compareValue;
+                }
+
+                return [
+                    'id' => 'rule-'.$index,
+                    'label' => trim((string) ($rule['label'] ?? '')),
+                    'operator' => $operator,
+                    'compare_value' => $compareValue,
+                    'compare_value_to' => $compareValueTo !== null ? (int) $compareValueTo : null,
+                    'markup_type' => (string) ($rule['markup_type'] ?? 'fixed_amount'),
+                    'markup_value' => (int) ($rule['markup_value'] ?? 0),
+                    'is_active' => (bool) ($rule['is_active'] ?? true),
+                    'sort_order' => $index,
+                ];
+            })
+            ->all();
+
+        Setting::set(
+            'modifier_markup_rules',
+            json_encode($rules),
+            'Aturan markup default topping/modifier.',
+            $outletId
+        );
+
+        $after = $this->modifierMarkupService->settingsPayload($outletId);
+
+        $this->auditLogService->log(
+            event: 'settings.modifier_markup.updated',
+            module: 'store_settings',
+            auditable: ['target_label' => 'Topping Markup Rules'],
+            description: 'Aturan markup topping diperbarui.',
+            before: $before,
+            after: $after,
+        );
+
+        return back()->with('success', 'Aturan markup topping berhasil disimpan.');
     }
 
     private function resolvedOutlet(Request $request): ?Outlet

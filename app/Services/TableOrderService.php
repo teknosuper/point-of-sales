@@ -29,6 +29,7 @@ class TableOrderService
         private readonly AuditLogService $auditLogService,
         private readonly LoyaltyService $loyaltyService,
         private readonly PricingService $pricingService,
+        private readonly ModifierMarkupService $modifierMarkupService,
         private readonly PrintJobService $printJobService,
         private readonly TransactionInvoiceService $transactionInvoiceService
     ) {}
@@ -202,7 +203,11 @@ class TableOrderService
                 ]);
             }
 
-            $modifierUnitTotal = (int) $selectedModifiers->sum(fn (ProductModifierOption $option) => (int) $option->price);
+            $modifierPricing = $selectedModifiers
+                ->mapWithKeys(fn (ProductModifierOption $option) => [
+                    $option->id => $this->modifierMarkupService->resolveForBasePrice((int) ($option->price ?? 0), (int) $table->outlet_id),
+                ]);
+            $modifierUnitTotal = (int) $modifierPricing->sum(fn (array $pricing) => (int) ($pricing['effective_price'] ?? 0));
 
             return [
                 'cart_id' => -($index + 1),
@@ -228,8 +233,8 @@ class TableOrderService
                     'product_modifier_option_id' => $option->id,
                     'name' => $option->name,
                     'qty' => $item['qty'],
-                    'unit_price' => (int) $option->price,
-                    'total_price' => (int) $option->price * $item['qty'],
+                    'unit_price' => (int) ($modifierPricing->get($option->id)['effective_price'] ?? 0),
+                    'total_price' => (int) ($modifierPricing->get($option->id)['effective_price'] ?? 0) * $item['qty'],
                 ])->values()->all(),
             ];
         });
@@ -555,7 +560,11 @@ class TableOrderService
                 ->whereIn('id', $item['modifier_ids']->all())
                 ->values();
 
-            $modifierUnitTotal = (int) $selectedModifiers->sum(fn (ProductModifierOption $option) => (int) $option->price);
+            $modifierPricing = $selectedModifiers
+                ->mapWithKeys(fn (ProductModifierOption $option) => [
+                    $option->id => $this->modifierMarkupService->resolveForBasePrice((int) ($option->price ?? 0), (int) $tableOrder->outlet_id),
+                ]);
+            $modifierUnitTotal = (int) $modifierPricing->sum(fn (array $pricing) => (int) ($pricing['effective_price'] ?? 0));
 
             return [
                 'product_id' => $product->id,
@@ -571,8 +580,8 @@ class TableOrderService
                     'product_modifier_option_id' => $option->id,
                     'name' => $option->name,
                     'qty' => $item['qty'],
-                    'unit_price' => (int) $option->price,
-                    'total_price' => (int) $option->price * $item['qty'],
+                    'unit_price' => (int) ($modifierPricing->get($option->id)['effective_price'] ?? 0),
+                    'total_price' => (int) ($modifierPricing->get($option->id)['effective_price'] ?? 0) * $item['qty'],
                 ])->values()->all(),
             ];
         });

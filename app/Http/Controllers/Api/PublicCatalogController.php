@@ -8,6 +8,7 @@ use App\Models\Outlet;
 use App\Models\PricingRule;
 use App\Models\Product;
 use App\Models\ProductOutletStock;
+use App\Services\ModifierMarkupService;
 use App\Services\PricingService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -18,7 +19,8 @@ use Illuminate\Support\Facades\Schema;
 class PublicCatalogController extends Controller
 {
     public function __construct(
-        private readonly PricingService $pricingService
+        private readonly PricingService $pricingService,
+        private readonly ModifierMarkupService $modifierMarkupService
     ) {}
 
     public function meta(Request $request): JsonResponse
@@ -416,12 +418,7 @@ class PublicCatalogController extends Controller
                 ] : null,
                 'modifier_options' => $product->modifierOptions
                     ->where('is_active', true)
-                    ->map(fn ($option) => [
-                        'id' => $option->id,
-                        'name' => $option->name,
-                        'price' => (int) $option->price,
-                        'is_required' => (bool) $option->is_required,
-                    ])
+                    ->map(fn ($option) => $this->modifierMarkupService->payloadForOption($option, $outletId))
                     ->values()
                     ->all(),
                 'kitchen_stations' => $product->kitchenStationMappings

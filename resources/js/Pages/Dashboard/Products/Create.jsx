@@ -613,6 +613,14 @@ export default function Create({
                                         <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                                             Opsi ini muncul di POS dan self order. Tandai `Wajib` pada opsi yang harus dipilih.
                                         </p>
+                                        <div className="mt-3">
+                                            <Link
+                                                href={route("settings.topping-markup")}
+                                                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-primary-600 hover:bg-primary-50 dark:border-slate-700 dark:text-primary-300 dark:hover:bg-slate-800"
+                                            >
+                                                Atur Markup Topping
+                                            </Link>
+                                        </div>
                                     </div>
                                     <div className="flex items-center gap-2">
                                         <button
@@ -659,19 +667,24 @@ export default function Create({
                                                 }
                                                 placeholder="Contoh: Extra cheese"
                                             />
-                                            <Input
-                                                type="number"
-                                                label={index === 0 ? "Harga" : ""}
-                                                value={option.price}
-                                                onChange={(e) =>
-                                                    updateModifierOption(
-                                                        index,
-                                                        "price",
-                                                        e.target.value
-                                                    )
-                                                }
-                                                placeholder="0"
-                                            />
+                                            <div>
+                                                <Input
+                                                    type="number"
+                                                    label={index === 0 ? "Harga Dasar" : ""}
+                                                    value={option.price}
+                                                    onChange={(e) =>
+                                                        updateModifierOption(
+                                                            index,
+                                                            "price",
+                                                            e.target.value
+                                                        )
+                                                    }
+                                                    placeholder="0"
+                                                />
+                                                <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                                                    Markup mengikuti menu `Settings > Profil Toko > Markup Topping`.
+                                                </p>
+                                            </div>
                                             <label className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
                                                 <input
                                                     type="checkbox"

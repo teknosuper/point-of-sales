@@ -90,7 +90,14 @@ export default function Store({ settings, tenantOutlets = [] }) {
                     </p>
                 </div>
                 {canAccessDataRepair ? (
-                    <div className="flex justify-start">
+                    <div className="flex flex-wrap justify-start gap-3">
+                        <Link
+                            href={route("settings.topping-markup")}
+                            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                        >
+                            <IconPercentage size={18} />
+                            Markup Topping
+                        </Link>
                         <Link
                             href={route("settings.data-repair")}
                             className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"

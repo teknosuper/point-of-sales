@@ -23,6 +23,7 @@ use App\Services\CashierShiftService;
 use App\Services\FoodcourtTenantAllocationService;
 use App\Services\KitchenTicketService;
 use App\Services\LoyaltyService;
+use App\Services\ModifierMarkupService;
 use App\Services\OutletResolver;
 use App\Services\Payments\PaymentGatewayManager;
 use App\Services\PricingService;
@@ -53,6 +54,7 @@ class TransactionController extends Controller
         private readonly PricingService $pricingService,
         private readonly ProductCatalogService $productCatalogService,
         private readonly LoyaltyService $loyaltyService,
+        private readonly ModifierMarkupService $modifierMarkupService,
         private readonly OutletResolver $outletResolver,
         private readonly StockMutationService $stockMutationService,
         private readonly KitchenTicketService $kitchenTicketService,
@@ -927,12 +929,7 @@ class TransactionController extends Controller
                 'requires_modifier_selection' => (bool) $cart->product->requires_modifier_selection,
                 'modifier_options' => $cart->product->modifierOptions
                     ->where('is_active', true)
-                    ->map(fn ($option) => [
-                        'id' => $option->id,
-                        'name' => $option->name,
-                        'price' => (int) $option->price,
-                        'is_required' => (bool) $option->is_required,
-                    ])
+                    ->map(fn ($option) => $this->modifierMarkupService->payloadForOption($option, $cart->outlet_id))
                     ->values()
                     ->all(),
                 'kitchen_stations' => $cart->product->kitchenStationMappings
