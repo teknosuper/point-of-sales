@@ -15,6 +15,7 @@ use App\Models\TransactionDetail;
 use App\Services\AuditLogService;
 use App\Services\CashierShiftService;
 use App\Services\FoodcourtTenantAllocationService;
+use App\Services\KitchenTicketReturnSyncService;
 use App\Services\OutletResolver;
 use App\Services\StockMutationService;
 use Illuminate\Database\Eloquent\Builder;
@@ -37,6 +38,7 @@ class SalesReturnController extends Controller
         private readonly CashierShiftService $cashierShiftService,
         private readonly AuditLogService $auditLogService,
         private readonly FoodcourtTenantAllocationService $foodcourtTenantAllocationService,
+        private readonly KitchenTicketReturnSyncService $kitchenTicketReturnSyncService,
         private readonly OutletResolver $outletResolver
     ) {}
 
@@ -307,6 +309,13 @@ class SalesReturnController extends Controller
 
                 $this->foodcourtTenantAllocationService->reconcileCompletedReturns(
                     $salesReturn->transaction->fresh(['details'])
+                );
+                $this->kitchenTicketReturnSyncService->syncCompletedSalesReturn(
+                    $salesReturn->fresh([
+                        'items.transactionDetail',
+                        'items.product',
+                    ]),
+                    $request->user()?->id
                 );
 
                 $pendingSettlement = CashierSettlementRequest::query()
