@@ -58,7 +58,21 @@ class FoodcourtTenantAllocationService
         if ($details->isEmpty()) {
             TransactionTenantAllocation::query()
                 ->where('transaction_id', $transaction->id)
-                ->delete();
+                ->get()
+                ->each(function (TransactionTenantAllocation $allocation) {
+                    $allocation->items()->delete();
+                    $allocation->forceFill([
+                        'subtotal' => 0,
+                        'promo_discount_total' => 0,
+                        'manual_discount_total' => 0,
+                        'loyalty_discount_total' => 0,
+                        'voucher_discount_total' => 0,
+                        'grand_total' => 0,
+                        'payment_status' => 'returned',
+                        'kitchen_status' => 'returned',
+                        'waiter_status' => 'returned',
+                    ])->save();
+                });
 
             return collect();
         }
@@ -77,10 +91,25 @@ class FoodcourtTenantAllocationService
         $afterManual = $afterLoyalty->map(fn (int $subtotal, int|string $tenantOutletId) => max(0, $subtotal - (int) $manualShares->get($tenantOutletId, 0)));
         $shippingShares = $this->allocateAcrossTenants($afterManual, (int) ($transaction->shipping_cost ?? 0));
 
-        TransactionTenantAllocation::query()
+        $removedAllocations = TransactionTenantAllocation::query()
             ->where('transaction_id', $transaction->id)
             ->whereNotIn('tenant_outlet_id', $tenantOutletIds)
-            ->delete();
+            ->get();
+
+        $removedAllocations->each(function (TransactionTenantAllocation $allocation) {
+            $allocation->items()->delete();
+            $allocation->forceFill([
+                'subtotal' => 0,
+                'promo_discount_total' => 0,
+                'manual_discount_total' => 0,
+                'loyalty_discount_total' => 0,
+                'voucher_discount_total' => 0,
+                'grand_total' => 0,
+                'payment_status' => 'returned',
+                'kitchen_status' => 'returned',
+                'waiter_status' => 'returned',
+            ])->save();
+        });
 
         foreach ($groupedDetails as $tenantOutletId => $tenantDetails) {
             $tenantDetails = $tenantDetails->values();
@@ -116,7 +145,9 @@ class FoodcourtTenantAllocationService
                 'loyalty_discount_total' => $loyaltyDiscountTotal,
                 'voucher_discount_total' => $voucherDiscountTotal,
                 'grand_total' => $grandTotal,
-                'payment_status' => (string) ($transaction->payment_status ?: 'paid'),
+                'payment_status' => $grandTotal > 0
+                    ? (string) ($transaction->payment_status ?: 'paid')
+                    : 'returned',
                 'kitchen_status' => $tenantDetails->contains(fn (array $row) => (bool) ($row['detail']?->kitchen_station_id ?? null)) ? 'pending' : 'not_required',
                 'waiter_status' => $tenantDetails->contains(fn (array $row) => (bool) ($row['detail']?->kitchen_station_id ?? null)) ? ($allocation->waiter_status ?: 'pending') : 'not_required',
             ]);

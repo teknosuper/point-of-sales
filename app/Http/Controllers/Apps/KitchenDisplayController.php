@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\KitchenStation;
 use App\Models\KitchenStationDevice;
 use App\Models\KitchenTicket;
+use App\Models\KitchenTicketEvent;
 use App\Models\TransactionTenantAllocationItem;
 use App\Models\Outlet;
 use App\Models\ProductKitchenStationMapping;
@@ -205,6 +206,7 @@ class KitchenDisplayController extends Controller
         }
 
         $itemsToComplete = $itemsQuery->get();
+        $itemsToComplete = $this->filterReturnedKitchenTicketItems($itemsToComplete);
 
         if ($itemsToComplete->isEmpty()) {
             return back()->with('success', 'Tidak ada item baru yang perlu ditandai siap.');
@@ -229,7 +231,10 @@ class KitchenDisplayController extends Controller
         $this->waiterFulfillmentService->markAllocationItemsReadyByDetailIds($detailIds);
 
         $remainingOpenItems = $kitchenTicket->items()
-            ->whereIn('status', ['pending', 'acknowledged'])
+            ->get()
+            ->pipe(fn (Collection $items) => $this->filterReturnedKitchenTicketItems(
+                $items->whereIn('status', ['pending', 'acknowledged'])->values()
+            ))
             ->count();
 
         $kitchenTicket->forceFill([
@@ -296,6 +301,7 @@ class KitchenDisplayController extends Controller
         }
 
         $itemsToDeliver = $itemsQuery->get();
+        $itemsToDeliver = $this->filterReturnedKitchenTicketItems($itemsToDeliver);
 
         if ($itemsToDeliver->isEmpty()) {
             return back()->with('success', 'Tidak ada item yang bisa langsung ditandai diserahkan.');
@@ -324,6 +330,7 @@ class KitchenDisplayController extends Controller
         );
 
         $ticketDetailIds = $kitchenTicket->items()
+            ->pipe(fn (Collection $items) => $this->filterReturnedKitchenTicketItems($items))
             ->pluck('transaction_detail_id')
             ->filter()
             ->map(fn ($id) => (int) $id)
@@ -508,10 +515,7 @@ class KitchenDisplayController extends Controller
 
     private function stationPayload(KitchenStation $station): array
     {
-        $pendingCount = $station->kitchenTickets()->where('status', 'pending')->count();
-        $acknowledgedCount = $station->kitchenTickets()->where('status', 'acknowledged')->count();
-        $readyCount = $station->kitchenTickets()->where('status', 'ready')->count();
-        $completedCount = $station->kitchenTickets()->where('status', 'completed')->count();
+        $statusCounts = $this->stationTicketStatusCounts($station);
 
         return [
             'id' => $station->id,
@@ -521,10 +525,11 @@ class KitchenDisplayController extends Controller
             'display_mode' => $station->display_mode,
             'processing_mode' => $station->processing_mode ?: 'auto',
             'station_type' => $station->station_type,
-            'pending_count' => $pendingCount,
-            'acknowledged_count' => $acknowledgedCount,
-            'ready_count' => $readyCount,
-            'completed_count' => $completedCount,
+            'pending_count' => (int) ($statusCounts['pending'] ?? 0),
+            'acknowledged_count' => (int) ($statusCounts['acknowledged'] ?? 0),
+            'ready_count' => (int) ($statusCounts['ready'] ?? 0),
+            'completed_count' => (int) ($statusCounts['completed'] ?? 0),
+            'returned_count' => (int) ($statusCounts['returned'] ?? 0),
             'devices' => $station->devices->map(fn ($device) => [
                 ...$this->devicePayload($device),
             ])->values(),
@@ -550,11 +555,12 @@ class KitchenDisplayController extends Controller
             ->where('kitchen_station_id', $station->id);
 
         match ($statusFilter) {
-            'pending' => $query->where('status', 'pending'),
-            'acknowledged' => $query->where('status', 'acknowledged'),
-            'ready' => $query->where('status', 'ready'),
-            'completed' => $query->where('status', 'completed'),
-            default => $query->whereIn('status', ['pending', 'acknowledged', 'ready']),
+            'pending' => $query->where('status', 'pending')->whereHas('items'),
+            'acknowledged' => $query->where('status', 'acknowledged')->whereHas('items'),
+            'ready' => $query->where('status', 'ready')->whereHas('items'),
+            'completed' => $query->where('status', 'completed')->whereHas('items'),
+            'returned' => $query->whereHas('events', fn ($builder) => $builder->whereIn('event', ['ticket.returned_partial', 'ticket.returned_full'])),
+            default => $query->whereIn('status', ['pending', 'acknowledged', 'ready'])->whereHas('items'),
         };
 
         if ($search !== '') {
@@ -580,134 +586,217 @@ class KitchenDisplayController extends Controller
             $query->orderBy('fired_at')->orderBy('id');
         }
 
-        $tickets = $query
-            ->paginate($perPage)
-            ->through(function (KitchenTicket $ticket) {
-                $detailIds = $ticket->items
-                    ->pluck('transaction_detail_id')
-                    ->filter()
-                    ->map(fn ($id) => (int) $id)
-                    ->values();
-
-                $serviceStatusMap = TransactionTenantAllocationItem::query()
-                    ->whereIn('transaction_detail_id', $detailIds->all())
-                    ->get([
-                        'transaction_detail_id',
-                        'service_status',
-                        'ready_at',
-                        'picked_up_at',
-                        'delivered_at',
-                    ])
-                    ->keyBy(fn ($item) => (int) $item->transaction_detail_id);
-
-                $latestDispatchEvent = $ticket->events()
-                    ->whereIn('event', ['ticket.dispatch_queued', 'ticket.dispatched', 'ticket.dispatch_failed'])
-                    ->latest('created_at')
-                    ->first();
-                $printJobs = $ticket->printJobs->sortBy('id')->values();
-                $latestPrintJob = $printJobs->last();
-                $successfulPrintJobs = $printJobs->where('status', 'success');
-                $queuedPrintJobs = $printJobs->whereIn('status', ['queued', 'processing']);
-                $failedPrintJobs = $printJobs->where('status', 'failed');
-                $printedCopies = (int) $successfulPrintJobs->sum(fn ($job) => max(1, (int) ($job->copies ?? 1)));
-                $successfulPrintTimes = $successfulPrintJobs
-                    ->sortBy('processed_at')
-                    ->pluck('processed_at')
-                    ->filter()
-                    ->map(fn ($value) => ReportTimezone::formatSourceIso8601($value))
-                    ->values();
-                $printStatus = match (true) {
-                    $queuedPrintJobs->isNotEmpty() && $successfulPrintJobs->isNotEmpty() => 'reprint_queued',
-                    $queuedPrintJobs->isNotEmpty() => 'queued',
-                    $latestPrintJob?->status === 'failed' => 'failed',
-                    $successfulPrintJobs->isNotEmpty() => 'printed',
-                    default => 'not_printed',
-                };
-
-                return [
-                    'id' => $ticket->id,
-                    'ticket_number' => $ticket->ticket_number,
-                    'status' => $ticket->status,
-                    'fired_at' => ReportTimezone::formatSourceIso8601($ticket->getRawOriginal('fired_at')),
-                    'acknowledged_at' => ReportTimezone::formatSourceIso8601($ticket->getRawOriginal('acknowledged_at')),
-                    'ready_at' => ReportTimezone::formatSourceIso8601($ticket->getRawOriginal('ready_at')),
-                    'completed_at' => ReportTimezone::formatSourceIso8601($ticket->getRawOriginal('completed_at')),
-                    'invoice' => $ticket->transaction?->invoice,
-                    'customer_name' => $ticket->transaction?->customer?->name,
-                    'order_reference_name' => $ticket->transaction?->order_reference_name,
-                    'order_reference_notes' => $ticket->transaction?->order_reference_notes,
-                    'customer_phone' => $ticket->transaction?->customer?->no_telp,
-                    'order_type' => $ticket->transaction?->order_type ?? 'take_away',
-                    'order_type_label' => $this->humanizeOrderType($ticket->transaction?->order_type),
-                    'table_label' => $this->tableLabel(
-                        $ticket->transaction?->diningTable?->code,
-                        $ticket->transaction?->diningTable?->name
-                    ),
-                    'table_name' => $ticket->transaction?->diningTable?->name,
-                    'table_code' => $ticket->transaction?->diningTable?->code,
-                    'notes' => $ticket->notes,
-                    'dispatch' => $latestDispatchEvent ? [
-                        'event' => $latestDispatchEvent->event,
-                        'status' => match ($latestDispatchEvent->event) {
-                            'ticket.dispatch_queued' => 'queued',
-                            'ticket.dispatch_failed' => 'failed',
-                            default => 'dispatched',
-                        },
-                        'dispatched_at' => ReportTimezone::formatSourceIso8601($latestDispatchEvent->getRawOriginal('created_at')),
-                        'device_id' => data_get($latestDispatchEvent->payload, 'device_id'),
-                        'device_name' => data_get($latestDispatchEvent->payload, 'device_name'),
-                        'device_type' => data_get($latestDispatchEvent->payload, 'device_type'),
-                        'print_job_id' => data_get($latestDispatchEvent->payload, 'print_job_id'),
-                        'print_job_status' => data_get($latestDispatchEvent->payload, 'print_job_status'),
-                        'reason' => data_get($latestDispatchEvent->payload, 'reason'),
-                    ] : null,
-                    'print' => [
-                        'status' => $printStatus,
-                        'total_jobs' => $printJobs->count(),
-                        'success_jobs' => $successfulPrintJobs->count(),
-                        'failed_jobs' => $failedPrintJobs->count(),
-                        'queued_jobs' => $queuedPrintJobs->count(),
-                        'printed_copies' => $printedCopies,
-                        'first_printed_at' => $successfulPrintTimes->first(),
-                        'last_printed_at' => ReportTimezone::formatSourceIso8601($successfulPrintJobs->sortByDesc('processed_at')->first()?->getRawOriginal('processed_at')),
-                        'printed_at_list' => $successfulPrintTimes->all(),
-                        'last_failed_at' => ReportTimezone::formatSourceIso8601($failedPrintJobs->sortByDesc('failed_at')->first()?->getRawOriginal('failed_at')),
-                        'last_queued_at' => ReportTimezone::formatSourceIso8601($queuedPrintJobs->sortByDesc('queued_at')->first()?->getRawOriginal('queued_at')),
-                    ],
-                    'items' => $ticket->items->map(fn ($item) => [
-                        'resolved_service_status' => (($serviceStatusMap->get((int) $item->transaction_detail_id)?->service_status === 'not_required')
-                            && $item->status === 'completed')
-                            ? 'ready'
-                            : (optional($serviceStatusMap->get((int) $item->transaction_detail_id))->service_status
-                                ?? ($item->status === 'completed' ? 'ready' : 'pending')),
-                        'id' => $item->id,
-                        'product_title' => $item->product_title,
-                        'qty' => (int) $item->qty,
-                        'status' => $item->status,
-                        'notes' => $item->notes,
-                        'completed_at' => ReportTimezone::formatSourceIso8601($item->getRawOriginal('completed_at')),
-                        'service_status' => (($serviceStatusMap->get((int) $item->transaction_detail_id)?->service_status === 'not_required')
-                            && $item->status === 'completed')
-                            ? 'ready'
-                            : (optional($serviceStatusMap->get((int) $item->transaction_detail_id))->service_status
-                                ?? ($item->status === 'completed' ? 'ready' : 'pending')),
-                        'ready_at' => ReportTimezone::formatSourceIso8601(optional($serviceStatusMap->get((int) $item->transaction_detail_id))->ready_at),
-                        'picked_up_at' => ReportTimezone::formatSourceIso8601(optional($serviceStatusMap->get((int) $item->transaction_detail_id))->picked_up_at),
-                        'delivered_at' => ReportTimezone::formatSourceIso8601(optional($serviceStatusMap->get((int) $item->transaction_detail_id))->delivered_at),
-                    ])->values(),
-                ];
-            });
+        $paginator = $query->paginate($perPage);
+        $tickets = $paginator->getCollection()->values();
+        $ticketMaps = $this->kitchenBoardMaps($tickets);
+        $ticketPayloads = $tickets
+            ->map(fn (KitchenTicket $ticket) => $this->transformKitchenTicketPayload(
+                $ticket,
+                $ticketMaps['service_status_map'],
+                $ticketMaps['latest_dispatch_event_map'],
+                $ticketMaps['latest_return_event_map'],
+                $statusFilter
+            ))
+            ->values();
+        $paginator->setCollection($ticketPayloads);
 
         return [
-            'data' => $tickets->items(),
+            'data' => $paginator->items(),
             'meta' => [
-                'current_page' => $tickets->currentPage(),
-                'last_page' => $tickets->lastPage(),
-                'per_page' => $tickets->perPage(),
-                'total' => $tickets->total(),
-                'from' => $tickets->firstItem(),
-                'to' => $tickets->lastItem(),
+                'current_page' => $paginator->currentPage(),
+                'last_page' => $paginator->lastPage(),
+                'per_page' => $paginator->perPage(),
+                'total' => $paginator->total(),
+                'from' => $paginator->firstItem(),
+                'to' => $paginator->lastItem(),
             ],
+        ];
+    }
+
+    private function transformKitchenTicketPayload(
+        KitchenTicket $ticket,
+        Collection $serviceStatusMap,
+        Collection $latestDispatchEventMap,
+        Collection $latestReturnEventMap,
+        string $statusFilter = 'active'
+    ): array
+    {
+        /** @var KitchenTicketEvent|null $latestReturnEvent */
+        $latestReturnEvent = $latestReturnEventMap->get((int) $ticket->id);
+        $returnedSnapshotItems = collect(data_get($latestReturnEvent?->payload, 'items', []))
+            ->map(function ($item) {
+                return [
+                    'id' => (int) data_get($item, 'kitchen_ticket_item_id', 0),
+                    'transaction_detail_id' => (int) data_get($item, 'transaction_detail_id', 0),
+                    'product_title' => (string) data_get($item, 'product_title', 'Produk'),
+                    'status' => 'returned',
+                    'notes' => null,
+                    'completed_at' => null,
+                    'service_status' => 'returned',
+                    'resolved_service_status' => 'returned',
+                    'ready_at' => null,
+                    'picked_up_at' => null,
+                    'delivered_at' => null,
+                    'original_qty' => (int) data_get($item, 'original_qty', 0),
+                    'remaining_qty' => (int) data_get($item, 'remaining_qty', 0),
+                    'returned_qty' => (int) data_get($item, 'cumulative_returned_qty', data_get($item, 'returned_qty', 0)),
+                    'has_partial_return' => (int) data_get($item, 'remaining_qty', 0) > 0,
+                    'is_returned' => true,
+                    'qty' => (int) data_get($item, 'cumulative_returned_qty', data_get($item, 'returned_qty', 0)),
+                ];
+            })
+            ->filter(fn (array $item) => (int) $item['returned_qty'] > 0)
+            ->values();
+
+        $activeItems = $ticket->items->map(function ($item) use ($serviceStatusMap) {
+            $remainingQty = max(0, (int) $item->qty);
+            $serviceStatus = (($serviceStatusMap->get((int) $item->transaction_detail_id)?->service_status === 'not_required')
+                && $item->status === 'completed')
+                ? 'ready'
+                : (optional($serviceStatusMap->get((int) $item->transaction_detail_id))->service_status
+                    ?? ($item->status === 'completed' ? 'ready' : 'pending'));
+
+            return [
+                'id' => $item->id,
+                'transaction_detail_id' => (int) ($item->transaction_detail_id ?? 0),
+                'product_title' => $item->product_title,
+                'status' => $item->status,
+                'notes' => $item->notes,
+                'completed_at' => ReportTimezone::formatSourceIso8601($item->getRawOriginal('completed_at')),
+                'service_status' => $serviceStatus,
+                'resolved_service_status' => $serviceStatus,
+                'ready_at' => ReportTimezone::formatSourceIso8601(optional($serviceStatusMap->get((int) $item->transaction_detail_id))->ready_at),
+                'picked_up_at' => ReportTimezone::formatSourceIso8601(optional($serviceStatusMap->get((int) $item->transaction_detail_id))->picked_up_at),
+                'delivered_at' => ReportTimezone::formatSourceIso8601(optional($serviceStatusMap->get((int) $item->transaction_detail_id))->delivered_at),
+                'original_qty' => $remainingQty,
+                'remaining_qty' => $remainingQty,
+                'returned_qty' => 0,
+                'has_partial_return' => false,
+                'is_returned' => false,
+                'qty' => $remainingQty,
+            ];
+        })->values();
+        $returnedItems = $returnedSnapshotItems;
+        /** @var KitchenTicketEvent|null $latestDispatchEvent */
+        $latestDispatchEvent = $latestDispatchEventMap->get((int) $ticket->id);
+        $printJobs = $ticket->printJobs->sortBy('id')->values();
+        $latestPrintJob = $printJobs->last();
+        $successfulPrintJobs = $printJobs->where('status', 'success');
+        $queuedPrintJobs = $printJobs->whereIn('status', ['queued', 'processing']);
+        $failedPrintJobs = $printJobs->where('status', 'failed');
+        $printedCopies = (int) $successfulPrintJobs->sum(fn ($job) => max(1, (int) ($job->copies ?? 1)));
+        $successfulPrintTimes = $successfulPrintJobs
+            ->sortBy('processed_at')
+            ->pluck('processed_at')
+            ->filter()
+            ->map(fn ($value) => ReportTimezone::formatSourceIso8601($value))
+            ->values();
+        $printStatus = match (true) {
+            $queuedPrintJobs->isNotEmpty() && $successfulPrintJobs->isNotEmpty() => 'reprint_queued',
+            $queuedPrintJobs->isNotEmpty() => 'queued',
+            $latestPrintJob?->status === 'failed' => 'failed',
+            $successfulPrintJobs->isNotEmpty() => 'printed',
+            default => 'not_printed',
+        };
+
+        $displayStatusKey = $activeItems->isEmpty() && $returnedItems->isNotEmpty()
+            ? 'returned'
+            : (string) ($ticket->status ?: 'pending');
+        $displayItems = $statusFilter === 'returned' ? $returnedItems : $activeItems;
+
+        return [
+            'id' => $ticket->id,
+            'ticket_number' => $ticket->ticket_number,
+            'status' => $ticket->status,
+            'display_status_key' => $displayStatusKey,
+            'has_return_activity' => $returnedItems->isNotEmpty(),
+            'is_fully_returned' => $activeItems->isEmpty() && $returnedItems->isNotEmpty(),
+            'active_items_count' => $activeItems->count(),
+            'returned_items_count' => $returnedItems->count(),
+            'active_qty_total' => (int) $activeItems->sum('qty'),
+            'returned_qty_total' => (int) $returnedItems->sum('qty'),
+            'fired_at' => ReportTimezone::formatSourceIso8601($ticket->getRawOriginal('fired_at')),
+            'acknowledged_at' => ReportTimezone::formatSourceIso8601($ticket->getRawOriginal('acknowledged_at')),
+            'ready_at' => ReportTimezone::formatSourceIso8601($ticket->getRawOriginal('ready_at')),
+            'completed_at' => ReportTimezone::formatSourceIso8601($ticket->getRawOriginal('completed_at')),
+            'invoice' => $ticket->transaction?->invoice,
+            'customer_name' => $ticket->transaction?->customer?->name,
+            'order_reference_name' => $ticket->transaction?->order_reference_name,
+            'order_reference_notes' => $ticket->transaction?->order_reference_notes,
+            'customer_phone' => $ticket->transaction?->customer?->no_telp,
+            'order_type' => $ticket->transaction?->order_type ?? 'take_away',
+            'order_type_label' => $this->humanizeOrderType($ticket->transaction?->order_type),
+            'table_label' => $this->tableLabel(
+                $ticket->transaction?->diningTable?->code,
+                $ticket->transaction?->diningTable?->name
+            ),
+            'table_name' => $ticket->transaction?->diningTable?->name,
+            'table_code' => $ticket->transaction?->diningTable?->code,
+            'notes' => $ticket->notes,
+            'dispatch' => $latestDispatchEvent ? [
+                'event' => $latestDispatchEvent->event,
+                'status' => match ($latestDispatchEvent->event) {
+                    'ticket.dispatch_queued' => 'queued',
+                    'ticket.dispatch_failed' => 'failed',
+                    default => 'dispatched',
+                },
+                'dispatched_at' => ReportTimezone::formatSourceIso8601($latestDispatchEvent->getRawOriginal('created_at')),
+                'device_id' => data_get($latestDispatchEvent->payload, 'device_id'),
+                'device_name' => data_get($latestDispatchEvent->payload, 'device_name'),
+                'device_type' => data_get($latestDispatchEvent->payload, 'device_type'),
+                'print_job_id' => data_get($latestDispatchEvent->payload, 'print_job_id'),
+                'print_job_status' => data_get($latestDispatchEvent->payload, 'print_job_status'),
+                'reason' => data_get($latestDispatchEvent->payload, 'reason'),
+            ] : null,
+            'print' => [
+                'status' => $printStatus,
+                'total_jobs' => $printJobs->count(),
+                'success_jobs' => $successfulPrintJobs->count(),
+                'failed_jobs' => $failedPrintJobs->count(),
+                'queued_jobs' => $queuedPrintJobs->count(),
+                'printed_copies' => $printedCopies,
+                'first_printed_at' => $successfulPrintTimes->first(),
+                'last_printed_at' => ReportTimezone::formatSourceIso8601($successfulPrintJobs->sortByDesc('processed_at')->first()?->getRawOriginal('processed_at')),
+                'printed_at_list' => $successfulPrintTimes->all(),
+                'last_failed_at' => ReportTimezone::formatSourceIso8601($failedPrintJobs->sortByDesc('failed_at')->first()?->getRawOriginal('failed_at')),
+                'last_queued_at' => ReportTimezone::formatSourceIso8601($queuedPrintJobs->sortByDesc('queued_at')->first()?->getRawOriginal('queued_at')),
+            ],
+            'items' => $displayItems->values()->all(),
+        ];
+    }
+
+    private function stationTicketStatusCounts(KitchenStation $station): array
+    {
+        return [
+            'pending' => KitchenTicket::query()
+                ->where('outlet_id', $station->outlet_id)
+                ->where('kitchen_station_id', $station->id)
+                ->where('status', 'pending')
+                ->whereHas('items')
+                ->count(),
+            'acknowledged' => KitchenTicket::query()
+                ->where('outlet_id', $station->outlet_id)
+                ->where('kitchen_station_id', $station->id)
+                ->where('status', 'acknowledged')
+                ->whereHas('items')
+                ->count(),
+            'ready' => KitchenTicket::query()
+                ->where('outlet_id', $station->outlet_id)
+                ->where('kitchen_station_id', $station->id)
+                ->where('status', 'ready')
+                ->whereHas('items')
+                ->count(),
+            'completed' => KitchenTicket::query()
+                ->where('outlet_id', $station->outlet_id)
+                ->where('kitchen_station_id', $station->id)
+                ->where('status', 'completed')
+                ->whereHas('items')
+                ->count(),
+            'returned' => KitchenTicket::query()
+                ->where('outlet_id', $station->outlet_id)
+                ->where('kitchen_station_id', $station->id)
+                ->whereHas('events', fn ($builder) => $builder->whereIn('event', ['ticket.returned_partial', 'ticket.returned_full']))
+                ->count(),
         ];
     }
 
@@ -746,6 +835,10 @@ class KitchenDisplayController extends Controller
             ->get();
 
         foreach ($pendingTickets as $ticket) {
+            if ($ticket->items->isEmpty()) {
+                continue;
+            }
+
             $ticket->forceFill([
                 'status' => 'acknowledged',
                 'acknowledged_at' => $ticket->acknowledged_at ?? now(),
@@ -774,8 +867,66 @@ class KitchenDisplayController extends Controller
             'acknowledged' => 'acknowledged',
             'ready' => 'ready',
             'completed' => 'completed',
+            'returned' => 'returned',
             default => 'active',
         };
+    }
+
+    private function filterReturnedKitchenTicketItems(Collection $items): Collection
+    {
+        return $items
+            ->filter(fn ($item) => max(0, (int) ($item->qty ?? 0)) > 0)
+            ->values();
+    }
+
+    private function kitchenBoardMaps(Collection $tickets): array
+    {
+        $ticketIds = $tickets->pluck('id')->map(fn ($id) => (int) $id)->values();
+        $detailIds = $tickets
+            ->flatMap(fn (KitchenTicket $ticket) => $ticket->items->pluck('transaction_detail_id'))
+            ->filter()
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values();
+
+        $serviceStatusMap = $detailIds->isEmpty()
+            ? collect()
+            : TransactionTenantAllocationItem::query()
+                ->whereIn('transaction_detail_id', $detailIds->all())
+                ->get([
+                    'transaction_detail_id',
+                    'service_status',
+                    'ready_at',
+                    'picked_up_at',
+                    'delivered_at',
+                ])
+                ->keyBy(fn ($item) => (int) $item->transaction_detail_id);
+
+        $latestDispatchEventMap = $ticketIds->isEmpty()
+            ? collect()
+            : KitchenTicketEvent::query()
+                ->whereIn('kitchen_ticket_id', $ticketIds->all())
+                ->whereIn('event', ['ticket.dispatch_queued', 'ticket.dispatched', 'ticket.dispatch_failed'])
+                ->orderByDesc('created_at')
+                ->get()
+                ->unique('kitchen_ticket_id')
+                ->keyBy(fn ($event) => (int) $event->kitchen_ticket_id);
+
+        $latestReturnEventMap = $ticketIds->isEmpty()
+            ? collect()
+            : KitchenTicketEvent::query()
+                ->whereIn('kitchen_ticket_id', $ticketIds->all())
+                ->whereIn('event', ['ticket.returned_partial', 'ticket.returned_full'])
+                ->orderByDesc('created_at')
+                ->get()
+                ->unique('kitchen_ticket_id')
+                ->keyBy(fn ($event) => (int) $event->kitchen_ticket_id);
+
+        return [
+            'service_status_map' => $serviceStatusMap,
+            'latest_dispatch_event_map' => $latestDispatchEventMap,
+            'latest_return_event_map' => $latestReturnEventMap,
+        ];
     }
 
     private function filtersPayload(Request $request): array

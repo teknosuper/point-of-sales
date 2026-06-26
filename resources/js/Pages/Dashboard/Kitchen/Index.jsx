@@ -35,6 +35,7 @@ const statusMeta = {
     acknowledged: { label: "Diproses" },
     ready: { label: "Siap Antar / Ambil" },
     completed: { label: "Selesai" },
+    returned: { label: "Retur" },
 };
 
 const ticketStatusMeta = {
@@ -54,6 +55,10 @@ const ticketStatusMeta = {
         label: "Sudah Diserahkan",
         badge: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300",
     },
+    returned: {
+        label: "Diretur",
+        badge: "bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300",
+    },
 };
 
 const ticketItemStatusMeta = {
@@ -69,6 +74,10 @@ const ticketItemStatusMeta = {
         label: "Siap Antar",
         badge: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300",
     },
+    returned: {
+        label: "Diretur",
+        badge: "bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300",
+    },
 };
 
 const kitchenServiceStatusMeta = {
@@ -83,6 +92,10 @@ const kitchenServiceStatusMeta = {
     delivered: {
         label: "Sudah Diserahkan",
         badge: "bg-violet-100 text-violet-700 dark:bg-violet-950/50 dark:text-violet-300",
+    },
+    returned: {
+        label: "Diretur",
+        badge: "bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300",
     },
 };
 
@@ -146,6 +159,12 @@ const normalizeKitchenServiceStatus = (item) => {
 };
 
 const resolveKitchenItemBadge = (item) => {
+    if (item?.status === "returned" || item?.service_status === "returned") {
+        return (
+            kitchenServiceStatusMeta.returned || ticketItemStatusMeta.returned
+        );
+    }
+
     if (item?.status === "completed") {
         return (
             kitchenServiceStatusMeta[normalizeKitchenServiceStatus(item)] ||
@@ -178,6 +197,10 @@ const summarizeKitchenTicketProgress = (ticket) => {
 };
 
 const resolveKitchenTicketStatusMeta = (ticket) => {
+    if (ticket?.display_status_key === "returned" || ticket?.is_fully_returned) {
+        return ticketStatusMeta.returned;
+    }
+
     const baseMeta =
         ticketStatusMeta[ticket?.status] || ticketStatusMeta.pending;
     const { totalItems, readyItems, deliveredItems, processingItems } =
@@ -275,6 +298,10 @@ const kitchenPrintTimeMeta = (ticket) => {
 };
 
 const kitchenProgressLabel = (ticket) => {
+    if (ticket?.is_fully_returned) {
+        return `${ticket?.returned_qty_total || 0} item dibatalkan / diretur`;
+    }
+
     const { totalItems, readyItems, deliveredItems, processingItems } =
         summarizeKitchenTicketProgress(ticket);
 
@@ -298,15 +325,24 @@ const kitchenProgressLabel = (ticket) => {
         return `${processingItems}/${totalItems} item masih diproses`;
     }
 
+    if (Number(ticket?.returned_qty_total || 0) > 0) {
+        return `${ticket.returned_qty_total} item diretur`;
+    }
+
     return `${totalItems} item`;
 };
 
 const isKitchenItemSelectable = (item) =>
-    ["pending", "acknowledged"].includes(item?.status) ||
-    (item?.status === "completed" &&
-        ["ready", "picked_up"].includes(normalizeKitchenServiceStatus(item)));
+    item?.status !== "returned" &&
+    (["pending", "acknowledged"].includes(item?.status) ||
+        (item?.status === "completed" &&
+            ["ready", "picked_up"].includes(normalizeKitchenServiceStatus(item))));
 
 const kitchenItemSelectionLabel = (item) => {
+    if (item?.status === "returned" || item?.service_status === "returned") {
+        return "Diretur";
+    }
+
     const serviceStatus = normalizeKitchenServiceStatus(item);
 
     if (["pending", "acknowledged"].includes(item?.status)) {
@@ -344,6 +380,24 @@ const countKitchenActionableItems = (ticket) => {
 
 const countKitchenItemNotes = (ticket) =>
     (ticket?.items || []).filter((item) => Boolean(item?.notes)).length;
+
+const isReturnedKitchenTicket = (ticket) =>
+    ticket?.display_status_key === "returned" || Boolean(ticket?.is_fully_returned);
+
+const kitchenItemQuantityLabel = (item) => {
+    const activeQty = Number(item?.remaining_qty ?? item?.qty ?? 0);
+    const returnedQty = Number(item?.returned_qty || 0);
+
+    if (item?.status === "returned") {
+        return `Retur x${Number(item?.qty || returnedQty || 0)}`;
+    }
+
+    if (returnedQty > 0 && activeQty > 0) {
+        return `Aktif x${activeQty} • Retur x${returnedQty}`;
+    }
+
+    return `x${Number(item?.qty || activeQty || 0)}`;
+};
 
 function KitchenTicketSummaryDetail({ ticket }) {
     if (!ticket) {
@@ -393,6 +447,12 @@ function KitchenTicketSummaryDetail({ ticket }) {
                                 {kitchenProgressLabel(ticket)}
                             </div>
                         ) : null}
+                        {ticket.has_return_activity ? (
+                            <div className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-2 text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-300">
+                                Retur terdeteksi. Aktif: {ticket.active_qty_total || 0} item, retur:{" "}
+                                {ticket.returned_qty_total || 0} item.
+                            </div>
+                        ) : null}
                         <div>
                             <span className="font-semibold text-slate-700 dark:text-slate-200">
                                 Jenis:
@@ -440,51 +500,59 @@ function KitchenTicketItemsDetail({
         return null;
     }
 
+    const readOnlyReturnedTicket = isReturnedKitchenTicket(ticket);
+
     return (
         <div className="space-y-4">
-            <div className="flex flex-wrap items-center gap-2 text-[11px]">
-                <button
-                    type="button"
-                    onClick={() =>
-                        setSelectedItems(
-                            ticket.id,
-                            ticket.status === "ready"
-                                ? resolveEligibleKitchenDeliveredItemIds(ticket)
-                                : resolveEligibleKitchenItemIds(ticket, ["pending", "acknowledged"])
-                        )
-                    }
-                    className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-slate-600 transition hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
-                >
-                    Pilih item aktif
-                </button>
-                <button
-                    type="button"
-                    onClick={() => setSelectedItems(ticket.id, [])}
-                    className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-slate-500 transition hover:border-rose-300 hover:text-rose-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400"
-                >
-                    Kosongkan pilihan
-                </button>
-                <span className="text-slate-400 dark:text-slate-500">
-                    {selectedItemIds.length} item dipilih
-                </span>
-                <span className="text-slate-400 dark:text-slate-500">
-                    Hanya item aktif yang bisa dicentang
-                </span>
-                <span className="text-slate-400 dark:text-slate-500">
-                    Pilihan beda aksi akan diganti otomatis
-                </span>
-                {selectionMode ? (
-                    <span
-                        className={`rounded-full px-2.5 py-1 font-semibold ${
-                            selectionMode === "ready"
-                                ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
-                                : "bg-violet-100 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300"
-                        }`}
+            {readOnlyReturnedTicket ? (
+                <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-[11px] text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-300">
+                    Ticket retur bersifat baca-saja. Aksi proses, checklist, dan cetak disembunyikan dari tampilan ini.
+                </div>
+            ) : (
+                <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                    <button
+                        type="button"
+                        onClick={() =>
+                            setSelectedItems(
+                                ticket.id,
+                                ticket.status === "ready"
+                                    ? resolveEligibleKitchenDeliveredItemIds(ticket)
+                                    : resolveEligibleKitchenItemIds(ticket, ["pending", "acknowledged"])
+                            )
+                        }
+                        className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-slate-600 transition hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
                     >
-                        Mode: {selectionMode === "ready" ? "Tandai Siap" : "Antar / Serahkan"}
+                        Pilih item aktif
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setSelectedItems(ticket.id, [])}
+                        className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-slate-500 transition hover:border-rose-300 hover:text-rose-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400"
+                    >
+                        Kosongkan pilihan
+                    </button>
+                    <span className="text-slate-400 dark:text-slate-500">
+                        {selectedItemIds.length} item dipilih
                     </span>
-                ) : null}
-            </div>
+                    <span className="text-slate-400 dark:text-slate-500">
+                        Hanya item aktif yang bisa dicentang
+                    </span>
+                    <span className="text-slate-400 dark:text-slate-500">
+                        Pilihan beda aksi akan diganti otomatis
+                    </span>
+                    {selectionMode ? (
+                        <span
+                            className={`rounded-full px-2.5 py-1 font-semibold ${
+                                selectionMode === "ready"
+                                    ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
+                                    : "bg-violet-100 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300"
+                            }`}
+                        >
+                            Mode: {selectionMode === "ready" ? "Tandai Siap" : "Antar / Serahkan"}
+                        </span>
+                    ) : null}
+                </div>
+            )}
 
             <div className="space-y-2">
                 {ticket.items.map((item) => (
@@ -511,6 +579,13 @@ function KitchenTicketItemsDetail({
                                         {item.notes}
                                     </p>
                                 ) : null}
+                                {item.has_partial_return || item.status === "returned" ? (
+                                    <p className="mt-1 text-[11px] font-medium text-rose-600 dark:text-rose-300">
+                                        {item.status === "returned"
+                                            ? `Item ini sudah diretur ${item.returned_qty || item.qty}x`
+                                            : `Sebagian diretur ${item.returned_qty}x, sisa aktif ${item.remaining_qty}x`}
+                                    </p>
+                                ) : null}
                                 {item.ready_at || item.completed_at ? (
                                     <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
                                         Siap: {formatDateTime(item.ready_at || item.completed_at)}
@@ -529,7 +604,7 @@ function KitchenTicketItemsDetail({
                             </div>
                             <div className="flex shrink-0 items-start gap-3">
                                 <span className="rounded-lg bg-white px-2 py-1 text-xs font-semibold text-slate-700 dark:bg-slate-900 dark:text-slate-200">
-                                    x{item.qty}
+                                    {kitchenItemQuantityLabel(item)}
                                 </span>
                                 <div
                                     className={`min-w-[112px] rounded-2xl border px-2.5 py-2 text-center ${
@@ -1564,6 +1639,7 @@ const resolveEligibleKitchenDeliveredItemIds = (ticket) =>
         acknowledged: Number(selectedStation?.acknowledged_count || 0),
         ready: Number(selectedStation?.ready_count || 0),
         completed: Number(selectedStation?.completed_count || 0),
+        returned: Number(selectedStation?.returned_count || 0),
     };
 
     return (
@@ -1755,6 +1831,11 @@ const resolveEligibleKitchenDeliveredItemIds = (ticket) =>
                                         value: "completed",
                                         label: "Selesai",
                                         count: selectedStationStats.completed,
+                                    },
+                                    {
+                                        value: "returned",
+                                        label: "Retur",
+                                        count: Number(selectedStationStats.returned || 0),
                                     },
                                         ].map((option) => (
                                             <button
@@ -1969,16 +2050,17 @@ const resolveEligibleKitchenDeliveredItemIds = (ticket) =>
                                                 const selectedIds = (selectedItemIdsByTicket[ticket.id] || []).map(Number);
                                                 const selectionState = resolveKitchenSelectionState(ticket, selectedIds);
                                                 const selectionMode = resolveKitchenSelectionMode(ticket, selectedIds);
+                                                const readOnlyReturnedTicket = isReturnedKitchenTicket(ticket);
                                                 const canMarkReady =
-                                                    selectionState.totalSelected > 0
+                                                    !readOnlyReturnedTicket && (selectionState.totalSelected > 0
                                                         ? selectionState.readyToMark > 0 &&
                                                           !selectionState.hasMixedAction &&
                                                           selectionState.readyToDeliver === 0
-                                                        : actionCounts.readyToMark > 0;
+                                                        : actionCounts.readyToMark > 0);
                                                 const canDeliver =
-                                                    selectionState.totalSelected > 0
+                                                    !readOnlyReturnedTicket && (selectionState.totalSelected > 0
                                                         ? selectionState.readyToDeliver > 0
-                                                        : actionCounts.readyToDeliver > 0;
+                                                        : actionCounts.readyToDeliver > 0);
                                                 const actionBusy = Boolean(
                                                     submittingActionByTicket[ticket.id]
                                                 );
@@ -2017,6 +2099,11 @@ const resolveEligibleKitchenDeliveredItemIds = (ticket) =>
                                                     {kitchenProgressLabel(ticket) ? (
                                                         <p className="mt-1.5 inline-flex rounded-full bg-amber-50 px-2 py-1 text-[10px] font-semibold text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">
                                                             {kitchenProgressLabel(ticket)}
+                                                        </p>
+                                                    ) : null}
+                                                    {ticket.has_return_activity ? (
+                                                        <p className="mt-1.5 inline-flex rounded-full bg-rose-50 px-2 py-1 text-[10px] font-semibold text-rose-700 dark:bg-rose-950/30 dark:text-rose-300">
+                                                            Retur {ticket.returned_qty_total || 0} item
                                                         </p>
                                                     ) : null}
                                                     <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
@@ -2095,6 +2182,11 @@ const resolveEligibleKitchenDeliveredItemIds = (ticket) =>
                                                                     {kitchenProgressLabel(ticket)}
                                                                 </div>
                                                             ) : null}
+                                                            {ticket.has_return_activity ? (
+                                                                <div className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-1.5 text-[11px] text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-300">
+                                                                    Retur terdeteksi. Item yang dibatalkan tidak lagi masuk antrean aktif.
+                                                                </div>
+                                                            ) : null}
                                                             <div className="flex flex-wrap items-center gap-2">
                                                                 <span className="rounded-full bg-white px-2 py-1 font-semibold text-slate-700 dark:bg-slate-900 dark:text-slate-200">
                                                                     {ticket.order_type_label || "Bawa Pulang"}
@@ -2158,17 +2250,24 @@ const resolveEligibleKitchenDeliveredItemIds = (ticket) =>
                                                 <div className="mt-1.5 space-y-2 text-[11px] text-slate-600 dark:text-slate-300">
                                                     <div className="flex flex-wrap items-center gap-2">
                                                         <span className="rounded-full bg-white px-2.5 py-1 font-semibold text-slate-700 dark:bg-slate-900 dark:text-slate-200">
-                                                            {ticket.items.length} item
+                                                            {ticket.active_items_count || ticket.items.length} item aktif
                                                         </span>
-                                                        <span className="rounded-full bg-white px-2.5 py-1 font-semibold text-slate-700 dark:bg-slate-900 dark:text-slate-200">
-                                                            {(selectedItemIdsByTicket[ticket.id] || []).length} dipilih
-                                                        </span>
+                                                        {ticket.has_return_activity ? (
+                                                            <span className="rounded-full bg-rose-50 px-2.5 py-1 font-semibold text-rose-700 dark:bg-rose-950/30 dark:text-rose-300">
+                                                                Retur {ticket.returned_qty_total || 0}
+                                                            </span>
+                                                        ) : null}
+                                                        {!readOnlyReturnedTicket ? (
+                                                            <span className="rounded-full bg-white px-2.5 py-1 font-semibold text-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                                                                {(selectedItemIdsByTicket[ticket.id] || []).length} dipilih
+                                                            </span>
+                                                        ) : null}
                                                         {countKitchenItemNotes(ticket) > 0 ? (
                                                             <span className="rounded-full bg-amber-50 px-2.5 py-1 font-semibold text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">
                                                                 {countKitchenItemNotes(ticket)} catatan
                                                             </span>
                                                         ) : null}
-                                                        {selectionMode ? (
+                                                        {!readOnlyReturnedTicket && selectionMode ? (
                                                             <span
                                                                 className={`rounded-full px-2.5 py-1 font-semibold ${
                                                                     selectionMode === "ready"
@@ -2198,7 +2297,7 @@ const resolveEligibleKitchenDeliveredItemIds = (ticket) =>
                                             </div>
 
                                             <div className="mt-3 grid grid-cols-2 gap-2">
-                                                {selectionMode ? (
+                                                {!readOnlyReturnedTicket && selectionMode ? (
                                                     <div
                                                         className={`col-span-2 rounded-xl border px-3 py-1.5 text-center text-[11px] font-semibold ${
                                                             selectionMode === "ready"
@@ -2209,7 +2308,7 @@ const resolveEligibleKitchenDeliveredItemIds = (ticket) =>
                                                         Aksi aktif: {selectionMode === "ready" ? "Tandai Item Siap" : "Antar / Serahkan Item"}
                                                     </div>
                                                 ) : null}
-                                                {ticket.status === "pending" &&
+                                                {!readOnlyReturnedTicket && ticket.status === "pending" &&
                                                 (boardState.activeStation?.processing_mode || "auto") === "manual" ? (
                                                     <button
                                                         type="button"
@@ -2222,27 +2321,31 @@ const resolveEligibleKitchenDeliveredItemIds = (ticket) =>
                                                     </button>
                                                 ) : null}
 
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleComplete(ticket.id)}
-                                                    disabled={!canMarkReady || actionBusy}
-                                                    className={`inline-flex h-9 items-center justify-center gap-1.5 rounded-xl px-3 text-xs font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 ${readyButtonClass}`}
-                                                >
-                                                    <IconCheck size={14} />
-                                                    Tandai Siap
-                                                </button>
+                                                {!readOnlyReturnedTicket ? (
+                                                    <>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleComplete(ticket.id)}
+                                                            disabled={!canMarkReady || actionBusy}
+                                                            className={`inline-flex h-9 items-center justify-center gap-1.5 rounded-xl px-3 text-xs font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 ${readyButtonClass}`}
+                                                        >
+                                                            <IconCheck size={14} />
+                                                            Tandai Siap
+                                                        </button>
 
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleDeliver(ticket.id)}
-                                                    disabled={!canDeliver || actionBusy}
-                                                    className={`inline-flex h-9 items-center justify-center gap-1.5 rounded-xl px-3 text-xs font-semibold text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-40 ${deliverButtonClass}`}
-                                                >
-                                                    <IconCheck size={14} />
-                                                    Antar / Serah
-                                                </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleDeliver(ticket.id)}
+                                                            disabled={!canDeliver || actionBusy}
+                                                            className={`inline-flex h-9 items-center justify-center gap-1.5 rounded-xl px-3 text-xs font-semibold text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-40 ${deliverButtonClass}`}
+                                                        >
+                                                            <IconCheck size={14} />
+                                                            Antar / Serah
+                                                        </button>
+                                                    </>
+                                                ) : null}
 
-                                                {printerDevices.length > 0 &&
+                                                {!readOnlyReturnedTicket && printerDevices.length > 0 &&
                                                 ticket.status !== "completed" ? (
                                                     <button
                                                         type="button"
@@ -2259,14 +2362,16 @@ const resolveEligibleKitchenDeliveredItemIds = (ticket) =>
                                                 <button
                                                     type="button"
                                                     onClick={() => handlePreview(ticket)}
-                                                    className={`${printerDevices.length > 0 && ticket.status !== "completed" ? "" : "col-span-2"} inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200`}
+                                                    className={`${!readOnlyReturnedTicket && printerDevices.length > 0 && ticket.status !== "completed" ? "" : "col-span-2"} inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200`}
                                                 >
                                                     <IconEye size={14} />
                                                     Preview
                                                 </button>
                                             </div>
                                             <div className="mt-2.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-[11px] text-slate-500 dark:border-slate-700 dark:bg-slate-950/40 dark:text-slate-400">
-                                                {selectionState.totalSelected > 0
+                                                {readOnlyReturnedTicket
+                                                    ? "Ticket retur disimpan sebagai histori dapur. Tidak ada aksi proses atau cetak dari layar ini."
+                                                    : selectionState.totalSelected > 0
                                                     ? selectionState.hasMixedAction
                                                         ? "Pilihan bercampur. Pilih hanya item diproses atau hanya item siap antar."
                                                         : selectionState.readyToDeliver > 0
@@ -2311,16 +2416,17 @@ const resolveEligibleKitchenDeliveredItemIds = (ticket) =>
                                                             const selectedIds = (selectedItemIdsByTicket[ticket.id] || []).map(Number);
                                                             const selectionState = resolveKitchenSelectionState(ticket, selectedIds);
                                                             const selectionMode = resolveKitchenSelectionMode(ticket, selectedIds);
+                                                            const readOnlyReturnedTicket = isReturnedKitchenTicket(ticket);
                                                             const canMarkReady =
-                                                                selectionState.totalSelected > 0
+                                                                !readOnlyReturnedTicket && (selectionState.totalSelected > 0
                                                                     ? selectionState.readyToMark > 0 &&
                                                                       !selectionState.hasMixedAction &&
                                                                       selectionState.readyToDeliver === 0
-                                                                    : actionCounts.readyToMark > 0;
+                                                                    : actionCounts.readyToMark > 0);
                                                             const canDeliver =
-                                                                selectionState.totalSelected > 0
+                                                                !readOnlyReturnedTicket && (selectionState.totalSelected > 0
                                                                     ? selectionState.readyToDeliver > 0
-                                                                    : actionCounts.readyToDeliver > 0;
+                                                                    : actionCounts.readyToDeliver > 0);
                                                             const actionBusy = Boolean(
                                                                 submittingActionByTicket[ticket.id]
                                                             );
@@ -2357,6 +2463,11 @@ const resolveEligibleKitchenDeliveredItemIds = (ticket) =>
                                                             {kitchenProgressLabel(ticket) ? (
                                                                 <p className="mt-2 inline-flex rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">
                                                                     {kitchenProgressLabel(ticket)}
+                                                                </p>
+                                                            ) : null}
+                                                            {ticket.has_return_activity ? (
+                                                                <p className="mt-2 inline-flex rounded-full bg-rose-50 px-2.5 py-1 text-[11px] font-semibold text-rose-700 dark:bg-rose-950/30 dark:text-rose-300">
+                                                                    Retur {ticket.returned_qty_total || 0} item
                                                                 </p>
                                                             ) : null}
                                                             <p className="mt-2 inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold text-slate-600 dark:text-slate-300">
@@ -2402,11 +2513,18 @@ const resolveEligibleKitchenDeliveredItemIds = (ticket) =>
                                                             <div className="min-w-[260px] space-y-2">
                                                                 <div className="flex flex-wrap items-center gap-2 text-[11px]">
                                                                     <span className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
-                                                                        {ticket.items.length} item
+                                                                        {ticket.active_items_count || ticket.items.length} item aktif
                                                                     </span>
-                                                                    <span className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
-                                                                        {(selectedItemIdsByTicket[ticket.id] || []).length} dipilih
-                                                                    </span>
+                                                                    {ticket.has_return_activity ? (
+                                                                        <span className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1.5 text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-300">
+                                                                            Retur {ticket.returned_qty_total || 0}
+                                                                        </span>
+                                                                    ) : null}
+                                                                    {!readOnlyReturnedTicket ? (
+                                                                        <span className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+                                                                            {(selectedItemIdsByTicket[ticket.id] || []).length} dipilih
+                                                                        </span>
+                                                                    ) : null}
                                                                     {countKitchenItemNotes(ticket) > 0 ? (
                                                                         <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300">
                                                                             {countKitchenItemNotes(ticket)} catatan
@@ -2415,7 +2533,7 @@ const resolveEligibleKitchenDeliveredItemIds = (ticket) =>
                                                                     <span className="text-slate-400 dark:text-slate-500">
                                                                         Detail item dan checklist aksi dibuka di popup
                                                                     </span>
-                                                                    {selectionMode ? (
+                                                                    {!readOnlyReturnedTicket && selectionMode ? (
                                                                         <span
                                                                             className={`rounded-full px-2.5 py-1 font-semibold ${
                                                                                 selectionMode === "ready"
@@ -2445,6 +2563,11 @@ const resolveEligibleKitchenDeliveredItemIds = (ticket) =>
                                                                 {kitchenProgressLabel(ticket) ? (
                                                                     <div className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-2 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300">
                                                                         {kitchenProgressLabel(ticket)}
+                                                                    </div>
+                                                                ) : null}
+                                                                {ticket.has_return_activity ? (
+                                                                    <div className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-2 text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-300">
+                                                                        Retur terdeteksi. Item yang dibatalkan tidak lagi muncul di antrean aktif.
                                                                     </div>
                                                                 ) : null}
                                                                 <div>
@@ -2527,7 +2650,7 @@ const resolveEligibleKitchenDeliveredItemIds = (ticket) =>
                                                                         </div>
                                                                     );
                                                                 })()}
-                                                                {selectionMode ? (
+                                                                {!readOnlyReturnedTicket && selectionMode ? (
                                                                     <div
                                                                         className={`rounded-xl border px-3 py-2 text-center text-xs font-semibold ${
                                                                             selectionMode === "ready"
@@ -2538,7 +2661,7 @@ const resolveEligibleKitchenDeliveredItemIds = (ticket) =>
                                                                         Aksi aktif: {selectionMode === "ready" ? "Tandai Item Siap" : "Antar / Serahkan Item"}
                                                                     </div>
                                                                 ) : null}
-                                                                {ticket.status === "pending" &&
+                                                                {!readOnlyReturnedTicket && ticket.status === "pending" &&
                                                                 (boardState.activeStation?.processing_mode || "auto") === "manual" ? (
                                                                     <button
                                                                         type="button"
@@ -2551,27 +2674,31 @@ const resolveEligibleKitchenDeliveredItemIds = (ticket) =>
                                                                     </button>
                                                                 ) : null}
 
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => handleComplete(ticket.id)}
-                                                                    disabled={!canMarkReady || actionBusy}
-                                                                    className={`inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 ${readyButtonClass}`}
-                                                                >
-                                                                    <IconCheck size={16} />
-                                                                    Tandai Item Siap
-                                                                </button>
+                                                                {!readOnlyReturnedTicket ? (
+                                                                    <>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => handleComplete(ticket.id)}
+                                                                            disabled={!canMarkReady || actionBusy}
+                                                                            className={`inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 ${readyButtonClass}`}
+                                                                        >
+                                                                            <IconCheck size={16} />
+                                                                            Tandai Item Siap
+                                                                        </button>
 
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => handleDeliver(ticket.id)}
-                                                                    disabled={!canDeliver || actionBusy}
-                                                                    className={`inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-40 ${deliverButtonClass}`}
-                                                                >
-                                                                    <IconCheck size={16} />
-                                                                    Antar / Serahkan Item
-                                                                </button>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => handleDeliver(ticket.id)}
+                                                                            disabled={!canDeliver || actionBusy}
+                                                                            className={`inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-40 ${deliverButtonClass}`}
+                                                                        >
+                                                                            <IconCheck size={16} />
+                                                                            Antar / Serahkan Item
+                                                                        </button>
+                                                                    </>
+                                                                ) : null}
 
-                                                                {printerDevices.length > 0 &&
+                                                                {!readOnlyReturnedTicket && printerDevices.length > 0 &&
                                                                 ticket.status !== "completed" ? (
                                                                     <button
                                                                         type="button"
@@ -2594,7 +2721,9 @@ const resolveEligibleKitchenDeliveredItemIds = (ticket) =>
                                                                 </button>
                                                             </div>
                                                             <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-950/40 dark:text-slate-400">
-                                                                {selectionState.totalSelected > 0
+                                                                {readOnlyReturnedTicket
+                                                                    ? "Ticket retur disimpan sebagai histori dapur. Aksi proses, checklist, dan cetak disembunyikan."
+                                                                    : selectionState.totalSelected > 0
                                                                     ? selectionState.hasMixedAction
                                                                         ? "Pilihan bercampur. Pilih hanya item diproses atau hanya item siap antar."
                                                                         : selectionState.readyToDeliver > 0
@@ -2894,8 +3023,10 @@ const resolveEligibleKitchenDeliveredItemIds = (ticket) =>
                             <div className="border-t border-slate-200 px-4 py-3 dark:border-slate-800">
                                 <div className="flex items-center justify-between gap-3">
                                     <div className="text-xs text-slate-500 dark:text-slate-400">
-                                        {ticketDetailModal.items?.length || 0} item •{" "}
-                                        {(selectedItemIdsByTicket[ticketDetailModal.id] || []).length} dipilih
+                                        {ticketDetailModal.items?.length || 0} item
+                                        {!isReturnedKitchenTicket(ticketDetailModal)
+                                            ? ` • ${(selectedItemIdsByTicket[ticketDetailModal.id] || []).length} dipilih`
+                                            : " • mode histori retur"}
                                     </div>
                                     <button
                                         type="button"

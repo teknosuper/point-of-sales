@@ -18,10 +18,12 @@ use App\Models\User;
 use App\Services\CustomerOutletMetricService;
 use App\Services\LoyaltyService;
 use App\Services\OutletResolver;
+use App\Services\TransactionReturnImpactService;
 use App\Support\ReportTimezone;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Inertia\Inertia;
@@ -31,7 +33,8 @@ class AdvancedSalesInsightsController extends Controller
     public function __construct(
         private readonly CustomerOutletMetricService $customerOutletMetricService,
         private readonly LoyaltyService $loyaltyService,
-        private readonly OutletResolver $outletResolver
+        private readonly OutletResolver $outletResolver,
+        private readonly TransactionReturnImpactService $transactionReturnImpactService
     ) {}
 
     public function index(Request $request)
@@ -62,10 +65,8 @@ class AdvancedSalesInsightsController extends Controller
             $profitTotal = (int) round($summaryRaw->profit_total ?? 0);
         } else {
             $transactionIds = (clone $transactionQuery)->pluck('id');
-            $transactionCount = $transactionIds->count();
-            $summaryRaw = (clone $transactionQuery)
-                ->selectRaw('COUNT(*) as orders_count, COALESCE(SUM(grand_total), 0) as revenue_total, COALESCE(SUM(discount), 0) as manual_discount_total')
-                ->first();
+            $summaryRaw = $this->ownerTransactionSummary($filters);
+            $transactionCount = (int) ($summaryRaw['orders_count'] ?? 0);
             $itemsSold = $transactionIds->isNotEmpty()
                 ? (int) DB::table('transaction_details')
                     ->whereIn('transaction_id', $transactionIds)
@@ -137,13 +138,13 @@ class AdvancedSalesInsightsController extends Controller
                 ->orderBy('name')
                 ->get(),
             'summary' => [
-                'orders_count' => (int) ($summaryRaw->orders_count ?? 0),
-                'revenue_total' => (int) ($summaryRaw->revenue_total ?? 0),
-                'manual_discount_total' => (int) ($summaryRaw->manual_discount_total ?? 0),
+                'orders_count' => (int) data_get($summaryRaw, 'orders_count', 0),
+                'revenue_total' => (int) data_get($summaryRaw, 'revenue_total', 0),
+                'manual_discount_total' => (int) data_get($summaryRaw, 'manual_discount_total', 0),
                 'items_sold' => (int) $itemsSold,
                 'profit_total' => (int) $profitTotal,
                 'average_order' => $transactionCount > 0
-                    ? (int) round(($summaryRaw->revenue_total ?? 0) / $transactionCount)
+                    ? (int) round(((int) data_get($summaryRaw, 'revenue_total', 0)) / $transactionCount)
                     : 0,
             ],
             'salesByHour' => $salesByHour,
@@ -402,14 +403,18 @@ class AdvancedSalesInsightsController extends Controller
             return $this->tenantSalesByHour($filters);
         }
 
-        $hourExpression = ReportTimezone::sourceToDisplayHourExpression('created_at');
+        $rows = $this->ownerTransactionMetricRows($filters)
+            ->groupBy(fn ($row) => (int) ReportTimezone::sourceToDisplayCarbon(
+                method_exists($row, 'getRawOriginal') ? $row->getRawOriginal('created_at') : $row->created_at
+            )?->format('H'))
+            ->map(function (Collection $bucketRows) {
+                $activeRows = $bucketRows->filter(fn ($row) => ! (bool) data_get($row, 'is_fully_returned', false));
 
-        $rows = $this->applyTransactionFilters(Transaction::query(), $filters)
-            ->selectRaw("{$hourExpression} as hour_bucket, COUNT(*) as orders_count, COALESCE(SUM(grand_total), 0) as revenue_total")
-            ->groupBy(DB::raw($hourExpression))
-            ->orderBy(DB::raw($hourExpression))
-            ->get()
-            ->keyBy(fn ($row) => (int) $row->hour_bucket);
+                return (object) [
+                    'orders_count' => $activeRows->count(),
+                    'revenue_total' => (int) $bucketRows->sum(fn ($row) => (int) data_get($row, 'net_grand_total', data_get($row, 'grand_total', 0))),
+                ];
+            });
 
         return collect(range(0, 23))
             ->map(function (int $hour) use ($rows) {
@@ -431,16 +436,16 @@ class AdvancedSalesInsightsController extends Controller
             return $this->tenantSalesByDay($filters);
         }
 
-        return $this->applyTransactionFilters(Transaction::query(), $filters)
-            ->selectRaw(ReportTimezone::sourceToDisplayDateExpression('created_at').' as sales_date, COUNT(*) as orders_count, COALESCE(SUM(grand_total), 0) as revenue_total')
-            ->groupBy('sales_date')
-            ->orderBy('sales_date')
-            ->get()
-            ->map(fn ($row) => [
-                'date' => $row->sales_date,
-                'label' => Carbon::parse($row->sales_date, ReportTimezone::timezone())->format('d M'),
-                'orders_count' => (int) $row->orders_count,
-                'revenue_total' => (int) round($row->revenue_total),
+        return $this->ownerTransactionMetricRows($filters)
+            ->groupBy(fn ($row) => ReportTimezone::sourceDateKey(
+                method_exists($row, 'getRawOriginal') ? $row->getRawOriginal('created_at') : $row->created_at
+            ))
+            ->sortKeys()
+            ->map(fn (Collection $rows, $salesDate) => [
+                'date' => $salesDate,
+                'label' => Carbon::parse($salesDate, ReportTimezone::timezone())->format('d M'),
+                'orders_count' => (int) $rows->filter(fn ($metricRow) => ! (bool) data_get($metricRow, 'is_fully_returned', false))->count(),
+                'revenue_total' => (int) round($rows->sum(fn ($metricRow) => (int) data_get($metricRow, 'net_grand_total', data_get($metricRow, 'grand_total', 0)))),
             ])
             ->all();
     }
@@ -451,61 +456,54 @@ class AdvancedSalesInsightsController extends Controller
             return $this->tenantCashierPerformance($filters);
         }
 
-        $transactionsByCashier = $this->applyTransactionFilters(Transaction::query(), $filters)
-            ->selectRaw('
-                cashier_id,
-                COUNT(*) as orders_count,
-                COALESCE(SUM(grand_total), 0) as revenue_total,
-                SUM(CASE WHEN customer_id IS NULL THEN 1 ELSE 0 END) as walk_in_orders_count,
-                COALESCE(SUM(CASE WHEN customer_id IS NULL THEN grand_total ELSE 0 END), 0) as walk_in_revenue_total
-            ')
-            ->groupBy('cashier_id');
-
+        $metricRows = $this->ownerTransactionMetricRows($filters, ['id', 'cashier_id', 'customer_id', 'grand_total']);
         $itemsByCashier = $this->detailMetricsQuery($filters)
             ->selectRaw('t.cashier_id, COALESCE(SUM(td.qty), 0) as items_sold')
-            ->groupBy('t.cashier_id');
-
+            ->groupBy('t.cashier_id')
+            ->get()
+            ->keyBy('cashier_id');
         $profitByCashier = $this->applyTransactionFilters(Transaction::query(), $filters)
             ->join('profits', 'profits.transaction_id', '=', 'transactions.id')
             ->selectRaw('transactions.cashier_id, COALESCE(SUM(profits.total), 0) as profit_total')
-            ->groupBy('transactions.cashier_id');
-
-        return DB::query()
-            ->fromSub($transactionsByCashier, 'tx')
-            ->leftJoinSub($itemsByCashier, 'items', fn ($join) => $join->on('items.cashier_id', '=', 'tx.cashier_id'))
-            ->leftJoinSub($profitByCashier, 'profits', fn ($join) => $join->on('profits.cashier_id', '=', 'tx.cashier_id'))
-            ->leftJoin('users', 'users.id', '=', 'tx.cashier_id')
-            ->selectRaw('
-                tx.cashier_id,
-                users.name as cashier_name,
-                tx.orders_count,
-                tx.revenue_total,
-                tx.walk_in_orders_count,
-                tx.walk_in_revenue_total,
-                COALESCE(items.items_sold, 0) as items_sold,
-                COALESCE(profits.profit_total, 0) as profit_total
-            ')
-            ->orderByDesc('items_sold')
-            ->orderByDesc('revenue_total')
+            ->groupBy('transactions.cashier_id')
             ->get()
-            ->map(fn ($row) => [
-                'cashier_id' => (int) $row->cashier_id,
-                'cashier_name' => $row->cashier_name,
-                'orders_count' => (int) $row->orders_count,
-                'walk_in_orders_count' => (int) ($row->walk_in_orders_count ?? 0),
-                'registered_orders_count' => max(0, (int) $row->orders_count - (int) ($row->walk_in_orders_count ?? 0)),
-                'items_sold' => (int) $row->items_sold,
-                'revenue_total' => (int) round($row->revenue_total),
-                'walk_in_revenue_total' => (int) round($row->walk_in_revenue_total ?? 0),
-                'registered_revenue_total' => max(0, (int) round($row->revenue_total) - (int) round($row->walk_in_revenue_total ?? 0)),
-                'profit_total' => (int) round($row->profit_total),
-                'average_basket' => (int) ($row->orders_count > 0
-                    ? round($row->revenue_total / $row->orders_count)
-                    : 0),
-                'walk_in_share' => (int) $row->orders_count > 0
-                    ? round((((int) ($row->walk_in_orders_count ?? 0)) / (int) $row->orders_count) * 100, 2)
-                    : 0,
-            ])
+            ->keyBy('cashier_id');
+        $cashierNames = User::query()
+            ->whereIn('id', $metricRows->pluck('cashier_id')->filter()->unique()->values())
+            ->pluck('name', 'id');
+
+        return $metricRows
+            ->groupBy('cashier_id')
+            ->map(function (Collection $rows, $cashierId) use ($itemsByCashier, $profitByCashier, $cashierNames) {
+                $activeRows = $rows->filter(fn ($row) => ! (bool) data_get($row, 'is_fully_returned', false));
+                $ordersCount = $activeRows->count();
+                $revenueTotal = (int) round($rows->sum(fn ($row) => (int) data_get($row, 'net_grand_total', data_get($row, 'grand_total', 0))));
+                $walkInRows = $activeRows->whereNull('customer_id');
+                $walkInRevenueTotal = (int) round($walkInRows->sum(fn ($row) => (int) data_get($row, 'net_grand_total', data_get($row, 'grand_total', 0))));
+                $itemsRow = $itemsByCashier->get($cashierId);
+                $profitRow = $profitByCashier->get($cashierId);
+
+                return [
+                    'cashier_id' => (int) $cashierId,
+                    'cashier_name' => $cashierNames->get((int) $cashierId),
+                    'orders_count' => $ordersCount,
+                    'walk_in_orders_count' => $walkInRows->count(),
+                    'registered_orders_count' => max(0, $ordersCount - $walkInRows->count()),
+                    'items_sold' => (int) ($itemsRow->items_sold ?? 0),
+                    'revenue_total' => $revenueTotal,
+                    'walk_in_revenue_total' => $walkInRevenueTotal,
+                    'registered_revenue_total' => max(0, $revenueTotal - $walkInRevenueTotal),
+                    'profit_total' => (int) round($profitRow->profit_total ?? 0),
+                    'average_basket' => $ordersCount > 0
+                        ? (int) round($revenueTotal / $ordersCount)
+                        : 0,
+                    'walk_in_share' => $ordersCount > 0
+                        ? round(($walkInRows->count() / $ordersCount) * 100, 2)
+                        : 0,
+                ];
+            })
+            ->sortByDesc(fn (array $row) => [$row['items_sold'], $row['revenue_total']])
+            ->values()
             ->all();
     }
 
@@ -518,37 +516,28 @@ class AdvancedSalesInsightsController extends Controller
 
     protected function ownerOrderSourceStats(array $filters): array
     {
-        if (! Schema::hasColumn('transactions', 'source_channel')) {
-            $summary = (clone $this->applyTransactionFilters(Transaction::query(), $filters))
-                ->selectRaw('COUNT(*) as orders_count, COALESCE(SUM(grand_total), 0) as revenue_total')
-                ->first();
-
-            $itemsSold = $this->detailMetricsQuery($filters)
-                ->selectRaw('COALESCE(SUM(td.qty), 0) as items_sold')
-                ->value('items_sold');
-
-            return $this->formatOrderSourceStats(collect([
-                (object) [
-                    'source_channel' => 'pos',
-                    'orders_count' => (int) ($summary->orders_count ?? 0),
-                    'revenue_total' => (int) round($summary->revenue_total ?? 0),
-                    'items_sold' => (int) round($itemsSold ?? 0),
-                ],
-            ]));
-        }
-
         $itemSubquery = $this->detailMetricsQuery($filters)
             ->selectRaw('td.transaction_id, COALESCE(SUM(td.qty), 0) as items_sold')
-            ->groupBy('td.transaction_id');
+            ->groupBy('td.transaction_id')
+            ->get()
+            ->keyBy('transaction_id');
+        $metricRows = $this->ownerTransactionMetricRows($filters, ['id', 'grand_total', 'source_channel']);
 
-        $rows = $this->applyTransactionFilters(Transaction::query(), $filters)
-            ->leftJoinSub($itemSubquery, 'items', fn ($join) => $join->on('items.transaction_id', '=', 'transactions.id'))
-            ->selectRaw("COALESCE(transactions.source_channel, 'pos') as source_channel")
-            ->selectRaw('COUNT(*) as orders_count')
-            ->selectRaw('COALESCE(SUM(transactions.grand_total), 0) as revenue_total')
-            ->selectRaw('COALESCE(SUM(COALESCE(items.items_sold, 0)), 0) as items_sold')
-            ->groupBy('source_channel')
-            ->get();
+        $rows = $metricRows
+            ->groupBy(fn ($row) => Schema::hasColumn('transactions', 'source_channel')
+                ? (data_get($row, 'source_channel') ?: 'pos')
+                : 'pos')
+            ->map(function (Collection $rows, $sourceChannel) use ($itemSubquery) {
+                $activeRows = $rows->filter(fn ($row) => ! (bool) data_get($row, 'is_fully_returned', false));
+
+                return (object) [
+                    'source_channel' => $sourceChannel,
+                    'orders_count' => $activeRows->count(),
+                    'revenue_total' => (int) round($rows->sum(fn ($row) => (int) data_get($row, 'net_grand_total', data_get($row, 'grand_total', 0)))),
+                    'items_sold' => (int) round($activeRows->sum(fn ($row) => (int) ($itemSubquery->get(data_get($row, 'id'))?->items_sold ?? 0))),
+                ];
+            })
+            ->values();
 
         return $this->formatOrderSourceStats($rows);
     }
@@ -703,39 +692,53 @@ class AdvancedSalesInsightsController extends Controller
 
     protected function ownerOrderTypeStats(array $filters): array
     {
-        if (! Schema::hasColumn('transactions', 'order_type')) {
-            $summary = (clone $this->applyTransactionFilters(Transaction::query(), $filters))
-                ->selectRaw('COUNT(*) as orders_count, COALESCE(SUM(grand_total), 0) as revenue_total')
-                ->first();
-
-            $itemsSold = $this->detailMetricsQuery($filters)
-                ->selectRaw('COALESCE(SUM(td.qty), 0) as items_sold')
-                ->value('items_sold');
-
-            return $this->formatOrderTypeStats(collect([
-                (object) [
-                    'order_type' => 'take_away',
-                    'orders_count' => (int) ($summary->orders_count ?? 0),
-                    'revenue_total' => (int) round($summary->revenue_total ?? 0),
-                    'items_sold' => (int) round($itemsSold ?? 0),
-                ],
-            ]));
-        }
-
         $itemSubquery = $this->detailMetricsQuery($filters)
             ->selectRaw('td.transaction_id, COALESCE(SUM(td.qty), 0) as items_sold')
-            ->groupBy('td.transaction_id');
+            ->groupBy('td.transaction_id')
+            ->get()
+            ->keyBy('transaction_id');
+        $metricRows = $this->ownerTransactionMetricRows($filters, ['id', 'grand_total', 'order_type']);
 
-        $rows = $this->applyTransactionFilters(Transaction::query(), $filters)
-            ->leftJoinSub($itemSubquery, 'items', fn ($join) => $join->on('items.transaction_id', '=', 'transactions.id'))
-            ->selectRaw("COALESCE(transactions.order_type, 'take_away') as order_type")
-            ->selectRaw('COUNT(*) as orders_count')
-            ->selectRaw('COALESCE(SUM(transactions.grand_total), 0) as revenue_total')
-            ->selectRaw('COALESCE(SUM(COALESCE(items.items_sold, 0)), 0) as items_sold')
-            ->groupBy('order_type')
-            ->get();
+        $rows = $metricRows
+            ->groupBy(fn ($row) => Schema::hasColumn('transactions', 'order_type')
+                ? (data_get($row, 'order_type') ?: 'take_away')
+                : 'take_away')
+            ->map(function (Collection $rows, $orderType) use ($itemSubquery) {
+                $activeRows = $rows->filter(fn ($row) => ! (bool) data_get($row, 'is_fully_returned', false));
+
+                return (object) [
+                    'order_type' => $orderType,
+                    'orders_count' => $activeRows->count(),
+                    'revenue_total' => (int) round($rows->sum(fn ($row) => (int) data_get($row, 'net_grand_total', data_get($row, 'grand_total', 0)))),
+                    'items_sold' => (int) round($activeRows->sum(fn ($row) => (int) ($itemSubquery->get(data_get($row, 'id'))?->items_sold ?? 0))),
+                ];
+            })
+            ->values();
 
         return $this->formatOrderTypeStats($rows);
+    }
+
+    protected function ownerTransactionMetricRows(array $filters, array $columns = ['id', 'created_at', 'grand_total', 'discount', 'customer_id']): Collection
+    {
+        $columns = collect($columns)
+            ->merge(['id', 'grand_total'])
+            ->unique()
+            ->values()
+            ->all();
+
+        return $this->transactionReturnImpactService->enrichTransactions(
+            $this->applyTransactionFilters(Transaction::query(), $filters)->get($columns)
+        );
+    }
+
+    protected function ownerTransactionSummary(array $filters): array
+    {
+        $summary = $this->transactionReturnImpactService->summarizeTransactionRows(
+            $this->ownerTransactionMetricRows($filters, ['id', 'grand_total', 'discount', 'customer_id'])
+        );
+        $summary['manual_discount_total'] = $summary['discount_total'];
+
+        return $summary;
     }
 
     protected function tenantOrderTypeStats(array $filters): array

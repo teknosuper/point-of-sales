@@ -5,29 +5,38 @@ namespace App\Services;
 use App\Models\TransactionDetail;
 use Carbon\Carbon;
 use App\Support\ReportTimezone;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 class SalesAnalyticsService
 {
+    public function __construct(
+        private readonly TransactionReturnImpactService $transactionReturnImpactService
+    ) {}
+
     /**
      * Build hourly sales breakdown
      */
     public function buildHourlyBreakdown($query): array
     {
-        return (clone $query)
-            ->get(['created_at', 'grand_total', 'discount'])
+        $rows = $this->transactionReturnImpactService->enrichTransactions(
+            (clone $query)->get(['id', 'created_at', 'grand_total', 'discount', 'customer_id'])
+        );
+
+        return $rows
             ->groupBy(fn ($row) => ReportTimezone::sourceToDisplayCarbon(
                 method_exists($row, 'getRawOriginal') ? $row->getRawOriginal('created_at') : $row->created_at
             )?->format('H'))
             ->sortKeys()
             ->map(function ($rows, $hour) {
+                $activeRows = $rows->filter(fn ($row) => ! (bool) data_get($row, 'is_fully_returned', false));
                 $hourInt = (int) $hour;
 
                 return [
                     'hour' => $hourInt,
                     'label' => str_pad((string) $hour, 2, '0', STR_PAD_LEFT).':00',
-                    'orders_count' => $rows->count(),
-                    'revenue_total' => (int) $rows->sum('grand_total'),
+                    'orders_count' => $activeRows->count(),
+                    'revenue_total' => (int) $rows->sum(fn ($row) => (int) data_get($row, 'net_grand_total', $row->grand_total ?? 0)),
                     'discount_total' => (int) $rows->sum('discount'),
                 ];
             })
@@ -40,19 +49,23 @@ class SalesAnalyticsService
      */
     public function buildDailyBreakdown($query): array
     {
-        return (clone $query)
-            ->get(['created_at', 'grand_total', 'discount'])
+        $rows = $this->transactionReturnImpactService->enrichTransactions(
+            (clone $query)->get(['id', 'created_at', 'grand_total', 'discount', 'customer_id'])
+        );
+
+        return $rows
             ->groupBy(fn ($row) => ReportTimezone::sourceDateKey(
                 method_exists($row, 'getRawOriginal') ? $row->getRawOriginal('created_at') : $row->created_at
             ))
             ->sortKeysDesc()
             ->take(30)
             ->map(function ($rows, $date) {
+                $activeRows = $rows->filter(fn ($row) => ! (bool) data_get($row, 'is_fully_returned', false));
                 return [
                     'date' => $date,
                     'label' => Carbon::createFromFormat('Y-m-d', $date, ReportTimezone::timezone())->translatedFormat('d M'),
-                    'orders_count' => $rows->count(),
-                    'revenue_total' => (int) $rows->sum('grand_total'),
+                    'orders_count' => $activeRows->count(),
+                    'revenue_total' => (int) $rows->sum(fn ($row) => (int) data_get($row, 'net_grand_total', $row->grand_total ?? 0)),
                     'discount_total' => (int) $rows->sum('discount'),
                 ];
             })
@@ -218,20 +231,25 @@ class SalesAnalyticsService
      */
     public function buildPaymentMethodBreakdown($query): array
     {
-        $results = (clone $query)
-            ->selectRaw('payment_method')
-            ->selectRaw('COUNT(*) as orders_count')
-            ->selectRaw('COALESCE(SUM(grand_total), 0) as revenue_total')
-            ->groupBy('payment_method')
-            ->orderByDesc('revenue_total')
-            ->get();
+        $rows = $this->transactionReturnImpactService->enrichTransactions(
+            (clone $query)->get(['id', 'payment_method', 'grand_total', 'customer_id'])
+        );
 
-        return $results->map(fn ($row) => [
-            'payment_method' => $row->payment_method ?? 'unknown',
-            'payment_method_label' => $this->formatPaymentMethod($row->payment_method),
-            'orders_count' => (int) $row->orders_count,
-            'revenue_total' => (int) $row->revenue_total,
-        ])->toArray();
+        return $rows
+            ->groupBy(fn ($row) => $row->payment_method ?? 'unknown')
+            ->map(function (Collection $rows, $paymentMethod) {
+                $activeRows = $rows->filter(fn ($row) => ! (bool) data_get($row, 'is_fully_returned', false));
+
+                return [
+                    'payment_method' => $paymentMethod,
+                    'payment_method_label' => $this->formatPaymentMethod($paymentMethod),
+                    'orders_count' => $activeRows->count(),
+                    'revenue_total' => (int) $rows->sum(fn ($row) => (int) data_get($row, 'net_grand_total', $row->grand_total ?? 0)),
+                ];
+            })
+            ->sortByDesc('revenue_total')
+            ->values()
+            ->toArray();
     }
 
     /**

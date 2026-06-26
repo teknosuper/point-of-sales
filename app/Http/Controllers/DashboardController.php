@@ -19,6 +19,7 @@ use App\Models\TransactionTenantAllocation;
 use App\Models\TransactionTenantAllocationItem;
 use App\Services\CashierShiftService;
 use App\Services\OutletResolver;
+use App\Services\TransactionReturnImpactService;
 use App\Support\ReportTimezone;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Database\Eloquent\Builder;
@@ -29,7 +30,8 @@ use Inertia\Inertia;
 class DashboardController extends Controller
 {
     public function __construct(
-        private readonly OutletResolver $outletResolver
+        private readonly OutletResolver $outletResolver,
+        private readonly TransactionReturnImpactService $transactionReturnImpactService
     ) {}
 
     public function index(CashierShiftService $cashierShiftService): \Inertia\Response|RedirectResponse
@@ -62,27 +64,35 @@ class DashboardController extends Controller
             ->when($outletId, fn ($query) => $query->whereHas('transaction', fn ($builder) => $builder->where('outlet_id', $outletId)));
         $detailQuery = TransactionDetail::query()
             ->when($outletId, fn ($query) => $query->where('outlet_id', $outletId));
-        $totalTransactions = (clone $transactionQuery)->count();
+        $transactionMetricRows = $this->transactionReturnImpactService->enrichTransactions(
+            (clone $transactionQuery)->get(['id', 'created_at', 'grand_total', 'discount', 'customer_id'])
+        );
+        $activeTransactionMetricRows = $transactionMetricRows
+            ->filter(fn ($row) => ! (bool) data_get($row, 'is_fully_returned', false))
+            ->values();
+        $totalTransactions = $activeTransactionMetricRows->count();
         $totalCustomers = Customer::count();
-        $totalRevenue = (clone $transactionQuery)->sum('grand_total');
+        $totalRevenue = (int) $transactionMetricRows->sum('net_grand_total');
         $totalProfit = (clone $profitQuery)->sum('total');
-        $averageOrder = (clone $transactionQuery)->avg('grand_total') ?? 0;
+        $averageOrder = $totalTransactions > 0
+            ? (int) round($totalRevenue / $totalTransactions)
+            : 0;
 
         // Today's transactions using source timezone
         $todayStart = ReportTimezone::localDateStartInSourceTz(now(ReportTimezone::displayTimezone())->toDateString());
         $todayEnd = ReportTimezone::localDateEndInSourceTz(now(ReportTimezone::displayTimezone())->toDateString());
-        $todayTransactions = (clone $transactionQuery)
-            ->where('created_at', '>=', $todayStart)
-            ->where('created_at', '<=', $todayEnd)
-            ->count();
-        $walkInTransactions = (clone $transactionQuery)->whereNull('customer_id')->count();
+        $todayRows = $activeTransactionMetricRows->filter(function ($row) use ($todayStart, $todayEnd) {
+            $createdAt = Carbon::parse(method_exists($row, 'getRawOriginal') ? $row->getRawOriginal('created_at') : $row->created_at);
+
+            return $createdAt->greaterThanOrEqualTo($todayStart)
+                && $createdAt->lessThanOrEqualTo($todayEnd);
+        });
+        $todayTransactions = $todayRows->count();
+        $walkInTransactions = $activeTransactionMetricRows->whereNull('customer_id')->count();
         $memberTransactions = max(0, $totalTransactions - $walkInTransactions);
 
         // New: Today's Sales and Profit
-        $todaySales = (clone $transactionQuery)
-            ->where('created_at', '>=', $todayStart)
-            ->where('created_at', '<=', $todayEnd)
-            ->sum('grand_total');
+        $todaySales = (int) $todayRows->sum('net_grand_total');
         $todayProfit = (clone $profitQuery)
             ->where('created_at', '>=', $todayStart)
             ->where('created_at', '<=', $todayEnd)
@@ -93,10 +103,14 @@ class DashboardController extends Controller
         $monthlyProfitTarget = Setting::get('monthly_profit_target', 0, $outletId);
         $currentMonthStart = Carbon::now(ReportTimezone::displayTimezone())->startOfMonth()->setTimezone(ReportTimezone::sourceTimezone());
         $currentMonthEnd = Carbon::now(ReportTimezone::displayTimezone())->endOfMonth()->setTimezone(ReportTimezone::sourceTimezone());
-        $currentMonthSales = (clone $transactionQuery)
-            ->where('created_at', '>=', $currentMonthStart)
-            ->where('created_at', '<=', $currentMonthEnd)
-            ->sum('grand_total');
+        $currentMonthSales = (int) $transactionMetricRows
+            ->filter(function ($row) use ($currentMonthStart, $currentMonthEnd) {
+                $createdAt = Carbon::parse(method_exists($row, 'getRawOriginal') ? $row->getRawOriginal('created_at') : $row->created_at);
+
+                return $createdAt->greaterThanOrEqualTo($currentMonthStart)
+                    && $createdAt->lessThanOrEqualTo($currentMonthEnd);
+            })
+            ->sum('net_grand_total');
         $currentMonthProfit = (clone $profitQuery)
             ->where('created_at', '>=', $currentMonthStart)
             ->where('created_at', '<=', $currentMonthEnd)
@@ -105,20 +119,23 @@ class DashboardController extends Controller
         // Revenue trend: last 12 days using source timezone boundaries
         $trendEnd = ReportTimezone::localDateEndInSourceTz(now(ReportTimezone::displayTimezone())->toDateString());
         $trendStart = Carbon::parse($trendEnd)->subDays(11)->startOfDay()->setTimezone(ReportTimezone::sourceTimezone());
-        $revenueTrend = Transaction::query()
-            ->when($outletId, fn ($query) => $query->where('outlet_id', $outletId))
-            ->where('created_at', '>=', $trendStart)
-            ->where('created_at', '<=', $trendEnd)
-            ->selectRaw(ReportTimezone::sourceToDisplayDateExpression('created_at')." as date, SUM(grand_total) as total")
-            ->groupBy('date')
-            ->orderBy('date', 'asc')
-            ->take(12)
-            ->get()
-            ->map(function ($row) {
+        $revenueTrend = $transactionMetricRows
+            ->filter(function ($row) use ($trendStart, $trendEnd) {
+                $createdAt = Carbon::parse(method_exists($row, 'getRawOriginal') ? $row->getRawOriginal('created_at') : $row->created_at);
+
+                return $createdAt->greaterThanOrEqualTo($trendStart)
+                    && $createdAt->lessThanOrEqualTo($trendEnd);
+            })
+            ->groupBy(fn ($row) => ReportTimezone::sourceDateKey(
+                method_exists($row, 'getRawOriginal') ? $row->getRawOriginal('created_at') : $row->created_at
+            ))
+            ->sortKeys()
+            ->take(-12)
+            ->map(function ($rows, $date) {
                 return [
-                    'date' => $row->date,
-                    'label' => Carbon::parse($row->date, ReportTimezone::timezone())->format('d M'),
-                    'total' => (int) $row->total,
+                    'date' => $date,
+                    'label' => Carbon::parse($date, ReportTimezone::timezone())->format('d M'),
+                    'total' => (int) $rows->sum('net_grand_total'),
                 ];
             })
             ->values();
@@ -169,37 +186,39 @@ class DashboardController extends Controller
                 ];
             });
 
-        $recentTransactions = Transaction::with('cashier:id,name', 'customer:id,name')
+        $recentTransactions = $this->transactionReturnImpactService->enrichTransactions(
+            Transaction::with('cashier:id,name', 'customer:id,name')
             ->when($outletId, fn ($query) => $query->where('outlet_id', $outletId))
             ->latest()
             ->take(5)
             ->get()
+        )
             ->map(function ($transaction) {
                 return [
                     'invoice' => $transaction->invoice,
                     'date' => ReportTimezone::formatSourceDateTime($transaction->getRawOriginal('created_at'), 'd M Y'),
                     'customer' => $transaction->customer?->name ?? '-',
                     'cashier' => $transaction->cashier?->name ?? '-',
-                    'total' => (int) $transaction->grand_total,
+                    'total' => (int) ($transaction->net_grand_total ?? $transaction->grand_total),
                 ];
             });
 
-        $topCustomers = Transaction::query()
-            ->when($outletId, fn ($query) => $query->where('outlet_id', $outletId))
-            ->select('customer_id', DB::raw('COUNT(*) as orders'), DB::raw('SUM(grand_total) as total'))
-            ->with('customer:id,name')
+        $customerNames = Customer::query()
+            ->whereIn('id', $activeTransactionMetricRows->pluck('customer_id')->filter()->unique()->values())
+            ->pluck('name', 'id');
+        $topCustomers = $activeTransactionMetricRows
             ->whereNotNull('customer_id')
             ->groupBy('customer_id')
-            ->orderByDesc('total')
-            ->take(5)
-            ->get()
-            ->map(function ($row) {
+            ->map(function ($rows, $customerId) use ($customerNames) {
                 return [
-                    'name' => $row->customer?->name ?? 'Pelanggan',
-                    'orders' => (int) $row->orders,
-                    'total' => (int) $row->total,
+                    'name' => $customerNames->get((int) $customerId, 'Pelanggan'),
+                    'orders' => $rows->count(),
+                    'total' => (int) $rows->sum('net_grand_total'),
                 ];
-            });
+            })
+            ->sortByDesc('total')
+            ->take(5)
+            ->values();
 
         $topLocations = Transaction::query()
             ->when($outletId, fn ($query) => $query->where('transactions.outlet_id', $outletId))

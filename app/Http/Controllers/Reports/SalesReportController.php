@@ -15,6 +15,7 @@ use App\Models\User;
 use Carbon\Carbon;
 use App\Services\OutletResolver;
 use App\Services\SalesAnalyticsService;
+use App\Services\TransactionReturnImpactService;
 use App\Support\ReportTimezone;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -25,7 +26,8 @@ class SalesReportController extends Controller
 {
     public function __construct(
         private readonly OutletResolver $outletResolver,
-        private readonly SalesAnalyticsService $analyticsService
+        private readonly SalesAnalyticsService $analyticsService,
+        private readonly TransactionReturnImpactService $transactionReturnImpactService
     ) {}
 
     /**
@@ -71,18 +73,17 @@ class SalesReportController extends Controller
                 ->select($detailColumns)
                 ->with(['product:id,title'])])
             ->paginate(10)
-            ->withQueryString()
-            ->through(fn (Transaction $transaction) => $this->transformTransactionRow($transaction));
+            ->withQueryString();
+        $transactions->setCollection(
+            $this->transactionReturnImpactService->enrichTransactions($transactions->getCollection())
+        );
+        $transactions->through(fn (Transaction $transaction) => $this->transformTransactionRow($transaction));
 
         $aggregateQuery = $this->applyFilters(Transaction::query(), $filters);
-
-        $totals = (clone $aggregateQuery)
-            ->selectRaw('
-                COUNT(*) as orders_count,
-                COALESCE(SUM(grand_total), 0) as revenue_total,
-                COALESCE(SUM(discount), 0) as discount_total
-            ')
-            ->first();
+        $transactionMetricRows = $this->transactionReturnImpactService->enrichTransactions(
+            (clone $aggregateQuery)->get(['id', 'grand_total', 'discount', 'customer_id', 'created_at'])
+        );
+        $metricSummary = $this->transactionReturnImpactService->summarizeTransactionRows($transactionMetricRows);
 
         $transactionIds = (clone $aggregateQuery)->pluck('id');
 
@@ -173,19 +174,17 @@ class SalesReportController extends Controller
             ->values();
 
         $summary = [
-            'orders_count' => (int) ($totals->orders_count ?? 0),
-            'revenue_total' => (int) ($totals->revenue_total ?? 0),
-            'discount_total' => (int) ($totals->discount_total ?? 0),
+            'orders_count' => (int) $metricSummary['orders_count'],
+            'revenue_total' => (int) $metricSummary['revenue_total'],
+            'discount_total' => (int) $metricSummary['discount_total'],
             'tenant_discount_total' => (int) ($discountSplit->tenant_discount_total ?? 0),
             'owner_discount_total' => (int) ($discountSplit->owner_discount_total ?? 0),
             'items_sold' => (int) $itemsSold,
             'profit_total' => (int) $profitTotal,
-            'average_order' => ($totals->orders_count ?? 0) > 0
-                ? (int) round($totals->revenue_total / $totals->orders_count)
-                : 0,
+            'average_order' => (int) $metricSummary['average_order'],
         ];
-        $summary['walk_in_count'] = (clone $aggregateQuery)->whereNull('customer_id')->count();
-        $summary['registered_customer_count'] = max(0, $summary['orders_count'] - $summary['walk_in_count']);
+        $summary['walk_in_count'] = (int) $metricSummary['walk_in_count'];
+        $summary['registered_customer_count'] = (int) $metricSummary['registered_customer_count'];
         $tenantSummary['management_fee_total'] = (int) round($tenantMetricAllocations->sum('management_fee_total'));
         $tenantSummary['tenant_payout_total'] = (int) round($tenantMetricAllocations->sum('tenant_payout_total'));
         $dailyRecap = $this->buildAllocationDailyRecap($tenantMetricAllocations);
@@ -289,23 +288,24 @@ class SalesReportController extends Controller
         )->orderByDesc('created_at');
 
         $tenantMetricAllocations = $this->appendTenantWorkspaceAllocationMetrics((clone $tenantBaseQuery)->get());
+        $activeTenantMetricAllocations = $this->excludeReturnedAllocations($tenantMetricAllocations);
         $transactions = $this->appendTenantWorkspaceAllocationMetrics(
             (clone $tenantBaseQuery)->paginate(10)->withQueryString()
         )->through(fn (TransactionTenantAllocation $allocation) => $this->transformTenantAllocationTransactionRow($allocation));
 
         $summary = [
-            'orders_count' => (int) $tenantMetricAllocations->count(),
-            'revenue_total' => (int) $tenantMetricAllocations->sum('grand_total'),
-            'discount_total' => (int) $tenantMetricAllocations->sum('total_discount_total'),
-            'tenant_discount_total' => (int) $tenantMetricAllocations->sum('tenant_discount_total'),
+            'orders_count' => (int) $activeTenantMetricAllocations->count(),
+            'revenue_total' => (int) $activeTenantMetricAllocations->sum('grand_total'),
+            'discount_total' => (int) $activeTenantMetricAllocations->sum('total_discount_total'),
+            'tenant_discount_total' => (int) $activeTenantMetricAllocations->sum('tenant_discount_total'),
             'owner_discount_total' => 0,
-            'items_sold' => (int) $tenantMetricAllocations->sum('total_items'),
-            'profit_total' => (int) $tenantMetricAllocations->sum('profit_total'),
+            'items_sold' => (int) $activeTenantMetricAllocations->sum('total_items'),
+            'profit_total' => (int) $activeTenantMetricAllocations->sum('profit_total'),
         ];
         $summary['average_order'] = $summary['orders_count'] > 0
             ? (int) round($summary['revenue_total'] / $summary['orders_count'])
             : 0;
-        $summary['walk_in_count'] = (int) $tenantMetricAllocations
+        $summary['walk_in_count'] = (int) $activeTenantMetricAllocations
             ->filter(fn ($allocation) => blank($allocation->transaction?->customer_id))
             ->count();
         $summary['registered_customer_count'] = max(0, $summary['orders_count'] - $summary['walk_in_count']);
@@ -316,14 +316,14 @@ class SalesReportController extends Controller
         $tenantAllocations = $this->formatAllocationReportRows($tenantAllocations);
 
         $tenantSummary = [
-            'allocation_count' => (int) $tenantMetricAllocations->count(),
+            'allocation_count' => (int) $activeTenantMetricAllocations->count(),
             'tenant_count' => 1,
-            'revenue_total' => (int) $tenantMetricAllocations->sum('grand_total'),
-            'settled_total' => (int) $tenantMetricAllocations->filter(fn ($allocation) => filled($allocation->settled_at))->sum('grand_total'),
-            'cost_total' => (int) $tenantMetricAllocations->sum('cost_total'),
-            'profit_total' => (int) $tenantMetricAllocations->sum('profit_total'),
-            'management_fee_total' => (int) round($tenantMetricAllocations->sum('management_fee_total')),
-            'tenant_payout_total' => (int) round($tenantMetricAllocations->sum('tenant_payout_total')),
+            'revenue_total' => (int) $activeTenantMetricAllocations->sum('grand_total'),
+            'settled_total' => (int) $activeTenantMetricAllocations->filter(fn ($allocation) => filled($allocation->settled_at))->sum('grand_total'),
+            'cost_total' => (int) $activeTenantMetricAllocations->sum('cost_total'),
+            'profit_total' => (int) $activeTenantMetricAllocations->sum('profit_total'),
+            'management_fee_total' => (int) round($activeTenantMetricAllocations->sum('management_fee_total')),
+            'tenant_payout_total' => (int) round($activeTenantMetricAllocations->sum('tenant_payout_total')),
             'margin_percentage' => $summary['revenue_total'] > 0
                 ? round(($summary['profit_total'] / $summary['revenue_total']) * 100, 2)
                 : 0.0,
@@ -502,6 +502,10 @@ class SalesReportController extends Controller
             'created_at' => $transaction->created_at
                 ? ReportTimezone::formatSourceDateTime($transaction->getRawOriginal('created_at'), 'd M Y H:i')
                 : null,
+            'gross_grand_total' => (int) ($transaction->grand_total ?? 0),
+            'returned_amount_total' => (int) ($transaction->returned_amount_total ?? 0),
+            'grand_total' => (int) ($transaction->net_grand_total ?? $transaction->grand_total ?? 0),
+            'is_fully_returned' => (bool) ($transaction->is_fully_returned ?? false),
             'pre_promo_subtotal' => $prePromoSubtotal,
             'tenant_discount_total' => (int) $transaction->details->sum(
                 fn (TransactionDetail $detail) => (int) ($detail->tenant_discount_total ?? 0)
@@ -796,18 +800,19 @@ class SalesReportController extends Controller
         );
 
         $metricAllocations = $this->appendAllocationMetrics((clone $baseQuery)->get());
+        $activeMetricAllocations = $this->excludeReturnedAllocations($metricAllocations);
         $allocations = $this->appendAllocationMetrics(
             (clone $baseQuery)->orderByDesc('created_at')->paginate(20)->withQueryString()
         );
 
         $summary = [
-            'allocation_count' => $metricAllocations->count(),
-            'revenue_total' => (int) $metricAllocations->sum('grand_total'),
-            'settled_total' => (int) $metricAllocations->filter(fn ($allocation) => filled($allocation->settled_at))->sum('grand_total'),
-            'cost_total' => (int) $metricAllocations->sum('cost_total'),
-            'profit_total' => (int) $metricAllocations->sum('profit_total'),
-            'management_fee_total' => (int) round($metricAllocations->sum('management_fee_total')),
-            'tenant_payout_total' => (int) round($metricAllocations->sum('tenant_payout_total')),
+            'allocation_count' => $activeMetricAllocations->count(),
+            'revenue_total' => (int) $activeMetricAllocations->sum('grand_total'),
+            'settled_total' => (int) $activeMetricAllocations->filter(fn ($allocation) => filled($allocation->settled_at))->sum('grand_total'),
+            'cost_total' => (int) $activeMetricAllocations->sum('cost_total'),
+            'profit_total' => (int) $activeMetricAllocations->sum('profit_total'),
+            'management_fee_total' => (int) round($activeMetricAllocations->sum('management_fee_total')),
+            'tenant_payout_total' => (int) round($activeMetricAllocations->sum('tenant_payout_total')),
         ];
         $summary['outstanding_total'] = max(0, $summary['revenue_total'] - $summary['settled_total']);
         $summary['margin_percentage'] = $summary['revenue_total'] > 0
@@ -1060,19 +1065,20 @@ class SalesReportController extends Controller
             $filters
         )->get();
         $allocations = $this->appendAllocationMetrics($allocations);
+        $activeAllocations = $this->excludeReturnedAllocations($allocations);
 
         $summary = [
-            'allocation_count' => $allocations->count(),
-            'tenant_count' => $allocations->pluck('tenant_outlet_id')->filter()->unique()->count(),
-            'revenue_total' => (int) $allocations->sum('grand_total'),
-            'cost_total' => (int) $allocations->sum('cost_total'),
-            'profit_total' => (int) $allocations->sum('profit_total'),
-            'tenant_discount_total' => (int) $allocations->sum('tenant_discount_total'),
-            'owner_discount_total' => (int) $allocations->sum('owner_discount_total'),
-            'management_fee_total' => (int) round($allocations->sum('management_fee_total')),
-            'tenant_payout_total' => (int) round($allocations->sum('tenant_payout_total')),
-            'settled_total' => (int) $allocations->filter(fn ($allocation) => filled($allocation->settled_at))->sum('tenant_payout_total'),
-            'outstanding_total' => (int) $allocations->filter(fn ($allocation) => blank($allocation->settled_at))->sum('tenant_payout_total'),
+            'allocation_count' => $activeAllocations->count(),
+            'tenant_count' => $activeAllocations->pluck('tenant_outlet_id')->filter()->unique()->count(),
+            'revenue_total' => (int) $activeAllocations->sum('grand_total'),
+            'cost_total' => (int) $activeAllocations->sum('cost_total'),
+            'profit_total' => (int) $activeAllocations->sum('profit_total'),
+            'tenant_discount_total' => (int) $activeAllocations->sum('tenant_discount_total'),
+            'owner_discount_total' => (int) $activeAllocations->sum('owner_discount_total'),
+            'management_fee_total' => (int) round($activeAllocations->sum('management_fee_total')),
+            'tenant_payout_total' => (int) round($activeAllocations->sum('tenant_payout_total')),
+            'settled_total' => (int) $activeAllocations->filter(fn ($allocation) => filled($allocation->settled_at))->sum('tenant_payout_total'),
+            'outstanding_total' => (int) $activeAllocations->filter(fn ($allocation) => blank($allocation->settled_at))->sum('tenant_payout_total'),
         ];
 
         return response()->view('print.tenant_settlement_batch', [
@@ -1248,20 +1254,23 @@ class SalesReportController extends Controller
                     : 'tanpa-tanggal';
             })
             ->map(function ($rows, $date) {
-                $settledRows = $rows->filter(fn ($allocation) => filled($allocation->settled_at));
-                $outstandingRows = $rows->filter(fn ($allocation) => blank($allocation->settled_at));
+                $activeRows = $this->excludeReturnedAllocations($rows);
+                $returnedRows = $rows->filter(fn ($allocation) => $this->isReturnedAllocation($allocation));
+                $settledRows = $activeRows->filter(fn ($allocation) => filled($allocation->settled_at));
+                $outstandingRows = $activeRows->filter(fn ($allocation) => blank($allocation->settled_at));
 
                 return [
                     'date' => $date,
                     'label' => $date !== 'tanpa-tanggal'
                         ? Carbon::parse($date, ReportTimezone::timezone())->translatedFormat('d M Y')
                         : 'Tanpa tanggal',
-                    'allocations_count' => $rows->count(),
-                    'tenant_count' => $rows->pluck('tenant_outlet_id')->filter()->unique()->count(),
-                    'revenue_total' => (int) $rows->sum('grand_total'),
-                    'profit_total' => (int) $rows->sum('profit_total'),
-                    'management_fee_total' => (int) round($rows->sum('management_fee_total')),
-                    'tenant_payout_total' => (int) round($rows->sum('tenant_payout_total')),
+                    'allocations_count' => $activeRows->count(),
+                    'returned_count' => $returnedRows->count(),
+                    'tenant_count' => $activeRows->pluck('tenant_outlet_id')->filter()->unique()->count(),
+                    'revenue_total' => (int) $activeRows->sum('grand_total'),
+                    'profit_total' => (int) $activeRows->sum('profit_total'),
+                    'management_fee_total' => (int) round($activeRows->sum('management_fee_total')),
+                    'tenant_payout_total' => (int) round($activeRows->sum('tenant_payout_total')),
                     'settled_payout_total' => (int) round($settledRows->sum('tenant_payout_total')),
                     'outstanding_payout_total' => (int) round($outstandingRows->sum('tenant_payout_total')),
                 ];
@@ -1270,10 +1279,27 @@ class SalesReportController extends Controller
             ->values();
     }
 
+    protected function excludeReturnedAllocations(Collection $allocations): Collection
+    {
+        return $allocations
+            ->filter(fn ($allocation) => ! $this->isReturnedAllocation($allocation))
+            ->values();
+    }
+
+    protected function isReturnedAllocation(mixed $allocation): bool
+    {
+        return (string) data_get($allocation, 'payment_status', '') === 'returned'
+            || (
+                (int) data_get($allocation, 'grand_total', 0) <= 0
+                && (int) data_get($allocation, 'total_items', 0) <= 0
+            );
+    }
+
     protected function formatAllocationReportRows($allocations)
     {
         return collect($allocations)->map(function ($allocation) {
             $row = $allocation->toArray();
+            $row['is_returned'] = $this->isReturnedAllocation($allocation);
 
             if (isset($row['transaction']['created_at'])) {
                 $row['transaction']['created_at'] = $allocation->transaction?->created_at

@@ -4,6 +4,10 @@ namespace Tests\Feature\SalesReturn;
 
 use App\Models\Category;
 use App\Models\Customer;
+use App\Models\KitchenStation;
+use App\Models\KitchenTicket;
+use App\Models\KitchenTicketItem;
+use App\Models\Outlet;
 use App\Models\Product;
 use App\Models\Receivable;
 use App\Models\SalesReturn;
@@ -250,6 +254,137 @@ class SalesReturnTest extends TestCase
         $this->assertDatabaseHas('sales_returns', [
             'id' => $salesReturn->id,
             'cashier_shift_id' => $shift->id,
+        ]);
+    }
+
+    public function test_complete_sales_return_syncs_kitchen_ticket_items_and_records_return_event(): void
+    {
+        $user = $this->createUserWithPermissions([
+            'transactions-access',
+            'sales-returns-access',
+            'sales-returns-create',
+            'sales-returns-complete',
+        ]);
+
+        [$transaction, $detail, $product] = $this->createTransaction($user, qty: 2, stock: 5);
+        $shift = $this->openShiftFor($user);
+        $outlet = Outlet::create([
+            'name' => 'Outlet Uji Kitchen',
+            'code' => 'OUT-KITCHEN',
+            'address' => 'Alamat outlet',
+            'phone' => '081234567890',
+            'description' => 'Outlet test',
+            'is_active' => true,
+        ]);
+        $transaction->update(['outlet_id' => $outlet->id]);
+        $detail->update(['outlet_id' => $outlet->id]);
+
+        $station = KitchenStation::create([
+            'outlet_id' => $outlet->id,
+            'name' => 'Station Minuman',
+            'slug' => 'station-minuman',
+            'code' => 'STMN',
+            'station_type' => 'kitchen',
+            'display_mode' => 'screen',
+            'processing_mode' => 'manual',
+            'is_active' => true,
+            'sort_order' => 1,
+        ]);
+
+        $detail->update(['kitchen_station_id' => $station->id]);
+
+        $ticket = KitchenTicket::create([
+            'outlet_id' => $outlet->id,
+            'transaction_id' => $transaction->id,
+            'cashier_shift_id' => $shift->id,
+            'kitchen_station_id' => $station->id,
+            'ticket_number' => 'STMN-TEST-001',
+            'source_channel' => 'pos',
+            'status' => 'acknowledged',
+            'fired_at' => now(),
+            'acknowledged_at' => now(),
+        ]);
+
+        $ticketItem = KitchenTicketItem::create([
+            'kitchen_ticket_id' => $ticket->id,
+            'transaction_detail_id' => $detail->id,
+            'product_id' => $product->id,
+            'product_title' => $product->title,
+            'qty' => 2,
+            'status' => 'acknowledged',
+            'notes' => 'Tanpa gula',
+            'fired_at' => now(),
+        ]);
+
+        $salesReturn = SalesReturn::create([
+            'code' => 'SR-TEST-005',
+            'outlet_id' => $outlet->id,
+            'transaction_id' => $transaction->id,
+            'customer_id' => $transaction->customer_id,
+            'cashier_id' => $user->id,
+            'status' => 'draft',
+            'return_type' => 'refund_cash',
+            'refund_amount' => 60000,
+            'credited_amount' => 0,
+            'total_return_amount' => 60000,
+        ]);
+
+        $salesReturn->items()->create([
+            'transaction_detail_id' => $detail->id,
+            'product_id' => $product->id,
+            'qty_sold' => 2,
+            'qty_returned_before' => 0,
+            'qty_return' => 1,
+            'unit_price' => 60000,
+            'subtotal' => 60000,
+            'return_reason' => 'Satu gelas dibatalkan',
+            'restock_to_inventory' => true,
+        ]);
+
+        $this->actingAs($user)->post(route('sales-returns.complete', $salesReturn));
+
+        $this->assertDatabaseHas('kitchen_ticket_items', [
+            'id' => $ticketItem->id,
+            'qty' => 1,
+        ]);
+        $this->assertDatabaseHas('kitchen_ticket_events', [
+            'kitchen_ticket_id' => $ticket->id,
+            'event' => 'ticket.returned_partial',
+        ]);
+
+        $fullReturn = SalesReturn::create([
+            'code' => 'SR-TEST-006',
+            'outlet_id' => $outlet->id,
+            'transaction_id' => $transaction->id,
+            'customer_id' => $transaction->customer_id,
+            'cashier_id' => $user->id,
+            'status' => 'draft',
+            'return_type' => 'refund_cash',
+            'refund_amount' => 60000,
+            'credited_amount' => 0,
+            'total_return_amount' => 60000,
+        ]);
+
+        $fullReturn->items()->create([
+            'transaction_detail_id' => $detail->id,
+            'product_id' => $product->id,
+            'qty_sold' => 2,
+            'qty_returned_before' => 1,
+            'qty_return' => 1,
+            'unit_price' => 60000,
+            'subtotal' => 60000,
+            'return_reason' => 'Sisa dibatalkan',
+            'restock_to_inventory' => true,
+        ]);
+
+        $this->actingAs($user)->post(route('sales-returns.complete', $fullReturn));
+
+        $this->assertDatabaseMissing('kitchen_ticket_items', [
+            'id' => $ticketItem->id,
+        ]);
+        $this->assertDatabaseHas('kitchen_ticket_events', [
+            'kitchen_ticket_id' => $ticket->id,
+            'event' => 'ticket.returned_full',
         ]);
     }
 
