@@ -13,6 +13,12 @@ import {
 export default function Sidebar({ sidebarOpen, hideWhenCollapsed = false }) {
     const { auth, storeProfile, activeOutlet, availableOutlets } = usePage().props;
     const menuNavigation = Menu();
+    const user = auth?.user ?? null;
+    const primaryRole = auth?.super
+        ? "Super Admin"
+        : auth?.roleNames?.[0]
+              ?.replace(/-/g, " ")
+              ?.replace(/\b\w/g, (char) => char.toUpperCase()) || "User";
 
     const storeName = storeProfile?.name || "KASIR";
     const storeLogo = storeProfile?.logo || null;
@@ -95,6 +101,29 @@ export default function Sidebar({ sidebarOpen, hideWhenCollapsed = false }) {
             <nav className="dashboard-scrollbar min-h-0 flex-1 overflow-y-auto py-3">
                 {sidebarOpen && (
                     <>
+                        <div className="px-4 pb-3">
+                            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/60">
+                                <div className="flex items-start gap-3">
+                                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary-600 text-sm font-semibold text-white">
+                                        {user?.name?.charAt(0)?.toUpperCase() ||
+                                            user?.email?.charAt(0)?.toUpperCase() ||
+                                            "U"}
+                                    </div>
+                                    <div className="min-w-0">
+                                        <p className="break-words text-sm font-semibold leading-5 text-slate-900 dark:text-white">
+                                            {user?.name || "-"}
+                                        </p>
+                                        <p className="mt-1 break-words text-xs leading-4 text-slate-500 dark:text-slate-400">
+                                            {primaryRole}
+                                        </p>
+                                        <p className="mt-1 break-all text-xs leading-4 text-slate-400 dark:text-slate-500">
+                                            {user?.email || "Login aktif"}
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
                         <div className="px-4 pb-3">
                             <OutletSwitcher
                                 activeOutlet={activeOutlet}

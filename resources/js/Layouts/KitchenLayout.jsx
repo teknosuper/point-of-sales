@@ -9,6 +9,7 @@ import {
     IconX,
 } from "@/Utils/icons";
 import Sidebar from "@/Components/Dashboard/Sidebar";
+import ConcurrentSessionWatcher from "@/Components/Dashboard/ConcurrentSessionWatcher";
 import PWAConnectionStatus from "@/Components/PWAConnectionStatus";
 import PWAInstallButton from "@/Components/PWAInstallButton";
 import PWAUpdateControl from "@/Components/PWAUpdateControl";
@@ -147,6 +148,7 @@ export default function KitchenLayout({ children }) {
     return (
         <div className="min-h-screen bg-slate-100 dark:bg-slate-950">
             <Toaster position={kioskMode ? "top-center" : "top-right"} />
+            <ConcurrentSessionWatcher enabled={Boolean(auth?.user)} />
             {!kioskMode ? (
                 <div
                     className={`fixed inset-0 z-30 bg-slate-950/30 transition-opacity lg:hidden ${

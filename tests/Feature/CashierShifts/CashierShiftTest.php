@@ -406,6 +406,46 @@ class CashierShiftTest extends TestCase
             ->assertRedirect(route('password.confirm'));
     }
 
+    public function test_shift_detail_exposes_cashier_name_and_cash_anomaly_flag_for_inconsistent_cash_transaction(): void
+    {
+        $cashier = $this->createUserWithPermissions([
+            'cashier-shifts-access',
+        ]);
+
+        $shift = CashierShift::create([
+            'user_id' => $cashier->id,
+            'opened_by' => $cashier->id,
+            'opened_at' => now(),
+            'opening_cash' => 5000000,
+            'expected_cash' => 5000000,
+            'status' => CashierShift::STATUS_OPEN,
+        ]);
+
+        $transaction = Transaction::create([
+            'cashier_id' => $cashier->id,
+            'cashier_shift_id' => $shift->id,
+            'invoice' => 'TRX-TEST-CASH-ANOMALY',
+            'cash' => 120000,
+            'change' => 0,
+            'discount' => 0,
+            'shipping_cost' => 0,
+            'grand_total' => 154000,
+            'payment_method' => 'cash',
+            'payment_status' => 'paid',
+            'order_type' => 'dine_in',
+        ]);
+
+        $this->actingAs($cashier)
+            ->get(route('cashier-shifts.show', $shift))
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Dashboard/CashierShifts/Show')
+                ->where('transactions.data.0.id', $transaction->id)
+                ->where('transactions.data.0.cashier_name', $cashier->name)
+                ->where('transactions.data.0.cash_received', 120000)
+                ->where('transactions.data.0.expected_cash_in', 154000)
+                ->where('transactions.data.0.cash_flow_is_anomalous', true));
+    }
+
     private function createUserWithPermissions(array $permissions): User
     {
         $user = User::factory()->create();

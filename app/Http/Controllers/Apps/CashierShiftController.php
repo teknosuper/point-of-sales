@@ -375,6 +375,15 @@ class CashierShiftController extends Controller
         $returnedAmount = (int) ($completedReturns->sum('refund_amount') + $completedReturns->sum('credited_amount'));
         $paymentMethod = strtolower((string) ($transaction->payment_method ?? ''));
         $paymentStatus = strtolower((string) ($transaction->payment_status ?? ''));
+        $cashReceived = (int) ($transaction->cash ?? 0);
+        $cashChange = (int) ($transaction->change ?? 0);
+        $expectedCashIn = $paymentMethod === 'cash'
+            ? max(0, (int) ($transaction->grand_total ?? 0))
+            : 0;
+        $netCashReceived = max(0, $cashReceived - $cashChange);
+        $cashFlowIsAnomalous = $paymentMethod === 'cash'
+            && $paymentStatus === 'paid'
+            && ($cashReceived < $expectedCashIn || $netCashReceived !== $expectedCashIn);
 
         return [
             'id' => $transaction->id,
@@ -386,16 +395,15 @@ class CashierShiftController extends Controller
             'payment_method' => $transaction->payment_method,
             'payment_method_label' => $this->humanizePaymentMethod($transaction->payment_method),
             'payment_status' => $transaction->payment_status,
-            'cash_received' => (int) ($transaction->cash ?? 0),
-            'cash_change' => (int) ($transaction->change ?? 0),
-            'expected_cash_in' => $paymentMethod === 'cash'
-                ? max(0, (int) ($transaction->grand_total ?? 0))
-                : 0,
+            'cash_received' => $cashReceived,
+            'cash_change' => $cashChange,
+            'expected_cash_in' => $expectedCashIn,
             'expected_non_cash_in' => $paymentMethod !== 'cash'
                 && $paymentStatus === 'paid'
                     ? max(0, (int) ($transaction->grand_total ?? 0))
                     : 0,
             'running_expected_cash' => (int) ($runningExpectedCashMap->get($transaction->id, (int) ($transaction->grand_total ?? 0)) ?? 0),
+            'cash_flow_is_anomalous' => $cashFlowIsAnomalous,
             'grand_total' => (int) ($transaction->grand_total ?? 0),
             'base_sales_total' => (int) ($pricing['base_sales_total'] ?? 0),
             'markup_total' => (int) ($pricing['markup_total'] ?? 0),

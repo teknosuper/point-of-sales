@@ -15,6 +15,8 @@ import {
 } from "@/Utils/icons";
 import { useAuthorization } from "@/Utils/authorization";
 
+const cn = (...classes) => classes.filter(Boolean).join(" ");
+
 const formatCurrency = (value = 0) =>
     new Intl.NumberFormat("id-ID", {
         style: "currency",
@@ -689,6 +691,12 @@ export default function Show({
                                                 <div className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                                                     {row.customer_name}
                                                 </div>
+                                                <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                    Kasir:{" "}
+                                                    <span className="font-medium text-slate-700 dark:text-slate-200">
+                                                        {row.cashier_name || "-"}
+                                                    </span>
+                                                </div>
                                                 <div className="mt-1 text-xs text-slate-400 dark:text-slate-500">
                                                     {orderTypeLabel(row.order_type)}
                                                     {row.table_label ? ` • ${row.table_label}` : ""}
@@ -702,22 +710,50 @@ export default function Show({
                                                     {paymentStatusLabel(row.payment_status)}
                                                 </div>
                                                 {row.payment_method === "cash" ? (
-                                                    <div className="mt-2 space-y-1 text-xs text-slate-500 dark:text-slate-400">
+                                                    <div
+                                                        className={cn(
+                                                            "mt-2 space-y-1 rounded-xl border px-3 py-2 text-xs",
+                                                            row.cash_flow_is_anomalous
+                                                                ? "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/80 dark:bg-rose-950/40 dark:text-rose-300"
+                                                                : "border-slate-100 text-slate-500 dark:border-slate-800 dark:text-slate-400"
+                                                        )}
+                                                    >
                                                         <div>
                                                             Bayar customer:{" "}
-                                                            <span className="font-medium text-slate-700 dark:text-slate-200">
+                                                            <span
+                                                                className={cn(
+                                                                    "font-medium",
+                                                                    row.cash_flow_is_anomalous
+                                                                        ? "text-rose-700 dark:text-rose-300"
+                                                                        : "text-slate-700 dark:text-slate-200"
+                                                                )}
+                                                            >
                                                                 {formatCurrency(row.cash_received)}
                                                             </span>
                                                         </div>
                                                         <div>
                                                             Kembalian:{" "}
-                                                            <span className="font-medium text-slate-700 dark:text-slate-200">
+                                                            <span
+                                                                className={cn(
+                                                                    "font-medium",
+                                                                    row.cash_flow_is_anomalous
+                                                                        ? "text-rose-700 dark:text-rose-300"
+                                                                        : "text-slate-700 dark:text-slate-200"
+                                                                )}
+                                                            >
                                                                 {formatCurrency(row.cash_change)}
                                                             </span>
                                                         </div>
                                                         <div>
                                                             Uang tunai transaksi:{" "}
-                                                            <span className="font-medium text-slate-700 dark:text-slate-200">
+                                                            <span
+                                                                className={cn(
+                                                                    "font-medium",
+                                                                    row.cash_flow_is_anomalous
+                                                                        ? "text-rose-700 dark:text-rose-300"
+                                                                        : "text-slate-700 dark:text-slate-200"
+                                                                )}
+                                                            >
                                                                 {formatCurrency(row.expected_cash_in)}
                                                             </span>
                                                         </div>
@@ -727,6 +763,11 @@ export default function Show({
                                                                 {formatCurrency(row.running_expected_cash)}
                                                             </span>
                                                         </div>
+                                                        {row.cash_flow_is_anomalous ? (
+                                                            <div className="pt-1 font-medium text-rose-700 dark:text-rose-300">
+                                                                Ada kejanggalan nominal kas pada transaksi ini.
+                                                            </div>
+                                                        ) : null}
                                                     </div>
                                                 ) : (
                                                     <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">

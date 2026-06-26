@@ -4,6 +4,7 @@ import { Toaster, toast } from "react-hot-toast";
 import { useTheme } from "@/Context/ThemeSwitcherContext";
 import Sidebar from "@/Components/Dashboard/Sidebar";
 import Navbar from "@/Components/Dashboard/Navbar";
+import ConcurrentSessionWatcher from "@/Components/Dashboard/ConcurrentSessionWatcher";
 import PWAConnectionStatus from "@/Components/PWAConnectionStatus";
 import PWAUpdateControl from "@/Components/PWAUpdateControl";
 import {
@@ -167,6 +168,7 @@ export default function POSLayout({ children }) {
                             },
                         }}
                     />
+                    <ConcurrentSessionWatcher enabled={Boolean(auth?.user)} />
                     {children}
                 </main>
             </div>

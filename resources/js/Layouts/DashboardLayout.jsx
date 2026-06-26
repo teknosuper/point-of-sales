@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { usePage } from "@inertiajs/react";
 import Sidebar from "@/Components/Dashboard/Sidebar";
 import Navbar from "@/Components/Dashboard/Navbar";
+import ConcurrentSessionWatcher from "@/Components/Dashboard/ConcurrentSessionWatcher";
 import PWAConnectionStatus from "@/Components/PWAConnectionStatus";
 import PWAInstallButton from "@/Components/PWAInstallButton";
 import PWAUpdateControl from "@/Components/PWAUpdateControl";
@@ -173,6 +174,7 @@ export default function AppLayout({ children }) {
                                 },
                             }}
                         />
+                        <ConcurrentSessionWatcher enabled={Boolean(auth?.user)} />
                         {children}
                     </div>
                 </main>
