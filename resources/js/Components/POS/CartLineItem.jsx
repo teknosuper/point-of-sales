@@ -325,8 +325,8 @@ export default function CartLineItem({
                     </div>
                 ) : null}
 
-                <div className="mt-2 flex items-start justify-between gap-2">
-                    <div className="min-w-0 flex-1">
+                <div className="mt-2 space-y-2">
+                    <div className="w-full">
                         <textarea
                             value={draftNotes}
                             onFocus={() => {
@@ -355,6 +355,7 @@ export default function CartLineItem({
                             </p>
                         ) : null}
                     </div>
+                    <div className="flex items-start justify-between gap-2">
                     <div className="flex flex-col items-end gap-2">
                         <div className="flex items-center rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
                             <button
@@ -400,6 +401,7 @@ export default function CartLineItem({
                         >
                             <IconTrash size={12} />
                         </button>
+                    </div>
                     </div>
                 </div>
             </div>
