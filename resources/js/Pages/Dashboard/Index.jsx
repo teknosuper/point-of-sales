@@ -289,6 +289,7 @@ export default function Dashboard({
     const chartInstance = useRef(null);
     const [pwaInstalled, setPwaInstalled] = useState(false);
     const [showSetupChecklist, setShowSetupChecklist] = useState(false);
+    const [quickMenuOpen, setQuickMenuOpen] = useState(false);
 
     const chartData = useMemo(() => revenueTrend ?? [], [revenueTrend]);
     const effectiveOnboardingChecklist = useMemo(
@@ -516,7 +517,11 @@ export default function Dashboard({
 
                 {quickMenus.length > 0 && (
                     <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
-                        <div className="mb-4 flex items-center justify-between gap-3">
+                        <button
+                            type="button"
+                            onClick={() => setQuickMenuOpen((v) => !v)}
+                            className="flex w-full items-center justify-between gap-3 text-left"
+                        >
                             <div>
                                 <h2 className="text-base font-semibold text-slate-900 dark:text-white">
                                     Quick Menu
@@ -525,20 +530,29 @@ export default function Dashboard({
                                     Shortcut inti ke area operasional utama.
                                 </p>
                             </div>
-                        </div>
-                        <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
-                            {quickMenus.map((menu) => (
-                                <QuickMenuCard
-                                    key={menu.title}
-                                    href={menu.href}
-                                    title={menu.title}
-                                    description={menu.description}
-                                    icon={menu.icon}
-                                    tone={menu.tone}
-                                    featured={menu.featured}
-                                />
-                            ))}
-                        </div>
+                            <div className="shrink-0 rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
+                                {quickMenuOpen ? (
+                                    <IconChevronUp size={18} />
+                                ) : (
+                                    <IconChevronDown size={18} />
+                                )}
+                            </div>
+                        </button>
+                        {quickMenuOpen && (
+                            <div className="mt-4 grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
+                                {quickMenus.map((menu) => (
+                                    <QuickMenuCard
+                                        key={menu.title}
+                                        href={menu.href}
+                                        title={menu.title}
+                                        description={menu.description}
+                                        icon={menu.icon}
+                                        tone={menu.tone}
+                                        featured={menu.featured}
+                                    />
+                                ))}
+                            </div>
+                        )}
                     </div>
                 )}
 

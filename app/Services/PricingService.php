@@ -403,6 +403,11 @@ class PricingService
         $items = $carts->map(function (Cart $cart) {
             $components = $this->productPricingComponents($cart->product, (int) $cart->qty);
             $modifierTotal = (int) $cart->modifiers->sum('total_price');
+            // markup_price per row sudah terisi jika modifier berasal dari product_modifier_options
+            // fallback ke full unit_price jika kolom belum tersedia (modifier manual)
+            $modifierMarkupTotal = (int) $cart->modifiers->sum(
+                fn ($m) => (int) ($m->markup_price ?? $m->total_price ?? 0)
+            );
 
             return [
                 'cart_id' => $cart->id,
@@ -418,6 +423,7 @@ class PricingService
                 'line_total' => (int) $components['customer_base_total'],
                 'line_discount_total' => 0,
                 'modifier_total' => $modifierTotal,
+                'modifier_markup_total' => $modifierMarkupTotal,
                 'base_product_total' => (int) $components['customer_base_total'],
                 'tenant_base_total' => (int) $components['tenant_base_total'],
                 'owner_base_total' => (int) $components['owner_base_total'],
@@ -509,11 +515,16 @@ class PricingService
         $items = $items->map(function (array $item) {
             $lineTotal = max(0, (int) $item['line_total']);
             $modifierTotal = max(0, (int) ($item['modifier_total'] ?? 0));
+            $modifierMarkupTotal = max(0, (int) ($item['modifier_markup_total'] ?? $modifierTotal));
+            $modifierBaseTotal = max(0, $modifierTotal - $modifierMarkupTotal);
             $lineTotal += $modifierTotal;
             $item['line_total'] = $lineTotal;
             $item['line_discount_total'] = max(0, (int) $item['line_discount_total']);
-            $item['owner_base_total'] = max(0, (int) $item['owner_base_total']) + $modifierTotal;
-            $item['owner_net_total'] = max(0, (int) $item['owner_net_total']) + $modifierTotal;
+            // owner hanya dapat markup topping; tenant dapat base harga topping
+            $item['owner_base_total'] = max(0, (int) $item['owner_base_total']) + $modifierMarkupTotal;
+            $item['owner_net_total'] = max(0, (int) $item['owner_net_total']) + $modifierMarkupTotal;
+            $item['tenant_base_total'] = max(0, (int) ($item['tenant_base_total'] ?? 0)) + $modifierBaseTotal;
+            $item['tenant_net_total'] = max(0, (int) ($item['tenant_net_total'] ?? 0)) + $modifierBaseTotal;
             $item['effective_unit_price'] = (int) round($lineTotal / max(1, (int) $item['qty']));
 
             return $item;

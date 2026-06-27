@@ -1229,8 +1229,26 @@ export default function Index({
                                                             {detail.modifiers?.length ? (
                                                                 <div className="mt-2 space-y-1">
                                                                     {detail.modifiers.map((modifier) => (
-                                                                        <div key={modifier.id} className="text-xs text-slate-500 dark:text-slate-400">
-                                                                            {modifier.name} x{modifier.qty} • {formatCurrency(modifier.total_price)}
+                                                                        <div key={modifier.id} className="text-xs">
+                                                                            <span className="text-slate-600 dark:text-slate-300 font-medium">
+                                                                                {modifier.name} x{modifier.qty}
+                                                                            </span>
+                                                                            <span className="text-slate-500 dark:text-slate-400">
+                                                                                {" "}• Total {formatCurrency(modifier.total_price)}
+                                                                            </span>
+                                                                            {(modifier.markup_price > 0 || modifier.base_price > 0) && (
+                                                                                <span className="ml-1 text-xs">
+                                                                                    <span className="text-emerald-600 dark:text-emerald-400">
+                                                                                        (Tenant {formatCurrency(modifier.base_price * modifier.qty)}
+                                                                                    </span>
+                                                                                    {modifier.markup_price > 0 && (
+                                                                                        <span className="text-amber-600 dark:text-amber-400">
+                                                                                            {" "}+ Markup {formatCurrency(modifier.markup_price * modifier.qty)}
+                                                                                        </span>
+                                                                                    )}
+                                                                                    <span className="text-emerald-600 dark:text-emerald-400">)</span>
+                                                                                </span>
+                                                                            )}
                                                                         </div>
                                                                     ))}
                                                                 </div>

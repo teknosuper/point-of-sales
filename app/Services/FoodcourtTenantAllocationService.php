@@ -244,19 +244,13 @@ class FoodcourtTenantAllocationService
 
     private function tenantLineTotal(TransactionDetail $detail): int
     {
+        // tenant_net_total dari PricingService sudah include base topping (data baru)
+        // maupun full modifier (data lama sebelum split) — tidak perlu ditambah lagi.
         $tenantNetTotal = (int) ($detail->tenant_net_total ?? 0);
-        $modifierTotal = $this->modifierLineTotal($detail);
 
         return $tenantNetTotal > 0
-            ? $tenantNetTotal + $modifierTotal
+            ? $tenantNetTotal
             : (int) ($detail->price ?? 0);
-    }
-
-    private function modifierLineTotal(TransactionDetail $detail): int
-    {
-        return (int) $detail->modifiers->sum(
-            fn ($modifier) => (int) ($modifier->total_price ?? 0)
-        );
     }
 
     private function tenantBaseUnitPrice(TransactionDetail $detail): int

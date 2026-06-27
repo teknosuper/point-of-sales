@@ -217,6 +217,8 @@ class TableOrderService
                     'name' => $option->name,
                     'qty' => $item['qty'],
                     'unit_price' => (int) ($modifierPricing->get($option->id)['effective_price'] ?? 0),
+                    'base_price' => (int) ($modifierPricing->get($option->id)['base_price'] ?? 0),
+                    'markup_price' => (int) ($modifierPricing->get($option->id)['markup_price'] ?? 0),
                     'total_price' => (int) ($modifierPricing->get($option->id)['effective_price'] ?? 0) * $item['qty'],
                 ])->values()->all(),
             ];
@@ -236,7 +238,10 @@ class TableOrderService
 
                 $cart->setRelation('product', $products->get($item['product_id']));
                 $cart->setRelation('modifiers', collect($item['modifiers'] ?? [])->map(
-                    fn (array $modifier) => (object) ['total_price' => (int) ($modifier['total_price'] ?? 0)]
+                    fn (array $modifier) => (object) [
+                        'total_price' => (int) ($modifier['total_price'] ?? 0),
+                        'markup_price' => (int) ($modifier['markup_price'] ?? 0),
+                    ]
                 ));
 
                 return $cart;
@@ -407,6 +412,8 @@ class TableOrderService
                         'name' => $modifier->name,
                         'qty' => (int) $modifier->qty,
                         'unit_price' => (int) $modifier->unit_price,
+                        'base_price' => (int) ($modifier->base_price ?? $modifier->unit_price),
+                        'markup_price' => (int) ($modifier->markup_price ?? 0),
                         'total_price' => (int) $modifier->total_price,
                     ]);
                 }

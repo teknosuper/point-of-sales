@@ -746,6 +746,8 @@ class TransactionController extends Controller
             'name' => ['required', 'string', 'max:120'],
             'qty' => ['nullable', 'integer', 'min:1', 'max:99'],
             'unit_price' => ['nullable', 'integer', 'min:0', 'max:100000000'],
+            'base_price' => ['nullable', 'integer', 'min:0', 'max:100000000'],
+            'markup_price' => ['nullable', 'integer', 'min:0', 'max:100000000'],
         ]);
 
         $cart = $this->findEditableCart($request, $cart_id);
@@ -758,11 +760,15 @@ class TransactionController extends Controller
 
         $qty = max(1, (int) ($validated['qty'] ?? 1));
         $unitPrice = max(0, (int) ($validated['unit_price'] ?? 0));
+        $basePrice = max(0, (int) ($validated['base_price'] ?? $unitPrice));
+        $markupPrice = max(0, (int) ($validated['markup_price'] ?? ($unitPrice - $basePrice)));
 
         $cart->modifiers()->create([
             'name' => trim((string) $validated['name']),
             'qty' => $qty,
             'unit_price' => $unitPrice,
+            'base_price' => $basePrice,
+            'markup_price' => $markupPrice,
             'total_price' => $qty * $unitPrice,
         ]);
 
@@ -821,6 +827,8 @@ class TransactionController extends Controller
             'modifiers.*.name' => ['required_with:modifiers', 'string', 'max:120'],
             'modifiers.*.qty' => ['nullable', 'integer', 'min:1', 'max:99'],
             'modifiers.*.unit_price' => ['nullable', 'integer', 'min:0', 'max:100000000'],
+            'modifiers.*.base_price' => ['nullable', 'integer', 'min:0', 'max:100000000'],
+            'modifiers.*.markup_price' => ['nullable', 'integer', 'min:0', 'max:100000000'],
             'notes' => ['nullable', 'string', 'max:2000'],
         ]);
 
@@ -837,11 +845,15 @@ class TransactionController extends Controller
         foreach (($validated['modifiers'] ?? []) as $modifier) {
             $qty = max(1, (int) ($modifier['qty'] ?? 1));
             $unitPrice = max(0, (int) ($modifier['unit_price'] ?? 0));
+            $basePrice = max(0, (int) ($modifier['base_price'] ?? $unitPrice));
+            $markupPrice = max(0, (int) ($modifier['markup_price'] ?? ($unitPrice - $basePrice)));
 
             $cart->modifiers()->create([
                 'name' => trim((string) $modifier['name']),
                 'qty' => $qty,
                 'unit_price' => $unitPrice,
+                'base_price' => $basePrice,
+                'markup_price' => $markupPrice,
                 'total_price' => $qty * $unitPrice,
             ]);
         }
@@ -1012,6 +1024,8 @@ class TransactionController extends Controller
                         'name' => $modifier->name,
                         'qty' => (int) $modifier->qty,
                         'unit_price' => (int) $modifier->unit_price,
+                        'base_price' => (int) ($modifier->base_price ?? $matchedOption['base_price'] ?? $modifier->unit_price),
+                        'markup_price' => (int) ($modifier->markup_price ?? $matchedOption['markup_price'] ?? 0),
                         'total_price' => (int) $modifier->total_price,
                     ];
                 })
@@ -1577,6 +1591,8 @@ class TransactionController extends Controller
                         'name' => $modifier->name,
                         'qty' => (int) $modifier->qty,
                         'unit_price' => (int) $modifier->unit_price,
+                        'base_price' => (int) ($modifier->base_price ?? $modifier->unit_price),
+                        'markup_price' => (int) ($modifier->markup_price ?? 0),
                         'total_price' => (int) $modifier->total_price,
                     ]);
                 }

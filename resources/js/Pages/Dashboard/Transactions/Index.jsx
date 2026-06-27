@@ -2661,6 +2661,8 @@ export default function Index({
                                     0,
                                     Number(modifier.price || 0)
                                 ),
+                                base_price: Math.max(0, Number(modifier.base_price || 0)),
+                                markup_price: Math.max(0, Number(modifier.markup_price || 0)),
                             })),
                         }
                     );
@@ -3412,6 +3414,8 @@ export default function Index({
                                     0,
                                     Number(option.price || 0)
                                 ),
+                                base_price: Math.max(0, Number(option.base_price || 0)),
+                                markup_price: Math.max(0, Number(option.markup_price || 0)),
                             })),
                         }
                     );

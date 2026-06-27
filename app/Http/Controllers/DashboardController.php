@@ -60,8 +60,6 @@ class DashboardController extends Controller
         $totalProducts = Product::count();
         $transactionQuery = Transaction::query()
             ->when($outletId, fn ($query) => $query->where('outlet_id', $outletId));
-        $profitQuery = Profit::query()
-            ->when($outletId, fn ($query) => $query->whereHas('transaction', fn ($builder) => $builder->where('outlet_id', $outletId)));
         $detailQuery = TransactionDetail::query()
             ->when($outletId, fn ($query) => $query->where('outlet_id', $outletId));
         $transactionMetricRows = $this->transactionReturnImpactService->enrichTransactions(
@@ -73,7 +71,7 @@ class DashboardController extends Controller
         $totalTransactions = $activeTransactionMetricRows->count();
         $totalCustomers = Customer::count();
         $totalRevenue = (int) $transactionMetricRows->sum('net_grand_total');
-        $totalProfit = (clone $profitQuery)->sum('total');
+        $totalProfit = $this->calcOwnerProfit($outletId, null, null);
         $averageOrder = $totalTransactions > 0
             ? (int) round($totalRevenue / $totalTransactions)
             : 0;
@@ -93,10 +91,7 @@ class DashboardController extends Controller
 
         // New: Today's Sales and Profit
         $todaySales = (int) $todayRows->sum('net_grand_total');
-        $todayProfit = (clone $profitQuery)
-            ->where('created_at', '>=', $todayStart)
-            ->where('created_at', '<=', $todayEnd)
-            ->sum('total');
+        $todayProfit = $this->calcOwnerProfit($outletId, $todayStart, $todayEnd);
 
         // Monthly targets using source timezone
         $monthlyTarget = Setting::get('monthly_sales_target', 0, $outletId);
@@ -111,10 +106,7 @@ class DashboardController extends Controller
                     && $createdAt->lessThanOrEqualTo($currentMonthEnd);
             })
             ->sum('net_grand_total');
-        $currentMonthProfit = (clone $profitQuery)
-            ->where('created_at', '>=', $currentMonthStart)
-            ->where('created_at', '<=', $currentMonthEnd)
-            ->sum('total');
+        $currentMonthProfit = $this->calcOwnerProfit($outletId, $currentMonthStart, $currentMonthEnd);
 
         // Revenue trend: last 12 days using source timezone boundaries
         $trendEnd = ReportTimezone::localDateEndInSourceTz(now(ReportTimezone::displayTimezone())->toDateString());
@@ -601,6 +593,57 @@ class DashboardController extends Controller
                 ],
             ],
         ]);
+    }
+
+    /**
+     * Profit owner dari dashboard utama (bukan tenant).
+     *
+     * Tiga sumber:
+     * 1. SUM(owner_net_total) dari transaction_details yang punya tenant_outlet_id
+     *    → markup owner dari harga produk tenant (sudah dikurangi diskon owner)
+     * 2. SUM(transaction_detail_modifiers.markup_price * qty) dari modifiers pada detail bertenant
+     *    → markup owner dari topping/modifier pada produk tenant
+     * 3. SUM(profits.total) dari transaksi yang TIDAK punya detail tenant sama sekali
+     *    → profit HPP normal produk milik owner sendiri
+     *
+     * Periode opsional: jika $start/$end diisi, query di-filter by created_at.
+     */
+    private function calcOwnerProfit(?int $outletId, $start, $end): int
+    {
+        // Bagian 1: markup owner dari harga produk tenant
+        $tenantDetailQuery = TransactionDetail::query()
+            ->whereNotNull('tenant_outlet_id')
+            ->when($outletId, fn ($q) => $q->where('outlet_id', $outletId))
+            ->when($start, fn ($q) => $q->where('transaction_details.created_at', '>=', $start))
+            ->when($end, fn ($q) => $q->where('transaction_details.created_at', '<=', $end));
+
+        $tenantProductMarkupProfit = (int) ($tenantDetailQuery->sum('owner_net_total') ?? 0);
+
+        // Bagian 2: markup owner dari topping/modifier pada detail bertenant
+        // markup_price sudah tersimpan di transaction_detail_modifiers sejak migration terbaru
+        $tenantDetailIds = (clone $tenantDetailQuery)->pluck('id');
+        $toppingMarkupProfit = 0;
+        if ($tenantDetailIds->isNotEmpty()) {
+            $toppingMarkupProfit = (int) (DB::table('transaction_detail_modifiers')
+                ->whereIn('transaction_detail_id', $tenantDetailIds)
+                ->selectRaw('COALESCE(SUM(markup_price * qty), 0) as total')
+                ->value('total') ?? 0);
+        }
+
+        // Bagian 3: profit HPP dari transaksi yang tidak punya item tenant sama sekali
+        $pureOwnerTransactionIds = Transaction::query()
+            ->when($outletId, fn ($q) => $q->where('outlet_id', $outletId))
+            ->whereDoesntHave('details', fn ($q) => $q->whereNotNull('tenant_outlet_id'))
+            ->pluck('id');
+
+        $pureOwnerProfitQuery = Profit::query()
+            ->whereIn('transaction_id', $pureOwnerTransactionIds)
+            ->when($start, fn ($q) => $q->where('created_at', '>=', $start))
+            ->when($end, fn ($q) => $q->where('created_at', '<=', $end));
+
+        $pureOwnerProfit = (int) ($pureOwnerProfitQuery->sum('total') ?? 0);
+
+        return $tenantProductMarkupProfit + $toppingMarkupProfit + $pureOwnerProfit;
     }
 
     private function sumTenantAllocationCost($allocationIds): int

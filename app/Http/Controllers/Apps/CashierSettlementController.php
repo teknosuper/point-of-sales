@@ -14,6 +14,7 @@ use App\Models\TransactionTenantAllocationItem;
 use App\Models\User;
 use App\Services\AuditLogService;
 use App\Services\CashierShiftService;
+use App\Services\ModifierMarkupService;
 use App\Services\OutletResolver;
 use App\Support\ReportTimezone;
 use Carbon\Carbon;
@@ -33,6 +34,7 @@ class CashierSettlementController extends Controller
         private readonly CashierShiftService $cashierShiftService,
         private readonly AuditLogService $auditLogService,
         private readonly OutletResolver $outletResolver,
+        private readonly ModifierMarkupService $modifierMarkupService,
     ) {}
 
     public function index(Request $request): Response
@@ -641,9 +643,46 @@ class CashierSettlementController extends Controller
                     'details' => $allocation->items->map(function ($item) {
                         $detail = $item->transactionDetail;
                         $remainingQty = (int) ($item->qty ?? 0);
+                        $detailQty = max(1, (int) ($detail?->qty ?? $remainingQty ?? 1));
                         $tenantBaseUnitPrice = (int) ($detail?->tenant_base_unit_price ?? $item->base_unit_price ?? 0);
                         $ownerMarkupUnitPrice = (int) ($detail?->owner_markup_unit_price ?? 0);
                         $customerUnitPrice = (int) ($detail?->customer_base_unit_price ?? $detail?->unit_price ?? 0);
+
+                        // Resolve modifier split (base=tenant, markup=owner) per modifier
+                        // Data lama (base_price=0, markup_price=0): anggap seluruh harga sebagai base tenant, markup=0
+                        $modifierRows = collect($detail?->modifiers ?? [])
+                            ->map(function ($modifier) {
+                                $storedBasePrice = (int) ($modifier->base_price ?? 0);
+                                $storedMarkupPrice = (int) ($modifier->markup_price ?? 0);
+                                $unitPrice = (int) $modifier->unit_price;
+
+                                // Data lama tidak punya split — tampilkan apa adanya tanpa recalculate
+                                if ($storedBasePrice === 0 && $storedMarkupPrice === 0 && $unitPrice > 0) {
+                                    $storedBasePrice = $unitPrice; // seluruh harga dianggap base (data lama)
+                                }
+
+                                return [
+                                    'id' => $modifier->id,
+                                    'name' => $modifier->name,
+                                    'qty' => (int) $modifier->qty,
+                                    'unit_price' => $unitPrice,
+                                    'base_price' => $storedBasePrice,
+                                    'markup_price' => $storedMarkupPrice,
+                                    'total_price' => (int) $modifier->total_price,
+                                ];
+                            })
+                            ->values();
+
+                        // Hitung dari komponen dasar agar akurat termasuk split topping
+                        // tenant_net = (tenant_base_unit * detail_qty + sum(modifier_base * modifier_qty)) * remainingQty / detailQty
+                        $tenantModifierBase = $modifierRows->sum(fn ($m) => (int) $m['base_price'] * (int) $m['qty']);
+                        $ownerModifierMarkup = $modifierRows->sum(fn ($m) => (int) $m['markup_price'] * (int) $m['qty']);
+
+                        $tenantNetPerUnit = $tenantBaseUnitPrice + (int) round($tenantModifierBase / max(1, $detailQty));
+                        $ownerNetPerUnit = $ownerMarkupUnitPrice + (int) round($ownerModifierMarkup / max(1, $detailQty));
+
+                        $tenantNetTotal = $tenantNetPerUnit * $remainingQty;
+                        $ownerNetTotal = $ownerNetPerUnit * $remainingQty;
 
                         return [
                             'id' => $detail?->id ?? $item->transaction_detail_id,
@@ -652,20 +691,12 @@ class CashierSettlementController extends Controller
                             'customer_unit_price' => $customerUnitPrice,
                             'line_total' => $customerUnitPrice * $remainingQty,
                             'tenant_base_unit_price' => $tenantBaseUnitPrice,
-                            'tenant_net_total' => (int) ($item->line_total ?? ($tenantBaseUnitPrice * $remainingQty)),
+                            'tenant_net_total' => $tenantNetTotal,
                             'owner_markup_unit_price' => $ownerMarkupUnitPrice,
-                            'owner_net_total' => $ownerMarkupUnitPrice * $remainingQty,
+                            'owner_net_total' => $ownerNetTotal,
                             'discount_total' => (int) ($item->discount_total ?? 0),
                             'notes' => $detail?->notes,
-                            'modifiers' => $detail?->modifiers
-                                ? $detail->modifiers->map(fn ($modifier) => [
-                                    'id' => $modifier->id,
-                                    'name' => $modifier->name,
-                                    'qty' => (int) $modifier->qty,
-                                    'unit_price' => (int) $modifier->unit_price,
-                                    'total_price' => (int) $modifier->total_price,
-                                ])->values()->all()
-                                : [],
+                            'modifiers' => $modifierRows->all(),
                         ];
                     })->values()->all(),
                 ];
@@ -824,6 +855,8 @@ class CashierSettlementController extends Controller
                             'name' => $modifier->name,
                             'qty' => (int) $modifier->qty,
                             'unit_price' => (int) $modifier->unit_price,
+                            'base_price' => (int) ($modifier->base_price ?? $modifier->unit_price),
+                            'markup_price' => (int) ($modifier->markup_price ?? 0),
                             'total_price' => (int) $modifier->total_price,
                         ])->values()->all()
                         : [],
@@ -875,34 +908,104 @@ class CashierSettlementController extends Controller
         return (int) ($this->ownerMarkupTotalsByAllocationIds($allocationIds)->sum() ?? 0);
     }
 
+    /**
+     * Hitung tenant net total per allocation dengan split modifier topping.
+     *
+     * tenant_net = (tenant_base_unit_price * item_qty) + SUM(modifier.base_price * modifier.qty)
+     * Data lama (base_price=0) tidak punya split, hanya produk-level saja — biarkan apa adanya.
+     */
     private function tenantNetTotalsByAllocationIds(\Illuminate\Support\Collection $allocationIds): \Illuminate\Support\Collection
     {
         if ($allocationIds->isEmpty()) {
             return collect();
         }
 
-        return TransactionTenantAllocationItem::query()
+        // Produk-level: tenant_base_unit_price * item_qty
+        $productBase = TransactionTenantAllocationItem::query()
             ->join('transaction_details', 'transaction_details.id', '=', 'transaction_tenant_allocation_items.transaction_detail_id')
             ->whereIn('transaction_tenant_allocation_id', $allocationIds->all())
-            ->selectRaw('transaction_tenant_allocation_id, COALESCE(SUM(CASE WHEN transaction_details.qty > 0 THEN (CASE WHEN transaction_details.tenant_net_total > 0 THEN ROUND(transaction_details.tenant_net_total / transaction_details.qty) WHEN transaction_details.tenant_base_unit_price > 0 THEN transaction_details.tenant_base_unit_price ELSE transaction_tenant_allocation_items.base_unit_price END) * transaction_tenant_allocation_items.qty ELSE COALESCE(transaction_tenant_allocation_items.line_total, 0) END), 0) as total_tenant_net_value')
+            ->selectRaw('
+                transaction_tenant_allocation_id,
+                COALESCE(SUM(
+                    CASE WHEN transaction_details.tenant_base_unit_price > 0
+                        THEN transaction_details.tenant_base_unit_price * transaction_tenant_allocation_items.qty
+                        ELSE COALESCE(transaction_tenant_allocation_items.base_unit_price, 0) * transaction_tenant_allocation_items.qty
+                    END
+                ), 0) as total_tenant_base
+            ')
             ->groupBy('transaction_tenant_allocation_id')
-            ->pluck('total_tenant_net_value', 'transaction_tenant_allocation_id')
-            ->map(fn ($value) => (int) $value);
+            ->pluck('total_tenant_base', 'transaction_tenant_allocation_id')
+            ->map(fn ($v) => (int) $v);
+
+        // Modifier-level: hanya pakai base_price yang tersimpan (data baru saja)
+        $modifierBase = TransactionTenantAllocationItem::query()
+            ->join('transaction_details', 'transaction_details.id', '=', 'transaction_tenant_allocation_items.transaction_detail_id')
+            ->join('transaction_detail_modifiers', 'transaction_detail_modifiers.transaction_detail_id', '=', 'transaction_details.id')
+            ->whereIn('transaction_tenant_allocation_id', $allocationIds->all())
+            ->where('transaction_detail_modifiers.base_price', '>', 0)
+            ->selectRaw('
+                transaction_tenant_allocation_id,
+                COALESCE(SUM(transaction_detail_modifiers.base_price * transaction_detail_modifiers.qty), 0) as total_modifier_base
+            ')
+            ->groupBy('transaction_tenant_allocation_id')
+            ->pluck('total_modifier_base', 'transaction_tenant_allocation_id')
+            ->map(fn ($v) => (int) $v);
+
+        return $allocationIds->mapWithKeys(fn ($id) => [
+            $id => (int) ($productBase->get($id, 0) ?? 0) + (int) ($modifierBase->get($id, 0) ?? 0),
+        ]);
     }
 
+    /**
+     * Hitung owner markup total per allocation dengan split modifier topping.
+     *
+     * owner_markup = (owner_markup_unit_price * item_qty) + SUM(modifier.markup_price * modifier.qty)
+     * Data lama (markup_price=0) tidak punya split, hanya produk-level saja — biarkan apa adanya.
+     */
     private function ownerMarkupTotalsByAllocationIds(\Illuminate\Support\Collection $allocationIds): \Illuminate\Support\Collection
     {
         if ($allocationIds->isEmpty()) {
             return collect();
         }
 
-        return TransactionTenantAllocationItem::query()
+        // Produk-level: owner_markup_unit_price * item_qty
+        $productMarkup = TransactionTenantAllocationItem::query()
             ->join('transaction_details', 'transaction_details.id', '=', 'transaction_tenant_allocation_items.transaction_detail_id')
             ->whereIn('transaction_tenant_allocation_id', $allocationIds->all())
-            ->selectRaw('transaction_tenant_allocation_id, COALESCE(SUM(CASE WHEN transaction_details.qty > 0 THEN (CASE WHEN transaction_details.owner_net_total > 0 THEN ROUND(transaction_details.owner_net_total / transaction_details.qty) WHEN transaction_details.owner_markup_unit_price > 0 THEN transaction_details.owner_markup_unit_price ELSE GREATEST(COALESCE(transaction_tenant_allocation_items.line_total, 0) - (COALESCE(transaction_tenant_allocation_items.base_unit_price, 0) * transaction_tenant_allocation_items.qty), 0) / GREATEST(transaction_tenant_allocation_items.qty, 1) END) * transaction_tenant_allocation_items.qty ELSE GREATEST(COALESCE(transaction_tenant_allocation_items.line_total, 0) - (COALESCE(transaction_tenant_allocation_items.base_unit_price, 0) * transaction_tenant_allocation_items.qty), 0) END), 0) as total_owner_markup_value')
+            ->selectRaw('
+                transaction_tenant_allocation_id,
+                COALESCE(SUM(
+                    CASE WHEN transaction_details.owner_markup_unit_price > 0
+                        THEN transaction_details.owner_markup_unit_price * transaction_tenant_allocation_items.qty
+                        ELSE GREATEST(
+                            COALESCE(transaction_tenant_allocation_items.line_total, 0)
+                            - (COALESCE(transaction_tenant_allocation_items.base_unit_price, 0) * transaction_tenant_allocation_items.qty),
+                            0
+                        )
+                    END
+                ), 0) as total_owner_markup
+            ')
             ->groupBy('transaction_tenant_allocation_id')
-            ->pluck('total_owner_markup_value', 'transaction_tenant_allocation_id')
-            ->map(fn ($value) => (int) $value);
+            ->pluck('total_owner_markup', 'transaction_tenant_allocation_id')
+            ->map(fn ($v) => (int) $v);
+
+        // Modifier-level: hanya pakai markup_price yang tersimpan (data baru saja)
+        $modifierMarkup = TransactionTenantAllocationItem::query()
+            ->join('transaction_details', 'transaction_details.id', '=', 'transaction_tenant_allocation_items.transaction_detail_id')
+            ->join('transaction_detail_modifiers', 'transaction_detail_modifiers.transaction_detail_id', '=', 'transaction_details.id')
+            ->whereIn('transaction_tenant_allocation_id', $allocationIds->all())
+            ->where('transaction_detail_modifiers.markup_price', '>', 0)
+            ->selectRaw('
+                transaction_tenant_allocation_id,
+                COALESCE(SUM(transaction_detail_modifiers.markup_price * transaction_detail_modifiers.qty), 0) as total_modifier_markup
+            ')
+            ->groupBy('transaction_tenant_allocation_id')
+            ->pluck('total_modifier_markup', 'transaction_tenant_allocation_id')
+            ->map(fn ($v) => (int) $v);
+
+        return $allocationIds->mapWithKeys(fn ($id) => [
+            $id => (int) ($productMarkup->get($id, 0) ?? 0) + (int) ($modifierMarkup->get($id, 0) ?? 0),
+        ]);
     }
 
     private function resolveKitchenTenantOutletIds(User $user, int $activeOutletId): \Illuminate\Support\Collection
