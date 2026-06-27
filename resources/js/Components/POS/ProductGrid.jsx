@@ -32,6 +32,39 @@ const promoExplanation = (badge) => {
     return badge.detail || badge.rule_name || badge.label || null;
 };
 
+const resolveModifierTone = (product, hasModifierOptions) => {
+    if (!hasModifierOptions) {
+        return {
+            cardClass:
+                "border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900",
+            badgeClass:
+                "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300",
+            badgeLabel: "Tanpa topping",
+            hintClass: "text-slate-500 dark:text-slate-400",
+        };
+    }
+
+    if (product.requires_modifier_selection) {
+        return {
+            cardClass:
+                "border-amber-200 bg-gradient-to-br from-amber-50 via-white to-orange-50 dark:border-amber-900/40 dark:from-amber-950/20 dark:via-slate-900 dark:to-orange-950/20",
+            badgeClass:
+                "bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-200",
+            badgeLabel: "Topping wajib",
+            hintClass: "text-amber-700 dark:text-amber-200",
+        };
+    }
+
+    return {
+        cardClass:
+            "border-sky-200 bg-gradient-to-br from-sky-50 via-white to-cyan-50 dark:border-sky-900/40 dark:from-sky-950/20 dark:via-slate-900 dark:to-cyan-950/20",
+        badgeClass:
+            "bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-200",
+        badgeLabel: "Ada topping",
+        hintClass: "text-sky-700 dark:text-sky-200",
+    };
+};
+
 // Single Product Card
 const ProductCard = memo(function ProductCard({
     product,
@@ -64,6 +97,7 @@ const ProductCard = memo(function ProductCard({
     const isListMode = viewMode === "list";
     const hasModifierOptions = Array.isArray(product?.modifier_options)
         && product.modifier_options.length > 0;
+    const modifierTone = resolveModifierTone(product, hasModifierOptions);
     const secondaryLabel =
         product.tenant_outlet?.name || product.category?.name || "-";
     const isSelectable =
@@ -90,7 +124,7 @@ const ProductCard = memo(function ProductCard({
             {...cardProps}
             className={`
                 group relative flex bg-white dark:bg-slate-900
-                rounded-2xl border border-slate-200 dark:border-slate-800
+                rounded-2xl border
                 transition-all duration-200
                 ${
                     isSelectable && hasStock
@@ -98,7 +132,7 @@ const ProductCard = memo(function ProductCard({
                         : hasStock
                           ? ""
                           : "opacity-60"
-                } ${isListMode ? "w-full items-center gap-2 px-2.5 py-1.5 text-left" : "flex-col overflow-hidden rounded-xl"}
+                } ${modifierTone.cardClass} ${isListMode ? "w-full items-center gap-2 px-2.5 py-1.5 text-left" : "flex-col overflow-hidden rounded-xl"}
             `}
         >
             {!isListMode && (
@@ -178,6 +212,13 @@ const ProductCard = memo(function ProductCard({
                                 </span>
                             </span>
                         )}
+                        {hasModifierOptions && (
+                            <span
+                                className={`inline-flex rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${modifierTone.badgeClass}`}
+                            >
+                                {modifierTone.badgeLabel}
+                            </span>
+                        )}
                         {showBadge && !showPromo && (
                             <span className="inline-flex rounded-full bg-rose-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-rose-600 dark:bg-rose-950/30 dark:text-rose-300">
                                 Promo
@@ -213,8 +254,10 @@ const ProductCard = memo(function ProductCard({
                             </span>
                         </p>
                         {!interactive && hasModifierOptions && (
-                            <p className="font-medium text-primary-600 dark:text-primary-300">
-                                Ada topping, klik untuk detail topping
+                            <p className={`font-medium ${modifierTone.hintClass}`}>
+                                {product.requires_modifier_selection
+                                    ? "Pilih detail topping wajib"
+                                    : "Klik untuk lihat topping"}
                             </p>
                         )}
                     </div>

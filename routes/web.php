@@ -85,6 +85,8 @@ Route::post('/order/table/{qrToken}', [PublicTableOrderController::class, 'store
     ->name('table-order.store');
 Route::get('/order/status/{accessToken}', [PublicTableOrderController::class, 'status'])
     ->name('table-order.status');
+Route::post('/order/status/{accessToken}/cancel', [PublicTableOrderController::class, 'cancelStatus'])
+    ->name('table-order.cancel');
 
 Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
     Route::get('/', [DashboardController::class, 'index'])->middleware(['auth', 'permission:dashboard-access'])->name('dashboard');

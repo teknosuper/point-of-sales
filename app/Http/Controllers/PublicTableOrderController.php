@@ -19,6 +19,7 @@ use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Validation\ValidationException;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 
@@ -65,7 +66,6 @@ class PublicTableOrderController extends Controller
                 'requires_modifier_selection'
             )
             ->orderBy('title')
-            ->where('stock', '>', 0)
             ->get()
             ->map(function (Product $product) {
                 $product->setAttribute('stock', (int) ($product->stock ?? 0));
@@ -246,6 +246,7 @@ class PublicTableOrderController extends Controller
         return Inertia::render('Public/TableOrder/Status', [
             'order' => [
                 'id' => $order->id,
+                'access_token' => $order->access_token,
                 'order_number' => $order->order_number,
                 'customer_name' => $order->customer_name,
                 'customer_phone' => $order->customer_phone,
@@ -253,6 +254,7 @@ class PublicTableOrderController extends Controller
                 'notes' => $order->notes,
                 'payment_method' => $order->payment_method,
                 'status' => $order->status,
+                'can_cancel' => $order->status === 'pending_cashier_payment' && $order->transaction_id === null,
                 'subtotal' => $order->resolvedSubtotal(),
                 'base_subtotal' => (int) $order->items->sum(fn ($item) => ((int) ($item->base_unit_price ?? $item->unit_price) * (int) $item->qty) + (int) $item->modifiers->sum('total_price')),
                 'discount_total' => (int) $order->items->sum('discount_total'),
@@ -279,6 +281,7 @@ class PublicTableOrderController extends Controller
                     'notes' => $item->notes,
                     'modifiers' => $item->modifiers->map(fn ($modifier) => [
                         'id' => $modifier->id,
+                        'group_name' => $modifier->group_name,
                         'name' => $modifier->name,
                         'qty' => (int) $modifier->qty,
                         'unit_price' => (int) $modifier->unit_price,
@@ -322,6 +325,28 @@ class PublicTableOrderController extends Controller
                     : null,
             ],
         ]);
+    }
+
+    public function cancelStatus(Request $request, string $accessToken)
+    {
+        $order = TableOrder::query()
+            ->where('access_token', $accessToken)
+            ->firstOrFail();
+
+        if ($order->status !== 'pending_cashier_payment' || $order->transaction_id !== null) {
+            throw ValidationException::withMessages([
+                'order' => 'Pesanan ini sudah tidak bisa dibatalkan dari halaman pelanggan.',
+            ]);
+        }
+
+        $order->update([
+            'status' => 'cancelled',
+            'approved_at' => now(),
+        ]);
+
+        return redirect()
+            ->route('table-order.status', $order->access_token)
+            ->with('success', 'Pesanan berhasil dibatalkan.');
     }
 
     private function resolveTable(string $qrToken): DiningTable

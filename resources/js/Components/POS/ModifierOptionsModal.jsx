@@ -161,6 +161,16 @@ export default function ModifierOptionsModal({
               className:
                   "border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200",
           };
+    const heroClass = hasModifierOptions
+        ? selectionIsRequired
+            ? "border-amber-200 bg-gradient-to-br from-amber-50 via-white to-orange-50 dark:border-amber-900/40 dark:from-amber-950/20 dark:via-slate-900 dark:to-orange-950/20"
+            : "border-sky-200 bg-gradient-to-br from-sky-50 via-white to-cyan-50 dark:border-sky-900/40 dark:from-sky-950/20 dark:via-slate-900 dark:to-cyan-950/20"
+        : "border-slate-200 bg-gradient-to-br from-white via-slate-50 to-slate-100 dark:border-slate-800 dark:from-slate-900 dark:via-slate-900 dark:to-slate-800";
+    const priceClass = hasModifierOptions
+        ? selectionIsRequired
+            ? "bg-amber-950 text-amber-50 shadow-amber-950/15 dark:bg-amber-500/20 dark:text-amber-100"
+            : "bg-sky-950 text-sky-50 shadow-sky-950/15 dark:bg-sky-500/20 dark:text-sky-100"
+        : "bg-slate-950 text-white shadow-slate-900/10 dark:bg-primary-500/20 dark:text-primary-100";
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -203,7 +213,7 @@ export default function ModifierOptionsModal({
                 </div>
 
                 <div className="min-h-0 flex-1 overflow-y-auto">
-                    <div className="mx-5 mt-4 overflow-hidden rounded-[28px] border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-primary-50 shadow-sm dark:border-slate-800 dark:from-slate-900 dark:via-slate-900 dark:to-primary-950/30">
+                    <div className={`mx-5 mt-4 overflow-hidden rounded-[28px] border shadow-sm ${heroClass}`}>
                         <div className="grid gap-0 sm:grid-cols-[160px,minmax(0,1fr)]">
                             <div className="relative aspect-[4/3] overflow-hidden bg-slate-100 dark:bg-slate-800 sm:aspect-auto sm:h-full">
                                 {product.image ? (
@@ -247,11 +257,11 @@ export default function ModifierOptionsModal({
                                             {product.title}
                                         </p>
                                     </div>
-                                    <div className="rounded-2xl bg-slate-950 px-3 py-2 text-left shadow-lg shadow-slate-900/10 dark:bg-primary-500/20">
-                                        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-300 dark:text-primary-200">
+                                    <div className={`rounded-2xl px-3 py-2 text-left shadow-lg ${priceClass}`}>
+                                        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] opacity-80">
                                             Harga
                                         </p>
-                                        <p className="break-words text-base font-bold text-white dark:text-primary-100">
+                                        <p className="break-words text-base font-bold">
                                             {formatPrice(product.sell_price)}
                                         </p>
                                     </div>

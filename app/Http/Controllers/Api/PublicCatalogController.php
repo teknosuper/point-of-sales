@@ -371,7 +371,7 @@ class PublicCatalogController extends Controller
             )
             ->orderBy('title');
 
-        if (! $request->boolean('include_out_of_stock')) {
+        if ($request->has('include_out_of_stock') && ! $request->boolean('include_out_of_stock')) {
             $query->where('stock', '>', 0);
         }
 

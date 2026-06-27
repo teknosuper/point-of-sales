@@ -1026,9 +1026,73 @@ export default function Menu({
                     ? promoTitleText(resolvedPromoItem)
                     : null;
                 const promoDetail = promoDetailText(resolvedPromoItem);
+                const modifierGroups = (item.modifiers || []).reduce(
+                    (groups, modifier) => {
+                        const groupName = normalizeModifierGroupName(
+                            modifier.group_name
+                        );
+
+                        if (!groups[groupName]) {
+                            groups[groupName] = [];
+                        }
+
+                        groups[groupName].push(modifier);
+
+                        return groups;
+                    },
+                    {}
+                );
+                const modifierHtml =
+                    Object.keys(modifierGroups).length > 0
+                        ? `
+                            <div style="margin-top:10px;display:grid;gap:8px;">
+                                ${Object.entries(modifierGroups)
+                                    .map(
+                                        ([groupName, modifiers]) => `
+                                            <div style="border:1px solid #e2e8f0;border-radius:14px;padding:10px;background:#ffffff;">
+                                                <div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#94a3b8;">Kategori topping</div>
+                                                <div style="margin-top:4px;font-size:13px;font-weight:700;color:#0f172a;">${groupName}</div>
+                                                <div style="margin-top:8px;display:grid;gap:6px;">
+                                                    ${modifiers
+                                                        .map(
+                                                            (modifier) => `
+                                                                <div style="display:flex;justify-content:space-between;gap:10px;font-size:12px;color:#475569;">
+                                                                    <span style="min-width:0;flex:1;">${modifier.name}</span>
+                                                                    <strong style="white-space:nowrap;color:${
+                                                                        Number(
+                                                                            modifier.total_price || 0
+                                                                        ) > 0
+                                                                            ? "#0369a1"
+                                                                            : "#047857"
+                                                                    };">
+                                                                        ${
+                                                                            Number(
+                                                                                modifier.total_price || 0
+                                                                            ) > 0
+                                                                                ? formatPrice(
+                                                                                      modifier.total_price
+                                                                                  )
+                                                                                : "Gratis"
+                                                                        }
+                                                                    </strong>
+                                                                </div>
+                                                            `
+                                                        )
+                                                        .join("")}
+                                                </div>
+                                            </div>
+                                        `
+                                    )
+                                    .join("")}
+                            </div>
+                        `
+                        : "";
+                const itemNotesHtml = item.notes
+                    ? `<div style="margin-top:10px;border-radius:12px;background:#f8fafc;padding:10px;font-size:12px;color:#475569;"><strong style="color:#0f172a;">Catatan item:</strong> ${item.notes}</div>`
+                    : "";
 
                 return `
-                    <div style="padding:12px 0;border-bottom:1px solid #e2e8f0;text-align:left;">
+                    <div style="border:1px solid #e2e8f0;border-radius:20px;padding:16px;background:linear-gradient(135deg,#ffffff 0%,#f8fafc 100%);text-align:left;">
                         <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;">
                             <div style="min-width:0;flex:1;">
                                 <div style="font-weight:600;color:#0f172a;">${item.product?.title || "Produk"}</div>
@@ -1051,6 +1115,8 @@ export default function Menu({
                                         ? `<div style="margin-top:4px;font-size:11px;color:#e11d48;">${promoDetail}</div>`
                                         : ""
                                 }
+                                ${modifierHtml}
+                                ${itemNotesHtml}
                             </div>
                             <div style="text-align:right;white-space:nowrap;">
                                 ${
@@ -1066,36 +1132,55 @@ export default function Menu({
                 `;
             })
             .join("");
+        const orderNotesHtml = orderForm.data.notes
+            ? `<div style="border:1px solid #e2e8f0;border-radius:18px;padding:14px;background:#ffffff;">
+                    <div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#94a3b8;">Catatan umum order</div>
+                    <div style="margin-top:6px;font-size:13px;line-height:1.6;color:#334155;">${orderForm.data.notes}</div>
+               </div>`
+            : "";
 
         return Swal.fire({
-            title: "Konfirmasi Order ke Kasir",
+            title: "Konfirmasi Kirim Order",
             html: `
                 <div style="text-align:left;display:grid;gap:14px;">
-                    <div style="font-size:13px;color:#475569;">
-                        Periksa kembali item, promo, dan total akhir sebelum order dikirim ke panel kasir.
+                    <div style="display:grid;gap:10px;">
+                        <div style="border:1px solid #bfdbfe;border-radius:18px;padding:14px;background:linear-gradient(135deg,#eff6ff 0%,#f8fafc 100%);">
+                            <div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#1d4ed8;">Alur pembayaran</div>
+                            <div style="margin-top:8px;display:grid;gap:8px;font-size:13px;color:#334155;">
+                                <div style="display:flex;gap:10px;"><span style="display:inline-flex;height:22px;min-width:22px;align-items:center;justify-content:center;border-radius:999px;background:#2563eb;color:#fff;font-size:11px;font-weight:700;">1</span><span>Order ini dikirim dulu ke panel kasir, belum langsung dibayar.</span></div>
+                                <div style="display:flex;gap:10px;"><span style="display:inline-flex;height:22px;min-width:22px;align-items:center;justify-content:center;border-radius:999px;background:#0f766e;color:#fff;font-size:11px;font-weight:700;">2</span><span>Kasir akan cek item, topping, promo, dan total akhir yang sama.</span></div>
+                                <div style="display:flex;gap:10px;"><span style="display:inline-flex;height:22px;min-width:22px;align-items:center;justify-content:center;border-radius:999px;background:#b45309;color:#fff;font-size:11px;font-weight:700;">3</span><span>Setelah itu kasir memproses pembayaran dan order masuk ke dapur.</span></div>
+                            </div>
+                        </div>
+                        <div style="border:1px solid #e2e8f0;border-radius:18px;padding:14px;background:#fff;">
+                            <div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#94a3b8;">Pesanan yang akan dikirim</div>
+                            <div style="margin-top:6px;font-size:13px;color:#475569;">Periksa menu, topping, qty, promo, dan catatan sebelum lanjut.</div>
+                        </div>
                     </div>
-                    <div style="max-height:280px;overflow:auto;padding:0 4px;">
+                    <div style="max-height:320px;overflow:auto;padding:0 2px;display:grid;gap:10px;">
                         ${itemsHtml}
                     </div>
-                    <div style="border-top:1px solid #e2e8f0;padding-top:12px;display:grid;gap:8px;">
-                        <div style="display:flex;justify-content:space-between;gap:12px;"><span>Subtotal Dasar</span><strong>${formatPrice(baseSubtotal)}</strong></div>
-                        <div style="display:flex;justify-content:space-between;gap:12px;"><span>${PROMO_TOTAL_LABEL}</span><strong style="color:#e11d48;">-${formatPrice(promoDiscount)}</strong></div>
-                        <div style="display:flex;justify-content:space-between;gap:12px;"><span>Subtotal Setelah Promo</span><strong>${formatPrice(subtotal)}</strong></div>
-                        <div style="display:flex;justify-content:space-between;gap:12px;font-size:16px;"><span><strong>Total</strong></span><strong style="color:#4f46e5;">${formatPrice(payable)}</strong></div>
+                    ${orderNotesHtml}
+                    <div style="border:1px solid #e2e8f0;border-radius:20px;padding:16px;background:linear-gradient(135deg,#ffffff 0%,#f8fafc 100%);display:grid;gap:8px;">
+                        <div style="display:flex;justify-content:space-between;gap:12px;font-size:13px;"><span style="color:#64748b;">Subtotal Dasar</span><strong>${formatPrice(baseSubtotal)}</strong></div>
+                        <div style="display:flex;justify-content:space-between;gap:12px;font-size:13px;"><span style="color:#64748b;">${PROMO_TOTAL_LABEL}</span><strong style="color:#e11d48;">-${formatPrice(promoDiscount)}</strong></div>
+                        <div style="display:flex;justify-content:space-between;gap:12px;font-size:13px;"><span style="color:#64748b;">Subtotal Setelah Promo</span><strong>${formatPrice(subtotal)}</strong></div>
+                        <div style="height:1px;background:#e2e8f0;"></div>
+                        <div style="display:flex;justify-content:space-between;gap:12px;font-size:17px;"><span><strong>Total dibayar ke kasir</strong></span><strong style="color:#4f46e5;">${formatPrice(payable)}</strong></div>
                     </div>
                 </div>
             `,
-            icon: "question",
             showCancelButton: true,
             confirmButtonText: "Kirim ke Kasir",
             cancelButtonText: "Periksa Lagi",
             confirmButtonColor: "#16a34a",
             cancelButtonColor: "#64748b",
             reverseButtons: true,
-            width: 640,
+            width: 720,
         });
     }, [
         baseSubtotal,
+        orderForm.data.notes,
         payable,
         paymentPreviewItems,
         promoDiscount,
@@ -1868,26 +1953,54 @@ export default function Menu({
                                 Info Pembayaran
                             </p>
                             <p className="text-xs text-slate-500">
-                                Promo, subtotal, dan total akhir mengikuti kalkulasi
-                                POS. Bedanya, pembayaran tetap diproses kasir.
+                                Cek total pesanan di sini, lalu kirim ke kasir untuk diproses dan dibayar.
                             </p>
                         </div>
 
                         <div className="min-h-0 flex-1 overflow-y-auto p-4 space-y-4">
-                            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                                <div className="flex items-center justify-between text-sm">
-                                    <span className="text-slate-500">
-                                        Status pembayaran
-                                    </span>
-                                    <span className="font-semibold text-amber-700">
-                                        Menunggu approval kasir
+                            <div className="rounded-3xl border border-sky-200 bg-gradient-to-br from-sky-50 via-white to-slate-50 p-4">
+                                <div className="flex items-start justify-between gap-3">
+                                    <div>
+                                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-700">
+                                            Status saat ini
+                                        </p>
+                                        <p className="mt-1 text-base font-bold text-slate-900">
+                                            Menunggu approval kasir
+                                        </p>
+                                    </div>
+                                    <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">
+                                        Belum dibayar
                                     </span>
                                 </div>
-                                <p className="mt-2 text-xs leading-5 text-slate-500">
-                                    Setelah Anda kirim order, kasir akan melihat
-                                    ringkasan yang sama lalu menyetujui pembayaran di
-                                    panel kasir.
+                                <p className="mt-3 text-sm leading-6 text-slate-600">
+                                    Order dari meja ini belum masuk pembayaran. Setelah Anda konfirmasi, kasir menerima detail yang sama untuk dicek dan diproses.
                                 </p>
+                                <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                                    <div className="rounded-2xl border border-white/80 bg-white/90 p-3">
+                                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+                                            1. Kirim order
+                                        </p>
+                                        <p className="mt-1 text-xs leading-5 text-slate-600">
+                                            Anda kirim detail menu dan catatan ke kasir.
+                                        </p>
+                                    </div>
+                                    <div className="rounded-2xl border border-white/80 bg-white/90 p-3">
+                                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+                                            2. Kasir cek
+                                        </p>
+                                        <p className="mt-1 text-xs leading-5 text-slate-600">
+                                            Kasir memverifikasi item, topping, promo, dan total.
+                                        </p>
+                                    </div>
+                                    <div className="rounded-2xl border border-white/80 bg-white/90 p-3">
+                                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+                                            3. Bayar ke kasir
+                                        </p>
+                                        <p className="mt-1 text-xs leading-5 text-slate-600">
+                                            Pembayaran diselesaikan di kasir, bukan di halaman ini.
+                                        </p>
+                                    </div>
+                                </div>
                             </div>
 
                             <div className="rounded-2xl border border-slate-200 bg-white p-4">

@@ -97,7 +97,7 @@ class PublicMenuController extends Controller
             ->when($request->filled('tenant_outlet_id'), fn ($b) => $b->where('tenant_outlet_id', (int) $request->input('tenant_outlet_id')))
             ->orderBy('title');
 
-        if (!$request->boolean('include_out_of_stock')) {
+        if ($request->has('include_out_of_stock') && !$request->boolean('include_out_of_stock')) {
             $query->where('stock', '>', 0);
         }
 

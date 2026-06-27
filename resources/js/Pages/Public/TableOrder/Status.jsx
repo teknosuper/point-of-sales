@@ -1,5 +1,6 @@
-import { Head, Link, usePage } from "@inertiajs/react";
-import { useState } from "react";
+import { Head, Link, useForm, usePage } from "@inertiajs/react";
+import { useMemo, useState } from "react";
+import Swal from "sweetalert2";
 
 const formatPrice = (value = 0) =>
     Number(value || 0).toLocaleString("id-ID", {
@@ -27,6 +28,13 @@ const kitchenStatusTone = {
     acknowledged: "bg-sky-50 text-sky-700 border-sky-200",
     ready: "bg-emerald-50 text-emerald-700 border-emerald-200",
     completed: "bg-slate-100 text-slate-700 border-slate-200",
+};
+
+const orderStatusTone = {
+    pending_cashier_payment: "border-amber-200 bg-amber-100 text-amber-800",
+    paid: "border-emerald-200 bg-emerald-100 text-emerald-800",
+    rejected: "border-rose-200 bg-rose-100 text-rose-800",
+    cancelled: "border-slate-200 bg-slate-100 text-slate-700",
 };
 
 const pricingKindLabel = {
@@ -103,6 +111,7 @@ export default function Status({ order }) {
     const { storeProfile, identity } = usePage().props;
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [instructionModalOpen, setInstructionModalOpen] = useState(false);
+    const cancelForm = useForm({});
     const customer = identity?.customer || null;
     const recentOrders = customer?.recent_orders || [];
     const recentTransactions = customer?.recent_transactions || [];
@@ -117,6 +126,64 @@ export default function Status({ order }) {
                     "Silakan lihat status terbaru di halaman ini atau hubungi kasir bila membutuhkan bantuan.",
             },
         ];
+    const modifierGroupsByItem = useMemo(
+        () =>
+            Object.fromEntries(
+                (order.items || []).map((item) => [
+                    item.id,
+                    (item.modifiers || []).reduce((groups, modifier) => {
+                        const groupName =
+                            String(modifier.group_name || "").trim() || "Topping";
+
+                        if (!groups[groupName]) {
+                            groups[groupName] = [];
+                        }
+
+                        groups[groupName].push(modifier);
+
+                        return groups;
+                    }, {}),
+                ])
+            ),
+        [order.items]
+    );
+    const canCancelOrder = Boolean(order.can_cancel);
+
+    const handleCancelOrder = async () => {
+        const result = await Swal.fire({
+            title: "Batalkan pesanan ini?",
+            html: `
+                <div style="text-align:left;display:grid;gap:12px;">
+                    <div style="border:1px solid #fecaca;border-radius:18px;padding:14px;background:linear-gradient(135deg,#fff1f2 0%,#ffffff 100%);">
+                        <div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#be123c;">Konfirmasi pembatalan</div>
+                        <div style="margin-top:6px;font-size:13px;line-height:1.6;color:#334155;">
+                            Pesanan <strong>${order.order_number}</strong> akan dibatalkan dari halaman pelanggan sebelum diproses kasir.
+                        </div>
+                    </div>
+                    <div style="border:1px solid #e2e8f0;border-radius:18px;padding:14px;background:#fff;">
+                        <div style="display:flex;justify-content:space-between;gap:12px;font-size:13px;"><span>Meja</span><strong>${order.table?.code || order.table?.name || "-"}</strong></div>
+                        <div style="display:flex;justify-content:space-between;gap:12px;font-size:13px;margin-top:8px;"><span>Total</span><strong>${formatPrice(order.grand_total)}</strong></div>
+                    </div>
+                    <div style="font-size:12px;color:#64748b;">Jika masih ingin memesan nanti, Anda bisa membuat order baru dari menu meja.</div>
+                </div>
+            `,
+            showCancelButton: true,
+            confirmButtonText: "Ya, batalkan",
+            cancelButtonText: "Kembali",
+            confirmButtonColor: "#dc2626",
+            cancelButtonColor: "#64748b",
+            reverseButtons: true,
+            width: 560,
+        });
+
+        if (!result.isConfirmed) {
+            return;
+        }
+
+        cancelForm.post(route("table-order.cancel", order.access_token), {
+            preserveScroll: true,
+        });
+    };
 
     return (
         <>
@@ -235,9 +302,15 @@ export default function Status({ order }) {
                         {newOrderHref ? (
                             <Link
                                 href={newOrderHref}
-                                className="inline-flex w-full items-center justify-center rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+                                className={`inline-flex w-full items-center justify-center rounded-xl px-4 py-3 text-sm font-semibold transition ${
+                                    order.status === "cancelled"
+                                        ? "bg-gradient-to-r from-amber-400 via-orange-400 to-rose-500 text-slate-950 shadow-[0_18px_38px_-18px_rgba(251,146,60,0.9)] hover:scale-[1.01]"
+                                        : "border border-slate-200 text-slate-600 hover:bg-slate-50"
+                                }`}
                             >
-                                Pesan Lagi
+                                {order.status === "cancelled"
+                                    ? "Pesan Lagi Sekarang"
+                                    : "Pesan Lagi"}
                             </Link>
                         ) : null}
                     </div>
@@ -311,79 +384,160 @@ export default function Status({ order }) {
             <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(14,165,233,0.12),_transparent_26%),radial-gradient(circle_at_top_right,_rgba(16,185,129,0.08),_transparent_34%),linear-gradient(180deg,_#eef4ff_0%,_#f8fafc_22%,_#f8fafc_100%)] px-4 py-10 text-slate-900">
                 <div className="mx-auto max-w-2xl space-y-6">
                     <div className="overflow-hidden rounded-[30px] border border-slate-200/80 bg-[linear-gradient(135deg,_rgba(15,23,42,0.97)_0%,_rgba(30,41,59,0.95)_52%,_rgba(8,47,73,0.94)_100%)] p-6 text-white shadow-[0_30px_90px_-42px_rgba(15,23,42,0.78)]">
-                        <p className="text-sm uppercase tracking-[0.2em] text-sky-200">
-                            Perjalanan Pesanan
-                        </p>
-                        <h1 className="mt-2 text-3xl font-bold tracking-[-0.03em]">{order.order_number}</h1>
-                        <p className="mt-3 text-sm text-slate-300">
-                            Meja {order.table?.code || order.table?.name}
-                        </p>
-                        <div className="mt-4 inline-flex rounded-full bg-amber-400/15 px-4 py-2 text-sm font-semibold text-amber-100 border border-amber-300/20">
-                            {statusLabel[order.status] || order.status}
-                        </div>
-                        <div className="mt-4">
-                            <button
-                                type="button"
-                                onClick={() => setInstructionModalOpen(true)}
-                                className="inline-flex items-center gap-2 text-sm font-medium text-sky-100 underline underline-offset-4 transition hover:text-white"
-                            >
-                                <span>Lihat cara pembayaran & proses pesanan</span>
-                                <svg
-                                    xmlns="http://www.w3.org/2000/svg"
-                                    width="16"
-                                    height="16"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    strokeWidth="2"
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
+                        <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+                            <div>
+                                <p className="text-sm uppercase tracking-[0.2em] text-sky-200">
+                                    Perjalanan Pesanan
+                                </p>
+                                <h1 className="mt-2 text-3xl font-bold tracking-[-0.03em]">{order.order_number}</h1>
+                                <p className="mt-3 text-sm text-slate-300">
+                                    Meja {order.table?.code || order.table?.name}
+                                </p>
+                                <div className="mt-4 inline-flex rounded-full bg-amber-400/15 px-4 py-2 text-sm font-semibold text-amber-100 border border-amber-300/20">
+                                    {statusLabel[order.status] || order.status}
+                                </div>
+                            </div>
+                            <div className="grid gap-3 sm:w-[260px]">
+                                <div className="rounded-3xl border border-white/10 bg-white/10 p-4 backdrop-blur">
+                                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-300">
+                                        Total order
+                                    </p>
+                                    <p className="mt-2 text-2xl font-black text-white">
+                                        {formatPrice(order.grand_total)}
+                                    </p>
+                                    <p className="mt-1 text-xs text-slate-300">
+                                        {order.items.length} item • {order.transaction?.invoice || "Belum ada invoice kasir"}
+                                    </p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => setInstructionModalOpen(true)}
+                                    className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white/10 px-4 py-3 text-sm font-medium text-sky-50 transition hover:bg-white/15"
                                 >
-                                    <path d="M5 12h14" />
-                                    <path d="m12 5 7 7-7 7" />
-                                </svg>
-                            </button>
+                                    <span>Lihat panduan pembayaran</span>
+                                </button>
+                                {order.status === "cancelled" && newOrderHref ? (
+                                    <Link
+                                        href={newOrderHref}
+                                        className="inline-flex items-center justify-center rounded-2xl bg-gradient-to-r from-amber-400 via-orange-400 to-rose-500 px-4 py-3 text-sm font-bold text-slate-950 shadow-[0_18px_38px_-18px_rgba(251,146,60,0.9)] transition hover:scale-[1.01] hover:shadow-[0_22px_42px_-18px_rgba(244,114,182,0.85)]"
+                                    >
+                                        Pesan Lagi dari Meja Ini
+                                    </Link>
+                                ) : null}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                        <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_18px_60px_-34px_rgba(15,23,42,0.3)]">
+                            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Status order</p>
+                            <div className={`mt-3 inline-flex rounded-full border px-3 py-1.5 text-xs font-semibold ${orderStatusTone[order.status] || "border-slate-200 bg-slate-100 text-slate-700"}`}>
+                                {statusLabel[order.status] || order.status}
+                            </div>
+                            <p className="mt-3 text-sm leading-6 text-slate-600">
+                                {order.status === "pending_cashier_payment"
+                                    ? "Pesanan masih menunggu pembayaran dan pengecekan dari kasir."
+                                    : order.status === "paid"
+                                      ? "Pembayaran sudah diterima dan pesanan sedang berjalan."
+                                      : order.status === "cancelled"
+                                        ? "Pesanan ini sudah dibatalkan dari sistem."
+                                        : "Periksa ke kasir untuk memastikan status pesanan ini."}
+                            </p>
+                        </div>
+                        <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_18px_60px_-34px_rgba(15,23,42,0.3)]">
+                            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Atas nama</p>
+                            <p className="mt-3 text-lg font-bold text-slate-900">
+                                {order.customer_name || customer?.name || "Pelanggan"}
+                            </p>
+                            <p className="mt-1 text-sm text-slate-500">
+                                {order.customer_phone || customer?.no_telp || "-"}
+                            </p>
+                            <p className="mt-3 text-xs text-slate-400">
+                                {customer?.member_code ? `Member ${customer.member_code}` : "Self-order meja"}
+                            </p>
+                        </div>
+                        <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_18px_60px_-34px_rgba(15,23,42,0.3)]">
+                            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Waktu order</p>
+                            <p className="mt-3 text-lg font-bold text-slate-900">
+                                {order.created_at_label || "-"}
+                            </p>
+                            <p className="mt-1 text-sm text-slate-500">
+                                {order.approved_at_label ? `Update status ${order.approved_at_label}` : "Belum ada approval kasir"}
+                            </p>
+                        </div>
+                        <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_18px_60px_-34px_rgba(15,23,42,0.3)]">
+                            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Kasir & invoice</p>
+                            <p className="mt-3 text-lg font-bold text-slate-900">
+                                {order.transaction?.invoice || "Belum ada"}
+                            </p>
+                            <p className="mt-1 text-sm text-slate-500">
+                                {order.transaction?.payment_method || "Pembayaran di kasir"}
+                            </p>
                         </div>
                     </div>
 
                     <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-[0_18px_60px_-34px_rgba(15,23,42,0.3)]">
-                        <h2 className="text-lg font-semibold">Ringkasan Pesanan</h2>
-                        <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Atas Nama</p>
-                                <p className="mt-1 text-sm font-semibold text-slate-900">
-                                    {order.customer_name || customer?.name || "Pelanggan"}
+                        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                            <div>
+                                <h2 className="text-lg font-semibold">Ringkasan Pesanan</h2>
+                                <p className="mt-1 text-sm text-slate-500">
+                                    Detail utama order, instruksi tambahan, dan aksi cepat pelanggan.
                                 </p>
                             </div>
-                            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Nomor HP</p>
-                                <p className="mt-1 text-sm font-semibold text-slate-900">
-                                    {order.customer_phone || customer?.no_telp || "-"}
+                            <div className="flex flex-wrap gap-2">
+                                {canCancelOrder ? (
+                                    <button
+                                        type="button"
+                                        onClick={handleCancelOrder}
+                                        disabled={cancelForm.processing}
+                                        className="inline-flex items-center justify-center rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm font-semibold text-rose-700 transition hover:bg-rose-100 disabled:opacity-60"
+                                    >
+                                        {cancelForm.processing ? "Membatalkan..." : "Batalkan pesanan"}
+                                    </button>
+                                ) : null}
+                                {newOrderHref ? (
+                                    <Link
+                                        href={newOrderHref}
+                                        className={`inline-flex items-center justify-center rounded-2xl px-4 py-2.5 text-sm font-semibold transition ${
+                                            order.status === "cancelled"
+                                                ? "bg-gradient-to-r from-amber-400 via-orange-400 to-rose-500 text-slate-950 shadow-[0_18px_38px_-18px_rgba(251,146,60,0.9)] hover:scale-[1.01]"
+                                                : "border border-slate-200 text-slate-700 hover:bg-slate-50"
+                                        }`}
+                                    >
+                                        {order.status === "cancelled"
+                                            ? "Pesan Lagi Sekarang"
+                                            : "Pesan lagi"}
+                                    </Link>
+                                ) : null}
+                            </div>
+                        </div>
+
+                        <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1.35fr),minmax(280px,0.65fr)]">
+                            <div className="rounded-[24px] border border-slate-200 bg-[linear-gradient(180deg,_#ffffff_0%,_#f8fafc_100%)] p-4">
+                                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                                    Catatan order
+                                </p>
+                                <p className="mt-3 text-sm leading-6 text-slate-600">
+                                    {order.notes || "Tidak ada catatan tambahan untuk kasir atau dapur."}
                                 </p>
                             </div>
-                            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Pesanan Dibuat</p>
-                                <p className="mt-1 text-sm font-semibold text-slate-900">
-                                    {order.created_at_label || "-"}
+                            <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-4">
+                                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                                    Aksi yang tersedia
                                 </p>
-                            </div>
-                            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Disetujui</p>
-                                <p className="mt-1 text-sm font-semibold text-slate-900">
-                                    {order.approved_at_label || "Belum disetujui"}
-                                </p>
-                            </div>
-                            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Invoice Kasir</p>
-                                <p className="mt-1 text-sm font-semibold text-slate-900">
-                                    {order.transaction?.invoice || "Belum ada"}
-                                </p>
-                            </div>
-                            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Transaksi Kasir</p>
-                                <p className="mt-1 text-sm font-semibold text-slate-900">
-                                    {order.transaction?.created_at_label || "Belum dibuat"}
-                                </p>
+                                <div className="mt-3 space-y-3 text-sm text-slate-600">
+                                    <div className="rounded-2xl border border-white bg-white p-3">
+                                        Tunjukkan nomor order ini ke kasir saat pembayaran.
+                                    </div>
+                                    <div className="rounded-2xl border border-white bg-white p-3">
+                                        Pantau progress dapur di halaman ini setelah kasir menyelesaikan pembayaran.
+                                    </div>
+                                    {canCancelOrder ? (
+                                        <div className="rounded-2xl border border-rose-100 bg-rose-50 p-3 text-rose-700">
+                                            Pesanan masih bisa dibatalkan karena belum dibuat transaksi kasir.
+                                        </div>
+                                    ) : null}
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -428,23 +582,40 @@ export default function Status({ order }) {
                                                     ) : null}
                                                 </div>
                                             ) : null}
-                                        {item.modifiers?.length ? (
-                                            <div className="mt-1 flex flex-wrap gap-2">
-                                                {item.modifiers.map((modifier) => (
-                                                    <span
-                                                        key={modifier.id}
-                                                        className="rounded-full bg-[#f5e4d9] px-2 py-1 text-xs text-[#9b4b2e]"
-                                                    >
-                                                        {modifier.name} x{modifier.qty}
-                                                    </span>
-                                                ))}
-                                            </div>
-                                        ) : null}
-                                        {item.notes ? (
-                                            <p className="text-sm text-slate-500">
-                                                {item.notes}
-                                            </p>
-                                        ) : null}
+                                            {item.modifiers?.length ? (
+                                                <div className="mt-3 space-y-2">
+                                                    {Object.entries(
+                                                        modifierGroupsByItem[item.id] || {}
+                                                    ).map(([groupName, modifiers]) => (
+                                                        <div
+                                                            key={`${item.id}-${groupName}`}
+                                                            className="rounded-2xl border border-[#f1dfd4] bg-[#fff6f0] p-3"
+                                                        >
+                                                            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#b06a48]">
+                                                                Kategori topping
+                                                            </p>
+                                                            <p className="mt-1 text-sm font-semibold text-[#7c3d21]">
+                                                                {groupName}
+                                                            </p>
+                                                            <div className="mt-2 flex flex-wrap gap-2">
+                                                                {modifiers.map((modifier) => (
+                                                                    <span
+                                                                        key={modifier.id}
+                                                                        className="rounded-full bg-white px-2.5 py-1 text-xs font-medium text-[#9b4b2e]"
+                                                                    >
+                                                                        {modifier.name} x{modifier.qty}
+                                                                    </span>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            ) : null}
+                                            {item.notes ? (
+                                                <div className="mt-3 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-500">
+                                                    {item.notes}
+                                                </div>
+                                            ) : null}
                                         </div>
                                         <div className="text-right">
                                             <p className="font-semibold">
@@ -479,6 +650,81 @@ export default function Status({ order }) {
                                 <span className="text-2xl font-bold">
                                     {formatPrice(order.grand_total)}
                                 </span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-[0_18px_60px_-34px_rgba(15,23,42,0.3)]">
+                        <h2 className="text-lg font-semibold">Riwayat Pelanggan</h2>
+                        <p className="mt-1 text-sm text-slate-500">
+                            Order terbaru dan transaksi sebelumnya yang terkait akun pelanggan ini.
+                        </p>
+
+                        <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                            <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-4">
+                                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                                    Riwayat order meja
+                                </p>
+                                <div className="mt-3 space-y-3">
+                                    {recentOrders.length > 0 ? (
+                                        recentOrders.map((recentOrder) => (
+                                            <div key={recentOrder.id} className="rounded-2xl border border-slate-200 bg-white p-3">
+                                                <div className="flex items-start justify-between gap-3">
+                                                    <div className="min-w-0">
+                                                        <p className="truncate text-sm font-semibold text-slate-900">
+                                                            {recentOrder.order_number}
+                                                        </p>
+                                                        <p className="mt-1 text-xs text-slate-500">
+                                                            {statusLabel[recentOrder.status] || recentOrder.status}
+                                                        </p>
+                                                    </div>
+                                                    <p className="text-sm font-bold text-slate-900">
+                                                        {formatPrice(recentOrder.grand_total)}
+                                                    </p>
+                                                </div>
+                                                {recentOrder.access_token ? (
+                                                    <Link href={route("table-order.status", recentOrder.access_token)} className="mt-2 inline-flex text-xs font-semibold text-sky-700">
+                                                        Lihat detail status
+                                                    </Link>
+                                                ) : null}
+                                            </div>
+                                        ))
+                                    ) : (
+                                        <div className="rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-4 text-sm text-slate-500">
+                                            Belum ada riwayat order meja lain.
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                            <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-4">
+                                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                                    Riwayat transaksi kasir
+                                </p>
+                                <div className="mt-3 space-y-3">
+                                    {recentTransactions.length > 0 ? (
+                                        recentTransactions.map((transaction) => (
+                                            <div key={transaction.id} className="rounded-2xl border border-slate-200 bg-white p-3">
+                                                <div className="flex items-start justify-between gap-3">
+                                                    <div className="min-w-0">
+                                                        <p className="truncate text-sm font-semibold text-slate-900">
+                                                            {transaction.invoice}
+                                                        </p>
+                                                        <p className="mt-1 text-xs capitalize text-slate-500">
+                                                            {transaction.payment_status}
+                                                        </p>
+                                                    </div>
+                                                    <p className="text-sm font-bold text-slate-900">
+                                                        {formatPrice(transaction.grand_total)}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        ))
+                                    ) : (
+                                        <div className="rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-4 text-sm text-slate-500">
+                                            Belum ada riwayat transaksi kasir.
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -603,9 +849,15 @@ export default function Status({ order }) {
                         {newOrderHref ? (
                             <Link
                                 href={newOrderHref}
-                                className="mt-5 inline-flex rounded-2xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700"
+                                className={`mt-5 inline-flex rounded-2xl px-4 py-3 text-sm font-semibold transition ${
+                                    order.status === "cancelled"
+                                        ? "bg-gradient-to-r from-amber-400 via-orange-400 to-rose-500 text-slate-950 shadow-[0_18px_38px_-18px_rgba(251,146,60,0.9)] hover:scale-[1.01]"
+                                        : "border border-slate-300 text-slate-700"
+                                }`}
                             >
-                                Buat Order Baru
+                                {order.status === "cancelled"
+                                    ? "Pesan Lagi dari Meja Ini"
+                                    : "Buat Order Baru"}
                             </Link>
                         ) : null}
                     </div>
