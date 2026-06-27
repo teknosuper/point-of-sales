@@ -209,6 +209,8 @@ export default function Menu({
     const modifierModalPricingTimerRef = useRef(null);
     const editableOrderHydratedTokenRef = useRef(null);
     const editableOrderOpenedRef = useRef(false);
+    const cartStorageHydratedKeyRef = useRef(null);
+    const orderNotesFocusedRef = useRef(false);
     const floatingCartDragRef = useRef({
         dragging: false,
         moved: false,
@@ -232,6 +234,8 @@ export default function Menu({
     const [isLoadingPricing, setIsLoadingPricing] = useState(false);
     const [modifierModalProduct, setModifierModalProduct] = useState(null);
     const [modifierModalQuantity, setModifierModalQuantity] = useState(1);
+    const [modifierModalNotes, setModifierModalNotes] = useState("");
+    const [orderNotesDraft, setOrderNotesDraft] = useState("");
     const [selectedModifierOptionIds, setSelectedModifierOptionIds] = useState(
         []
     );
@@ -256,6 +260,14 @@ export default function Menu({
         address: "",
     });
     const logoutForm = useForm({});
+
+    useEffect(() => {
+        if (orderNotesFocusedRef.current) {
+            return;
+        }
+
+        setOrderNotesDraft(orderForm.data.notes || "");
+    }, [orderForm.data.notes]);
 
     const productsById = useMemo(
         () =>
@@ -427,7 +439,7 @@ export default function Menu({
             id: `draft-${modifierModalProduct.id}`,
             product_id: Number(modifierModalProduct.id),
             qty: Math.max(1, Number(modifierModalQuantity || 1)),
-            notes: "",
+            notes: modifierModalNotes,
             product: modifierModalProduct,
             modifiers: (modifierModalProduct.modifier_options || [])
                 .filter((option) =>
@@ -450,6 +462,7 @@ export default function Menu({
             is_promo_reward: false,
         };
     }, [
+        modifierModalNotes,
         modifierModalProduct,
         modifierModalQuantity,
         selectedModifierOptionIds,
@@ -549,13 +562,19 @@ export default function Menu({
     );
 
     const createCartLine = useCallback(
-        (product, modifiers = [], quantity = 1, rewardPromoMeta = null) => ({
+        (
+            product,
+            modifiers = [],
+            quantity = 1,
+            rewardPromoMeta = null,
+            notes = ""
+        ) => ({
             id: `line-${product.id}-${Date.now()}-${Math.random()
                 .toString(36)
                 .slice(2, 8)}`,
             product_id: Number(product.id),
             qty: Math.max(1, Number(quantity || 1)),
-            notes: "",
+            notes,
             product,
             modifiers: modifiers.map((modifier) => ({
                 id: Number(modifier.id),
@@ -633,6 +652,7 @@ export default function Menu({
         async (product, options = {}) => {
             const quantity = Math.max(1, Number(options?.qty || 1));
             const rewardPromoMeta = options?.rewardPromoMeta || null;
+            const notes = String(options?.notes || "");
             const selectedModifiers = Array.isArray(options?.modifiers)
                 ? options.modifiers
                 : [];
@@ -652,7 +672,8 @@ export default function Menu({
                                 product,
                                 selectedModifiers,
                                 quantity,
-                                rewardPromoMeta
+                                rewardPromoMeta,
+                                notes
                             ),
                         ];
                     }
@@ -665,7 +686,10 @@ export default function Menu({
                     );
 
                     if (existingIndex < 0) {
-                        return [...current, createCartLine(product, [], quantity)];
+                        return [
+                            ...current,
+                            createCartLine(product, [], quantity, null, notes),
+                        ];
                     }
 
                     return current.map((line, index) =>
@@ -817,6 +841,7 @@ export default function Menu({
         (product) => {
             setModifierModalProduct(product);
             setModifierModalQuantity(1);
+            setModifierModalNotes("");
             setSelectedModifierOptionIds([]);
             setIsModifierPromoDetailOpen(false);
         },
@@ -871,6 +896,7 @@ export default function Menu({
 
         setModifierModalProduct(null);
         setModifierModalQuantity(1);
+        setModifierModalNotes("");
         setSelectedModifierOptionIds([]);
         setIsModifierPromoDetailOpen(false);
     }, [isModifierModalSubmitting]);
@@ -1009,11 +1035,13 @@ export default function Menu({
 
             addProductToCart(modifierModalProduct, {
                 qty: modifierModalQuantity,
+                notes: modifierModalNotes,
                 modifiers: selectedModifiers,
             }).then(() => {
                 setIsModifierModalSubmitting(false);
                 setModifierModalProduct(null);
                 setModifierModalQuantity(1);
+                setModifierModalNotes("");
                 setSelectedModifierOptionIds([]);
                 setIsModifierPromoDetailOpen(false);
                 toast.success(`${modifierModalProduct.title} ditambahkan`);
@@ -1021,6 +1049,7 @@ export default function Menu({
         },
         [
             addProductToCart,
+            modifierModalNotes,
             modifierModalProduct,
             modifierModalQuantity,
             selectedModifierOptionIds,
@@ -1371,6 +1400,7 @@ export default function Menu({
         setCartLines([]);
         setPricingPreview(emptyPricingPreview);
         orderForm.setData("notes", "");
+        setOrderNotesDraft("");
         logoutForm.post(route("table-order.logout", table.qr_token), {
             preserveScroll: true,
         });
@@ -1449,12 +1479,18 @@ export default function Menu({
 
     useEffect(() => {
         if (editableOrder?.access_token) {
+            cartStorageHydratedKeyRef.current = null;
             return;
         }
 
         if (!cartStorageKey || typeof window === "undefined") {
+            cartStorageHydratedKeyRef.current = null;
             setCartLines([]);
             orderForm.setData("notes", "");
+            return;
+        }
+
+        if (cartStorageHydratedKeyRef.current === cartStorageKey) {
             return;
         }
 
@@ -1462,6 +1498,7 @@ export default function Menu({
             const storedPayload = window.localStorage.getItem(cartStorageKey);
 
             if (!storedPayload) {
+                cartStorageHydratedKeyRef.current = cartStorageKey;
                 setCartLines([]);
                 orderForm.setData("notes", "");
                 return;
@@ -1491,13 +1528,15 @@ export default function Menu({
                       .filter(Boolean)
                 : [];
 
+            cartStorageHydratedKeyRef.current = cartStorageKey;
             setCartLines(restoredLines);
             orderForm.setData("notes", parsedPayload?.notes || "");
         } catch {
+            cartStorageHydratedKeyRef.current = cartStorageKey;
             setCartLines([]);
             orderForm.setData("notes", "");
         }
-    }, [cartStorageKey, editableOrder?.access_token, orderForm, productsById]);
+    }, [cartStorageKey, editableOrder?.access_token, productsById]);
 
     useEffect(() => {
         if (!cartStorageKey || typeof window === "undefined") {
@@ -1981,7 +2020,7 @@ export default function Menu({
                         </div>
 
                         <div className="min-h-0 flex-1 overflow-y-auto">
-                            <div className="p-2.5 lg:p-3">
+                            <div className="p-2.5 pb-28 lg:p-3 lg:pb-3">
                                 {normalizedCarts.length > 0 ? (
                                     <div className="space-y-2 pr-1">
                                         {normalizedCarts.map((item) => {
@@ -2040,7 +2079,7 @@ export default function Menu({
                             </div>
                         </div>
 
-                        <div className="flex-shrink-0 border-t border-slate-200 bg-slate-50 p-3">
+                        <div className="sticky bottom-0 z-20 flex-shrink-0 border-t border-slate-200 bg-slate-50/95 p-3 pb-[calc(env(safe-area-inset-bottom,0px)+0.75rem)] backdrop-blur">
                             <div className="space-y-3">
                                 <div className="grid gap-3 sm:grid-cols-2">
                                     <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left">
@@ -2110,7 +2149,7 @@ export default function Menu({
                             </p>
                         </div>
 
-                        <div className="min-h-0 flex-1 overflow-y-auto p-4 space-y-4">
+                        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 pb-32">
                             <div className="rounded-3xl border border-sky-200 bg-gradient-to-br from-sky-50 via-white to-slate-50 p-4">
                                 <div className="flex items-start justify-between gap-3">
                                     <div>
@@ -2348,10 +2387,17 @@ export default function Menu({
                                 </p>
                                 <textarea
                                     rows={4}
-                                    value={orderForm.data.notes}
+                                    value={orderNotesDraft}
+                                    onFocus={() => {
+                                        orderNotesFocusedRef.current = true;
+                                    }}
                                     onChange={(event) =>
-                                        orderForm.setData("notes", event.target.value)
+                                        setOrderNotesDraft(event.target.value)
                                     }
+                                    onBlur={(event) => {
+                                        orderNotesFocusedRef.current = false;
+                                        orderForm.setData("notes", event.target.value);
+                                    }}
                                     placeholder="Catatan umum untuk kasir atau dapur"
                                     className="mt-3 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-primary-500 focus:bg-white focus:ring-4 focus:ring-primary-100"
                                 />
@@ -2432,7 +2478,7 @@ export default function Menu({
                             </div>
                         </div>
 
-                        <div className="flex-shrink-0 border-t border-slate-200 bg-slate-50 p-3">
+                        <div className="sticky bottom-0 z-20 flex-shrink-0 border-t border-slate-200 bg-slate-50/95 p-3 pb-[calc(env(safe-area-inset-bottom,0px)+0.75rem)] backdrop-blur">
                             <button
                                 type="button"
                                 onClick={submitOrder}
@@ -2475,7 +2521,7 @@ export default function Menu({
                 registerNameInputRef={registerNameInputRef}
             />
 
-            {cartCount > 0 ? (
+            {cartCount > 0 && mobileView === "products" ? (
                 <button
                     type="button"
                     onPointerDown={(event) =>
@@ -2513,6 +2559,8 @@ export default function Menu({
                 product={modifierModalProduct}
                 quantity={modifierModalQuantity}
                 onQuantityChange={setModifierModalQuantity}
+                notesValue={modifierModalNotes}
+                onNotesChange={setModifierModalNotes}
                 selectedModifierOptionIds={selectedModifierOptionIds}
                 onToggleModifierOption={handleToggleModifierOption}
                 selectedModifierTotal={modifierModalSelectedModifierTotal}

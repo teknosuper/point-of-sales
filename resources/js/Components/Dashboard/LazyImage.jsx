@@ -26,8 +26,10 @@ export default function LazyImage({
     const [error, setError] = useState(false);
     const [activeSrc, setActiveSrc] = useState(src);
     const imgRef = useRef(null);
+    const hasHandledErrorRef = useRef(false);
 
     useEffect(() => {
+        hasHandledErrorRef.current = false;
         setActiveSrc(src);
         setError(false);
         setIsLoaded(false);
@@ -61,11 +63,17 @@ export default function LazyImage({
     };
 
     const handleError = () => {
+        if (hasHandledErrorRef.current && (!fallbackSrc || activeSrc === fallbackSrc)) {
+            return;
+        }
+
         if (fallbackSrc && activeSrc !== fallbackSrc) {
+            hasHandledErrorRef.current = true;
             setActiveSrc(fallbackSrc);
             return;
         }
 
+        hasHandledErrorRef.current = true;
         setError(true);
         setIsLoaded(true);
     };

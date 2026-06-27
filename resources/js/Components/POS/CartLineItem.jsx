@@ -8,6 +8,7 @@ import {
     REWARD_ITEM_LABEL,
 } from "@/Utils/pricingRules";
 import { IconShoppingCart, IconTrash, IconX } from "@/Utils/icons";
+import { useEffect, useRef, useState } from "react";
 
 const normalizeModifierGroupName = (value) => {
     const normalized = String(value || "").trim();
@@ -35,6 +36,17 @@ export default function CartLineItem({
     notePlaceholder = "Catatan item...",
     modifierActionLabel = "Tambah topping / extra",
 }) {
+    const [draftNotes, setDraftNotes] = useState(item.notes || "");
+    const notesFocusedRef = useRef(false);
+
+    useEffect(() => {
+        if (notesFocusedRef.current) {
+            return;
+        }
+
+        setDraftNotes(item.notes || "");
+    }, [item.id, item.notes]);
+
     const groupedModifiers = (item.modifiers || []).reduce((groups, modifier) => {
         const groupName = normalizeModifierGroupName(modifier.group_name);
 
@@ -316,13 +328,23 @@ export default function CartLineItem({
                 <div className="mt-2 flex items-start justify-between gap-2">
                     <div className="min-w-0 flex-1">
                         <textarea
-                            value={item.notes || ""}
-                            onChange={(event) =>
-                                onNotesChange?.(item.id, event.target.value)
-                            }
-                            onBlur={(event) =>
-                                onNotesBlur?.(item.id, event.target.value)
-                            }
+                            value={draftNotes}
+                            onFocus={() => {
+                                notesFocusedRef.current = true;
+                            }}
+                            onChange={(event) => {
+                                setDraftNotes(event.target.value);
+                            }}
+                            onBlur={(event) => {
+                                notesFocusedRef.current = false;
+                                const nextNotes = event.target.value;
+
+                                if (nextNotes !== (item.notes || "")) {
+                                    onNotesChange?.(item.id, nextNotes);
+                                }
+
+                                onNotesBlur?.(item.id, nextNotes);
+                            }}
                             rows={2}
                             placeholder={notePlaceholder}
                             className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] text-slate-700 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
