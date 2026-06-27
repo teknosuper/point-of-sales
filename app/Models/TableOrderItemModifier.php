@@ -15,6 +15,8 @@ class TableOrderItemModifier extends Model
         'name',
         'qty',
         'unit_price',
+        'base_price',
+        'markup_price',
         'total_price',
     ];
 
@@ -23,6 +25,8 @@ class TableOrderItemModifier extends Model
         'product_modifier_option_id' => 'integer',
         'qty' => 'integer',
         'unit_price' => 'integer',
+        'base_price' => 'integer',
+        'markup_price' => 'integer',
         'total_price' => 'integer',
     ];
 

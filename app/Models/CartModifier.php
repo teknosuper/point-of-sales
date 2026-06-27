@@ -14,6 +14,8 @@ class CartModifier extends Model
         'name',
         'qty',
         'unit_price',
+        'base_price',
+        'markup_price',
         'total_price',
     ];
 
@@ -21,6 +23,8 @@ class CartModifier extends Model
         'cart_id' => 'integer',
         'qty' => 'integer',
         'unit_price' => 'integer',
+        'base_price' => 'integer',
+        'markup_price' => 'integer',
         'total_price' => 'integer',
     ];
 
