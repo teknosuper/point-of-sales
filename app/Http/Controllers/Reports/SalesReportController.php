@@ -16,6 +16,9 @@ use Carbon\Carbon;
 use App\Services\OutletResolver;
 use App\Services\SalesAnalyticsService;
 use App\Services\TransactionReturnImpactService;
+use App\Support\ReportOwnerTenantSplit;
+use App\Support\ReportTargetSummary;
+use App\Support\ReportTenantSalesMetrics;
 use App\Support\ReportTimezone;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -71,7 +74,7 @@ class SalesReportController extends Controller
         $transactions = (clone $baseListQuery)
             ->with(['details' => fn ($query) => $query
                 ->select($detailColumns)
-                ->with(['product:id,title', 'modifiers:id,transaction_detail_id,total_price'])])
+                ->with(['product:id,title', 'modifiers' => fn ($modifierQuery) => $modifierQuery->select(ReportOwnerTenantSplit::modifierSelectColumns())])])
             ->paginate(10)
             ->withQueryString();
         $transactions->setCollection(
@@ -86,6 +89,20 @@ class SalesReportController extends Controller
         $metricSummary = $this->transactionReturnImpactService->summarizeTransactionRows($transactionMetricRows);
 
         $transactionIds = (clone $aggregateQuery)->pluck('id');
+        $transactionIdQuery = Transaction::query()
+            ->when($filters['outlet_id'] ?? null, fn ($q, $outletId) => $q->where('outlet_id', $outletId))
+            ->when($filters['invoice'] ?? null, fn ($q, $invoice) => $q->where('invoice', 'like', '%'.$invoice.'%'))
+            ->when($filters['cashier_id'] ?? null, fn ($q, $cashier) => $q->where('cashier_id', $cashier))
+            ->when($filters['customer_id'] ?? null, function ($q, $customer) {
+                return match ((string) $customer) {
+                    'walk_in' => $q->whereNull('customer_id'),
+                    default => $q->where('customer_id', $customer),
+                };
+            });
+        $transactionIdQuery = ReportTimezone::applySourceDateRange($transactionIdQuery->select('id'), 'created_at', $filters);
+        if (! $isTenantOutlet && ($filters['tenant_outlet_id'] ?? null)) {
+            $transactionIdQuery->whereHas('details', fn ($q) => $q->where('tenant_outlet_id', $filters['tenant_outlet_id']));
+        }
 
         $itemsSold = $transactionIds->isNotEmpty()
             ? TransactionDetail::whereIn('transaction_id', $transactionIds)->sum('qty')
@@ -103,6 +120,13 @@ class SalesReportController extends Controller
         $profitTotal = $transactionIds->isNotEmpty()
             ? Profit::whereIn('transaction_id', $transactionIds)->sum('total')
             : 0;
+        $ownerSplitSummary = ! $isTenantOutlet
+            ? ReportOwnerTenantSplit::aggregateForTransactionIds($transactionIdQuery)
+            : [
+                'owner_product_markup_total' => 0,
+                'owner_topping_markup_total' => 0,
+                'owner_net_total' => 0,
+            ];
 
         $tenantAllocationBaseQuery = $this->applyAllocationFilters(
             $this->withAllocationDiscountSplit(TransactionTenantAllocation::query())
@@ -181,6 +205,8 @@ class SalesReportController extends Controller
             'owner_discount_total' => (int) ($discountSplit->owner_discount_total ?? 0),
             'items_sold' => (int) $itemsSold,
             'profit_total' => (int) $profitTotal,
+            'owner_product_markup_total' => (int) ($ownerSplitSummary['owner_product_markup_total'] ?? 0),
+            'owner_topping_markup_total' => (int) ($ownerSplitSummary['owner_topping_markup_total'] ?? 0),
             'average_order' => (int) $metricSummary['average_order'],
         ];
         $summary['walk_in_count'] = (int) $metricSummary['walk_in_count'];
@@ -293,22 +319,7 @@ class SalesReportController extends Controller
             (clone $tenantBaseQuery)->paginate(10)->withQueryString()
         )->through(fn (TransactionTenantAllocation $allocation) => $this->transformTenantAllocationTransactionRow($allocation));
 
-        $summary = [
-            'orders_count' => (int) $activeTenantMetricAllocations->count(),
-            'revenue_total' => (int) $activeTenantMetricAllocations->sum('grand_total'),
-            'discount_total' => (int) $activeTenantMetricAllocations->sum('total_discount_total'),
-            'tenant_discount_total' => (int) $activeTenantMetricAllocations->sum('tenant_discount_total'),
-            'owner_discount_total' => 0,
-            'items_sold' => (int) $activeTenantMetricAllocations->sum('total_items'),
-            'profit_total' => (int) $activeTenantMetricAllocations->sum('profit_total'),
-        ];
-        $summary['average_order'] = $summary['orders_count'] > 0
-            ? (int) round($summary['revenue_total'] / $summary['orders_count'])
-            : 0;
-        $summary['walk_in_count'] = (int) $activeTenantMetricAllocations
-            ->filter(fn ($allocation) => blank($allocation->transaction?->customer_id))
-            ->count();
-        $summary['registered_customer_count'] = max(0, $summary['orders_count'] - $summary['walk_in_count']);
+        $summary = ReportTenantSalesMetrics::summary($activeTenantMetricAllocations);
 
         $tenantAllocations = $this->appendTenantWorkspaceAllocationMetrics(
             (clone $tenantBaseQuery)->limit(20)->get()
@@ -352,19 +363,12 @@ class SalesReportController extends Controller
 
         $targets = $this->targetSummary($summary, $tenantOutletId, $filters);
 
-        // Build analytics for tenant workspace - filter by tenant_outlet_id in transaction_details
-        $tenantAnalyticsQuery = Transaction::query()
-            ->whereHas('tenantAllocations', fn ($q) => $q->where('tenant_outlet_id', $tenantOutletId));
-        $tenantAnalyticsQuery = ReportTimezone::applySourceDateRange($tenantAnalyticsQuery, 'created_at', $filters);
-
-        // Get transaction IDs filtered by tenant_outlet_id
-        $tenantTransactionIds = TransactionDetail::query()
-            ->where('tenant_outlet_id', $tenantOutletId)
-            ->whereIn('transaction_id', $tenantAnalyticsQuery->pluck('id'))
+        $tenantTransactionIds = $activeTenantMetricAllocations
             ->pluck('transaction_id')
-            ->unique();
+            ->filter()
+            ->unique()
+            ->values();
 
-        // Build all analytics using tenant-filtered transaction IDs
         $topProducts = [];
         $fullProducts = [];
         $slowMovingProducts = [];
@@ -374,15 +378,15 @@ class SalesReportController extends Controller
         $paymentMethodBreakdown = [];
 
         if ($tenantTransactionIds->isNotEmpty()) {
-            $tenantFilteredQuery = Transaction::query()->whereIn('id', $tenantTransactionIds);
             $topProducts = $this->analyticsService->buildTopProducts($tenantTransactionIds, 10, $tenantOutletId);
             $fullProducts = $this->analyticsService->buildProductPerformance($tenantTransactionIds, null, $tenantOutletId);
             $slowMovingProducts = $this->analyticsService->buildSlowMovingProducts($tenantTransactionIds, 10, $tenantOutletId);
             $categoryBreakdown = $this->analyticsService->buildCategoryBreakdown($tenantTransactionIds, $tenantOutletId);
-            $hourlyBreakdown = $this->analyticsService->buildHourlyBreakdown((clone $tenantFilteredQuery));
-            $dailyBreakdown = $this->analyticsService->buildDailyBreakdown((clone $tenantFilteredQuery));
-            $paymentMethodBreakdown = $this->analyticsService->buildPaymentMethodBreakdown((clone $tenantFilteredQuery));
         }
+
+        $hourlyBreakdown = ReportTenantSalesMetrics::hourlyBreakdown($activeTenantMetricAllocations);
+        $dailyBreakdown = ReportTenantSalesMetrics::dailyBreakdown($activeTenantMetricAllocations);
+        $paymentMethodBreakdown = ReportTenantSalesMetrics::paymentMethodBreakdown($activeTenantMetricAllocations);
 
         $analytics = [
             'hourly_breakdown' => $hourlyBreakdown,
@@ -474,6 +478,7 @@ class SalesReportController extends Controller
 
         foreach ([
             'customer_base_unit_price',
+            'owner_markup_unit_price',
             'tenant_discount_total',
             'owner_discount_total',
             'tenant_net_total',
@@ -497,6 +502,8 @@ class SalesReportController extends Controller
             return $baseUnitPrice * (int) $detail->qty;
         });
 
+        $ownerSplit = ReportOwnerTenantSplit::summarizeDetails($transaction->details);
+
         return [
             ...$transaction->toArray(),
             'created_at' => $transaction->created_at
@@ -519,20 +526,28 @@ class SalesReportController extends Controller
             'owner_net_total' => (int) $transaction->details->sum(
                 fn (TransactionDetail $detail) => (int) ($detail->owner_net_total ?? 0)
             ),
+            'owner_product_markup_total' => (int) ($ownerSplit['owner_product_markup_total'] ?? 0),
+            'owner_topping_markup_total' => (int) ($ownerSplit['owner_topping_markup_total'] ?? 0),
             'detail_items' => $transaction->details
-                ->map(fn (TransactionDetail $detail) => [
-                    'id' => $detail->id,
-                    'product_name' => $detail->product?->title ?? 'Produk',
-                    'qty' => (int) $detail->qty,
-                    'line_total' => $this->detailRevenueTotal($detail),
-                    'pre_promo_total' => (int) ($detail->customer_base_unit_price ?? $detail->unit_price ?? 0) * (int) $detail->qty,
-                    'tenant_discount_total' => (int) ($detail->tenant_discount_total ?? 0),
-                    'owner_discount_total' => (int) ($detail->owner_discount_total ?? 0),
-                    'tenant_net_total' => (int) ($detail->tenant_net_total ?? 0),
-                    'owner_net_total' => (int) ($detail->owner_net_total ?? 0),
-                    'pricing_rule_name' => $detail->pricing_rule_name,
-                    'pricing_rule_kind' => $detail->pricing_rule_kind,
-                ])
+                ->map(function (TransactionDetail $detail) {
+                    $ownerSplit = ReportOwnerTenantSplit::detailOwnerSplit($detail);
+
+                    return [
+                        'id' => $detail->id,
+                        'product_name' => $detail->product?->title ?? 'Produk',
+                        'qty' => (int) $detail->qty,
+                        'line_total' => $this->detailRevenueTotal($detail),
+                        'pre_promo_total' => (int) ($detail->customer_base_unit_price ?? $detail->unit_price ?? 0) * (int) $detail->qty,
+                        'tenant_discount_total' => (int) ($detail->tenant_discount_total ?? 0),
+                        'owner_discount_total' => (int) ($detail->owner_discount_total ?? 0),
+                        'tenant_net_total' => (int) ($detail->tenant_net_total ?? 0),
+                        'owner_net_total' => (int) ($ownerSplit['owner_net_total'] ?? 0),
+                        'owner_product_markup_total' => (int) ($ownerSplit['owner_product_markup_total'] ?? 0),
+                        'owner_topping_markup_total' => (int) ($ownerSplit['owner_topping_markup_total'] ?? 0),
+                        'pricing_rule_name' => $detail->pricing_rule_name,
+                        'pricing_rule_kind' => $detail->pricing_rule_kind,
+                    ];
+                })
                 ->values()
                 ->all(),
         ];
@@ -600,29 +615,7 @@ class SalesReportController extends Controller
 
     protected function targetSummary(array $summary, ?int $outletId, array $filters): array
     {
-        $salesTarget = Setting::getInt('monthly_sales_target', 0, $outletId);
-        $profitTarget = Setting::getInt('monthly_profit_target', 0, $outletId);
-
-        $salesActual = (int) ($summary['revenue_total'] ?? 0);
-        $profitActual = (int) ($summary['profit_total'] ?? 0);
-
-        return [
-            'period_label' => $this->resolvePeriodLabel($filters),
-            'sales_target' => $salesTarget,
-            'sales_actual' => $salesActual,
-            'sales_gap' => $salesTarget > 0 ? $salesActual - $salesTarget : 0,
-            'sales_progress_percent' => $salesTarget > 0
-                ? round(($salesActual / $salesTarget) * 100, 2)
-                : null,
-            'sales_met' => $salesTarget > 0 ? $salesActual >= $salesTarget : null,
-            'profit_target' => $profitTarget,
-            'profit_actual' => $profitActual,
-            'profit_gap' => $profitTarget > 0 ? $profitActual - $profitTarget : 0,
-            'profit_progress_percent' => $profitTarget > 0
-                ? round(($profitActual / $profitTarget) * 100, 2)
-                : null,
-            'profit_met' => $profitTarget > 0 ? $profitActual >= $profitTarget : null,
-        ];
+        return ReportTargetSummary::build($summary, $outletId, $filters);
     }
 
     protected function resolvePeriodLabel(array $filters): string

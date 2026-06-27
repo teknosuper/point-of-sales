@@ -587,6 +587,16 @@ const ProfitReport = ({
 
         if (!isTenantWorkspace) {
             rows.push({
+                label: "Markup Produk Owner",
+                value: formatCurrency(summary?.owner_product_markup_total ?? 0),
+                note: "Markup dari selisih harga produk tenant yang dijual owner.",
+            });
+            rows.push({
+                label: "Markup Topping Owner",
+                value: formatCurrency(summary?.owner_topping_markup_total ?? 0),
+                note: "Markup dari topping/modifier tenant yang dijual owner.",
+            });
+            rows.push({
                 label: "Diskon Owner",
                 value: formatCurrency(ownerDiscountTotal),
                 note: "Porsi diskon yang dibebankan ke sisi owner.",
@@ -800,7 +810,7 @@ const ProfitReport = ({
             {
                 title: "Markup Owner",
                 value: formatCurrency(summary?.markup_total ?? 0),
-                note: "Laba kotor owner dari penjualan periode aktif.",
+                note: `Produk ${formatCurrency(summary?.owner_product_markup_total ?? 0)} • Topping ${formatCurrency(summary?.owner_topping_markup_total ?? 0)}`,
                 tone: "emerald",
             },
             {
@@ -2250,12 +2260,26 @@ const ProfitReport = ({
                                             </span>
                                         </div>
                                         {!isTenantWorkspace ? (
-                                            <div className="flex items-center justify-between gap-3">
-                                                <span className="text-slate-500 dark:text-slate-400">Owner net</span>
-                                                <span className="font-semibold text-violet-600 dark:text-violet-400">
-                                                    {formatCurrency(activeTransactionRecord.owner_net_total ?? 0)}
-                                                </span>
-                                            </div>
+                                            <>
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <span className="text-slate-500 dark:text-slate-400">Markup produk</span>
+                                                    <span className="font-semibold text-amber-600 dark:text-amber-400">
+                                                        {formatCurrency(activeTransactionRecord.owner_product_markup_total ?? 0)}
+                                                    </span>
+                                                </div>
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <span className="text-slate-500 dark:text-slate-400">Markup topping</span>
+                                                    <span className="font-semibold text-amber-600 dark:text-amber-400">
+                                                        {formatCurrency(activeTransactionRecord.owner_topping_markup_total ?? 0)}
+                                                    </span>
+                                                </div>
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <span className="text-slate-500 dark:text-slate-400">Owner net</span>
+                                                    <span className="font-semibold text-violet-600 dark:text-violet-400">
+                                                        {formatCurrency(activeTransactionRecord.owner_net_total ?? 0)}
+                                                    </span>
+                                                </div>
+                                            </>
                                         ) : null}
                                         <div className="border-t border-slate-200 pt-3 dark:border-slate-800">
                                             <div className="flex items-center justify-between gap-3">
@@ -2330,12 +2354,26 @@ const ProfitReport = ({
                                                             </p>
                                                         </div>
                                                         {!isTenantWorkspace ? (
-                                                            <div>
-                                                                <p className="text-xs text-slate-500 dark:text-slate-400">Owner net</p>
-                                                                <p className="font-semibold text-violet-600 dark:text-violet-400">
-                                                                    {formatCurrency(item.owner_net_total ?? 0)}
-                                                                </p>
-                                                            </div>
+                                                            <>
+                                                                <div>
+                                                                    <p className="text-xs text-slate-500 dark:text-slate-400">Markup produk</p>
+                                                                    <p className="font-semibold text-amber-600 dark:text-amber-400">
+                                                                        {formatCurrency(item.owner_product_markup_total ?? 0)}
+                                                                    </p>
+                                                                </div>
+                                                                <div>
+                                                                    <p className="text-xs text-slate-500 dark:text-slate-400">Markup topping</p>
+                                                                    <p className="font-semibold text-amber-600 dark:text-amber-400">
+                                                                        {formatCurrency(item.owner_topping_markup_total ?? 0)}
+                                                                    </p>
+                                                                </div>
+                                                                <div>
+                                                                    <p className="text-xs text-slate-500 dark:text-slate-400">Owner net</p>
+                                                                    <p className="font-semibold text-violet-600 dark:text-violet-400">
+                                                                        {formatCurrency(item.owner_net_total ?? 0)}
+                                                                    </p>
+                                                                </div>
+                                                            </>
                                                         ) : null}
                                                         <div>
                                                             <p className="text-xs text-slate-500 dark:text-slate-400">Laba item</p>

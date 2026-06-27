@@ -271,7 +271,11 @@ export default function Show({
                     <MetricCard title="Harga Dasar Lunas" value={formatCurrency(cashierShift.base_sales_total)} icon={IconCashBanknote} />
                     <MetricCard title="Diskon Promo" value={formatCurrency(cashierShift.pricing_discount_total || 0)} icon={IconReceipt} />
                     {!isKitchenWorkspace ? (
-                        <MetricCard title="Markup Owner" value={formatCurrency(cashierShift.markup_total)} icon={IconWallet} />
+                        <MetricCard
+                            title="Markup Owner"
+                            value={formatCurrency(cashierShift.markup_total)}
+                            icon={IconWallet}
+                        />
                     ) : null}
                     <MetricCard title="Refund Tunai" value={formatCurrency(cashierShift.cash_refund_total)} icon={IconRotateClockwise2} />
                     <MetricCard title="Transaksi Lunas" value={Number(cashierShift.paid_transactions_count || 0).toLocaleString("id-ID")} icon={IconReceipt} />
@@ -407,6 +411,16 @@ export default function Show({
                                     <p className="mt-2 text-sm text-amber-900 dark:text-amber-100">
                                         Selisih dari harga beli ke harga jual pada shift ini adalah{" "}
                                         <span className="font-semibold">{formatCurrency(cashierShift.markup_total)}</span>.
+                                    </p>
+                                    <p className="mt-2 text-xs text-amber-800 dark:text-amber-200">
+                                        Produk{" "}
+                                        <span className="font-semibold">
+                                            {formatCurrency(cashierShift.owner_product_markup_total || 0)}
+                                        </span>
+                                        {" "}• Topping{" "}
+                                        <span className="font-semibold">
+                                            {formatCurrency(cashierShift.owner_topping_markup_total || 0)}
+                                        </span>
                                     </p>
                                 </div>
                             ) : null}
@@ -794,6 +808,12 @@ export default function Show({
                                             <td className="px-4 py-4 align-top">
                                                 <div className="text-sm font-semibold text-slate-900 dark:text-white">
                                                     {formatCurrency(row.markup_total)}
+                                                </div>
+                                                <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                    Produk {formatCurrency(row.owner_product_markup_total || 0)}
+                                                </div>
+                                                <div className="text-xs text-slate-500 dark:text-slate-400">
+                                                    Topping {formatCurrency(row.owner_topping_markup_total || 0)}
                                                 </div>
                                                 {row.sales_returns_count > 0 ? (
                                                     <div className="mt-1 text-xs text-rose-600 dark:text-rose-400">

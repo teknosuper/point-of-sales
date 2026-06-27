@@ -14,6 +14,10 @@ use App\Models\TransactionTenantAllocation;
 use App\Models\TransactionTenantAllocationItem;
 use App\Models\User;
 use App\Services\OutletResolver;
+use App\Support\ReportModifierTotals;
+use App\Support\ReportOwnerTenantSplit;
+use App\Support\ReportTargetSummary;
+use App\Support\ReportTenantProfitMetrics;
 use App\Support\ReportTimezone;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
@@ -150,40 +154,14 @@ class ProfitReportController extends Controller
 
         $baseQuery = $this->applyTenantAllocationFilters($baseQuery, $filters)->orderByDesc('created_at');
 
-        $metricAllocations = $this->appendTenantProfitMetrics((clone $baseQuery)->get());
+        $metricAllocations = ReportTenantProfitMetrics::appendMetrics((clone $baseQuery)->get());
         $transactions = $activeTab === 'transactions'
-            ? $this->appendTenantProfitMetrics(
+            ? ReportTenantProfitMetrics::appendMetrics(
                 (clone $baseQuery)->paginate(10)->withQueryString()
             )->through(fn (TransactionTenantAllocation $allocation) => $this->transformTenantProfitAllocationListRow($allocation))
             : null;
 
-        $summary = [
-            'profit_total' => (int) $metricAllocations->sum('profit_total'),
-            'revenue_total' => (int) $metricAllocations->sum('grand_total'),
-            'orders_count' => (int) $metricAllocations->count(),
-            'items_sold' => (int) $metricAllocations->sum('total_items'),
-            'walk_in_count' => (int) $metricAllocations->filter(fn ($allocation) => blank($allocation->transaction?->customer_id))->count(),
-            'average_profit' => $metricAllocations->count() > 0
-                ? (int) round($metricAllocations->sum('profit_total') / $metricAllocations->count())
-                : 0,
-            'margin' => $metricAllocations->sum('grand_total') > 0
-                ? round(($metricAllocations->sum('profit_total') / $metricAllocations->sum('grand_total')) * 100, 2)
-                : 0,
-            'best_invoice' => $metricAllocations->sortByDesc('profit_total')->first()?->transaction?->invoice,
-            'best_profit' => (int) ($metricAllocations->sortByDesc('profit_total')->first()?->profit_total ?? 0),
-            'base_cost_total' => (int) $metricAllocations->sum('cost_total'),
-            'markup_total' => (int) $metricAllocations->sum('profit_total'),
-            'tenant_revenue_total' => (int) $metricAllocations->sum('grand_total'),
-            'tenant_discount_total' => (int) $metricAllocations->sum('promo_discount_total')
-                + (int) $metricAllocations->sum('voucher_discount_total')
-                + (int) $metricAllocations->sum('loyalty_discount_total')
-                + (int) $metricAllocations->sum('manual_discount_total'),
-            'owner_discount_total' => 0,
-            'owner_direct_revenue_total' => 0,
-            'owner_direct_markup_total' => 0,
-            'tenant_markup_total' => (int) $metricAllocations->sum('profit_total'),
-            'tenant_profit_total' => (int) $metricAllocations->sum('profit_total'),
-        ];
+        $summary = ReportTenantProfitMetrics::summary($metricAllocations);
         $expenseSummary = $this->expenseSummary($filters, $tenantOutletId);
         $summary['expense_total'] = (int) $expenseSummary['expense_total'];
         $summary['expense_paid_total'] = (int) $expenseSummary['expense_paid_total'];
@@ -203,10 +181,10 @@ class ProfitReportController extends Controller
             : null;
         $tenantOutlet = $metricAllocations->first()?->tenantOutlet;
         $cashierSummary = $activeTab === 'analysis'
-            ? $this->tenantCashierSummary($metricAllocations)
+            ? ReportTenantProfitMetrics::cashierSummary($metricAllocations)
             : [];
         $dailyProfitTrend = in_array($activeTab, ['overview', 'analysis'], true)
-            ? $this->tenantDailyProfitTrend($metricAllocations)
+            ? ReportTenantProfitMetrics::dailyTrend($metricAllocations, fn (string $day) => $this->formatTrendDayLabel($day))
             : collect();
         $tenantBreakdown = $activeTab === 'analysis' && $tenantOutlet
             ? collect([[
@@ -292,7 +270,7 @@ class ProfitReportController extends Controller
                 ->where('tenant_outlet_id', $outletId)
                 ->firstOrFail();
 
-            $detail = $this->appendTenantProfitMetrics(collect([$allocation]))->first();
+            $detail = ReportTenantProfitMetrics::appendMetrics(collect([$allocation]))->first();
 
             return response()->json([
                 'data' => $this->transformTenantProfitAllocationRow($detail),
@@ -303,7 +281,7 @@ class ProfitReportController extends Controller
         $transactionRelations = [
             'details' => fn ($query) => $query
                 ->select($detailColumns)
-                ->with(['product:id,title', 'modifiers:id,transaction_detail_id,total_price']),
+                ->with(['product:id,title', 'modifiers' => fn ($modifierQuery) => $modifierQuery->select(ReportOwnerTenantSplit::modifierSelectColumns())]),
             'cashier:id,name',
             'customer:id,name',
         ];
@@ -490,6 +468,7 @@ class ProfitReportController extends Controller
             ->sum('qty');
 
         $ownerEconomics = $this->ownerEconomicsTotals($transactionIdQuery);
+        $ownerSplitSummary = ReportOwnerTenantSplit::aggregateForTransactionIds($transactionIdQuery);
         $baseCostTotal = $ownerEconomics['basis_total'] > 0
             ? $ownerEconomics['basis_total']
             : $this->sumTransactionDetailBaseCost($transactionIdQuery);
@@ -524,6 +503,8 @@ class ProfitReportController extends Controller
             'best_profit' => (int) ($bestTransaction?->total_profit ?? 0),
             'base_cost_total' => (int) $baseCostTotal,
             'markup_total' => (int) $markupTotal,
+            'owner_product_markup_total' => (int) ($ownerSplitSummary['owner_product_markup_total'] ?? 0),
+            'owner_topping_markup_total' => (int) ($ownerSplitSummary['owner_topping_markup_total'] ?? 0),
             'tenant_revenue_total' => $tenantRevenueTotal,
             'tenant_profit_total' => $tenantProfitTotal,
             'tenant_discount_total' => $tenantDiscountTotal,
@@ -679,29 +660,7 @@ class ProfitReportController extends Controller
 
     protected function targetSummary(array $summary, ?int $outletId, array $filters): array
     {
-        $salesTarget = Setting::getInt('monthly_sales_target', 0, $outletId);
-        $profitTarget = Setting::getInt('monthly_profit_target', 0, $outletId);
-
-        $salesActual = (int) ($summary['revenue_total'] ?? 0);
-        $profitActual = (int) ($summary['profit_total'] ?? 0);
-
-        return [
-            'period_label' => $this->resolvePeriodLabel($filters),
-            'sales_target' => $salesTarget,
-            'sales_actual' => $salesActual,
-            'sales_gap' => $salesTarget > 0 ? $salesActual - $salesTarget : 0,
-            'sales_progress_percent' => $salesTarget > 0
-                ? round(($salesActual / $salesTarget) * 100, 2)
-                : null,
-            'sales_met' => $salesTarget > 0 ? $salesActual >= $salesTarget : null,
-            'profit_target' => $profitTarget,
-            'profit_actual' => $profitActual,
-            'profit_gap' => $profitTarget > 0 ? $profitActual - $profitTarget : 0,
-            'profit_progress_percent' => $profitTarget > 0
-                ? round(($profitActual / $profitTarget) * 100, 2)
-                : null,
-            'profit_met' => $profitTarget > 0 ? $profitActual >= $profitTarget : null,
-        ];
+        return ReportTargetSummary::build($summary, $outletId, $filters);
     }
 
     protected function cashierSummary(array $filters): array
@@ -817,10 +776,15 @@ class ProfitReportController extends Controller
         $hasOwnerNetTotal = Schema::hasColumn('transaction_details', 'owner_net_total');
         $hasTenantDiscountTotal = Schema::hasColumn('transaction_details', 'tenant_discount_total');
         $hasOwnerDiscountTotal = Schema::hasColumn('transaction_details', 'owner_discount_total');
-        $revenueExpression = $this->modifierAwareRevenueExpression();
+        $revenueExpression = ReportModifierTotals::revenueExpression();
 
         return TransactionDetail::query()
             ->join('outlets as tenant_outlets', 'tenant_outlets.id', '=', 'transaction_details.tenant_outlet_id')
+            ->leftJoinSub(
+                ReportModifierTotals::subquery(),
+                'detail_modifier_totals',
+                fn ($join) => $join->on('detail_modifier_totals.transaction_detail_id', '=', 'transaction_details.id')
+            )
             ->whereIn('transaction_details.transaction_id', clone $transactionIdQuery)
             ->whereNotNull('transaction_details.tenant_outlet_id')
             ->selectRaw('transaction_details.tenant_outlet_id')
@@ -878,7 +842,7 @@ class ProfitReportController extends Controller
         $hasTenantNetTotal = Schema::hasColumn('transaction_details', 'tenant_net_total');
         $hasOwnerNetTotal = Schema::hasColumn('transaction_details', 'owner_net_total');
         $hasTenantOutletId = Schema::hasColumn('transaction_details', 'tenant_outlet_id');
-        $revenueExpression = $this->modifierAwareRevenueExpression();
+        $revenueExpression = ReportModifierTotals::revenueExpression();
         $baseExpression = $hasTenantNetTotal
             ? 'COALESCE(transaction_details.tenant_net_total, 0)'
             : ($hasBaseUnitPrice
@@ -889,6 +853,11 @@ class ProfitReportController extends Controller
             : "{$revenueExpression} - {$baseExpression}";
 
         $rows = TransactionDetail::query()
+            ->leftJoinSub(
+                ReportModifierTotals::subquery(),
+                'detail_modifier_totals',
+                fn ($join) => $join->on('detail_modifier_totals.transaction_detail_id', '=', 'transaction_details.id')
+            )
             ->when(
                 $hasTenantOutletId,
                 fn ($query) => $query->leftJoin('outlets as tenant_outlets', 'tenant_outlets.id', '=', 'transaction_details.tenant_outlet_id')
@@ -939,7 +908,7 @@ class ProfitReportController extends Controller
         $hasTenantOutletId = Schema::hasColumn('transaction_details', 'tenant_outlet_id');
         $hasTenantNetTotal = Schema::hasColumn('transaction_details', 'tenant_net_total');
         $hasOwnerNetTotal = Schema::hasColumn('transaction_details', 'owner_net_total');
-        $revenueExpression = $this->modifierAwareRevenueExpression();
+        $revenueExpression = ReportModifierTotals::revenueExpression();
         $baseExpression = $hasBaseUnitPrice
             ? 'COALESCE(transaction_details.base_unit_price, 0) * COALESCE(transaction_details.qty, 0)'
             : $revenueExpression;
@@ -951,6 +920,11 @@ class ProfitReportController extends Controller
             : '0';
         return TransactionDetail::query()
             ->join('transactions', 'transactions.id', '=', 'transaction_details.transaction_id')
+            ->leftJoinSub(
+                ReportModifierTotals::subquery(),
+                'detail_modifier_totals',
+                fn ($join) => $join->on('detail_modifier_totals.transaction_detail_id', '=', 'transaction_details.id')
+            )
             ->whereIn('transaction_details.transaction_id', clone $transactionIdQuery)
             ->selectRaw(ReportTimezone::sourceToDisplayDateExpression('transactions.created_at').' as day')
             ->selectRaw("COALESCE(SUM({$revenueExpression}), 0) as revenue_total")
@@ -1081,6 +1055,7 @@ class ProfitReportController extends Controller
         $prePromoSubtotal = (int) $transaction->details->sum(fn (TransactionDetail $detail) => (int) ($detail->customer_base_unit_price ?? $detail->unit_price ?? 0) * (int) $detail->qty);
         $tenantNetTotal = (int) $transaction->details->sum(fn (TransactionDetail $detail) => (int) ($detail->tenant_net_total ?? 0));
         $ownerNetTotal = (int) $transaction->details->sum(fn (TransactionDetail $detail) => (int) ($detail->owner_net_total ?? 0));
+        $ownerSplit = ReportOwnerTenantSplit::summarizeDetails($transaction->details);
         $ownerProfitTotal = $ownerNetTotal > 0 ? $ownerNetTotal : max(0, (int) $transaction->grand_total - $baseCostTotal);
 
         return [
@@ -1097,27 +1072,35 @@ class ProfitReportController extends Controller
             'owner_discount_total' => (int) $transaction->details->sum(fn (TransactionDetail $detail) => (int) ($detail->owner_discount_total ?? 0)),
             'tenant_net_total' => $tenantNetTotal,
             'owner_net_total' => $ownerNetTotal,
+            'owner_product_markup_total' => (int) ($ownerSplit['owner_product_markup_total'] ?? 0),
+            'owner_topping_markup_total' => (int) ($ownerSplit['owner_topping_markup_total'] ?? 0),
             'owner_direct_revenue_total' => $ownerDirectRevenueTotal,
             'owner_direct_markup_total' => $ownerDirectRevenueTotal - $ownerDirectBaseTotal,
             'detail_items' => $transaction->details
-                ->map(fn (TransactionDetail $detail) => [
-                    'id' => $detail->id,
-                    'product_name' => $detail->product?->title ?? 'Produk',
-                    'qty' => (int) $detail->qty,
-                    'line_total' => $this->detailRevenueTotal($detail),
-                    'base_cost_total' => ((int) ($detail->tenant_net_total ?? 0)) > 0
-                        ? (int) $detail->tenant_net_total
-                        : (((int) ($detail->base_unit_price ?? 0)) > 0
-                            ? (int) $detail->base_unit_price * (int) $detail->qty
-                            : (int) $detail->price),
-                    'pre_promo_total' => (int) ($detail->customer_base_unit_price ?? $detail->unit_price ?? 0) * (int) $detail->qty,
-                    'tenant_discount_total' => (int) ($detail->tenant_discount_total ?? 0),
-                    'owner_discount_total' => (int) ($detail->owner_discount_total ?? 0),
-                    'tenant_net_total' => (int) ($detail->tenant_net_total ?? 0),
-                    'owner_net_total' => (int) ($detail->owner_net_total ?? 0),
-                    'pricing_rule_name' => $detail->pricing_rule_name,
-                    'pricing_rule_kind' => $detail->pricing_rule_kind,
-                ])
+                ->map(function (TransactionDetail $detail) {
+                    $ownerSplit = ReportOwnerTenantSplit::detailOwnerSplit($detail);
+
+                    return [
+                        'id' => $detail->id,
+                        'product_name' => $detail->product?->title ?? 'Produk',
+                        'qty' => (int) $detail->qty,
+                        'line_total' => $this->detailRevenueTotal($detail),
+                        'base_cost_total' => ((int) ($detail->tenant_net_total ?? 0)) > 0
+                            ? (int) $detail->tenant_net_total
+                            : (((int) ($detail->base_unit_price ?? 0)) > 0
+                                ? (int) $detail->base_unit_price * (int) $detail->qty
+                                : (int) $detail->price),
+                        'pre_promo_total' => (int) ($detail->customer_base_unit_price ?? $detail->unit_price ?? 0) * (int) $detail->qty,
+                        'tenant_discount_total' => (int) ($detail->tenant_discount_total ?? 0),
+                        'owner_discount_total' => (int) ($detail->owner_discount_total ?? 0),
+                        'tenant_net_total' => (int) ($detail->tenant_net_total ?? 0),
+                        'owner_net_total' => (int) ($ownerSplit['owner_net_total'] ?? 0),
+                        'owner_product_markup_total' => (int) ($ownerSplit['owner_product_markup_total'] ?? 0),
+                        'owner_topping_markup_total' => (int) ($ownerSplit['owner_topping_markup_total'] ?? 0),
+                        'pricing_rule_name' => $detail->pricing_rule_name,
+                        'pricing_rule_kind' => $detail->pricing_rule_kind,
+                    ];
+                })
                 ->values()
                 ->all(),
         ];
@@ -1193,7 +1176,7 @@ class ProfitReportController extends Controller
 
     protected function ownerDirectRevenueExpression(?int $outletId): string
     {
-        $revenueExpression = $this->modifierAwareRevenueExpression();
+        $revenueExpression = ReportModifierTotals::revenueExpression();
 
         if (! Schema::hasColumn('transaction_details', 'tenant_outlet_id')) {
             return "COALESCE(SUM({$revenueExpression}), 0)";
@@ -1208,7 +1191,7 @@ class ProfitReportController extends Controller
 
     protected function ownerDirectMarkupExpression(?int $outletId): string
     {
-        $revenueExpression = $this->modifierAwareRevenueExpression();
+        $revenueExpression = ReportModifierTotals::revenueExpression();
         $baseExpression = Schema::hasColumn('transaction_details', 'tenant_net_total')
             ? 'COALESCE(tenant_net_total, 0)'
             : (Schema::hasColumn('transaction_details', 'base_unit_price')
@@ -1235,7 +1218,7 @@ class ProfitReportController extends Controller
         $hasBaseUnitPrice = Schema::hasColumn('transaction_details', 'base_unit_price');
         $hasTenantNetTotal = Schema::hasColumn('transaction_details', 'tenant_net_total');
         $hasOwnerNetTotal = Schema::hasColumn('transaction_details', 'owner_net_total');
-        $revenueExpression = $this->modifierAwareRevenueExpression();
+        $revenueExpression = ReportModifierTotals::revenueExpression();
         $baseCostExpression = $hasTenantNetTotal
             ? 'CASE
                 WHEN COALESCE(transaction_details.tenant_net_total, 0) > 0
@@ -1254,6 +1237,11 @@ class ProfitReportController extends Controller
 
         $aggregateQuery = TransactionDetail::query()
             ->join('transactions', 'transactions.id', '=', 'transaction_details.transaction_id')
+            ->leftJoinSub(
+                ReportModifierTotals::subquery(),
+                'detail_modifier_totals',
+                fn ($join) => $join->on('detail_modifier_totals.transaction_detail_id', '=', 'transaction_details.id')
+            )
             ->whereIn('transaction_details.transaction_id', (clone $baseQuery)->select('transactions.id'))
             ->selectRaw('transaction_details.transaction_id')
             ->selectRaw('MAX(transactions.invoice) as invoice')
@@ -1366,6 +1354,7 @@ class ProfitReportController extends Controller
             'tenant_outlet_id',
             'base_unit_price',
             'customer_base_unit_price',
+            'owner_markup_unit_price',
             'tenant_discount_total',
             'owner_discount_total',
             'tenant_net_total',
@@ -1541,7 +1530,7 @@ class ProfitReportController extends Controller
 
     protected function modifierAwareRevenueExpression(): string
     {
-        return 'COALESCE(transaction_details.price, 0) + COALESCE((SELECT SUM(transaction_detail_modifiers.total_price) FROM transaction_detail_modifiers WHERE transaction_detail_modifiers.transaction_detail_id = transaction_details.id), 0)';
+        return ReportModifierTotals::revenueExpression();
     }
 
     protected function applyItemFilters($query, array $filters)
@@ -1606,31 +1595,7 @@ class ProfitReportController extends Controller
 
     protected function appendTenantProfitMetrics($allocations)
     {
-        if ($allocations instanceof \Illuminate\Contracts\Pagination\LengthAwarePaginator) {
-            $allocations->setCollection($this->appendTenantProfitMetrics($allocations->getCollection()));
-
-            return $allocations;
-        }
-
-        return $allocations->map(function (TransactionTenantAllocation $allocation) {
-            $revenueTotal = (int) ($allocation->grand_total ?? 0);
-            $costTotal = (int) $allocation->items->sum(function (TransactionTenantAllocationItem $item) {
-                $tenantHppPrice = (int) ($item->product?->tenant_hpp_price ?? $item->base_unit_price ?? 0);
-
-                return $tenantHppPrice * (int) ($item->qty ?? 0);
-            });
-            $profitTotal = $revenueTotal - $costTotal;
-            $discountTotal = (int) ($allocation->promo_discount_total ?? 0)
-                + (int) ($allocation->voucher_discount_total ?? 0)
-                + (int) ($allocation->loyalty_discount_total ?? 0)
-                + (int) ($allocation->manual_discount_total ?? 0);
-
-            $allocation->setAttribute('profit_total', $profitTotal);
-            $allocation->setAttribute('pre_promo_subtotal', (int) ($allocation->subtotal ?? 0) + (int) ($allocation->promo_discount_total ?? 0));
-            $allocation->setAttribute('discount_total', $discountTotal);
-
-            return $allocation;
-        });
+        return ReportTenantProfitMetrics::appendMetrics($allocations);
     }
 
     protected function transformTenantProfitAllocationRow(TransactionTenantAllocation $allocation): array
@@ -1686,59 +1651,12 @@ class ProfitReportController extends Controller
 
     protected function tenantCashierSummary(Collection $allocations): array
     {
-        return $allocations
-            ->groupBy(fn (TransactionTenantAllocation $allocation) => (int) ($allocation->transaction?->cashier_id ?? 0))
-            ->filter(fn (Collection $rows, int $cashierId) => $cashierId > 0)
-            ->map(function (Collection $rows, int $cashierId) {
-                $cashierName = $rows->first()?->transaction?->cashier?->name;
-                $ordersCount = $rows->count();
-                $walkInCount = $rows->filter(fn ($allocation) => blank($allocation->transaction?->customer_id))->count();
-                $revenueTotal = (int) $rows->sum('grand_total');
-                $profitTotal = (int) $rows->sum('profit_total');
-
-                return [
-                    'cashier_id' => $cashierId,
-                    'cashier_name' => $cashierName,
-                    'orders_count' => $ordersCount,
-                    'walk_in_count' => $walkInCount,
-                    'registered_customer_count' => max(0, $ordersCount - $walkInCount),
-                    'revenue_total' => $revenueTotal,
-                    'profit_total' => $profitTotal,
-                    'walk_in_share' => $ordersCount > 0 ? round(($walkInCount / $ordersCount) * 100, 2) : 0,
-                    'average_profit' => $ordersCount > 0 ? (int) round($profitTotal / $ordersCount) : 0,
-                ];
-            })
-            ->sortByDesc('profit_total')
-            ->values()
-            ->all();
+        return ReportTenantProfitMetrics::cashierSummary($allocations);
     }
 
     protected function tenantDailyProfitTrend(Collection $allocations): Collection
     {
-        return $allocations
-            ->groupBy(fn (TransactionTenantAllocation $allocation) => ReportTimezone::sourceDateKey($allocation->transaction?->getRawOriginal('created_at')))
-            ->filter(fn (Collection $rows, ?string $day) => filled($day))
-            ->map(function (Collection $rows, string $day) {
-                $revenueTotal = (int) $rows->sum('grand_total');
-                $baseCostTotal = (int) $rows->sum('cost_total');
-
-                return [
-                    'day' => $day,
-                    'label' => $this->formatTrendDayLabel($day),
-                    'orders_count' => (int) $rows->count(),
-                    'revenue_total' => $revenueTotal,
-                    'profit_total' => (int) $rows->sum('profit_total'),
-                    'base_cost_total' => $baseCostTotal,
-                    'markup_total' => max(0, $revenueTotal - $baseCostTotal),
-                    'discount_total' => (int) $rows->sum('discount_total'),
-                    'owner_direct_revenue_total' => 0,
-                    'owner_direct_markup_total' => 0,
-                    'tenant_after_promo_total' => $revenueTotal,
-                    'tenant_discount_total' => (int) $rows->sum('discount_total'),
-                ];
-            })
-            ->sortBy('day')
-            ->values();
+        return ReportTenantProfitMetrics::dailyTrend($allocations, fn (string $day) => $this->formatTrendDayLabel($day));
     }
 
     protected function formatTrendDayLabel(string $day): string

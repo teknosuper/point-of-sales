@@ -83,6 +83,14 @@ const formatCurrency = (value = 0) =>
 const progressWidth = (value) =>
     `${Math.min(100, Math.max(0, Number(value || 0)))}%`;
 
+const toneClasses = {
+    emerald: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-300",
+    blue: "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-300",
+    rose: "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-300",
+    amber: "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300",
+    slate: "border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300",
+};
+
 const roundToTwo = (value) => Math.round(Number(value || 0) * 100) / 100;
 
 const castFilterString = (value) =>
@@ -264,6 +272,8 @@ const Sales = ({
         owner_discount_total: summary?.owner_discount_total ?? 0,
         items_sold: summary?.items_sold ?? 0,
         profit_total: summary?.profit_total ?? 0,
+        owner_product_markup_total: summary?.owner_product_markup_total ?? 0,
+        owner_topping_markup_total: summary?.owner_topping_markup_total ?? 0,
         average_order: summary?.average_order ?? 0,
         walk_in_count: summary?.walk_in_count ?? 0,
         registered_customer_count: summary?.registered_customer_count ?? 0,
@@ -277,11 +287,11 @@ const Sales = ({
             icon: <IconReceipt2 />,
         },
         {
-            title: "Total Profit",
+            title: isTenantWorkspace ? "Total Profit" : "Markup Owner",
             value: formatCurrency(safeSummary.profit_total),
             description: isTenantWorkspace
                 ? `Selisih harga beli outlet vs HPP tenant`
-                : `Rata-rata ${formatCurrency(safeSummary.average_order)}`,
+                : `Produk ${formatCurrency(safeSummary.owner_product_markup_total)} • Topping ${formatCurrency(safeSummary.owner_topping_markup_total)}`,
             icon: <IconCoin />,
         },
         {
@@ -444,6 +454,52 @@ const Sales = ({
                 cashVsNonCash.non_cash_revenue_total
             )}`,
             tone: "blue",
+        },
+    ];
+    const targetStatusCards = [
+        {
+            title: "Status Harian Omzet",
+            tone: toneClasses[targets?.sales_status_tone] || toneClasses.slate,
+            status: targets?.sales_status_label || "Belum ada data",
+            value: formatCurrency(targets?.sales_daily_actual ?? 0),
+            description: (targets?.sales_monthly_target ?? 0) <= 0
+                ? "Target omzet bulanan belum diatur untuk outlet ini."
+                : targets?.has_bounded_period
+                ? `Target/hari ${formatCurrency(targets?.sales_daily_target ?? 0)} • Aktual/hari ${formatCurrency(targets?.sales_daily_actual ?? 0)}`
+                : "Pilih tanggal awal dan akhir untuk evaluasi target harian.",
+        },
+        {
+            title: "Status Harian Profit",
+            tone: toneClasses[targets?.profit_status_tone] || toneClasses.slate,
+            status: targets?.profit_status_label || "Belum ada data",
+            value: formatCurrency(targets?.profit_daily_actual ?? 0),
+            description: (targets?.profit_monthly_target ?? 0) <= 0
+                ? "Target profit bulanan belum diatur untuk outlet ini."
+                : targets?.has_bounded_period
+                ? `Target/hari ${formatCurrency(targets?.profit_daily_target ?? 0)} • Aktual/hari ${formatCurrency(targets?.profit_daily_actual ?? 0)}`
+                : "Pilih tanggal awal dan akhir untuk evaluasi target harian.",
+        },
+        {
+            title: "Kebutuhan Sisa Omzet",
+            tone: toneClasses.blue,
+            status: `${targets?.remaining_days ?? 0} hari tersisa`,
+            value: formatCurrency(targets?.sales_required_daily ?? 0),
+            description: (targets?.sales_monthly_target ?? 0) <= 0
+                ? "Atur target omzet bulanan agar kebutuhan sisa per hari bisa dihitung."
+                : targets?.has_bounded_period
+                ? `Agar target periode ${formatCurrency(targets?.sales_target ?? 0)} tercapai`
+                : "Butuh periode aktif untuk hitung kebutuhan per hari.",
+        },
+        {
+            title: "Kebutuhan Sisa Profit",
+            tone: toneClasses.blue,
+            status: `${targets?.remaining_days ?? 0} hari tersisa`,
+            value: formatCurrency(targets?.profit_required_daily ?? 0),
+            description: (targets?.profit_monthly_target ?? 0) <= 0
+                ? "Atur target profit bulanan agar kebutuhan sisa per hari bisa dihitung."
+                : targets?.has_bounded_period
+                ? `Agar target periode ${formatCurrency(targets?.profit_target ?? 0)} tercapai`
+                : "Butuh periode aktif untuk hitung kebutuhan per hari.",
         },
     ];
 
@@ -725,6 +781,28 @@ const Sales = ({
                         ))}
                     </div>
 
+                    <div className="mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                        {targetStatusCards.map((item) => (
+                            <div
+                                key={item.title}
+                                className={`rounded-2xl border p-4 ${item.tone}`}
+                            >
+                                <p className="text-xs font-semibold uppercase tracking-wide">
+                                    {item.title}
+                                </p>
+                                <p className="mt-2 text-lg font-bold">
+                                    {item.value}
+                                </p>
+                                <p className="mt-1 text-xs font-semibold">
+                                    {item.status}
+                                </p>
+                                <p className="mt-1 text-sm opacity-80">
+                                    {item.description}
+                                </p>
+                            </div>
+                        ))}
+                    </div>
+
                     <div className="mb-4 grid gap-4 xl:grid-cols-[0.9fr,1.1fr]">
                         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
                             {paymentSummaryBadges.map((item) => (
@@ -883,6 +961,12 @@ const Sales = ({
                                     )}
                                 </span>
                             </div>
+                            {targets?.has_bounded_period && (targets?.sales_monthly_target ?? 0) > 0 ? (
+                                <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                                    Expected sampai hari ini {formatCurrency(targets?.sales_expected_to_date ?? 0)} •
+                                    Tersisa {targets?.remaining_days ?? 0} hari
+                                </div>
+                            ) : null}
                         </div>
 
                         <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/30">
@@ -936,6 +1020,12 @@ const Sales = ({
                                     )}
                                 </span>
                             </div>
+                            {targets?.has_bounded_period && (targets?.profit_monthly_target ?? 0) > 0 ? (
+                                <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                                    Expected sampai hari ini {formatCurrency(targets?.profit_expected_to_date ?? 0)} •
+                                    Tersisa {targets?.remaining_days ?? 0} hari
+                                </div>
+                            ) : null}
                         </div>
                     </div>
                 </div>
@@ -1084,12 +1174,26 @@ const Sales = ({
                                                             )}
                                                         </div>
                                                     ) : (
-                                                        <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
-                                                            Owner net{" "}
-                                                            {formatCurrency(
-                                                                trx.owner_net_total ?? 0
-                                                            )}
-                                                        </div>
+                                                        <>
+                                                            <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                                                                Markup produk{" "}
+                                                                {formatCurrency(
+                                                                    trx.owner_product_markup_total ?? 0
+                                                                )}
+                                                            </div>
+                                                            <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                                                                Markup topping{" "}
+                                                                {formatCurrency(
+                                                                    trx.owner_topping_markup_total ?? 0
+                                                                )}
+                                                            </div>
+                                                            <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                                                                Owner net{" "}
+                                                                {formatCurrency(
+                                                                    trx.owner_net_total ?? 0
+                                                                )}
+                                                            </div>
+                                                        </>
                                                     )}
                                                 </td>
                                             </tr>
@@ -1129,6 +1233,8 @@ const Sales = ({
                                                                             ) : (
                                                                                 <>
                                                                                     <div>Owner cut {formatCurrency(item.owner_discount_total ?? 0)}</div>
+                                                                                    <div>Markup produk {formatCurrency(item.owner_product_markup_total ?? 0)}</div>
+                                                                                    <div>Markup topping {formatCurrency(item.owner_topping_markup_total ?? 0)}</div>
                                                                                     <div>Owner net {formatCurrency(item.owner_net_total ?? 0)}</div>
                                                                                 </>
                                                                             )}

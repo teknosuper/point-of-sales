@@ -598,39 +598,27 @@ class DashboardController extends Controller
     /**
      * Profit owner dari dashboard utama (bukan tenant).
      *
-     * Tiga sumber:
+     * Dua sumber:
      * 1. SUM(owner_net_total) dari transaction_details yang punya tenant_outlet_id
-     *    → markup owner dari harga produk tenant (sudah dikurangi diskon owner)
-     * 2. SUM(transaction_detail_modifiers.markup_price * qty) dari modifiers pada detail bertenant
-     *    → markup owner dari topping/modifier pada produk tenant
-     * 3. SUM(profits.total) dari transaksi yang TIDAK punya detail tenant sama sekali
+     *    → sudah mencakup markup owner produk tenant + markup topping tenant,
+     *      setelah diskon owner level item
+     * 2. SUM(profits.total) dari transaksi yang TIDAK punya detail tenant sama sekali
      *    → profit HPP normal produk milik owner sendiri
      *
      * Periode opsional: jika $start/$end diisi, query di-filter by created_at.
      */
     private function calcOwnerProfit(?int $outletId, $start, $end): int
     {
-        // Bagian 1: markup owner dari harga produk tenant
+        // owner_net_total pada detail tenant sudah termasuk split markup topping
         $tenantDetailQuery = TransactionDetail::query()
             ->whereNotNull('tenant_outlet_id')
             ->when($outletId, fn ($q) => $q->where('outlet_id', $outletId))
             ->when($start, fn ($q) => $q->where('transaction_details.created_at', '>=', $start))
             ->when($end, fn ($q) => $q->where('transaction_details.created_at', '<=', $end));
 
-        $tenantProductMarkupProfit = (int) ($tenantDetailQuery->sum('owner_net_total') ?? 0);
+        $tenantMarkupProfit = (int) ($tenantDetailQuery->sum('owner_net_total') ?? 0);
 
-        // Bagian 2: markup owner dari topping/modifier pada detail bertenant
-        // markup_price sudah tersimpan di transaction_detail_modifiers sejak migration terbaru
-        $tenantDetailIds = (clone $tenantDetailQuery)->pluck('id');
-        $toppingMarkupProfit = 0;
-        if ($tenantDetailIds->isNotEmpty()) {
-            $toppingMarkupProfit = (int) (DB::table('transaction_detail_modifiers')
-                ->whereIn('transaction_detail_id', $tenantDetailIds)
-                ->selectRaw('COALESCE(SUM(markup_price * qty), 0) as total')
-                ->value('total') ?? 0);
-        }
-
-        // Bagian 3: profit HPP dari transaksi yang tidak punya item tenant sama sekali
+        // profit HPP dari transaksi yang tidak punya item tenant sama sekali
         $pureOwnerTransactionIds = Transaction::query()
             ->when($outletId, fn ($q) => $q->where('outlet_id', $outletId))
             ->whereDoesntHave('details', fn ($q) => $q->whereNotNull('tenant_outlet_id'))
@@ -643,7 +631,7 @@ class DashboardController extends Controller
 
         $pureOwnerProfit = (int) ($pureOwnerProfitQuery->sum('total') ?? 0);
 
-        return $tenantProductMarkupProfit + $toppingMarkupProfit + $pureOwnerProfit;
+        return $tenantMarkupProfit + $pureOwnerProfit;
     }
 
     private function sumTenantAllocationCost($allocationIds): int

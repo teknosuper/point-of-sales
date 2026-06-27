@@ -618,6 +618,67 @@ class CashierSettlementController extends Controller
                 $grossAfterPromo = (int) ($allocation->subtotal ?? 0);
                 $ownerMarkupTotal = (int) ($ownerMarkupTotals->get($allocation->id, 0) ?? 0);
 
+                $details = $allocation->items->map(function ($item) {
+                    $detail = $item->transactionDetail;
+                    $remainingQty = (int) ($item->qty ?? 0);
+                    $detailQty = max(1, (int) ($detail?->qty ?? $remainingQty ?? 1));
+                    $tenantBaseUnitPrice = (int) ($detail?->tenant_base_unit_price ?? $item->base_unit_price ?? 0);
+                    $ownerMarkupUnitPrice = (int) ($detail?->owner_markup_unit_price ?? 0);
+                    $customerUnitPrice = (int) ($detail?->customer_base_unit_price ?? $detail?->unit_price ?? 0);
+
+                    // Resolve modifier split (base=tenant, markup=owner) per modifier
+                    // Data lama (base_price=0, markup_price=0): anggap seluruh harga sebagai base tenant, markup=0
+                    $modifierRows = collect($detail?->modifiers ?? [])
+                        ->map(function ($modifier) {
+                            $storedBasePrice = (int) ($modifier->base_price ?? 0);
+                            $storedMarkupPrice = (int) ($modifier->markup_price ?? 0);
+                            $unitPrice = (int) $modifier->unit_price;
+
+                            if ($storedBasePrice === 0 && $storedMarkupPrice === 0 && $unitPrice > 0) {
+                                $storedBasePrice = $unitPrice;
+                            }
+
+                            return [
+                                'id' => $modifier->id,
+                                'name' => $modifier->name,
+                                'qty' => (int) $modifier->qty,
+                                'unit_price' => $unitPrice,
+                                'base_price' => $storedBasePrice,
+                                'markup_price' => $storedMarkupPrice,
+                                'total_price' => (int) $modifier->total_price,
+                            ];
+                        })
+                        ->values();
+
+                    $tenantModifierBase = $modifierRows->sum(fn ($m) => (int) $m['base_price'] * (int) $m['qty']);
+                    $ownerModifierMarkup = $modifierRows->sum(fn ($m) => (int) $m['markup_price'] * (int) $m['qty']);
+
+                    $tenantNetPerUnit = $tenantBaseUnitPrice + (int) round($tenantModifierBase / max(1, $detailQty));
+                    $ownerNetPerUnit = $ownerMarkupUnitPrice + (int) round($ownerModifierMarkup / max(1, $detailQty));
+
+                    $tenantNetTotal = $tenantNetPerUnit * $remainingQty;
+                    $ownerProductMarkupTotal = $ownerMarkupUnitPrice * $remainingQty;
+                    $ownerToppingMarkupTotal = (int) round($ownerModifierMarkup / max(1, $detailQty)) * $remainingQty;
+                    $ownerNetTotal = $ownerProductMarkupTotal + $ownerToppingMarkupTotal;
+
+                    return [
+                        'id' => $detail?->id ?? $item->transaction_detail_id,
+                        'product_title' => $detail?->product?->title ?? 'Produk terhapus',
+                        'qty' => $remainingQty,
+                        'customer_unit_price' => $customerUnitPrice,
+                        'line_total' => $customerUnitPrice * $remainingQty,
+                        'tenant_base_unit_price' => $tenantBaseUnitPrice,
+                        'tenant_net_total' => $tenantNetTotal,
+                        'owner_markup_unit_price' => $ownerMarkupUnitPrice,
+                        'owner_product_markup_total' => $ownerProductMarkupTotal,
+                        'owner_topping_markup_total' => $ownerToppingMarkupTotal,
+                        'owner_net_total' => $ownerNetTotal,
+                        'discount_total' => (int) ($item->discount_total ?? 0),
+                        'notes' => $detail?->notes,
+                        'modifiers' => $modifierRows->all(),
+                    ];
+                })->values()->all();
+
                 return [
                     'id' => 'allocation-'.$allocation->id,
                     'entry_type' => 'allocation',
@@ -635,70 +696,14 @@ class CashierSettlementController extends Controller
                     'payment_status' => $allocation->transaction?->payment_status ?? $allocation->payment_status,
                     'gross_sales_total' => $grossAfterPromo,
                     'tenant_sales_total' => $tenantNetTotal,
+                    'owner_product_markup_total' => (int) collect($details)->sum('owner_product_markup_total'),
+                    'owner_topping_markup_total' => (int) collect($details)->sum('owner_topping_markup_total'),
                     'owner_markup_total' => $ownerMarkupTotal,
                     'pricing_discount_total' => (int) ($allocation->promo_discount_total ?? 0),
                     'delivered_at' => ReportTimezone::formatSourceIso8601($allocation->getRawOriginal('delivered_at')),
                     'created_at' => ReportTimezone::formatSourceIso8601($allocation->transaction?->getRawOriginal('created_at')),
                     'activity_at' => ReportTimezone::formatSourceIso8601($allocation->getRawOriginal('delivered_at')),
-                    'details' => $allocation->items->map(function ($item) {
-                        $detail = $item->transactionDetail;
-                        $remainingQty = (int) ($item->qty ?? 0);
-                        $detailQty = max(1, (int) ($detail?->qty ?? $remainingQty ?? 1));
-                        $tenantBaseUnitPrice = (int) ($detail?->tenant_base_unit_price ?? $item->base_unit_price ?? 0);
-                        $ownerMarkupUnitPrice = (int) ($detail?->owner_markup_unit_price ?? 0);
-                        $customerUnitPrice = (int) ($detail?->customer_base_unit_price ?? $detail?->unit_price ?? 0);
-
-                        // Resolve modifier split (base=tenant, markup=owner) per modifier
-                        // Data lama (base_price=0, markup_price=0): anggap seluruh harga sebagai base tenant, markup=0
-                        $modifierRows = collect($detail?->modifiers ?? [])
-                            ->map(function ($modifier) {
-                                $storedBasePrice = (int) ($modifier->base_price ?? 0);
-                                $storedMarkupPrice = (int) ($modifier->markup_price ?? 0);
-                                $unitPrice = (int) $modifier->unit_price;
-
-                                // Data lama tidak punya split — tampilkan apa adanya tanpa recalculate
-                                if ($storedBasePrice === 0 && $storedMarkupPrice === 0 && $unitPrice > 0) {
-                                    $storedBasePrice = $unitPrice; // seluruh harga dianggap base (data lama)
-                                }
-
-                                return [
-                                    'id' => $modifier->id,
-                                    'name' => $modifier->name,
-                                    'qty' => (int) $modifier->qty,
-                                    'unit_price' => $unitPrice,
-                                    'base_price' => $storedBasePrice,
-                                    'markup_price' => $storedMarkupPrice,
-                                    'total_price' => (int) $modifier->total_price,
-                                ];
-                            })
-                            ->values();
-
-                        // Hitung dari komponen dasar agar akurat termasuk split topping
-                        // tenant_net = (tenant_base_unit * detail_qty + sum(modifier_base * modifier_qty)) * remainingQty / detailQty
-                        $tenantModifierBase = $modifierRows->sum(fn ($m) => (int) $m['base_price'] * (int) $m['qty']);
-                        $ownerModifierMarkup = $modifierRows->sum(fn ($m) => (int) $m['markup_price'] * (int) $m['qty']);
-
-                        $tenantNetPerUnit = $tenantBaseUnitPrice + (int) round($tenantModifierBase / max(1, $detailQty));
-                        $ownerNetPerUnit = $ownerMarkupUnitPrice + (int) round($ownerModifierMarkup / max(1, $detailQty));
-
-                        $tenantNetTotal = $tenantNetPerUnit * $remainingQty;
-                        $ownerNetTotal = $ownerNetPerUnit * $remainingQty;
-
-                        return [
-                            'id' => $detail?->id ?? $item->transaction_detail_id,
-                            'product_title' => $detail?->product?->title ?? 'Produk terhapus',
-                            'qty' => $remainingQty,
-                            'customer_unit_price' => $customerUnitPrice,
-                            'line_total' => $customerUnitPrice * $remainingQty,
-                            'tenant_base_unit_price' => $tenantBaseUnitPrice,
-                            'tenant_net_total' => $tenantNetTotal,
-                            'owner_markup_unit_price' => $ownerMarkupUnitPrice,
-                            'owner_net_total' => $ownerNetTotal,
-                            'discount_total' => (int) ($item->discount_total ?? 0),
-                            'notes' => $detail?->notes,
-                            'modifiers' => $modifierRows->all(),
-                        ];
-                    })->values()->all(),
+                    'details' => $details,
                 ];
             })->values();
 
@@ -830,6 +835,8 @@ class CashierSettlementController extends Controller
                 $ownerNetTotal = (int) ($detail?->owner_net_total ?? 0) > 0
                     ? (int) round(((int) $detail->owner_net_total / max(1, (int) ($detail->qty ?? 1))) * $qty)
                     : $ownerMarkupUnitPrice * $qty;
+                $ownerProductMarkupTotal = $ownerMarkupUnitPrice * $qty;
+                $ownerToppingMarkupTotal = max(0, $ownerNetTotal - $ownerProductMarkupTotal);
                 $discountTotal = $discountUnitValue * $qty;
 
                 $grossSalesTotal += $lineTotal;
@@ -846,6 +853,8 @@ class CashierSettlementController extends Controller
                     'tenant_base_unit_price' => $tenantBaseUnitPrice,
                     'tenant_net_total' => -$tenantNetTotal,
                     'owner_markup_unit_price' => $ownerMarkupUnitPrice,
+                    'owner_product_markup_total' => -$ownerProductMarkupTotal,
+                    'owner_topping_markup_total' => -$ownerToppingMarkupTotal,
                     'owner_net_total' => -$ownerNetTotal,
                     'discount_total' => -$discountTotal,
                     'notes' => $item->return_reason,
@@ -880,6 +889,8 @@ class CashierSettlementController extends Controller
                 'payment_status' => 'retur',
                 'gross_sales_total' => -$grossSalesTotal,
                 'tenant_sales_total' => -$tenantSalesTotal,
+                'owner_product_markup_total' => (int) collect($details)->sum('owner_product_markup_total'),
+                'owner_topping_markup_total' => (int) collect($details)->sum('owner_topping_markup_total'),
                 'owner_markup_total' => -$ownerMarkupTotal,
                 'pricing_discount_total' => -$pricingDiscountTotal,
                 'delivered_at' => ReportTimezone::formatSourceIso8601($salesReturn->getRawOriginal('completed_at')),

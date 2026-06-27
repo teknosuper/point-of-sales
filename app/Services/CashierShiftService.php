@@ -7,6 +7,7 @@ use App\Models\SalesReturn;
 use App\Models\Transaction;
 use App\Models\TransactionDetail;
 use App\Models\User;
+use App\Support\ReportOwnerTenantSplit;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -178,6 +179,8 @@ class CashierShiftService
             ? $this->sumTransactionDetailPricing($transactionIds)
             : [
                 'base_sales_total' => 0,
+                'owner_product_markup_total' => 0,
+                'owner_topping_markup_total' => 0,
                 'markup_total' => 0,
             ];
         $pricingDiscountTotal = $transactionIds->isNotEmpty()
@@ -198,6 +201,8 @@ class CashierShiftService
             'base_sales_total' => $netBaseSalesTotal,
             'pricing_discount_total' => $pricingDiscountTotal,
             'pricing_reference_total' => max(0, $netBaseSalesTotal - $pricingDiscountTotal),
+            'owner_product_markup_total' => (int) ($detailTotals['owner_product_markup_total'] ?? 0),
+            'owner_topping_markup_total' => (int) ($detailTotals['owner_topping_markup_total'] ?? 0),
             'markup_total' => $netMarkupTotal,
         ];
     }
@@ -229,6 +234,7 @@ class CashierShiftService
                 'waiter:id,name',
                 'diningTable:id,name,code',
                 'details:id,transaction_id,qty,base_unit_price,tenant_base_unit_price,owner_markup_unit_price,tenant_net_total,owner_net_total,discount_total',
+                'details.modifiers',
                 'salesReturns:id,transaction_id,status,refund_amount,credited_amount',
             ])
             ->where('cashier_shift_id', $shift->id)
@@ -387,9 +393,15 @@ class CashierShiftService
             ')
             ->first();
 
+        $ownerSplit = ReportOwnerTenantSplit::aggregateForTransactionIds(
+            Transaction::query()->select('id')->whereIn('id', $transactionIds->all())
+        );
+
         return [
             'base_sales_total' => (int) ($row?->total_tenant_base_value ?? 0),
-            'markup_total' => (int) ($row?->total_owner_markup_value ?? 0),
+            'owner_product_markup_total' => (int) ($ownerSplit['owner_product_markup_total'] ?? 0),
+            'owner_topping_markup_total' => (int) ($ownerSplit['owner_topping_markup_total'] ?? 0),
+            'markup_total' => (int) ($ownerSplit['owner_net_total'] ?? ($row?->total_owner_markup_value ?? 0)),
         ];
     }
 
@@ -397,6 +409,8 @@ class CashierShiftService
     {
         $baseSalesTotal = 0;
         $ownerMarkupTotal = 0;
+        $ownerProductMarkupTotal = 0;
+        $ownerToppingMarkupTotal = 0;
         $pricingDiscountTotal = 0;
 
         foreach ($details as $detail) {
@@ -414,10 +428,15 @@ class CashierShiftService
                 (int) ($detail->owner_markup_unit_price ?? 0) > 0 => (int) $detail->owner_markup_unit_price * $qty,
                 default => 0,
             };
+
+            $ownerProductMarkupTotal += ReportOwnerTenantSplit::ownerProductMarkupTotal($detail);
+            $ownerToppingMarkupTotal += ReportOwnerTenantSplit::ownerToppingMarkupTotal($detail);
         }
 
         return [
             'base_sales_total' => $baseSalesTotal,
+            'owner_product_markup_total' => $ownerProductMarkupTotal,
+            'owner_topping_markup_total' => $ownerToppingMarkupTotal,
             'markup_total' => $ownerMarkupTotal,
             'pricing_discount_total' => $pricingDiscountTotal,
         ];

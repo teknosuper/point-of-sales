@@ -406,6 +406,8 @@ class CashierShiftController extends Controller
             'cash_flow_is_anomalous' => $cashFlowIsAnomalous,
             'grand_total' => (int) ($transaction->grand_total ?? 0),
             'base_sales_total' => (int) ($pricing['base_sales_total'] ?? 0),
+            'owner_product_markup_total' => (int) ($pricing['owner_product_markup_total'] ?? 0),
+            'owner_topping_markup_total' => (int) ($pricing['owner_topping_markup_total'] ?? 0),
             'markup_total' => (int) ($pricing['markup_total'] ?? 0),
             'pricing_discount_total' => (int) ($pricing['pricing_discount_total'] ?? 0),
             'sales_returns_count' => (int) $completedReturns->count(),

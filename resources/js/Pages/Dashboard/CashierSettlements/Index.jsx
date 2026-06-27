@@ -742,6 +742,9 @@ export default function Index({
                                             <p className="mt-2 text-lg font-bold text-amber-700 dark:text-amber-300">
                                                 {formatCurrency(selectedShift.markup_total)}
                                             </p>
+                                            <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                                                Produk {formatCurrency(selectedShift.owner_product_markup_total || 0)} • Topping {formatCurrency(selectedShift.owner_topping_markup_total || 0)}
+                                            </p>
                                         </div>
                                     ) : null}
                                     <div className="rounded-2xl bg-emerald-50 p-4 dark:bg-emerald-950/20">
@@ -1193,6 +1196,9 @@ export default function Index({
                                             <p className={`mt-2 text-lg font-bold ${isWalletReturnDetail ? "text-danger-700 dark:text-danger-300" : "text-amber-700 dark:text-amber-300"}`}>
                                                 {formatCurrency(walletDetailModal.transaction?.owner_markup_total ?? 0)}
                                             </p>
+                                            <p className={`mt-1 text-xs ${isWalletReturnDetail ? "text-danger-600 dark:text-danger-300" : "text-amber-700 dark:text-amber-300"}`}>
+                                                Produk {formatCurrency(walletDetailModal.transaction?.owner_product_markup_total ?? 0)} • Topping {formatCurrency(walletDetailModal.transaction?.owner_topping_markup_total ?? 0)}
+                                            </p>
                                         </div>
                                         <div className="rounded-2xl bg-blue-50 p-4 dark:bg-blue-950/20">
                                             <p className={`text-xs font-semibold uppercase tracking-wide ${isWalletReturnDetail ? "text-danger-500" : "text-blue-500"}`}>
@@ -1275,6 +1281,9 @@ export default function Index({
                                                             <div>{formatCurrency(detail.owner_net_total)}</div>
                                                             <div className="text-xs font-normal text-slate-500 dark:text-slate-400">
                                                                 Unit {formatCurrency(detail.owner_markup_unit_price)}
+                                                            </div>
+                                                            <div className="text-xs font-normal text-slate-500 dark:text-slate-400">
+                                                                Produk {formatCurrency(detail.owner_product_markup_total ?? 0)} • Topping {formatCurrency(detail.owner_topping_markup_total ?? 0)}
                                                             </div>
                                                         </td>
                                                         <td className={`px-4 py-3 text-right ${detail.discount_total < 0 ? "font-semibold text-danger-600 dark:text-danger-300" : "text-slate-700 dark:text-slate-300"}`}>

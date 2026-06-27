@@ -14,11 +14,15 @@ use App\Models\LoyaltyPointHistory;
 use App\Models\PricingRule;
 use App\Models\Product;
 use App\Models\Transaction;
+use App\Models\TransactionTenantAllocation;
+use App\Models\TransactionTenantAllocationItem;
 use App\Models\User;
 use App\Services\CustomerOutletMetricService;
 use App\Services\LoyaltyService;
 use App\Services\OutletResolver;
 use App\Services\TransactionReturnImpactService;
+use App\Support\ReportTenantInsightsMetrics;
+use App\Support\ReportTenantProfitMetrics;
 use App\Support\ReportTimezone;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
@@ -57,9 +61,12 @@ class AdvancedSalesInsightsController extends Controller
             Transaction::query(),
             $filters
         );
+        $tenantInsightAllocations = $isTenantWorkspace
+            ? $this->tenantInsightAllocations($filters)
+            : collect();
 
         if ($isTenantWorkspace) {
-            $summaryRaw = $this->tenantWorkspaceSummary($filters);
+            $summaryRaw = ReportTenantInsightsMetrics::summary($tenantInsightAllocations);
             $transactionCount = (int) ($summaryRaw->orders_count ?? 0);
             $itemsSold = (int) ($summaryRaw->items_sold ?? 0);
             $profitTotal = (int) round($summaryRaw->profit_total ?? 0);
@@ -95,11 +102,21 @@ class AdvancedSalesInsightsController extends Controller
         $crmOperations = ['summary' => [], 'recent_campaigns' => []];
 
         if ($activeTab === 'overview') {
-            $salesByHour = $this->salesByHour($filters);
-            $salesByDay = $this->salesByDay($filters);
-            $cashierPerformance = $this->cashierPerformance($filters);
-            $orderSourceStats = $this->orderSourceStats($filters);
-            $orderTypeStats = $this->orderTypeStats($filters);
+            $salesByHour = $isTenantWorkspace
+                ? ReportTenantInsightsMetrics::salesByHour($tenantInsightAllocations)
+                : $this->salesByHour($filters);
+            $salesByDay = $isTenantWorkspace
+                ? ReportTenantInsightsMetrics::salesByDay($tenantInsightAllocations)
+                : $this->salesByDay($filters);
+            $cashierPerformance = $isTenantWorkspace
+                ? ReportTenantInsightsMetrics::cashierPerformance($tenantInsightAllocations)
+                : $this->cashierPerformance($filters);
+            $orderSourceStats = $isTenantWorkspace
+                ? ReportTenantInsightsMetrics::orderSourceStats($tenantInsightAllocations)
+                : $this->orderSourceStats($filters);
+            $orderTypeStats = $isTenantWorkspace
+                ? ReportTenantInsightsMetrics::orderTypeStats($tenantInsightAllocations)
+                : $this->orderTypeStats($filters);
         }
 
         if ($activeTab === 'products') {
@@ -399,10 +416,6 @@ class AdvancedSalesInsightsController extends Controller
 
     protected function salesByHour(array $filters): array
     {
-        if ($this->isTenantWorkspace($filters)) {
-            return $this->tenantSalesByHour($filters);
-        }
-
         $rows = $this->ownerTransactionMetricRows($filters)
             ->groupBy(fn ($row) => (int) ReportTimezone::sourceToDisplayCarbon(
                 method_exists($row, 'getRawOriginal') ? $row->getRawOriginal('created_at') : $row->created_at
@@ -432,10 +445,6 @@ class AdvancedSalesInsightsController extends Controller
 
     protected function salesByDay(array $filters): array
     {
-        if ($this->isTenantWorkspace($filters)) {
-            return $this->tenantSalesByDay($filters);
-        }
-
         return $this->ownerTransactionMetricRows($filters)
             ->groupBy(fn ($row) => ReportTimezone::sourceDateKey(
                 method_exists($row, 'getRawOriginal') ? $row->getRawOriginal('created_at') : $row->created_at
@@ -452,10 +461,6 @@ class AdvancedSalesInsightsController extends Controller
 
     protected function cashierPerformance(array $filters): array
     {
-        if ($this->isTenantWorkspace($filters)) {
-            return $this->tenantCashierPerformance($filters);
-        }
-
         $metricRows = $this->ownerTransactionMetricRows($filters, ['id', 'cashier_id', 'customer_id', 'grand_total']);
         $itemsByCashier = $this->detailMetricsQuery($filters)
             ->selectRaw('t.cashier_id, COALESCE(SUM(td.qty), 0) as items_sold')
@@ -509,9 +514,7 @@ class AdvancedSalesInsightsController extends Controller
 
     protected function orderSourceStats(array $filters): array
     {
-        return $this->isTenantWorkspace($filters)
-            ? $this->tenantOrderSourceStats($filters)
-            : $this->ownerOrderSourceStats($filters);
+        return $this->ownerOrderSourceStats($filters);
     }
 
     protected function ownerOrderSourceStats(array $filters): array
@@ -538,70 +541,6 @@ class AdvancedSalesInsightsController extends Controller
                 ];
             })
             ->values();
-
-        return $this->formatOrderSourceStats($rows);
-    }
-
-    protected function tenantOrderSourceStats(array $filters): array
-    {
-        // Pakai transaction_tenant_allocations untuk revenue
-        $baseQuery = ReportTimezone::applySourceDateRange(
-            DB::table('transaction_tenant_allocations as ta')
-                ->leftJoin('transactions as t', 't.id', '=', 'ta.transaction_id'),
-            'ta.created_at',
-            $filters
-        )->where('ta.tenant_outlet_id', $filters['tenant_outlet_id']);
-
-        if (! Schema::hasColumn('transactions', 'source_channel')) {
-            $summary = (clone $baseQuery)
-                ->selectRaw('COUNT(ta.id) as orders_count')
-                ->selectRaw('COALESCE(SUM(ta.subtotal), 0) as revenue_total')
-                ->first();
-
-            // Items sold dari allocation items
-            $itemsResult = DB::table('transaction_tenant_allocations as ta')
-                ->leftJoin('transaction_tenant_allocation_items as tai', 'tai.transaction_tenant_allocation_id', '=', 'ta.id');
-            ReportTimezone::applySourceDateRange($itemsResult, 'ta.created_at', $filters);
-            $itemsSold = (clone $itemsResult)
-                ->where('ta.tenant_outlet_id', $filters['tenant_outlet_id'])
-                ->sum('tai.qty');
-
-            return $this->formatOrderSourceStats(collect([
-                (object) [
-                    'source_channel' => 'pos',
-                    'orders_count' => (int) ($summary->orders_count ?? 0),
-                    'revenue_total' => (int) round($summary->revenue_total ?? 0),
-                    'items_sold' => (int) round($itemsSold ?? 0),
-                ],
-            ]));
-        }
-
-        $rows = (clone $baseQuery)
-            ->selectRaw("COALESCE(t.source_channel, 'pos') as source_channel")
-            ->selectRaw('COUNT(ta.id) as orders_count')
-            ->selectRaw('COALESCE(SUM(ta.subtotal), 0) as revenue_total')
-            ->groupBy('source_channel')
-            ->get();
-
-        // Items sold per channel perlu di-join dengan allocation items
-        $itemsByChannel = DB::table('transaction_tenant_allocations as ta')
-            ->leftJoin('transactions as t', 't.id', '=', 'ta.transaction_id')
-            ->leftJoin('transaction_tenant_allocation_items as tai', 'tai.transaction_tenant_allocation_id', '=', 'ta.id');
-        ReportTimezone::applySourceDateRange($itemsByChannel, 'ta.created_at', $filters);
-        $itemsByChannel = (clone $itemsByChannel)
-            ->where('ta.tenant_outlet_id', $filters['tenant_outlet_id'])
-            ->selectRaw("COALESCE(t.source_channel, 'pos') as source_channel")
-            ->selectRaw('COALESCE(SUM(tai.qty), 0) as items_sold')
-            ->groupBy('source_channel')
-            ->get()
-            ->keyBy(fn ($row) => $row->source_channel);
-
-        // Merge items_sold ke rows
-        $rows = $rows->map(function ($row) use ($itemsByChannel) {
-            $itemsRow = $itemsByChannel->get($row->source_channel);
-            $row->items_sold = $itemsRow->items_sold ?? 0;
-            return $row;
-        });
 
         return $this->formatOrderSourceStats($rows);
     }
@@ -685,9 +624,7 @@ class AdvancedSalesInsightsController extends Controller
 
     protected function orderTypeStats(array $filters): array
     {
-        return $this->isTenantWorkspace($filters)
-            ? $this->tenantOrderTypeStats($filters)
-            : $this->ownerOrderTypeStats($filters);
+        return $this->ownerOrderTypeStats($filters);
     }
 
     protected function ownerOrderTypeStats(array $filters): array
@@ -739,70 +676,6 @@ class AdvancedSalesInsightsController extends Controller
         $summary['manual_discount_total'] = $summary['discount_total'];
 
         return $summary;
-    }
-
-    protected function tenantOrderTypeStats(array $filters): array
-    {
-        // Pakai transaction_tenant_allocations untuk revenue
-        $baseQuery = ReportTimezone::applySourceDateRange(
-            DB::table('transaction_tenant_allocations as ta')
-                ->leftJoin('transactions as t', 't.id', '=', 'ta.transaction_id'),
-            'ta.created_at',
-            $filters
-        )->where('ta.tenant_outlet_id', $filters['tenant_outlet_id']);
-
-        if (! Schema::hasColumn('transactions', 'order_type')) {
-            $summary = (clone $baseQuery)
-                ->selectRaw('COUNT(ta.id) as orders_count')
-                ->selectRaw('COALESCE(SUM(ta.subtotal), 0) as revenue_total')
-                ->first();
-
-            // Items sold dari allocation items
-            $itemsResult = DB::table('transaction_tenant_allocations as ta')
-                ->leftJoin('transaction_tenant_allocation_items as tai', 'tai.transaction_tenant_allocation_id', '=', 'ta.id');
-            ReportTimezone::applySourceDateRange($itemsResult, 'ta.created_at', $filters);
-            $itemsSold = (clone $itemsResult)
-                ->where('ta.tenant_outlet_id', $filters['tenant_outlet_id'])
-                ->sum('tai.qty');
-
-            return $this->formatOrderTypeStats(collect([
-                (object) [
-                    'order_type' => 'take_away',
-                    'orders_count' => (int) ($summary->orders_count ?? 0),
-                    'revenue_total' => (int) round($summary->revenue_total ?? 0),
-                    'items_sold' => (int) round($itemsSold ?? 0),
-                ],
-            ]));
-        }
-
-        $rows = (clone $baseQuery)
-            ->selectRaw("COALESCE(t.order_type, 'take_away') as order_type")
-            ->selectRaw('COUNT(ta.id) as orders_count')
-            ->selectRaw('COALESCE(SUM(ta.subtotal), 0) as revenue_total')
-            ->groupBy('order_type')
-            ->get();
-
-        // Items sold per order type perlu di-join dengan allocation items
-        $itemsByType = DB::table('transaction_tenant_allocations as ta')
-            ->leftJoin('transactions as t', 't.id', '=', 'ta.transaction_id')
-            ->leftJoin('transaction_tenant_allocation_items as tai', 'tai.transaction_tenant_allocation_id', '=', 'ta.id');
-        ReportTimezone::applySourceDateRange($itemsByType, 'ta.created_at', $filters);
-        $itemsByType = (clone $itemsByType)
-            ->where('ta.tenant_outlet_id', $filters['tenant_outlet_id'])
-            ->selectRaw("COALESCE(t.order_type, 'take_away') as order_type")
-            ->selectRaw('COALESCE(SUM(tai.qty), 0) as items_sold')
-            ->groupBy('order_type')
-            ->get()
-            ->keyBy(fn ($row) => $row->order_type);
-
-        // Merge items_sold ke rows
-        $rows = $rows->map(function ($row) use ($itemsByType) {
-            $itemsRow = $itemsByType->get($row->order_type);
-            $row->items_sold = $itemsRow->items_sold ?? 0;
-            return $row;
-        });
-
-        return $this->formatOrderTypeStats($rows);
     }
 
     protected function formatOrderTypeStats($rows): array
@@ -1328,155 +1201,44 @@ class AdvancedSalesInsightsController extends Controller
             : (filled($filters['tenant_outlet_id'] ?? null) ? (int) $filters['tenant_outlet_id'] : null);
     }
 
+    protected function tenantInsightAllocations(array $filters): Collection
+    {
+        $query = TransactionTenantAllocation::query()
+            ->with([
+                'transaction:id,created_at,cashier_id,customer_id,payment_method,source_channel,order_type',
+                'transaction.cashier:id,name',
+            ])
+            ->withSum('items as total_items', 'qty')
+            ->select('transaction_tenant_allocations.*')
+            ->selectSub(
+                TransactionTenantAllocationItem::query()
+                    ->selectRaw('COALESCE(SUM(base_unit_price * qty), 0)')
+                    ->whereColumn('transaction_tenant_allocation_id', 'transaction_tenant_allocations.id'),
+                'cost_total'
+            )
+            ->where('tenant_outlet_id', $filters['tenant_outlet_id']);
+
+        if (! empty($filters['cashier_id']) || ! empty($filters['customer_id'])) {
+            $query->whereHas('transaction', function (Builder $transactionQuery) use ($filters) {
+                $transactionQuery
+                    ->when($filters['cashier_id'] ?? null, fn (Builder $q, $cashierId) => $q->where('cashier_id', $cashierId))
+                    ->when($filters['customer_id'] ?? null, function (Builder $q, $customerId) {
+                        return match ((string) $customerId) {
+                            'walk_in' => $q->whereNull('customer_id'),
+                            default => $q->where('customer_id', $customerId),
+                        };
+                    });
+            });
+        }
+
+        $query = ReportTimezone::applySourceDateRange($query, 'created_at', $filters);
+
+        return ReportTenantProfitMetrics::appendMetrics($query->get());
+    }
+
     protected function detailProfitExpression(): string
     {
         return 'SUM((td.price - ROUND((COALESCE(t.discount, 0) * td.price) / NULLIF(tx.subtotal_after_promo, 0))) - (p.buy_price * td.qty))';
-    }
-
-    protected function tenantWorkspaceSummary(array $filters): object
-    {
-        // Untuk tenant: pakai transaction_tenant_allocations seperti Sales Report
-        // Revenue = subtotal (langsung dari ta, tanpa JOIN)
-        // Cost = dari allocation items (base_unit_price * qty)
-        // Profit = revenue - cost
-        $baseQuery = ReportTimezone::applySourceDateRange(
-            DB::table('transaction_tenant_allocations as ta')
-                ->where('ta.tenant_outlet_id', $filters['tenant_outlet_id']),
-            'ta.created_at',
-            $filters
-        );
-
-        // Revenue langsung dari ta.subtotal
-        $summary = (clone $baseQuery)
-            ->selectRaw('COUNT(ta.id) as orders_count')
-            ->selectRaw('COALESCE(SUM(ta.subtotal), 0) as revenue_total')
-            ->selectRaw('COALESCE(SUM(ta.manual_discount_total), 0) as manual_discount_total')
-            ->first();
-
-        // Items sold dan cost dari allocation_items (perlu JOIN tapi di-subquery)
-        $itemsQuery = DB::table('transaction_tenant_allocations as ta')
-            ->leftJoin('transaction_tenant_allocation_items as tai', 'tai.transaction_tenant_allocation_id', '=', 'ta.id');
-        $itemsQuery = ReportTimezone::applySourceDateRange($itemsQuery, 'ta.created_at', $filters);
-
-        $itemsResult = (clone $itemsQuery)
-            ->where('ta.tenant_outlet_id', $filters['tenant_outlet_id'])
-            ->selectRaw('COALESCE(SUM(tai.qty), 0) as items_sold')
-            ->selectRaw('COALESCE(SUM(tai.base_unit_price * tai.qty), 0) as cost_total')
-            ->first();
-
-        $revenueTotal = (float) $summary->revenue_total;
-        $costTotal = (float) $itemsResult->cost_total;
-
-        return (object) [
-            'orders_count' => $summary->orders_count,
-            'revenue_total' => $revenueTotal,
-            'manual_discount_total' => $summary->manual_discount_total,
-            'items_sold' => $itemsResult->items_sold,
-            'profit_total' => $revenueTotal - $costTotal,
-        ];
-    }
-
-    protected function tenantSalesByHour(array $filters): array
-    {
-        $hourExpression = ReportTimezone::sourceToDisplayHourExpression('ta.created_at');
-
-        // Pakai transaction_tenant_allocations seperti Sales Report
-        $rows = ReportTimezone::applySourceDateRange(
-            DB::table('transaction_tenant_allocations as ta'),
-            'ta.created_at',
-            $filters
-        )
-            ->where('ta.tenant_outlet_id', $filters['tenant_outlet_id'])
-            ->selectRaw("{$hourExpression} as hour_bucket")
-            ->selectRaw('COUNT(ta.id) as orders_count')
-            ->selectRaw('COALESCE(SUM(ta.subtotal), 0) as revenue_total')
-            ->groupBy(DB::raw($hourExpression))
-            ->orderBy(DB::raw($hourExpression))
-            ->get()
-            ->keyBy(fn ($row) => (int) $row->hour_bucket);
-
-        return collect(range(0, 23))
-            ->map(function (int $hour) use ($rows) {
-                $row = $rows->get($hour);
-
-                return [
-                    'hour' => $hour,
-                    'label' => sprintf('%02d:00', $hour),
-                    'orders_count' => (int) ($row->orders_count ?? 0),
-                    'revenue_total' => (int) round($row->revenue_total ?? 0),
-                ];
-            })
-            ->all();
-    }
-
-    protected function tenantSalesByDay(array $filters): array
-    {
-        // Pakai transaction_tenant_allocations seperti Sales Report
-        return ReportTimezone::applySourceDateRange(
-            DB::table('transaction_tenant_allocations as ta'),
-            'ta.created_at',
-            $filters
-        )
-            ->where('ta.tenant_outlet_id', $filters['tenant_outlet_id'])
-            ->selectRaw(ReportTimezone::sourceToDisplayDateExpression('ta.created_at').' as sales_date')
-            ->selectRaw('COUNT(ta.id) as orders_count')
-            ->selectRaw('COALESCE(SUM(ta.subtotal), 0) as revenue_total')
-            ->groupBy('sales_date')
-            ->orderBy('sales_date')
-            ->get()
-            ->map(fn ($row) => [
-                'date' => $row->sales_date,
-                'label' => Carbon::parse($row->sales_date, ReportTimezone::timezone())->format('d M'),
-                'orders_count' => (int) $row->orders_count,
-                'revenue_total' => (int) round($row->revenue_total),
-            ])
-            ->all();
-    }
-
-    protected function tenantCashierPerformance(array $filters): array
-    {
-        // Pakai transaction_tenant_allocations seperti Sales Report
-        $baseQuery = ReportTimezone::applySourceDateRange(
-            DB::table('transaction_tenant_allocations as ta')
-                ->leftJoin('transaction_tenant_allocation_items as tai', 'tai.transaction_tenant_allocation_id', '=', 'ta.id')
-                ->leftJoin('transactions as t', 't.id', '=', 'ta.transaction_id')
-                ->leftJoin('users', 'users.id', '=', 't.cashier_id'),
-            'ta.created_at',
-            $filters
-        )
-            ->where('ta.tenant_outlet_id', $filters['tenant_outlet_id']);
-
-        return (clone $baseQuery)
-            ->selectRaw('t.cashier_id, users.name as cashier_name')
-            ->selectRaw('COUNT(ta.id) as orders_count')
-            ->selectRaw('COALESCE(SUM(tai.qty), 0) as items_sold')
-            ->selectRaw('COALESCE(SUM(ta.subtotal), 0) as revenue_total')
-            ->selectRaw('COUNT(DISTINCT CASE WHEN t.customer_id IS NULL THEN ta.id END) as walk_in_orders_count')
-            ->selectRaw('COALESCE(SUM(CASE WHEN t.customer_id IS NULL THEN ta.subtotal ELSE 0 END), 0) as walk_in_revenue_total')
-            ->selectRaw('COALESCE(SUM(ta.subtotal), 0) - COALESCE(SUM(tai.base_unit_price * tai.qty), 0) as profit_total')
-            ->groupBy('t.cashier_id', 'users.name')
-            ->orderByDesc('items_sold')
-            ->orderByDesc('revenue_total')
-            ->get()
-            ->map(fn ($row) => [
-                'cashier_id' => (int) $row->cashier_id,
-                'cashier_name' => $row->cashier_name,
-                'orders_count' => (int) $row->orders_count,
-                'walk_in_orders_count' => (int) ($row->walk_in_orders_count ?? 0),
-                'registered_orders_count' => max(0, (int) $row->orders_count - (int) ($row->walk_in_orders_count ?? 0)),
-                'items_sold' => (int) $row->items_sold,
-                'revenue_total' => (int) round($row->revenue_total),
-                'walk_in_revenue_total' => (int) round($row->walk_in_revenue_total ?? 0),
-                'registered_revenue_total' => max(0, (int) round($row->revenue_total) - (int) round($row->walk_in_revenue_total ?? 0)),
-                'profit_total' => (int) round($row->profit_total),
-                'average_basket' => (int) ($row->orders_count > 0
-                    ? round($row->revenue_total / $row->orders_count)
-                    : 0),
-                'walk_in_share' => (int) $row->orders_count > 0
-                    ? round((((int) ($row->walk_in_orders_count ?? 0)) / (int) $row->orders_count) * 100, 2)
-                    : 0,
-            ])
-            ->all();
     }
 
     protected function tenantRepeatCustomerMetrics(array $filters): array
