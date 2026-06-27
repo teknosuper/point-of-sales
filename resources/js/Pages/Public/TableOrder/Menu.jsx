@@ -1706,6 +1706,9 @@ export default function Menu({
                             onAddToCart={handleAddProduct}
                             addingProductId={addingProductId}
                             searchInputRef={searchInputRef}
+                            initialViewMode="grid"
+                            persistViewMode={false}
+                            storageNamespace="public:self-order-product-grid"
                             onBarcodeDetected={(barcode) => {
                                 setSearchQuery(barcode);
                                 setIsSearching(false);

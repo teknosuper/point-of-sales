@@ -1,6 +1,9 @@
 import React from "react";
+import LazyImage from "@/Components/Dashboard/LazyImage";
+import { getProductImageUrl, getProductThumbUrl } from "@/Utils/imageUrl";
 import {
     IconChevronDown,
+    IconPhoto,
     IconChevronUp,
     IconX,
 } from "@/Utils/icons";
@@ -135,6 +138,29 @@ export default function ModifierOptionsModal({
         groupValidation.length > 0
             ? groupValidation.every((group) => group.isValid)
             : selectedOptionIdSet.size > 0;
+    const modifierStatus = hasModifierOptions
+        ? selectionIsRequired
+            ? {
+                  label: "Topping wajib dipilih",
+                  description:
+                      "Menu ini memiliki topping, dan ada pilihan yang wajib diisi sebelum bisa ditambahkan ke keranjang.",
+                  className:
+                      "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200",
+              }
+            : {
+                  label: "Topping tersedia",
+                  description:
+                      "Menu ini memiliki topping opsional. Anda boleh memilih topping atau langsung lanjut tanpa topping.",
+                  className:
+                      "border-sky-200 bg-sky-50 text-sky-800 dark:border-sky-900/40 dark:bg-sky-950/20 dark:text-sky-200",
+              }
+        : {
+              label: "Tanpa topping",
+              description:
+                  "Menu ini tidak memiliki topping atau extra. Cukup atur jumlah lalu tambahkan ke keranjang.",
+              className:
+                  "border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200",
+          };
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -146,22 +172,22 @@ export default function ModifierOptionsModal({
                 <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4 dark:border-slate-800">
                     <div>
                         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary-500">
-                            Opsi Tambahan
+                            Detail Menu
                         </p>
-                        <h3 className="mt-1 text-lg font-bold text-slate-900 dark:text-white">
+                        <h3 className="mt-1 break-words text-lg font-bold text-slate-900 dark:text-white">
                             {product.title}
                         </h3>
                         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                             {cartTargetId
-                                ? "Pilih topping / extra untuk item yang sudah ada di keranjang."
+                                ? "Atur ulang topping dan jumlah untuk item yang sudah ada di keranjang."
                                 : hasModifierOptions
-                                  ? "Pilih topping / extra sebelum item dimasukkan ke keranjang."
-                                  : "Periksa jumlah item sebelum dimasukkan ke keranjang."}
+                                  ? "Periksa detail menu, lalu pilih topping bila diperlukan sebelum masuk ke keranjang."
+                                  : "Periksa detail menu dan jumlah item sebelum masuk ke keranjang."}
                         </p>
                         {selectionIsRequired ? (
-                            <p className="mt-2 text-xs font-semibold text-amber-600 dark:text-amber-300">
+                            <p className="mt-2 rounded-xl bg-amber-50 px-3 py-2 text-xs font-semibold leading-5 text-amber-700 dark:bg-amber-950/30 dark:text-amber-200">
                                 {groupValidation.some((group) => group.minSelect > 0)
-                                    ? "Setiap kategori wajib harus memenuhi aturan pilihannya."
+                                    ? "Beberapa kategori topping wajib diisi sesuai aturan pilih yang ditampilkan di bawah."
                                     : "Produk ini wajib memilih minimal satu topping sebelum lanjut."}
                             </p>
                         ) : null}
@@ -177,6 +203,76 @@ export default function ModifierOptionsModal({
                 </div>
 
                 <div className="min-h-0 flex-1 overflow-y-auto">
+                    <div className="mx-5 mt-4 overflow-hidden rounded-[28px] border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-primary-50 shadow-sm dark:border-slate-800 dark:from-slate-900 dark:via-slate-900 dark:to-primary-950/30">
+                        <div className="grid gap-0 sm:grid-cols-[160px,minmax(0,1fr)]">
+                            <div className="relative aspect-[4/3] overflow-hidden bg-slate-100 dark:bg-slate-800 sm:aspect-auto sm:h-full">
+                                {product.image ? (
+                                    <LazyImage
+                                        src={getProductThumbUrl(product.image, product.title)}
+                                        fallbackSrc={getProductImageUrl(product.image, product.title)}
+                                        alt={product.title}
+                                        className="h-full w-full"
+                                        imgClassName="h-full w-full object-cover"
+                                        fallback={
+                                            <div className="flex h-full w-full items-center justify-center">
+                                                <IconPhoto size={34} className="text-slate-400" />
+                                            </div>
+                                        }
+                                    />
+                                ) : (
+                                    <div className="flex h-full w-full items-center justify-center">
+                                        <IconPhoto size={34} className="text-slate-400" />
+                                    </div>
+                                )}
+                            </div>
+                            <div className="space-y-3 p-4">
+                                <div className="flex flex-wrap items-center gap-2">
+                                    {product.category?.name ? (
+                                        <span className="rounded-full bg-white/90 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-600 shadow-sm dark:bg-slate-900/80 dark:text-slate-300">
+                                            {product.category.name}
+                                        </span>
+                                    ) : null}
+                                    {product.tenant_outlet?.name ? (
+                                        <span className="rounded-full bg-primary-100 px-3 py-1 text-[11px] font-semibold text-primary-700 dark:bg-primary-950/40 dark:text-primary-300">
+                                            {product.tenant_outlet.name}
+                                        </span>
+                                    ) : null}
+                                </div>
+                                <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr),auto] sm:items-start">
+                                    <div className="min-w-0">
+                                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400 dark:text-slate-500">
+                                            Detail Menu
+                                        </p>
+                                        <p className="mt-1 break-words text-xl font-black leading-tight text-slate-950 dark:text-white">
+                                            {product.title}
+                                        </p>
+                                    </div>
+                                    <div className="rounded-2xl bg-slate-950 px-3 py-2 text-left shadow-lg shadow-slate-900/10 dark:bg-primary-500/20">
+                                        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-300 dark:text-primary-200">
+                                            Harga
+                                        </p>
+                                        <p className="break-words text-base font-bold text-white dark:text-primary-100">
+                                            {formatPrice(product.sell_price)}
+                                        </p>
+                                    </div>
+                                </div>
+                                <p className="break-words text-sm leading-6 text-slate-600 dark:text-slate-300">
+                                    {product.description
+                                        ? product.description
+                                        : "Menu ini siap dipesan dari meja. Tambahkan topping atau catatan bila diperlukan sebelum masuk ke keranjang."}
+                                </p>
+                                <div className={`rounded-2xl border px-4 py-3 ${modifierStatus.className}`}>
+                                    <p className="text-xs font-bold uppercase tracking-[0.16em]">
+                                        {modifierStatus.label}
+                                    </p>
+                                    <p className="mt-1 text-sm leading-6">
+                                        {modifierStatus.description}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                     {product.pricing_badge && promo && promoBenefit ? (
                         <div
                             className={`mx-5 mt-4 rounded-2xl border px-4 py-3 ${

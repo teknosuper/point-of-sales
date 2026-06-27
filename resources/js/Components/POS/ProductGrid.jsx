@@ -154,7 +154,7 @@ const ProductCard = memo(function ProductCard({
                     {interactive && hasStock && (
                         <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-primary-500/10 opacity-0 transition-opacity group-hover:opacity-100">
                             <div className="rounded-full bg-primary-500 px-4 py-2 text-sm font-semibold text-white shadow-lg">
-                                Pilih Menu
+                                Lihat Detail
                             </div>
                         </div>
                     )}
@@ -194,7 +194,7 @@ const ProductCard = memo(function ProductCard({
                             </span>
                         )}
                     </div>
-                    <h3 className={`font-semibold truncate ${
+                    <h3 className={`font-semibold break-words ${
                         isListMode 
                             ? "text-xs leading-tight" 
                             : "mt-1 text-[13px] leading-tight"
@@ -202,7 +202,7 @@ const ProductCard = memo(function ProductCard({
                         {product.title}
                     </h3>
                     <div className={`${isListMode ? "mt-0.5" : "mt-0.5"} space-y-0.5 text-[10px] text-slate-500 dark:text-slate-400`}>
-                        <p className="truncate">
+                        <p className="break-words leading-4">
                             <span className="font-medium text-slate-600 dark:text-slate-300">
                                 {secondaryLabel}
                             </span>
@@ -231,14 +231,14 @@ const ProductCard = memo(function ProductCard({
                             {formatPrice(basePrice)}
                         </p>
                     )}
-                    <p className={`font-bold text-primary-600 dark:text-primary-400 ${
+                    <p className={`break-words font-bold text-primary-600 dark:text-primary-400 ${
                         isListMode ? "text-xs" : "text-[13px]"
                     }`}>
                         {formatPrice(showPromo ? promoPrice : product.sell_price)}
                     </p>
                     {promoDetail && (
                         <p
-                            className={`mt-0.5 max-w-[180px] text-[10px] leading-3 ${
+                            className={`mt-0.5 max-w-[180px] break-words text-[10px] leading-4 ${
                                 isListMode
                                     ? "text-right text-rose-600 dark:text-rose-300"
                                     : "text-rose-600 dark:text-rose-300"
@@ -370,6 +370,8 @@ export default function ProductGrid({
     compactHeaderLayout = false,
     showFilterSummary = true,
     groupByCategoryWhenTenantFiltered = false,
+    initialViewMode = "list",
+    persistViewMode = true,
 }) {
     const [searchDraft, setSearchDraft] = useState(searchQuery || "");
     const [selectedTenantOutletId, setSelectedTenantOutletId] = useState(null);
@@ -386,7 +388,11 @@ export default function ProductGrid({
     });
     const [viewMode, setViewMode] = useState(() => {
         if (typeof window === "undefined") {
-            return "list";
+            return initialViewMode === "grid" ? "grid" : "list";
+        }
+
+        if (!persistViewMode) {
+            return initialViewMode === "grid" ? "grid" : "list";
         }
 
         const savedValue =
@@ -394,7 +400,11 @@ export default function ProductGrid({
                 storageKey(storageNamespace, "view-mode")
             );
 
-        return savedValue === "grid" ? "grid" : "list";
+        if (savedValue === "grid" || savedValue === "list") {
+            return savedValue;
+        }
+
+        return initialViewMode === "grid" ? "grid" : "list";
     });
     const [sortMode, setSortMode] = useState(() => {
         if (typeof window === "undefined") {
@@ -593,6 +603,10 @@ export default function ProductGrid({
     }, [isFilterPanelExpanded, storageNamespace]);
 
     useEffect(() => {
+        if (!persistViewMode) {
+            return;
+        }
+
         if (typeof window === "undefined") {
             return;
         }
@@ -601,7 +615,15 @@ export default function ProductGrid({
             storageKey(storageNamespace, "view-mode"),
             viewMode
         );
-    }, [viewMode, storageNamespace]);
+    }, [persistViewMode, viewMode, storageNamespace]);
+
+    useEffect(() => {
+        if (persistViewMode) {
+            return;
+        }
+
+        setViewMode(initialViewMode === "grid" ? "grid" : "list");
+    }, [initialViewMode, persistViewMode]);
 
     useEffect(() => {
         if (typeof window === "undefined") {
