@@ -518,13 +518,19 @@ class ProfitReportController extends Controller
             'tenant_payout_balance_total' => (int) $tenantPayoutSummary['balance_total'],
             'tenant_payout_approved_total' => (int) $tenantPayoutSummary['approved_total'],
             'tenant_payout_paid_total' => (int) $tenantPayoutSummary['paid_total'],
+            'tenant_payout_paid_period_total' => (int) $tenantPayoutSummary['paid_period_total'],
+            'tenant_payout_paid_cumulative_total' => (int) $tenantPayoutSummary['paid_cumulative_total'],
             'tenant_payout_pending_approval_total' => (int) $tenantPayoutSummary['pending_approval_total'],
             'tenant_payout_outstanding_total' => (int) $tenantPayoutSummary['outstanding_total'],
+            'expense_paid_cumulative_total' => (int) $expenseSummary['expense_paid_cumulative_total'],
         ];
         $summary['profit_after_expense_total'] = (int) $summary['profit_total'] - (int) $summary['expense_total'];
         $summary['remaining_cash_after_paid_total'] = (int) $summary['revenue_total']
-            - (int) $summary['tenant_payout_paid_total']
+            - (int) $summary['tenant_payout_paid_period_total']
             - (int) $summary['expense_paid_total'];
+        $summary['remaining_cash_after_paid_cumulative_total'] = (int) $summary['revenue_total']
+            - (int) $summary['tenant_payout_paid_cumulative_total']
+            - (int) $summary['expense_paid_cumulative_total'];
         $summary['remaining_cash_after_approved_total'] = (int) $summary['revenue_total']
             - (int) $summary['tenant_payout_balance_total']
             - (int) $summary['expense_total'];
@@ -565,6 +571,11 @@ class ProfitReportController extends Controller
             'expense_total' => (int) ($row?->expense_total ?? 0),
             'expense_paid_total' => (int) ($row?->expense_paid_total ?? 0),
             'expense_unpaid_total' => (int) ($row?->expense_unpaid_total ?? 0),
+            'expense_paid_cumulative_total' => (int) Expense::query()
+                ->when($outletId, fn ($query) => $query->where('outlet_id', $outletId))
+                ->when($filters['end_date'] ?? null, fn ($query, $date) => $query->whereDate('expense_date', '<=', $date))
+                ->where('status', Expense::STATUS_PAID)
+                ->sum('amount'),
         ];
     }
 
@@ -575,6 +586,8 @@ class ProfitReportController extends Controller
                 'balance_total' => 0,
                 'approved_total' => 0,
                 'paid_total' => 0,
+                'paid_period_total' => 0,
+                'paid_cumulative_total' => 0,
                 'pending_approval_total' => 0,
                 'outstanding_total' => 0,
             ];
@@ -619,19 +632,30 @@ class ProfitReportController extends Controller
             ->whereNull('cashier_shift_id');
 
         $settlementFilters = [
+            'start_date' => $filters['start_date'] ?? null,
+            'end_date' => $filters['end_date'] ?? null,
+        ];
+        $cumulativeSettlementFilters = [
             'start_date' => null,
             'end_date' => $filters['end_date'] ?? null,
         ];
         $approvedQuery = (clone $baseQuery)
             ->where('status', CashierSettlementRequest::STATUS_APPROVED);
 
-        $paidQuery = ReportTimezone::applySourceDateRange(
+        $paidPeriodQuery = ReportTimezone::applySourceDateRange(
             (clone $approvedQuery),
             'paid_at',
             $settlementFilters
         );
+        $paidCumulativeQuery = ReportTimezone::applySourceDateRange(
+            (clone $approvedQuery),
+            'paid_at',
+            $cumulativeSettlementFilters
+        );
 
-        $approvedTotal = (int) round($paidQuery->sum('approved_amount'));
+        $approvedTotal = (int) round($paidCumulativeQuery->sum('approved_amount'));
+        $paidPeriodTotal = (int) round($paidPeriodQuery->sum('approved_amount'));
+        $paidCumulativeTotal = $approvedTotal;
         $paidTotal = $approvedTotal;
         $pendingApprovalTotal = (int) round(
             ReportTimezone::applySourceDateRange(
@@ -645,6 +669,8 @@ class ProfitReportController extends Controller
             'balance_total' => $balanceTotal,
             'approved_total' => $approvedTotal,
             'paid_total' => $paidTotal,
+            'paid_period_total' => $paidPeriodTotal,
+            'paid_cumulative_total' => $paidCumulativeTotal,
             'pending_approval_total' => $pendingApprovalTotal,
             'outstanding_total' => max(0, $balanceTotal - $paidTotal),
         ];

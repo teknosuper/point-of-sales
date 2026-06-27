@@ -642,6 +642,14 @@ const ProfitReport = ({
             emphasis: true,
             valueClassName: "text-emerald-600 dark:text-emerald-400",
         });
+        if (!isTenantWorkspace) {
+            rows.push({
+                label: "Markup Owner Periode Aktif",
+                value: formatCurrency(summary?.markup_total ?? 0),
+                note: `Produk ${formatCurrency(summary?.owner_product_markup_total ?? 0)} • Topping ${formatCurrency(summary?.owner_topping_markup_total ?? 0)} • Direct owner ${formatCurrency(summary?.owner_direct_markup_total ?? 0)}`,
+                valueClassName: "text-emerald-600 dark:text-emerald-400",
+            });
+        }
         rows.push({
             label: "Laba Setelah Expense",
             value: formatCurrency(summary?.profit_after_expense_total ?? 0),
@@ -654,14 +662,21 @@ const ProfitReport = ({
             rows.push({
                 label: "Sisa Uang Setelah Pengeluaran Aktual",
                 value: formatCurrency(summary?.remaining_cash_after_paid_total ?? 0),
-                note: "Omzet dikurangi payout tenant yang sudah dibayar dan expense yang sudah paid.",
+                note: `Periode aktif: omzet ${formatCurrency(summary?.revenue_total ?? 0)} dikurangi payout tenant approved terbayar ${formatCurrency(summary?.tenant_payout_paid_period_total ?? 0)} dan expense paid ${formatCurrency(summary?.expense_paid_total ?? 0)}.`,
                 emphasis: true,
                 valueClassName: "text-violet-600 dark:text-violet-400",
             });
             rows.push({
+                label: "Sisa Uang Aktual s/d Tanggal Akhir",
+                value: formatCurrency(summary?.remaining_cash_after_paid_cumulative_total ?? 0),
+                note: `Kumulatif s/d end date: omzet periode ${formatCurrency(summary?.revenue_total ?? 0)} dikurangi payout tenant approved s/d tanggal akhir ${formatCurrency(summary?.tenant_payout_paid_cumulative_total ?? 0)} dan expense paid s/d tanggal akhir ${formatCurrency(summary?.expense_paid_cumulative_total ?? 0)}.`,
+                emphasis: true,
+                valueClassName: "text-fuchsia-600 dark:text-fuchsia-400",
+            });
+            rows.push({
                 label: "Sisa Uang Setelah Semua Kewajiban Disetujui",
                 value: formatCurrency(summary?.remaining_cash_after_approved_total ?? 0),
-                note: "Omzet dikurangi seluruh saldo tenant periode aktif dan seluruh expense periode aktif.",
+                note: `Omzet periode ${formatCurrency(summary?.revenue_total ?? 0)} dikurangi saldo tenant kumulatif s/d tanggal akhir ${formatCurrency(summary?.tenant_payout_balance_total ?? 0)} dan seluruh expense periode aktif ${formatCurrency(summary?.expense_total ?? 0)}.`,
                 emphasis: true,
                 valueClassName: "text-amber-600 dark:text-amber-400",
             });
@@ -716,7 +731,7 @@ const ProfitReport = ({
                       {
                           label: "Saldo dan Payout Tenant",
                           value: formatCurrency(summary?.tenant_payout_balance_total ?? 0),
-                          note: `Sudah dibayar ${formatCurrency(summary?.tenant_payout_paid_total ?? 0)} • Outstanding ${formatCurrency(summary?.tenant_payout_outstanding_total ?? 0)}`,
+                          note: `Paid periode ${formatCurrency(summary?.tenant_payout_paid_period_total ?? 0)} • Paid kumulatif ${formatCurrency(summary?.tenant_payout_paid_cumulative_total ?? 0)} • Outstanding ${formatCurrency(summary?.tenant_payout_outstanding_total ?? 0)}`,
                       },
                   ]
                 : []),
@@ -816,7 +831,7 @@ const ProfitReport = ({
             {
                 title: "Outstanding ke Tenant",
                 value: formatCurrency(summary?.tenant_payout_outstanding_total ?? 0),
-                note: `Saldo tenant ${formatCurrency(summary?.tenant_payout_balance_total ?? 0)} • Sudah dibayar ${formatCurrency(summary?.tenant_payout_paid_total ?? 0)}`,
+                note: `Saldo tenant s/d end date ${formatCurrency(summary?.tenant_payout_balance_total ?? 0)} • Paid kumulatif ${formatCurrency(summary?.tenant_payout_paid_cumulative_total ?? 0)}`,
                 tone: "amber",
             },
             {
@@ -828,8 +843,14 @@ const ProfitReport = ({
             {
                 title: "Sisa Uang Aktual",
                 value: formatCurrency(summary?.remaining_cash_after_paid_total ?? 0),
-                note: "Omzet dikurangi payout tenant paid dan expense paid.",
+                note: `Periode aktif: omzet dikurangi payout tenant approved terbayar ${formatCurrency(summary?.tenant_payout_paid_period_total ?? 0)} dan expense paid ${formatCurrency(summary?.expense_paid_total ?? 0)}.`,
                 tone: "violet",
+            },
+            {
+                title: "Kas Aktual s/d Tanggal Akhir",
+                value: formatCurrency(summary?.remaining_cash_after_paid_cumulative_total ?? 0),
+                note: `Kumulatif s/d end date: omzet periode dikurangi payout tenant approved s/d tanggal akhir dan expense paid s/d tanggal akhir.`,
+                tone: "blue",
             },
         ];
     }, [isTenantWorkspace, summary]);
