@@ -34,6 +34,8 @@ use Inertia\Inertia;
 
 class AdvancedSalesInsightsController extends Controller
 {
+    protected array $transactionColumnAvailability = [];
+
     public function __construct(
         private readonly CustomerOutletMetricService $customerOutletMetricService,
         private readonly LoyaltyService $loyaltyService,
@@ -71,19 +73,17 @@ class AdvancedSalesInsightsController extends Controller
             $itemsSold = (int) ($summaryRaw->items_sold ?? 0);
             $profitTotal = (int) round($summaryRaw->profit_total ?? 0);
         } else {
-            $transactionIds = (clone $transactionQuery)->pluck('id');
-            $summaryRaw = $this->ownerTransactionSummary($filters);
+            $overviewMetricRows = $activeTab === 'overview'
+                ? $this->ownerTransactionMetricRows($filters, ['id', 'created_at', 'cashier_id', 'customer_id', 'grand_total', 'discount', 'source_channel', 'order_type'])
+                : null;
+            $summaryRaw = $this->ownerTransactionSummary($filters, $overviewMetricRows);
             $transactionCount = (int) ($summaryRaw['orders_count'] ?? 0);
-            $itemsSold = $transactionIds->isNotEmpty()
-                ? (int) DB::table('transaction_details')
-                    ->whereIn('transaction_id', $transactionIds)
-                    ->sum('qty')
-                : 0;
-            $profitTotal = $transactionIds->isNotEmpty()
-                ? (int) DB::table('profits')
-                    ->whereIn('transaction_id', $transactionIds)
-                    ->sum('total')
-                : 0;
+            $itemsSold = (int) $this->detailMetricsQuery($filters)->sum('td.qty');
+            $profitTotal = (int) round(
+                $this->applyTransactionFilters(Transaction::query(), $filters)
+                    ->leftJoin('profits', 'profits.transaction_id', '=', 'transactions.id')
+                    ->sum('profits.total')
+            );
         }
 
         $salesByHour = [];
@@ -104,19 +104,19 @@ class AdvancedSalesInsightsController extends Controller
         if ($activeTab === 'overview') {
             $salesByHour = $isTenantWorkspace
                 ? ReportTenantInsightsMetrics::salesByHour($tenantInsightAllocations)
-                : $this->salesByHour($filters);
+                : $this->salesByHour($filters, $overviewMetricRows ?? null);
             $salesByDay = $isTenantWorkspace
                 ? ReportTenantInsightsMetrics::salesByDay($tenantInsightAllocations)
-                : $this->salesByDay($filters);
+                : $this->salesByDay($filters, $overviewMetricRows ?? null);
             $cashierPerformance = $isTenantWorkspace
                 ? ReportTenantInsightsMetrics::cashierPerformance($tenantInsightAllocations)
-                : $this->cashierPerformance($filters);
+                : $this->cashierPerformance($filters, $overviewMetricRows ?? null);
             $orderSourceStats = $isTenantWorkspace
                 ? ReportTenantInsightsMetrics::orderSourceStats($tenantInsightAllocations)
-                : $this->orderSourceStats($filters);
+                : $this->orderSourceStats($filters, $overviewMetricRows ?? null);
             $orderTypeStats = $isTenantWorkspace
                 ? ReportTenantInsightsMetrics::orderTypeStats($tenantInsightAllocations)
-                : $this->orderTypeStats($filters);
+                : $this->orderTypeStats($filters, $overviewMetricRows ?? null);
         }
 
         if ($activeTab === 'products') {
@@ -414,9 +414,9 @@ class AdvancedSalesInsightsController extends Controller
             ->all();
     }
 
-    protected function salesByHour(array $filters): array
+    protected function salesByHour(array $filters, ?Collection $metricRows = null): array
     {
-        $rows = $this->ownerTransactionMetricRows($filters)
+        $rows = ($metricRows ?? $this->ownerTransactionMetricRows($filters))
             ->groupBy(fn ($row) => (int) ReportTimezone::sourceToDisplayCarbon(
                 method_exists($row, 'getRawOriginal') ? $row->getRawOriginal('created_at') : $row->created_at
             )?->format('H'))
@@ -443,9 +443,9 @@ class AdvancedSalesInsightsController extends Controller
             ->all();
     }
 
-    protected function salesByDay(array $filters): array
+    protected function salesByDay(array $filters, ?Collection $metricRows = null): array
     {
-        return $this->ownerTransactionMetricRows($filters)
+        return ($metricRows ?? $this->ownerTransactionMetricRows($filters))
             ->groupBy(fn ($row) => ReportTimezone::sourceDateKey(
                 method_exists($row, 'getRawOriginal') ? $row->getRawOriginal('created_at') : $row->created_at
             ))
@@ -459,9 +459,9 @@ class AdvancedSalesInsightsController extends Controller
             ->all();
     }
 
-    protected function cashierPerformance(array $filters): array
+    protected function cashierPerformance(array $filters, ?Collection $metricRows = null): array
     {
-        $metricRows = $this->ownerTransactionMetricRows($filters, ['id', 'cashier_id', 'customer_id', 'grand_total']);
+        $metricRows = $metricRows ?? $this->ownerTransactionMetricRows($filters, ['id', 'cashier_id', 'customer_id', 'grand_total']);
         $itemsByCashier = $this->detailMetricsQuery($filters)
             ->selectRaw('t.cashier_id, COALESCE(SUM(td.qty), 0) as items_sold')
             ->groupBy('t.cashier_id')
@@ -512,22 +512,23 @@ class AdvancedSalesInsightsController extends Controller
             ->all();
     }
 
-    protected function orderSourceStats(array $filters): array
+    protected function orderSourceStats(array $filters, ?Collection $metricRows = null): array
     {
-        return $this->ownerOrderSourceStats($filters);
+        return $this->ownerOrderSourceStats($filters, $metricRows);
     }
 
-    protected function ownerOrderSourceStats(array $filters): array
+    protected function ownerOrderSourceStats(array $filters, ?Collection $metricRows = null): array
     {
         $itemSubquery = $this->detailMetricsQuery($filters)
             ->selectRaw('td.transaction_id, COALESCE(SUM(td.qty), 0) as items_sold')
             ->groupBy('td.transaction_id')
             ->get()
             ->keyBy('transaction_id');
-        $metricRows = $this->ownerTransactionMetricRows($filters, ['id', 'grand_total', 'source_channel']);
+        $metricRows = $metricRows ?? $this->ownerTransactionMetricRows($filters, ['id', 'grand_total', 'source_channel']);
+        $hasSourceChannel = $this->transactionColumnExists('source_channel');
 
         $rows = $metricRows
-            ->groupBy(fn ($row) => Schema::hasColumn('transactions', 'source_channel')
+            ->groupBy(fn ($row) => $hasSourceChannel
                 ? (data_get($row, 'source_channel') ?: 'pos')
                 : 'pos')
             ->map(function (Collection $rows, $sourceChannel) use ($itemSubquery) {
@@ -622,22 +623,23 @@ class AdvancedSalesInsightsController extends Controller
         ];
     }
 
-    protected function orderTypeStats(array $filters): array
+    protected function orderTypeStats(array $filters, ?Collection $metricRows = null): array
     {
-        return $this->ownerOrderTypeStats($filters);
+        return $this->ownerOrderTypeStats($filters, $metricRows);
     }
 
-    protected function ownerOrderTypeStats(array $filters): array
+    protected function ownerOrderTypeStats(array $filters, ?Collection $metricRows = null): array
     {
         $itemSubquery = $this->detailMetricsQuery($filters)
             ->selectRaw('td.transaction_id, COALESCE(SUM(td.qty), 0) as items_sold')
             ->groupBy('td.transaction_id')
             ->get()
             ->keyBy('transaction_id');
-        $metricRows = $this->ownerTransactionMetricRows($filters, ['id', 'grand_total', 'order_type']);
+        $metricRows = $metricRows ?? $this->ownerTransactionMetricRows($filters, ['id', 'grand_total', 'order_type']);
+        $hasOrderType = $this->transactionColumnExists('order_type');
 
         $rows = $metricRows
-            ->groupBy(fn ($row) => Schema::hasColumn('transactions', 'order_type')
+            ->groupBy(fn ($row) => $hasOrderType
                 ? (data_get($row, 'order_type') ?: 'take_away')
                 : 'take_away')
             ->map(function (Collection $rows, $orderType) use ($itemSubquery) {
@@ -657,25 +659,36 @@ class AdvancedSalesInsightsController extends Controller
 
     protected function ownerTransactionMetricRows(array $filters, array $columns = ['id', 'created_at', 'grand_total', 'discount', 'customer_id']): Collection
     {
-        $columns = collect($columns)
-            ->merge(['id', 'grand_total'])
-            ->unique()
-            ->values()
-            ->all();
+        $columns = $this->availableTransactionColumns(
+            collect($columns)
+                ->merge(['id', 'grand_total'])
+                ->unique()
+                ->values()
+                ->all()
+        );
 
         return $this->transactionReturnImpactService->enrichTransactions(
             $this->applyTransactionFilters(Transaction::query(), $filters)->get($columns)
         );
     }
 
-    protected function ownerTransactionSummary(array $filters): array
+    protected function ownerTransactionSummary(array $filters, ?Collection $metricRows = null): array
     {
         $summary = $this->transactionReturnImpactService->summarizeTransactionRows(
-            $this->ownerTransactionMetricRows($filters, ['id', 'grand_total', 'discount', 'customer_id'])
+            $metricRows ?? $this->ownerTransactionMetricRows($filters, ['id', 'grand_total', 'discount', 'customer_id'])
         );
         $summary['manual_discount_total'] = $summary['discount_total'];
 
         return $summary;
+    }
+
+    protected function transactionColumnExists(string $column): bool
+    {
+        if (! array_key_exists($column, $this->transactionColumnAvailability)) {
+            $this->transactionColumnAvailability[$column] = Schema::hasColumn('transactions', $column);
+        }
+
+        return $this->transactionColumnAvailability[$column];
     }
 
     protected function formatOrderTypeStats($rows): array
@@ -937,10 +950,7 @@ class AdvancedSalesInsightsController extends Controller
     protected function salesWindowDays(array $filters): int
     {
         if (($filters['start_date'] ?? null) && ($filters['end_date'] ?? null)) {
-            $start = Carbon::parse($filters['start_date'], ReportTimezone::timezone());
-            $end = Carbon::parse($filters['end_date'], ReportTimezone::timezone());
-
-            return max(1, $start->diffInDays($end) + 1);
+            return ReportTimezone::displayDateRangeDays($filters['start_date'], $filters['end_date']);
         }
 
         $range = $this->applyTransactionFilters(Transaction::query(), $filters)
@@ -1203,9 +1213,19 @@ class AdvancedSalesInsightsController extends Controller
 
     protected function tenantInsightAllocations(array $filters): Collection
     {
+        $transactionColumns = $this->availableTransactionColumns([
+            'id',
+            'created_at',
+            'cashier_id',
+            'customer_id',
+            'payment_method',
+            'source_channel',
+            'order_type',
+        ]);
+
         $query = TransactionTenantAllocation::query()
             ->with([
-                'transaction:id,created_at,cashier_id,customer_id,payment_method,source_channel,order_type',
+                'transaction:'.implode(',', $transactionColumns),
                 'transaction.cashier:id,name',
             ])
             ->withSum('items as total_items', 'qty')
@@ -1234,6 +1254,14 @@ class AdvancedSalesInsightsController extends Controller
         $query = ReportTimezone::applySourceDateRange($query, 'created_at', $filters);
 
         return ReportTenantProfitMetrics::appendMetrics($query->get());
+    }
+
+    protected function availableTransactionColumns(array $columns): array
+    {
+        return collect($columns)
+            ->filter(fn (string $column) => $column === 'id' || Schema::hasColumn('transactions', $column))
+            ->values()
+            ->all();
     }
 
     protected function detailProfitExpression(): string

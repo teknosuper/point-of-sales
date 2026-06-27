@@ -192,6 +192,14 @@ class ReportTimezone
             ->setTimezone(self::sourceTimezone());
     }
 
+    public static function displayDateRangeDays(string $startDate, string $endDate): int
+    {
+        $start = Carbon::createFromFormat('Y-m-d', $startDate, self::timezone());
+        $end = Carbon::createFromFormat('Y-m-d', $endDate, self::timezone());
+
+        return max(1, $start->diffInDays($end) + 1);
+    }
+
     public static function formatDateTime($value, string $format = 'Y-m-d H:i:s'): ?string
     {
         if (! $value) {

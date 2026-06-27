@@ -880,7 +880,7 @@ export default function Index({
                                                 {formatCurrency(row.settlement_reference_total ?? row.base_sales_total)}
                                                 {row.is_tenant_request ? (
                                                     <div className="mt-1 text-[11px] font-normal text-slate-500 dark:text-slate-400">
-                                                        Dasar {formatCurrency(row.pricing_basis_total ?? row.base_sales_total)} • promo {formatCurrency(row.pricing_adjustment_total ?? 0)}
+                                                        Dasar {formatCurrency(row.pricing_basis_total ?? row.base_sales_total)} • markup owner {formatCurrency(row.pricing_adjustment_total ?? 0)}
                                                     </div>
                                                 ) : null}
                                             </td>
