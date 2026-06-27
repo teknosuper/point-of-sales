@@ -320,6 +320,9 @@ export default function Index({
     );
     const [prefersPrintOpenLabel, setPrefersPrintOpenLabel] = useState(false);
     const [mobileView, setMobileView] = useState("products"); // 'products' | 'cart' | 'payment'
+    const lastSyncedCartSignatureRef = useRef("");
+    const lastShownStockIssueSignatureRef = useRef("");
+    const cartReloadTimerRef = useRef(null);
     const [numpadOpen, setNumpadOpen] = useState(false);
     const [showShortcuts, setShowShortcuts] = useState(false);
     const [selectedBankAccount, setSelectedBankAccount] = useState(null);
@@ -686,6 +689,35 @@ export default function Index({
         setPricingPreview(initialPricingPreview);
     }, [initialPricingPreview]);
 
+    useEffect(
+        () => () => {
+            if (cartReloadTimerRef.current) {
+                window.clearTimeout(cartReloadTimerRef.current);
+                cartReloadTimerRef.current = null;
+            }
+        },
+        []
+    );
+
+    const scheduleCartReconcile = useCallback((delay = 180) => {
+        if (isOfflineMode) {
+            return;
+        }
+
+        if (cartReloadTimerRef.current) {
+            window.clearTimeout(cartReloadTimerRef.current);
+        }
+
+        cartReloadTimerRef.current = window.setTimeout(() => {
+            router.reload({
+                only: ["carts", "initialPricingPreview"],
+                preserveScroll: true,
+                preserveState: true,
+            });
+            cartReloadTimerRef.current = null;
+        }, delay);
+    }, [isOfflineMode]);
+
     useEffect(() => {
         setCatalogProducts(productOptions);
     }, [productOptions]);
@@ -695,23 +727,49 @@ export default function Index({
     }, [productMetaProp]);
 
     useEffect(() => {
+        if (pendingCartMutations > 0) {
+            return;
+        }
+
         if (carts.length > 0) {
-            setLocalCarts(
-                normalizeBuyGetRewardCarts(
-                    mergeRewardMetadataIntoCarts(carts, loadOfflineCart()),
-                    productsById
-                )
+            const nextCarts = normalizeBuyGetRewardCarts(
+                mergeRewardMetadataIntoCarts(carts, loadOfflineCart()),
+                productsById
             );
+            const nextSignature = nextCarts
+                .map((item) =>
+                    [
+                        String(item.id),
+                        Number(item.qty || 0),
+                        String(item.notes || ""),
+                        Number(item.product?.stock || 0),
+                        (item.modifiers || [])
+                            .map((modifier) =>
+                                `${modifier.id || modifier.name}:${Number(modifier.unit_price || 0)}`
+                            )
+                            .join(","),
+                    ].join("::")
+                )
+                .join("|");
+
+            if (lastSyncedCartSignatureRef.current === nextSignature) {
+                return;
+            }
+
+            lastSyncedCartSignatureRef.current = nextSignature;
+            setLocalCarts(nextCarts);
             return;
         }
 
         if (!isOfflineMode) {
+            lastSyncedCartSignatureRef.current = "";
             setLocalCarts([]);
         }
     }, [
         carts,
         isOfflineMode,
         normalizeBuyGetRewardCarts,
+        pendingCartMutations,
         productsById,
     ]);
 
@@ -1162,38 +1220,95 @@ export default function Index({
     );
     const hasCartStockIssue = cartStockIssues.length > 0;
     
-    // Auto-remove cart items with zero or insufficient stock
-    const stockAlertShownRef = useRef(false);
     useEffect(() => {
         if (!cartStockIssues || cartStockIssues.length === 0) {
-            stockAlertShownRef.current = false;
+            lastShownStockIssueSignatureRef.current = "";
             return;
         }
-        if (stockAlertShownRef.current) return;
-        stockAlertShownRef.current = true;
-        
-        // Show notification for stock issues
-        const zeroStockItems = cartStockIssues.filter(issue => issue.availableStock === 0);
-        const lowStockItems = cartStockIssues.filter(issue => issue.availableStock > 0);
-        
+
+        const issueSignature = cartStockIssues
+            .map((issue) =>
+                [
+                    String(issue.cartId),
+                    issue.productTitle,
+                    Number(issue.qty || 0),
+                    Number(issue.availableStock || 0),
+                ].join("::")
+            )
+            .join("|");
+
+        if (lastShownStockIssueSignatureRef.current === issueSignature) {
+            return;
+        }
+
+        lastShownStockIssueSignatureRef.current = issueSignature;
+
+        const zeroStockItems = cartStockIssues.filter(
+            (issue) => issue.availableStock === 0
+        );
+        const lowStockItems = cartStockIssues.filter(
+            (issue) => issue.availableStock > 0
+        );
+
         if (zeroStockItems.length > 0) {
-            const productNames = zeroStockItems.map(i => i.productTitle).join(', ');
+            const productNames = zeroStockItems.map((i) => i.productTitle).join(", ");
             toast.error(`${productNames} dihapus dari keranjang karena stok habis.`, {
                 duration: 5000,
+                id: "pos-cart-zero-stock",
             });
         }
-        
+
         if (lowStockItems.length > 0) {
             const firstIssue = lowStockItems[0];
             toast(`⚠️ ${firstIssue.productTitle}: qty ${firstIssue.qty} melebihi stok ${firstIssue.availableStock}.`, {
                 duration: 5000,
+                id: "pos-cart-low-stock",
             });
         }
-        
-        // Auto-remove items with zero stock
-        const zeroStockCartIds = new Set(zeroStockItems.map(i => i.cartId));
-        setLocalCarts(prev => prev.filter(item => !zeroStockCartIds.has(item.id)));
-    }, [cartStockIssues]);
+
+        const zeroStockCartIds = new Set(zeroStockItems.map((i) => i.cartId));
+
+        if (zeroStockCartIds.size > 0) {
+            setLocalCarts((prev) =>
+                prev.filter((item) => !zeroStockCartIds.has(item.id))
+            );
+
+            if (!isOfflineMode) {
+                const persistedZeroStockCartIds = zeroStockItems
+                    .map((item) => item.cartId)
+                    .filter(
+                        (cartId) =>
+                            cartId &&
+                            !String(cartId).startsWith("temp-") &&
+                            Number(cartId) > 0
+                    );
+
+                if (persistedZeroStockCartIds.length > 0) {
+                    setPendingCartMutations((count) =>
+                        count + persistedZeroStockCartIds.length
+                    );
+
+                    Promise.allSettled(
+                        persistedZeroStockCartIds.map((cartId) =>
+                            axios.delete(route("transactions.destroyCart", cartId))
+                        )
+                    )
+                        .then(() => {
+                            setCartSyncVersion((version) => version + 1);
+                            scheduleCartReconcile(180);
+                        })
+                        .finally(() => {
+                            setPendingCartMutations((count) =>
+                                Math.max(
+                                    0,
+                                    count - persistedZeroStockCartIds.length
+                                )
+                            );
+                        });
+                }
+            }
+        }
+    }, [cartStockIssues, isOfflineMode, scheduleCartReconcile]);
     const selectedDiningTable = useMemo(
         () =>
             diningTables.find(
@@ -1259,6 +1374,35 @@ export default function Index({
     );
     const isCartSyncing = pendingCartMutations > 0;
     const offlineQueueCount = offlineQueue.length;
+    const offlineModeReason = useMemo(() => {
+        if (!isBrowserOnline) {
+            return {
+                label: "Mode kasir offline aktif - internet perangkat terputus",
+                detail:
+                    "Perangkat kasir tidak terhubung ke internet. Hanya transaksi tunai yang bisa diproses lokal sampai koneksi kembali.",
+            };
+        }
+
+        if (!isServerReachable) {
+            return {
+                label: "Mode kasir offline aktif - server POS tidak merespons",
+                detail:
+                    "Internet perangkat tersedia, tetapi server POS sedang tidak merespons. Transaksi tunai tetap disimpan lokal dan akan sinkron saat server kembali normal.",
+            };
+        }
+
+        if (offlineQueueCount > 0) {
+            return {
+                label: "Menunggu sinkronisasi offline - transaksi lokal belum terkirim",
+                detail: `${offlineQueueCount} transaksi offline masih menunggu dikirim ke server.`,
+            };
+        }
+
+        return {
+            label: "Status offline",
+            detail: "Mode offline aktif sementara.",
+        };
+    }, [isBrowserOnline, isServerReachable, offlineQueueCount]);
     const offlinePendingItems = useMemo(
         () => offlineQueue.filter((item) => item.status !== "failed"),
         [offlineQueue]
@@ -3137,6 +3281,7 @@ export default function Index({
             }
 
             setCartSyncVersion((version) => version + 1);
+            scheduleCartReconcile(260);
         } catch (error) {
             if (error?.response) {
                 toast.error(
@@ -3154,6 +3299,7 @@ export default function Index({
         isOfflineMode,
         localCarts,
         productsById,
+        scheduleCartReconcile,
     ]);
 
     const handleAddAllMissingRewards = useCallback(async () => {
@@ -3551,6 +3697,7 @@ export default function Index({
                 }
 
                 setCartSyncVersion((version) => version + 1);
+                scheduleCartReconcile(220);
             })
             .catch((error) => {
                 if (!error?.response) {
@@ -3791,6 +3938,15 @@ export default function Index({
     }, [defaultPaymentGateway]);
 
     const validateTransactionSubmission = useCallback(() => {
+        if (pendingCartMutations > 0) {
+            toast("Perubahan keranjang masih disinkronkan. Coba lagi sesaat.", {
+                icon: "⏳",
+                duration: 2500,
+                id: "pos-cart-sync-pending",
+            });
+            return false;
+        }
+
         if (localCarts.length === 0) {
             toast.error("Keranjang masih kosong");
             return false;
@@ -3857,6 +4013,7 @@ export default function Index({
         payLater,
         payable,
         paymentMethod,
+        pendingCartMutations,
         redeemPointsInput,
         selectedBankAccount,
         hasCartStockIssue,
@@ -4689,6 +4846,7 @@ export default function Index({
                     syncRewardProducts(nextCarts);
                 }, 0);
                 setCartSyncVersion((version) => version + 1);
+                scheduleCartReconcile(220);
                 toast.success("Item dihapus dari keranjang");
             })
             .catch((error) => {
@@ -5033,17 +5191,11 @@ export default function Index({
                         <div className="flex flex-wrap items-center justify-between gap-2">
                             <div className="min-w-0 flex-1">
                                 <p className="font-semibold text-xs sm:text-sm">
-                                    {isOfflineMode
-                                        ? "Mode kasir offline aktif"
-                                        : "Menunggu sinkronisasi transaksi offline"}
+                                    {offlineModeReason.label}
                                 </p>
                                 {isOfflineBannerExpanded && (
                                 <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
-                                    {!isBrowserOnline
-                                        ? "Perangkat tidak terhubung ke internet. Hanya transaksi tunai yang bisa diproses lokal."
-                                        : !isServerReachable
-                                        ? "Internet ada, tetapi server sedang tidak merespons. Transaksi tunai tetap disimpan lokal."
-                                        : `${offlineQueueCount} transaksi offline menunggu sinkronisasi ke server.`}
+                                    {offlineModeReason.detail}
                                 </p>
                                 )}
                                 {isOfflineBannerExpanded && (

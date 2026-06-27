@@ -194,6 +194,31 @@ const resolveModifierMarkupPreview = (basePrice, rules = []) => {
     };
 };
 
+function ModifierGroupNameInput({ value, onCommit }) {
+    const [draftValue, setDraftValue] = useState(value || "");
+
+    useEffect(() => {
+        setDraftValue(value || "");
+    }, [value]);
+
+    return (
+        <Input
+            type="text"
+            label="Kategori"
+            value={draftValue}
+            onChange={(event) => setDraftValue(event.target.value)}
+            onBlur={(event) => {
+                const nextValue = event.target.value;
+
+                if (nextValue !== (value || "")) {
+                    onCommit(nextValue);
+                }
+            }}
+            placeholder="Contoh: Kuah"
+        />
+    );
+}
+
 export default function Edit({
     categories,
     product,
@@ -1769,14 +1794,15 @@ export default function Edit({
                                             <>
                                             <div className="grid grid-cols-1 gap-3 lg:grid-cols-12">
                                             <div className="lg:col-span-3">
-                                                <Input
-                                                    type="text"
-                                                    label="Kategori"
+                                                <ModifierGroupNameInput
                                                     value={group.groupName}
-                                                    onChange={(e) =>
-                                                        updateModifierGroupMeta(group.groupName, "group_name", e.target.value)
+                                                    onCommit={(nextValue) =>
+                                                        updateModifierGroupMeta(
+                                                            group.groupName,
+                                                            "group_name",
+                                                            nextValue
+                                                        )
                                                     }
-                                                    placeholder="Contoh: Kuah"
                                                 />
                                             </div>
                                             <div className="lg:col-span-2">
