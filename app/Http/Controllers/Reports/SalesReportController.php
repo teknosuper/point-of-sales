@@ -214,7 +214,6 @@ class SalesReportController extends Controller
         $tenantSummary['management_fee_total'] = (int) round($tenantMetricAllocations->sum('management_fee_total'));
         $tenantSummary['tenant_payout_total'] = (int) round($tenantMetricAllocations->sum('tenant_payout_total'));
         $dailyRecap = $this->buildAllocationDailyRecap($tenantMetricAllocations);
-        $targets = $this->targetSummary($summary, $outletId, $filters);
 
         // Build analytics - filter by tenant_outlet_id if owner selected a specific tenant
         if (! $isTenantOutlet && ($filters['tenant_outlet_id'] ?? null)) {
@@ -247,6 +246,16 @@ class SalesReportController extends Controller
                 'payment_method_breakdown' => $this->analyticsService->buildPaymentMethodBreakdown($aggregateQuery),
             ];
         }
+        $targets = $this->targetSummary(
+            $summary,
+            $outletId,
+            $filters,
+            $this->buildOwnerTargetBreakdownRows(
+                $transactionMetricRows,
+                $transactionIds,
+                $filters['tenant_outlet_id'] ?? null
+            )
+        );
 
         return Inertia::render('Dashboard/Reports/Sales', [
             'transactions' => $transactions,
@@ -361,8 +370,6 @@ class SalesReportController extends Controller
             ]]);
         }
 
-        $targets = $this->targetSummary($summary, $tenantOutletId, $filters);
-
         $tenantTransactionIds = $activeTenantMetricAllocations
             ->pluck('transaction_id')
             ->filter()
@@ -397,6 +404,12 @@ class SalesReportController extends Controller
             'category_breakdown' => $categoryBreakdown,
             'payment_method_breakdown' => $paymentMethodBreakdown,
         ];
+        $targets = $this->targetSummary(
+            $summary,
+            $tenantOutletId,
+            $filters,
+            $this->buildTenantTargetBreakdownRows($activeTenantMetricAllocations)
+        );
 
         return Inertia::render('Dashboard/Reports/Sales', [
             'transactions' => $transactions,
@@ -613,9 +626,68 @@ class SalesReportController extends Controller
         ];
     }
 
-    protected function targetSummary(array $summary, ?int $outletId, array $filters): array
+    protected function targetSummary(array $summary, ?int $outletId, array $filters, array $dailyMetrics = []): array
     {
-        return ReportTargetSummary::build($summary, $outletId, $filters);
+        return ReportTargetSummary::build($summary, $outletId, $filters, $dailyMetrics);
+    }
+
+    protected function buildOwnerTargetBreakdownRows(Collection $transactionRows, Collection $transactionIds, mixed $tenantOutletId = null): array
+    {
+        if ($transactionRows->isEmpty() || $transactionIds->isEmpty()) {
+            return [];
+        }
+
+        $itemsByTransaction = TransactionDetail::query()
+            ->selectRaw('transaction_id, COALESCE(SUM(qty), 0) as total_items')
+            ->whereIn('transaction_id', $transactionIds)
+            ->when($tenantOutletId, fn ($query, $tenantId) => $query->where('tenant_outlet_id', $tenantId))
+            ->groupBy('transaction_id')
+            ->pluck('total_items', 'transaction_id');
+
+        $profitByTransaction = Profit::query()
+            ->selectRaw('transaction_id, COALESCE(SUM(total), 0) as total_profit')
+            ->whereIn('transaction_id', $transactionIds)
+            ->groupBy('transaction_id')
+            ->pluck('total_profit', 'transaction_id');
+
+        return $transactionRows
+            ->groupBy(fn ($row) => ReportTimezone::sourceDateKey(
+                method_exists($row, 'getRawOriginal') ? $row->getRawOriginal('created_at') : $row->created_at
+            ))
+            ->map(function (Collection $rows, $date) use ($itemsByTransaction, $profitByTransaction) {
+                return [
+                    'date' => $date,
+                    'revenue_total' => (int) $rows->sum(fn ($row) => (int) data_get($row, 'net_grand_total', $row->grand_total ?? 0)),
+                    'profit_total' => (int) $rows->sum(fn ($row) => (int) ($profitByTransaction->get($row->id) ?? 0)),
+                    'items_sold' => (int) $rows->sum(fn ($row) => (int) ($itemsByTransaction->get($row->id) ?? 0)),
+                ];
+            })
+            ->sortKeys()
+            ->values()
+            ->all();
+    }
+
+    protected function buildTenantTargetBreakdownRows(Collection $allocations): array
+    {
+        if ($allocations->isEmpty()) {
+            return [];
+        }
+
+        return $allocations
+            ->groupBy(fn ($allocation) => ReportTimezone::sourceDateKey(
+                $allocation->transaction?->getRawOriginal('created_at') ?? $allocation->transaction?->created_at
+            ))
+            ->map(function (Collection $rows, $date) {
+                return [
+                    'date' => $date,
+                    'revenue_total' => (int) $rows->sum('grand_total'),
+                    'profit_total' => (int) $rows->sum('profit_total'),
+                    'items_sold' => (int) $rows->sum('total_items'),
+                ];
+            })
+            ->sortKeys()
+            ->values()
+            ->all();
     }
 
     protected function resolvePeriodLabel(array $filters): string

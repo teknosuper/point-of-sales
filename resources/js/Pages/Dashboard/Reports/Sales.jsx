@@ -113,6 +113,8 @@ const Sales = ({
         resolveReportTimezone(reportMeta);
     const [productDetailModal, setProductDetailModal] = useState(null);
     const [showFilters, setShowFilters] = useState(false);
+    const [showTargetBreakdownModal, setShowTargetBreakdownModal] =
+        useState(false);
     const [filterData, setFilterData] = useState({
         ...defaultFilterState,
         start_date: castFilterString(filters?.start_date),
@@ -502,6 +504,83 @@ const Sales = ({
                 : "Butuh periode aktif untuk hitung kebutuhan per hari.",
         },
     ];
+    const targetMetricCards = [
+        {
+            key: "sales",
+            title: "Target Omzet",
+            actual: targets?.sales_actual ?? 0,
+            target: targets?.sales_target ?? 0,
+            progress: targets?.sales_progress_percent,
+            gap: targets?.sales_gap ?? 0,
+            tone: targets?.sales_status_tone ?? "slate",
+            status: targets?.sales_status_label ?? "Belum ada data",
+            detail:
+                (targets?.sales_monthly_target ?? 0) > 0 &&
+                targets?.has_bounded_period
+                    ? `Expected ${formatCurrency(
+                          targets?.sales_expected_to_date ?? 0
+                      )} • Butuh ${formatCurrency(
+                          targets?.sales_required_daily ?? 0
+                      )}/hari`
+                    : "Atur target omzet dan pilih rentang tanggal untuk evaluasi detail.",
+            formatter: formatCurrency,
+        },
+        {
+            key: "profit",
+            title: "Target Profit",
+            actual: targets?.profit_actual ?? 0,
+            target: targets?.profit_target ?? 0,
+            progress: targets?.profit_progress_percent,
+            gap: targets?.profit_gap ?? 0,
+            tone: targets?.profit_status_tone ?? "slate",
+            status: targets?.profit_status_label ?? "Belum ada data",
+            detail:
+                (targets?.profit_monthly_target ?? 0) > 0 &&
+                targets?.has_bounded_period
+                    ? `Expected ${formatCurrency(
+                          targets?.profit_expected_to_date ?? 0
+                      )} • Butuh ${formatCurrency(
+                          targets?.profit_required_daily ?? 0
+                      )}/hari`
+                    : "Atur target profit dan pilih rentang tanggal untuk evaluasi detail.",
+            formatter: formatCurrency,
+        },
+        {
+            key: "items",
+            title: "Target Item Terjual",
+            actual: targets?.items_actual ?? 0,
+            target: targets?.items_target ?? 0,
+            progress: targets?.items_progress_percent,
+            gap: targets?.items_gap ?? 0,
+            tone: targets?.items_status_tone ?? "slate",
+            status: targets?.items_status_label ?? "Belum ada data",
+            detail:
+                (targets?.items_daily_target ?? 0) > 0 &&
+                targets?.has_bounded_period
+                    ? `Target ${Number(
+                          targets?.items_daily_target ?? 0
+                      ).toLocaleString("id-ID")}/hari • Butuh ${Number(
+                          targets?.items_required_daily ?? 0
+                      ).toLocaleString("id-ID")}/hari`
+                    : "Atur target item harian di settings agar evaluasi item muncul.",
+            formatter: (value) => Number(value || 0).toLocaleString("id-ID"),
+        },
+    ];
+    const targetBreakdownRows = Array.isArray(targets?.breakdown)
+        ? targets.breakdown
+        : [];
+    const unmetTargetDays = targetBreakdownRows.filter(
+        (row) =>
+            row.sales_met === false ||
+            row.profit_met === false ||
+            row.items_met === false
+    ).length;
+    const fullyMetTargetDays = targetBreakdownRows.filter(
+        (row) =>
+            row.sales_met === true &&
+            row.profit_met === true &&
+            row.items_met === true
+    ).length;
 
     return (
         <>
@@ -754,12 +833,25 @@ const Sales = ({
                                 Pencapaian Target
                             </h2>
                             <p className="text-sm text-slate-500 dark:text-slate-400">
-                                Membandingkan hasil periode aktif dengan target bulanan outlet.
+                                Membandingkan hasil periode aktif dengan target omzet, profit, dan item terjual.
                             </p>
                         </div>
-                        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                            {targets?.period_label || "Periode berjalan"}
-                        </span>
+                        <div className="flex flex-col items-end gap-2">
+                            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                                {targets?.period_label || "Periode berjalan"}
+                            </span>
+                            {targets?.has_bounded_period ? (
+                                <button
+                                    type="button"
+                                    onClick={() =>
+                                        setShowTargetBreakdownModal(true)
+                                    }
+                                    className="inline-flex items-center gap-2 rounded-xl border border-primary-200 bg-primary-50 px-3 py-2 text-xs font-semibold text-primary-700 transition hover:bg-primary-100 dark:border-primary-900/40 dark:bg-primary-950/30 dark:text-primary-300"
+                                >
+                                    Lihat breakdown target
+                                </button>
+                            ) : null}
+                        </div>
                     </div>
 
                     <div className="mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -909,125 +1001,104 @@ const Sales = ({
                         </div>
                     </div>
 
-                    <div className="grid gap-4 lg:grid-cols-2">
-                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/30">
-                            <div className="flex items-center justify-between gap-3">
-                                <div>
-                                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                                        Target Omzet
-                                    </p>
-                                    <p className="mt-1 text-xl font-bold text-slate-900 dark:text-white">
-                                        {formatCurrency(targets?.sales_actual ?? 0)}
-                                    </p>
+                    <div className="grid gap-4 lg:grid-cols-3">
+                        {targetMetricCards.map((metric) => (
+                            <div
+                                key={metric.key}
+                                className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/30"
+                            >
+                                <div className="flex items-center justify-between gap-3">
+                                    <div>
+                                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                            {metric.title}
+                                        </p>
+                                        <p className="mt-1 text-xl font-bold text-slate-900 dark:text-white">
+                                            {metric.formatter(metric.actual)}
+                                        </p>
+                                    </div>
+                                    <span
+                                        className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                                            toneClasses[metric.tone] ||
+                                            toneClasses.slate
+                                        }`}
+                                    >
+                                        {metric.target > 0
+                                            ? `${metric.progress ?? 0}%`
+                                            : "Belum diatur"}
+                                    </span>
                                 </div>
-                                <span
-                                    className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                                        targets?.sales_met
-                                            ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300"
-                                            : "bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300"
-                                    }`}
-                                >
-                                    {targets?.sales_target > 0
-                                        ? `${targets?.sales_progress_percent ?? 0}%`
-                                        : "Belum diatur"}
-                                </span>
-                            </div>
-                            <div className="mt-4 h-3 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800">
-                                <div
-                                    className="h-full rounded-full bg-primary-500"
-                                    style={{
-                                        width: progressWidth(
-                                            targets?.sales_progress_percent
-                                        ),
-                                    }}
-                                />
-                            </div>
-                            <div className="mt-3 flex items-center justify-between text-sm">
-                                <span className="text-slate-500 dark:text-slate-400">
-                                    Target {formatCurrency(targets?.sales_target ?? 0)}
-                                </span>
-                                <span
-                                    className={`font-semibold ${
-                                        Number(targets?.sales_gap ?? 0) >= 0
-                                            ? "text-emerald-600 dark:text-emerald-400"
-                                            : "text-rose-600 dark:text-rose-400"
-                                    }`}
-                                >
-                                    {Number(targets?.sales_gap ?? 0) >= 0
-                                        ? "Lebih "
-                                        : "Kurang "}
-                                    {formatCurrency(
-                                        Math.abs(Number(targets?.sales_gap ?? 0))
-                                    )}
-                                </span>
-                            </div>
-                            {targets?.has_bounded_period && (targets?.sales_monthly_target ?? 0) > 0 ? (
+                                <div className="mt-4 h-3 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800">
+                                    <div
+                                        className={`h-full rounded-full ${
+                                            metric.key === "profit"
+                                                ? "bg-emerald-500"
+                                                : metric.key === "items"
+                                                  ? "bg-amber-500"
+                                                  : "bg-primary-500"
+                                        }`}
+                                        style={{
+                                            width: progressWidth(
+                                                metric.progress
+                                            ),
+                                        }}
+                                    />
+                                </div>
+                                <div className="mt-3 flex items-center justify-between text-sm">
+                                    <span className="text-slate-500 dark:text-slate-400">
+                                        Target {metric.formatter(metric.target)}
+                                    </span>
+                                    <span
+                                        className={`font-semibold ${
+                                            Number(metric.gap ?? 0) >= 0
+                                                ? "text-emerald-600 dark:text-emerald-400"
+                                                : "text-rose-600 dark:text-rose-400"
+                                        }`}
+                                    >
+                                        {Number(metric.gap ?? 0) >= 0
+                                            ? "Lebih "
+                                            : "Kurang "}
+                                        {metric.formatter(
+                                            Math.abs(Number(metric.gap ?? 0))
+                                        )}
+                                    </span>
+                                </div>
                                 <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                                    Expected sampai hari ini {formatCurrency(targets?.sales_expected_to_date ?? 0)} •
-                                    Tersisa {targets?.remaining_days ?? 0} hari
+                                    {metric.status} • {metric.detail}
                                 </div>
-                            ) : null}
-                        </div>
-
-                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/30">
-                            <div className="flex items-center justify-between gap-3">
-                                <div>
-                                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                                        Target Profit
-                                    </p>
-                                    <p className="mt-1 text-xl font-bold text-slate-900 dark:text-white">
-                                        {formatCurrency(targets?.profit_actual ?? 0)}
-                                    </p>
-                                </div>
-                                <span
-                                    className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                                        targets?.profit_met
-                                            ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300"
-                                            : "bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300"
-                                    }`}
-                                >
-                                    {targets?.profit_target > 0
-                                        ? `${targets?.profit_progress_percent ?? 0}%`
-                                        : "Belum diatur"}
-                                </span>
                             </div>
-                            <div className="mt-4 h-3 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800">
-                                <div
-                                    className="h-full rounded-full bg-emerald-500"
-                                    style={{
-                                        width: progressWidth(
-                                            targets?.profit_progress_percent
-                                        ),
-                                    }}
-                                />
-                            </div>
-                            <div className="mt-3 flex items-center justify-between text-sm">
-                                <span className="text-slate-500 dark:text-slate-400">
-                                    Target {formatCurrency(targets?.profit_target ?? 0)}
-                                </span>
-                                <span
-                                    className={`font-semibold ${
-                                        Number(targets?.profit_gap ?? 0) >= 0
-                                            ? "text-emerald-600 dark:text-emerald-400"
-                                            : "text-rose-600 dark:text-rose-400"
-                                    }`}
-                                >
-                                    {Number(targets?.profit_gap ?? 0) >= 0
-                                        ? "Lebih "
-                                        : "Kurang "}
-                                    {formatCurrency(
-                                        Math.abs(Number(targets?.profit_gap ?? 0))
-                                    )}
-                                </span>
-                            </div>
-                            {targets?.has_bounded_period && (targets?.profit_monthly_target ?? 0) > 0 ? (
-                                <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                                    Expected sampai hari ini {formatCurrency(targets?.profit_expected_to_date ?? 0)} •
-                                    Tersisa {targets?.remaining_days ?? 0} hari
-                                </div>
-                            ) : null}
-                        </div>
+                        ))}
                     </div>
+
+                    {targets?.has_bounded_period ? (
+                        <div className="mt-4 rounded-2xl border border-primary-200 bg-gradient-to-r from-primary-50 via-white to-amber-50 p-4 dark:border-primary-900/40 dark:from-primary-950/20 dark:via-slate-900 dark:to-amber-950/10">
+                            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                                <div>
+                                    <p className="text-xs font-semibold uppercase tracking-wide text-primary-700 dark:text-primary-300">
+                                        Breakdown Target Harian
+                                    </p>
+                                    <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+                                        {fullyMetTargetDays.toLocaleString(
+                                            "id-ID"
+                                        )}{" "}
+                                        hari sudah memenuhi semua target,{" "}
+                                        {unmetTargetDays.toLocaleString(
+                                            "id-ID"
+                                        )}{" "}
+                                        hari masih perlu dikejar dalam periode ini.
+                                    </p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() =>
+                                        setShowTargetBreakdownModal(true)
+                                    }
+                                    className="inline-flex items-center justify-center rounded-xl bg-primary-600 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-primary-500/20 transition hover:bg-primary-700"
+                                >
+                                    Buka Breakdown Target
+                                </button>
+                            </div>
+                        </div>
+                    ) : null}
                 </div>
 
                 {/* Analytics Charts Section */}
@@ -1272,6 +1343,203 @@ const Sales = ({
                 {paginationLinks.length > 3 && (
                     <Pagination links={paginationLinks} />
                 )}
+
+                {showTargetBreakdownModal ? (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+                        <div className="w-full max-w-6xl overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-900">
+                            <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-5 dark:border-slate-800">
+                                <div>
+                                    <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
+                                        Breakdown Target per Tanggal
+                                    </h3>
+                                    <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                        {targets?.period_label ||
+                                            "Periode aktif"}{" "}
+                                        • lihat tanggal yang sudah memenuhi target dan yang masih tertinggal.
+                                    </p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() =>
+                                        setShowTargetBreakdownModal(false)
+                                    }
+                                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300 dark:hover:bg-slate-800"
+                                >
+                                    Tutup
+                                </button>
+                            </div>
+
+                            <div className="max-h-[75vh] overflow-auto p-6">
+                                <div className="mb-4 grid gap-3 md:grid-cols-3">
+                                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/30">
+                                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                            Hari memenuhi omzet
+                                        </p>
+                                        <p className="mt-2 text-xl font-bold text-slate-900 dark:text-white">
+                                            {targetBreakdownRows
+                                                .filter((row) => row.sales_met)
+                                                .length.toLocaleString("id-ID")}
+                                        </p>
+                                    </div>
+                                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/30">
+                                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                            Hari memenuhi profit
+                                        </p>
+                                        <p className="mt-2 text-xl font-bold text-slate-900 dark:text-white">
+                                            {targetBreakdownRows
+                                                .filter((row) => row.profit_met)
+                                                .length.toLocaleString("id-ID")}
+                                        </p>
+                                    </div>
+                                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/30">
+                                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                            Hari memenuhi item
+                                        </p>
+                                        <p className="mt-2 text-xl font-bold text-slate-900 dark:text-white">
+                                            {targetBreakdownRows
+                                                .filter((row) => row.items_met)
+                                                .length.toLocaleString("id-ID")}
+                                        </p>
+                                    </div>
+                                </div>
+
+                                <div className="overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800">
+                                    <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800">
+                                        <thead className="bg-slate-50 dark:bg-slate-950/40">
+                                            <tr>
+                                                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                                    Tanggal
+                                                </th>
+                                                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                                    Omzet
+                                                </th>
+                                                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                                    Profit
+                                                </th>
+                                                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                                    Item
+                                                </th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-200 bg-white dark:divide-slate-800 dark:bg-slate-900">
+                                            {targetBreakdownRows.map((row) => (
+                                                <tr key={row.date}>
+                                                    <td className="px-4 py-3 align-top text-sm font-medium text-slate-900 dark:text-white">
+                                                        {row.label}
+                                                    </td>
+                                                    <td className="px-4 py-3 align-top text-sm text-slate-600 dark:text-slate-300">
+                                                        <div className="font-semibold text-slate-900 dark:text-white">
+                                                            {formatCurrency(
+                                                                row.sales_actual
+                                                            )}
+                                                        </div>
+                                                        <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                            Target{" "}
+                                                            {formatCurrency(
+                                                                row.sales_target
+                                                            )}{" "}
+                                                            •{" "}
+                                                            {row.sales_progress_percent ??
+                                                                0}
+                                                            %
+                                                        </div>
+                                                        <span
+                                                            className={`mt-2 inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                                                                row.sales_met
+                                                                    ? toneClasses.emerald
+                                                                    : toneClasses.rose
+                                                            }`}
+                                                        >
+                                                            {row.sales_met
+                                                                ? "Tercapai"
+                                                                : "Belum"}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-4 py-3 align-top text-sm text-slate-600 dark:text-slate-300">
+                                                        <div className="font-semibold text-slate-900 dark:text-white">
+                                                            {formatCurrency(
+                                                                row.profit_actual
+                                                            )}
+                                                        </div>
+                                                        <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                            Target{" "}
+                                                            {formatCurrency(
+                                                                row.profit_target
+                                                            )}{" "}
+                                                            •{" "}
+                                                            {row.profit_progress_percent ??
+                                                                0}
+                                                            %
+                                                        </div>
+                                                        <span
+                                                            className={`mt-2 inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                                                                row.profit_met
+                                                                    ? toneClasses.emerald
+                                                                    : toneClasses.rose
+                                                            }`}
+                                                        >
+                                                            {row.profit_met
+                                                                ? "Tercapai"
+                                                                : "Belum"}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-4 py-3 align-top text-sm text-slate-600 dark:text-slate-300">
+                                                        <div className="font-semibold text-slate-900 dark:text-white">
+                                                            {Number(
+                                                                row.items_actual ||
+                                                                    0
+                                                            ).toLocaleString(
+                                                                "id-ID"
+                                                            )}{" "}
+                                                            item
+                                                        </div>
+                                                        <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                            Target{" "}
+                                                            {Number(
+                                                                row.items_target ||
+                                                                    0
+                                                            ).toLocaleString(
+                                                                "id-ID"
+                                                            )}{" "}
+                                                            •{" "}
+                                                            {row.items_progress_percent ??
+                                                                0}
+                                                            %
+                                                        </div>
+                                                        <span
+                                                            className={`mt-2 inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                                                                row.items_met
+                                                                    ? toneClasses.emerald
+                                                                    : toneClasses.rose
+                                                            }`}
+                                                        >
+                                                            {row.items_met
+                                                                ? "Tercapai"
+                                                                : "Belum"}
+                                                        </span>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                            {targetBreakdownRows.length ===
+                                            0 ? (
+                                                <tr>
+                                                    <td
+                                                        colSpan={4}
+                                                        className="px-4 py-8 text-center text-sm text-slate-500 dark:text-slate-400"
+                                                    >
+                                                        Breakdown target belum
+                                                        tersedia. Pastikan filter
+                                                        tanggal sudah lengkap.
+                                                    </td>
+                                                </tr>
+                                            ) : null}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                ) : null}
 
             </div>
         </>
