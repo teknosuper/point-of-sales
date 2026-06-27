@@ -2020,7 +2020,7 @@ export default function Menu({
                         </div>
 
                         <div className="min-h-0 flex-1 overflow-y-auto">
-                            <div className="p-2.5 pb-28 lg:p-3 lg:pb-3">
+                            <div className="p-2.5 pb-40 lg:p-3 lg:pb-3">
                                 {normalizedCarts.length > 0 ? (
                                     <div className="space-y-2 pr-1">
                                         {normalizedCarts.map((item) => {
@@ -2079,41 +2079,18 @@ export default function Menu({
                             </div>
                         </div>
 
-                        <div className="sticky bottom-0 z-20 flex-shrink-0 border-t border-slate-200 bg-slate-50/95 p-3 pb-[calc(env(safe-area-inset-bottom,0px)+0.75rem)] backdrop-blur">
+                        <div className="hidden flex-shrink-0 border-t border-slate-200 bg-slate-50 p-3 lg:block">
                             <div className="space-y-3">
-                                <div className="grid gap-3 sm:grid-cols-2">
-                                    <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left">
-                                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                            Pelanggan
-                                        </p>
-                                        <p className="truncate text-sm font-semibold text-slate-800">
-                                            {customer?.name || "Pelanggan"}
-                                        </p>
-                                        <p className="mt-0.5 text-[11px] text-slate-500">
-                                            {customer?.no_telp || "-"}
-                                        </p>
-                                        {customer?.loyalty_points ? (
-                                            <p className="mt-1 text-[11px] font-medium text-emerald-600">
-                                                {customer.loyalty_points} poin loyalti
-                                            </p>
-                                        ) : null}
-                                    </div>
-                                    <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left">
-                                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                            Akun
-                                        </p>
-                                        <p className="truncate text-sm font-semibold text-slate-800">
-                                            {customer?.email || "Belum ada email"}
-                                        </p>
-                                        <p className="mt-0.5 text-[11px] text-slate-500">
-                                            {customer?.member_code
-                                                ? `Kode member ${customer.member_code}`
-                                                : "Akun self-order aktif"}
-                                        </p>
-                                        <p className="mt-1 text-[11px] text-slate-500">
-                                            Tier {customer?.loyalty_tier || "regular"}
-                                        </p>
-                                    </div>
+                                <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left">
+                                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                        Pelanggan
+                                    </p>
+                                    <p className="truncate text-sm font-semibold text-slate-800">
+                                        {customer?.name || "Pelanggan"}
+                                    </p>
+                                    <p className="mt-0.5 text-[11px] text-slate-500">
+                                        {customer?.no_telp || "-"}
+                                    </p>
                                 </div>
                                 <button
                                     type="button"
@@ -2122,6 +2099,38 @@ export default function Menu({
                                         !normalizedCarts.length
                                             ? "cursor-not-allowed bg-slate-200 text-slate-400"
                                             : "bg-gradient-to-r from-primary-500 to-primary-600 text-white shadow-lg shadow-primary-500/30 hover:from-primary-600 hover:to-primary-700"
+                                    }`}
+                                >
+                                    <IconCash size={16} />
+                                    <span>
+                                        {!normalizedCarts.length
+                                            ? "Pilih menu dulu"
+                                            : "Lanjut ke info pembayaran"}
+                                    </span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-slate-50/95 p-3 pb-[calc(env(safe-area-inset-bottom,0px)+0.75rem)] backdrop-blur lg:hidden">
+                            <div className="mx-auto w-full max-w-5xl space-y-3">
+                                <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left">
+                                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                        Pelanggan
+                                    </p>
+                                    <p className="truncate text-sm font-semibold text-slate-800">
+                                        {customer?.name || "Pelanggan"}
+                                    </p>
+                                    <p className="mt-0.5 text-[11px] text-slate-500">
+                                        {customer?.no_telp || "-"}
+                                    </p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={openPaymentInfoTab}
+                                    className={`flex h-11 w-full items-center justify-center gap-2 rounded-xl text-sm font-semibold transition-all ${
+                                        !normalizedCarts.length
+                                            ? "cursor-not-allowed bg-slate-200 text-slate-400"
+                                            : "bg-gradient-to-r from-primary-500 to-primary-600 text-white shadow-lg shadow-primary-500/30"
                                     }`}
                                 >
                                     <IconCash size={16} />
@@ -2149,7 +2158,7 @@ export default function Menu({
                             </p>
                         </div>
 
-                        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 pb-32">
+                        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 pb-36 lg:pb-4">
                             <div className="rounded-3xl border border-sky-200 bg-gradient-to-br from-sky-50 via-white to-slate-50 p-4">
                                 <div className="flex items-start justify-between gap-3">
                                     <div>
@@ -2478,7 +2487,7 @@ export default function Menu({
                             </div>
                         </div>
 
-                        <div className="sticky bottom-0 z-20 flex-shrink-0 border-t border-slate-200 bg-slate-50/95 p-3 pb-[calc(env(safe-area-inset-bottom,0px)+0.75rem)] backdrop-blur">
+                        <div className="hidden flex-shrink-0 border-t border-slate-200 bg-slate-50 p-3 lg:block">
                             <button
                                 type="button"
                                 onClick={submitOrder}
@@ -2504,6 +2513,36 @@ export default function Menu({
                                           : "Kirim Order ke Kasir"}
                                 </span>
                             </button>
+                        </div>
+
+                        <div className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-slate-50/95 p-3 pb-[calc(env(safe-area-inset-bottom,0px)+0.75rem)] backdrop-blur lg:hidden">
+                            <div className="mx-auto w-full max-w-5xl">
+                                <button
+                                    type="button"
+                                    onClick={submitOrder}
+                                    disabled={
+                                        orderForm.processing ||
+                                        normalizedCarts.length === 0
+                                    }
+                                    className={`flex h-11 w-full items-center justify-center gap-2 rounded-xl text-sm font-semibold transition-all ${
+                                        orderForm.processing ||
+                                        normalizedCarts.length === 0
+                                            ? "cursor-not-allowed bg-slate-200 text-slate-400"
+                                            : "bg-gradient-to-r from-primary-500 to-primary-600 text-white shadow-lg shadow-primary-500/30"
+                                    }`}
+                                >
+                                    <IconReceipt size={16} />
+                                    <span>
+                                        {orderForm.processing
+                                            ? editableOrder?.access_token
+                                              ? "Menyimpan perubahan..."
+                                              : "Mengirim order..."
+                                            : editableOrder?.access_token
+                                              ? "Simpan Perubahan Pesanan"
+                                              : "Kirim Order ke Kasir"}
+                                    </span>
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
