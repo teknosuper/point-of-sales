@@ -415,12 +415,21 @@ export default function ProductGrid({
     groupByCategoryWhenTenantFiltered = false,
     initialViewMode = "list",
     persistViewMode = true,
+    embedHeaderInScroll = false,
+    scrollIntro = null,
 }) {
     const [searchDraft, setSearchDraft] = useState(searchQuery || "");
     const [selectedTenantOutletId, setSelectedTenantOutletId] = useState(null);
     const [isFilterPanelExpanded, setIsFilterPanelExpanded] = useState(() => {
         if (typeof window === "undefined") {
-            return true;
+            return !compactHeaderLayout;
+        }
+
+        const coarsePointer = window.matchMedia?.("(pointer: coarse)")?.matches;
+        const mobileWidth = (window.innerWidth || 0) < 768;
+
+        if (compactHeaderLayout && coarsePointer && mobileWidth) {
+            return false;
         }
 
         const savedValue = window.localStorage.getItem(
@@ -462,7 +471,11 @@ export default function ProductGrid({
         );
     });
     const [isCompactLandscape, setIsCompactLandscape] = useState(false);
+    const [isMobileFilterSheetOpen, setIsMobileFilterSheetOpen] = useState(false);
+    const [showInlineFloatingTenantBar, setShowInlineFloatingTenantBar] =
+        useState(false);
     const loadMoreSentinelRef = useRef(null);
+    const scrollContainerRef = useRef(null);
     const lastEmittedSearchRef = useRef(searchQuery || "");
     const sortOptions = [
         { value: "alphabetical", label: "Urutan A-Z" },
@@ -750,6 +763,33 @@ export default function ProductGrid({
         };
     }, [hasMoreProducts, isLoadingMoreProducts, onLoadMoreProducts, sortedProducts.length]);
 
+    useEffect(() => {
+        const container = scrollContainerRef.current;
+        if (!container || typeof window === "undefined") {
+            return;
+        }
+
+        const syncStickyTenantBar = () => {
+            setShowInlineFloatingTenantBar(
+                Boolean(embedHeaderInScroll) &&
+                    Boolean(compactHeaderLayout) &&
+                    tenantTabs.length > 0 &&
+                    container.scrollTop > 24
+            );
+        };
+
+        syncStickyTenantBar();
+        container.addEventListener("scroll", syncStickyTenantBar, {
+            passive: true,
+        });
+        window.addEventListener("resize", syncStickyTenantBar);
+
+        return () => {
+            container.removeEventListener("scroll", syncStickyTenantBar);
+            window.removeEventListener("resize", syncStickyTenantBar);
+        };
+    }, [compactHeaderLayout, embedHeaderInScroll, tenantTabs.length]);
+
     return (
         <div className="flex h-full min-h-0 flex-col">
             <style>{`
@@ -758,7 +798,14 @@ export default function ProductGrid({
                     100% { transform: translateX(320%); }
                 }
             `}</style>
+            {isMobileFilterSheetOpen && (
+                <div
+                    className="fixed inset-0 z-40 bg-slate-950/45 backdrop-blur-sm md:hidden"
+                    onClick={() => setIsMobileFilterSheetOpen(false)}
+                />
+            )}
             {/* Search Bar */}
+            {!embedHeaderInScroll && (
             <div
                 className={`border-b border-slate-200 dark:border-slate-800 ${
                     isCompactLandscape ? "p-3" : "p-4"
@@ -820,17 +867,31 @@ export default function ProductGrid({
                             </button>
                         </div>
                     )}
+                    {compactHeaderLayout && (
+                        <div className="md:hidden">
+                            <button
+                                type="button"
+                                onClick={() => setIsMobileFilterSheetOpen(true)}
+                                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 shadow-sm transition hover:bg-slate-50"
+                            >
+                                <IconAdjustmentsHorizontal size={15} />
+                                Filter
+                            </button>
+                        </div>
+                    )}
                 </div>
             </div>
+            )}
 
+            {!embedHeaderInScroll && (
             <div className="border-b border-slate-200 dark:border-slate-800">
                 <div
                     className={`flex flex-wrap items-center justify-between gap-3 px-4 ${
-                        isCompactLandscape ? "py-2.5" : "py-3"
+                        isCompactLandscape ? "py-2.5" : compactHeaderLayout ? "py-2.5" : "py-3"
                     }`}
                 >
                     <div className="min-w-0">
-                        {showFilterSummary && (
+                        {showFilterSummary && !compactHeaderLayout && (
                             <>
                                 <div className="flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
                                     <IconAdjustmentsHorizontal size={16} />
@@ -857,6 +918,11 @@ export default function ProductGrid({
                                     </option>
                                 ))}
                             </select>
+                        )}
+                        {compactHeaderLayout && (
+                            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600 md:hidden">
+                                {selectedTenantName}
+                            </span>
                         )}
                         {!compactHeaderLayout && (
                             <div className="inline-flex rounded-xl border border-slate-200 bg-white p-1 dark:border-slate-700 dark:bg-slate-900">
@@ -892,9 +958,11 @@ export default function ProductGrid({
                                 onClick={() =>
                                     setIsFilterPanelExpanded((current) => !current)
                                 }
-                                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+                                className={`inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 ${
+                                    compactHeaderLayout ? "hidden md:inline-flex" : ""
+                                }`}
                             >
-                                {isFilterPanelExpanded ? "Ringkas" : "Tampilkan"}
+                                {isFilterPanelExpanded ? "Ringkas" : "Filter"}
                                 {isFilterPanelExpanded ? (
                                     <IconChevronUp size={16} />
                                 ) : (
@@ -904,6 +972,10 @@ export default function ProductGrid({
                         )}
                     </div>
                 </div>
+
+                {!isFilterPanelExpanded && compactHeaderLayout && (
+                    <div className="px-4 pb-2 md:hidden" />
+                )}
 
                 {(isSearching || isLoadingMoreProducts) && (
                     <div className="border-t border-slate-200/80 bg-slate-50 px-4 py-2 dark:border-slate-800 dark:bg-slate-900/80">
@@ -992,13 +1064,144 @@ export default function ProductGrid({
                     </div>
                 )}
             </div>
+            )}
 
             {/* Products Grid */}
             <div
+                ref={scrollContainerRef}
                 className={`min-h-0 flex-1 overflow-y-auto scrollbar-thin ${
                     isCompactLandscape ? "p-3" : "p-4"
                 }`}
             >
+                {showInlineFloatingTenantBar && (
+                    <div className="sticky top-0 z-20 mb-3">
+                        <div className="rounded-[22px] border border-slate-200/90 bg-white/96 p-2 shadow-[0_16px_34px_-18px_rgba(15,23,42,0.32)] backdrop-blur md:p-3">
+                            <div className="mb-2 flex items-center justify-between gap-3 px-1">
+                                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                                    {tenantSectionLabel}
+                                </p>
+                                <button
+                                    type="button"
+                                    onClick={() => setIsMobileFilterSheetOpen(true)}
+                                    className="inline-flex items-center gap-1 rounded-full bg-slate-900 px-2.5 py-1 text-[11px] font-semibold text-white"
+                                >
+                                    Filter
+                                    <IconChevronDown size={12} />
+                                </button>
+                            </div>
+                            <div className="flex flex-nowrap gap-2 overflow-x-auto pb-1 scrollbar-thin whitespace-nowrap md:gap-3">
+                                <CategoryTab
+                                    category={{ id: null, name: allTenantLabel }}
+                                    isActive={selectedTenantOutletId === null}
+                                    onClick={() => setSelectedTenantOutletId(null)}
+                                />
+                                {tenantTabs.map((tenant) => (
+                                    <CategoryTab
+                                        key={`floating-inline-${tenant.id}`}
+                                        category={{
+                                            id: tenant.id,
+                                            name: tenant.name,
+                                        }}
+                                        isActive={
+                                            Number(selectedTenantOutletId) ===
+                                            Number(tenant.id)
+                                        }
+                                        onClick={() =>
+                                            setSelectedTenantOutletId(
+                                                Number(tenant.id)
+                                            )
+                                        }
+                                    />
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                )}
+                {embedHeaderInScroll && (
+                    <div className="mb-4 space-y-3">
+                        {scrollIntro}
+                        <div className="rounded-[24px] border border-slate-200 bg-white p-3 shadow-sm">
+                            <div
+                                className={`flex gap-3 ${
+                                    compactHeaderLayout
+                                        ? isCompactLandscape
+                                            ? "items-center"
+                                            : "flex-col items-stretch"
+                                        : "flex-col"
+                                }`}
+                            >
+                                <div className="min-w-0 flex-1">
+                                    <SearchInput
+                                        value={searchDraft}
+                                        onChange={setSearchDraft}
+                                        onSearch={onSearch}
+                                        isSearching={isSearching}
+                                        placeholder={
+                                            searchPlaceholder ||
+                                            "Cari produk atau scan barcode... (tekan / untuk fokus)"
+                                        }
+                                        inputRef={searchInputRef}
+                                        onBarcodeDetected={onBarcodeDetected}
+                                        enableBarcodeScanner={enableBarcodeScanner}
+                                    />
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <div className="inline-flex shrink-0 rounded-xl border border-slate-200 bg-white p-1">
+                                        <button
+                                            type="button"
+                                            onClick={() => setViewMode("list")}
+                                            className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition ${
+                                                viewMode === "list"
+                                                    ? "bg-primary-500 text-white"
+                                                    : "text-slate-500 hover:bg-slate-50"
+                                            }`}
+                                        >
+                                            <IconList size={15} />
+                                            List
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setViewMode("grid")}
+                                            className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition ${
+                                                viewMode === "grid"
+                                                    ? "bg-primary-500 text-white"
+                                                    : "text-slate-500 hover:bg-slate-50"
+                                            }`}
+                                        >
+                                            <IconLayoutGrid size={15} />
+                                            Grid
+                                        </button>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsMobileFilterSheetOpen(true)}
+                                        className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 shadow-sm transition hover:bg-slate-50 md:hidden"
+                                    >
+                                        <IconAdjustmentsHorizontal size={15} />
+                                        Filter
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="mt-3 flex items-center justify-between gap-3">
+                                <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600">
+                                    {selectedTenantName}
+                                </span>
+                                <select
+                                    value={sortMode}
+                                    onChange={(e) => setSortMode(e.target.value)}
+                                    className="h-9 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                                >
+                                    {sortOptions.map((option) => (
+                                        <option key={option.value} value={option.value}>
+                                            {option.label}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                )}
                 {isSearching && (
                     <div className="mb-3 rounded-2xl border border-primary-100 bg-primary-50/80 px-4 py-3 text-sm text-primary-700 dark:border-primary-900/40 dark:bg-primary-950/20 dark:text-primary-300">
                         Menyiapkan hasil pencarian produk...
@@ -1095,6 +1298,125 @@ export default function ProductGrid({
                     </div>
                 ) : null}
             </div>
+
+            {isMobileFilterSheetOpen && (
+                <div className="fixed inset-x-0 bottom-0 z-50 md:hidden">
+                    <div className="rounded-t-[30px] border border-slate-200 bg-[linear-gradient(180deg,_#ffffff_0%,_#f8fafc_100%)] p-4 shadow-[0_-24px_60px_-24px_rgba(15,23,42,0.35)]">
+                        <div className="mx-auto mb-4 h-1.5 w-14 rounded-full bg-slate-200" />
+                        <div className="mb-4 flex items-start justify-between gap-4">
+                            <div>
+                                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                                    Filter Produk
+                                </p>
+                                <p className="mt-1 text-lg font-bold text-slate-900">
+                                    Atur tampilan menu
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setIsMobileFilterSheetOpen(false)}
+                                className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-500"
+                            >
+                                Tutup
+                            </button>
+                        </div>
+
+                        <div className="space-y-4">
+                            <div>
+                                <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                                    Urutkan
+                                </p>
+                                <div className="flex flex-wrap gap-2">
+                                    {sortOptions.map((option) => (
+                                        <button
+                                            key={`sheet-${option.value}`}
+                                            type="button"
+                                            onClick={() => {
+                                                setSortMode(option.value);
+                                                setIsMobileFilterSheetOpen(false);
+                                            }}
+                                            className={`rounded-xl px-3 py-2 text-xs font-semibold transition ${
+                                                sortMode === option.value
+                                                    ? "bg-primary-500 text-white shadow-md shadow-primary-500/25"
+                                                    : "border border-slate-200 bg-white text-slate-600"
+                                            }`}
+                                        >
+                                            {option.label}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div>
+                                <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                                    Tampilan
+                                </p>
+                                <div className="inline-flex rounded-2xl border border-slate-200 bg-white p-1">
+                                    <button
+                                        type="button"
+                                        onClick={() => setViewMode("list")}
+                                        className={`inline-flex items-center gap-1 rounded-xl px-3 py-2 text-xs font-semibold ${
+                                            viewMode === "list"
+                                                ? "bg-primary-500 text-white"
+                                                : "text-slate-500"
+                                        }`}
+                                    >
+                                        <IconList size={15} />
+                                        List
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setViewMode("grid")}
+                                        className={`inline-flex items-center gap-1 rounded-xl px-3 py-2 text-xs font-semibold ${
+                                            viewMode === "grid"
+                                                ? "bg-primary-500 text-white"
+                                                : "text-slate-500"
+                                        }`}
+                                    >
+                                        <IconLayoutGrid size={15} />
+                                        Grid
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div>
+                                <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                                    {tenantSectionLabel}
+                                </p>
+                                <div className="flex flex-wrap gap-2">
+                                    <CategoryTab
+                                        category={{ id: null, name: allTenantLabel }}
+                                        isActive={selectedTenantOutletId === null}
+                                        onClick={() => {
+                                            setSelectedTenantOutletId(null);
+                                            setIsMobileFilterSheetOpen(false);
+                                        }}
+                                    />
+                                    {tenantTabs.map((tenant) => (
+                                        <CategoryTab
+                                            key={`sheet-tenant-${tenant.id}`}
+                                            category={{
+                                                id: tenant.id,
+                                                name: tenant.name,
+                                            }}
+                                            isActive={
+                                                Number(selectedTenantOutletId) ===
+                                                Number(tenant.id)
+                                            }
+                                            onClick={() => {
+                                                setSelectedTenantOutletId(
+                                                    Number(tenant.id)
+                                                );
+                                                setIsMobileFilterSheetOpen(false);
+                                            }}
+                                        />
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

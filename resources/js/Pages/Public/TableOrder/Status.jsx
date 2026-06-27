@@ -1,5 +1,5 @@
-import { Head, Link, useForm, usePage } from "@inertiajs/react";
-import { useMemo, useState } from "react";
+import { Head, Link, router, useForm, usePage } from "@inertiajs/react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Swal from "sweetalert2";
 
 const formatPrice = (value = 0) =>
@@ -35,6 +35,22 @@ const orderStatusTone = {
     paid: "border-emerald-200 bg-emerald-100 text-emerald-800",
     rejected: "border-rose-200 bg-rose-100 text-rose-800",
     cancelled: "border-slate-200 bg-slate-100 text-slate-700",
+};
+
+const heroStatusTone = {
+    pending_cashier_payment:
+        "border-amber-300/30 bg-amber-300/15 text-amber-50",
+    paid: "border-emerald-300/30 bg-emerald-300/15 text-emerald-50",
+    rejected: "border-rose-300/30 bg-rose-300/15 text-rose-50",
+    cancelled: "border-white/15 bg-white/10 text-slate-100",
+};
+
+const summaryCardTone = {
+    pending_cashier_payment:
+        "border-amber-200 bg-[linear-gradient(180deg,_#fffdf5_0%,_#fff7df_100%)]",
+    paid: "border-emerald-200 bg-[linear-gradient(180deg,_#f6fef9_0%,_#eafaf0_100%)]",
+    rejected: "border-rose-200 bg-[linear-gradient(180deg,_#fff8f8_0%,_#ffecec_100%)]",
+    cancelled: "border-slate-200 bg-[linear-gradient(180deg,_#ffffff_0%,_#f8fafc_100%)]",
 };
 
 const pricingKindLabel = {
@@ -112,12 +128,22 @@ export default function Status({ order }) {
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [instructionModalOpen, setInstructionModalOpen] = useState(false);
     const cancelForm = useForm({});
+    const removeUnavailableForm = useForm({});
+    const seenStockAlertSignatureRef = useRef("");
     const customer = identity?.customer || null;
     const recentOrders = customer?.recent_orders || [];
     const recentTransactions = customer?.recent_transactions || [];
     const newOrderHref = order?.table?.qr_token
         ? route("table-order.show", order.table.qr_token)
         : null;
+    const canAdjustItems = Boolean(order.can_adjust_items);
+    const editOrderHref =
+        canAdjustItems && order?.table?.qr_token && order?.access_token
+            ? route("table-order.show", {
+                  qrToken: order.table.qr_token,
+                  edit_order: order.access_token,
+              })
+            : newOrderHref;
     const instructionSteps =
         orderInstructionSteps[order.status] || [
             {
@@ -148,6 +174,56 @@ export default function Status({ order }) {
         [order.items]
     );
     const canCancelOrder = Boolean(order.can_cancel);
+    const stockAlerts = order.stock_alerts || [];
+    const stockAlertSignature = useMemo(
+        () =>
+            stockAlerts
+                .map(
+                    (alert) =>
+                        `${alert.item_id}:${alert.product_id}:${alert.current_stock}:${alert.requested_qty}`
+                )
+                .join("|"),
+        [stockAlerts]
+    );
+
+    useEffect(() => {
+        if (!canAdjustItems || stockAlerts.length === 0) {
+            return;
+        }
+
+        if (seenStockAlertSignatureRef.current === stockAlertSignature) {
+            return;
+        }
+
+        seenStockAlertSignatureRef.current = stockAlertSignature;
+        void handleRemoveUnavailableItems(true);
+    }, [canAdjustItems, stockAlerts, stockAlertSignature]);
+
+    useEffect(() => {
+        if (order.status !== "pending_cashier_payment") {
+            return;
+        }
+
+        const reloadOrder = () => {
+            if (document.visibilityState === "hidden") {
+                return;
+            }
+
+            router.reload({
+                only: ["order"],
+                preserveScroll: true,
+                preserveState: true,
+            });
+        };
+
+        const intervalId = window.setInterval(reloadOrder, 15000);
+        document.addEventListener("visibilitychange", reloadOrder);
+
+        return () => {
+            window.clearInterval(intervalId);
+            document.removeEventListener("visibilitychange", reloadOrder);
+        };
+    }, [order.status]);
 
     const handleCancelOrder = async () => {
         const result = await Swal.fire({
@@ -183,6 +259,58 @@ export default function Status({ order }) {
         cancelForm.post(route("table-order.cancel", order.access_token), {
             preserveScroll: true,
         });
+    };
+
+    const handleRemoveUnavailableItems = async (autoOpened = false) => {
+        const alertsHtml = stockAlerts
+            .map(
+                (alert) => `
+                    <div style="display:flex;justify-content:space-between;gap:12px;border:1px solid #fecaca;border-radius:14px;padding:10px;background:#fff;">
+                        <div>
+                            <div style="font-weight:700;color:#0f172a;">${alert.product_title}</div>
+                            <div style="margin-top:4px;font-size:12px;color:#64748b;">
+                                Diminta ${alert.requested_qty} • stok sekarang ${alert.current_stock}
+                            </div>
+                        </div>
+                        <div style="font-size:11px;font-weight:700;color:#be123c;white-space:nowrap;">
+                            ${alert.issue_type === "out_of_stock" ? "Stok habis" : "Stok kurang"}
+                        </div>
+                    </div>
+                `
+            )
+            .join("");
+
+        const result = await Swal.fire({
+            title: autoOpened
+                ? "Stok menu berubah"
+                : "Hapus menu yang kosong?",
+            html: `
+                <div style="text-align:left;display:grid;gap:12px;">
+                    <div style="border:1px solid #fde68a;border-radius:18px;padding:14px;background:linear-gradient(135deg,#fffbeb 0%,#ffffff 100%);font-size:13px;line-height:1.6;color:#334155;">
+                        Sistem mendeteksi ada menu yang stoknya berubah. Item di bawah ini bisa dihapus otomatis agar pesanan tetap bisa dilanjutkan.
+                    </div>
+                    <div style="display:grid;gap:8px;">${alertsHtml}</div>
+                </div>
+            `,
+            showCancelButton: true,
+            confirmButtonText: "Hapus menu kosong",
+            cancelButtonText: autoOpened ? "Nanti dulu" : "Kembali",
+            confirmButtonColor: "#dc2626",
+            cancelButtonColor: "#64748b",
+            reverseButtons: true,
+            width: 600,
+        });
+
+        if (!result.isConfirmed) {
+            return;
+        }
+
+        removeUnavailableForm.post(
+            route("table-order.remove-unavailable", order.access_token),
+            {
+                preserveScroll: true,
+            }
+        );
     };
 
     return (
@@ -299,9 +427,9 @@ export default function Status({ order }) {
                     </div>
 
                     <div className="border-t border-slate-200 px-4 py-3">
-                        {newOrderHref ? (
+                        {editOrderHref ? (
                             <Link
-                                href={newOrderHref}
+                                href={editOrderHref}
                                 className={`inline-flex w-full items-center justify-center rounded-xl px-4 py-3 text-sm font-semibold transition ${
                                     order.status === "cancelled"
                                         ? "bg-gradient-to-r from-amber-400 via-orange-400 to-rose-500 text-slate-950 shadow-[0_18px_38px_-18px_rgba(251,146,60,0.9)] hover:scale-[1.01]"
@@ -381,24 +509,24 @@ export default function Status({ order }) {
                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-slate-700"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h16"/></svg>
             </button>
 
-            <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(14,165,233,0.12),_transparent_26%),radial-gradient(circle_at_top_right,_rgba(16,185,129,0.08),_transparent_34%),linear-gradient(180deg,_#eef4ff_0%,_#f8fafc_22%,_#f8fafc_100%)] px-4 py-10 text-slate-900">
+            <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(251,191,36,0.12),_transparent_22%),radial-gradient(circle_at_top_right,_rgba(14,165,233,0.1),_transparent_30%),linear-gradient(180deg,_#f7f4ee_0%,_#f8fafc_18%,_#f8fafc_100%)] px-4 py-10 text-slate-900">
                 <div className="mx-auto max-w-2xl space-y-6">
-                    <div className="overflow-hidden rounded-[30px] border border-slate-200/80 bg-[linear-gradient(135deg,_rgba(15,23,42,0.97)_0%,_rgba(30,41,59,0.95)_52%,_rgba(8,47,73,0.94)_100%)] p-6 text-white shadow-[0_30px_90px_-42px_rgba(15,23,42,0.78)]">
+                    <div className="overflow-hidden rounded-[32px] border border-slate-200/80 bg-[linear-gradient(135deg,_rgba(17,24,39,0.98)_0%,_rgba(41,37,36,0.95)_50%,_rgba(14,116,144,0.94)_100%)] p-6 text-white shadow-[0_32px_90px_-42px_rgba(15,23,42,0.78)]">
                         <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
                             <div>
-                                <p className="text-sm uppercase tracking-[0.2em] text-sky-200">
+                                <p className="text-sm uppercase tracking-[0.22em] text-amber-100/90">
                                     Perjalanan Pesanan
                                 </p>
                                 <h1 className="mt-2 text-3xl font-bold tracking-[-0.03em]">{order.order_number}</h1>
-                                <p className="mt-3 text-sm text-slate-300">
+                                <p className="mt-3 text-sm text-slate-200">
                                     Meja {order.table?.code || order.table?.name}
                                 </p>
-                                <div className="mt-4 inline-flex rounded-full bg-amber-400/15 px-4 py-2 text-sm font-semibold text-amber-100 border border-amber-300/20">
+                                <div className={`mt-4 inline-flex rounded-full border px-4 py-2 text-sm font-semibold ${heroStatusTone[order.status] || "border-white/15 bg-white/10 text-slate-100"}`}>
                                     {statusLabel[order.status] || order.status}
                                 </div>
                             </div>
                             <div className="grid gap-3 sm:w-[260px]">
-                                <div className="rounded-3xl border border-white/10 bg-white/10 p-4 backdrop-blur">
+                                <div className="rounded-[26px] border border-white/10 bg-white/10 p-4 backdrop-blur">
                                     <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-300">
                                         Total order
                                     </p>
@@ -412,7 +540,7 @@ export default function Status({ order }) {
                                 <button
                                     type="button"
                                     onClick={() => setInstructionModalOpen(true)}
-                                    className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white/10 px-4 py-3 text-sm font-medium text-sky-50 transition hover:bg-white/15"
+                                    className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white/10 px-4 py-3 text-sm font-semibold text-white transition hover:bg-white/20"
                                 >
                                     <span>Lihat panduan pembayaran</span>
                                 </button>
@@ -429,7 +557,7 @@ export default function Status({ order }) {
                     </div>
 
                     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                        <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_18px_60px_-34px_rgba(15,23,42,0.3)]">
+                        <div className={`rounded-[28px] border p-5 shadow-[0_18px_60px_-34px_rgba(15,23,42,0.24)] ${summaryCardTone[order.status] || "border-slate-200 bg-white"}`}>
                             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Status order</p>
                             <div className={`mt-3 inline-flex rounded-full border px-3 py-1.5 text-xs font-semibold ${orderStatusTone[order.status] || "border-slate-200 bg-slate-100 text-slate-700"}`}>
                                 {statusLabel[order.status] || order.status}
@@ -444,7 +572,7 @@ export default function Status({ order }) {
                                         : "Periksa ke kasir untuk memastikan status pesanan ini."}
                             </p>
                         </div>
-                        <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_18px_60px_-34px_rgba(15,23,42,0.3)]">
+                        <div className="rounded-[28px] border border-slate-200 bg-[linear-gradient(180deg,_#ffffff_0%,_#f8fafc_100%)] p-5 shadow-[0_18px_60px_-34px_rgba(15,23,42,0.24)]">
                             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Atas nama</p>
                             <p className="mt-3 text-lg font-bold text-slate-900">
                                 {order.customer_name || customer?.name || "Pelanggan"}
@@ -456,7 +584,7 @@ export default function Status({ order }) {
                                 {customer?.member_code ? `Member ${customer.member_code}` : "Self-order meja"}
                             </p>
                         </div>
-                        <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_18px_60px_-34px_rgba(15,23,42,0.3)]">
+                        <div className="rounded-[28px] border border-slate-200 bg-[linear-gradient(180deg,_#ffffff_0%,_#f8fafc_100%)] p-5 shadow-[0_18px_60px_-34px_rgba(15,23,42,0.24)]">
                             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Waktu order</p>
                             <p className="mt-3 text-lg font-bold text-slate-900">
                                 {order.created_at_label || "-"}
@@ -465,7 +593,7 @@ export default function Status({ order }) {
                                 {order.approved_at_label ? `Update status ${order.approved_at_label}` : "Belum ada approval kasir"}
                             </p>
                         </div>
-                        <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_18px_60px_-34px_rgba(15,23,42,0.3)]">
+                        <div className="rounded-[28px] border border-slate-200 bg-[linear-gradient(180deg,_#ffffff_0%,_#f8fafc_100%)] p-5 shadow-[0_18px_60px_-34px_rgba(15,23,42,0.24)]">
                             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Kasir & invoice</p>
                             <p className="mt-3 text-lg font-bold text-slate-900">
                                 {order.transaction?.invoice || "Belum ada"}
@@ -476,7 +604,7 @@ export default function Status({ order }) {
                         </div>
                     </div>
 
-                    <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-[0_18px_60px_-34px_rgba(15,23,42,0.3)]">
+                    <div className="rounded-[30px] border border-slate-200 bg-white p-6 shadow-[0_18px_60px_-34px_rgba(15,23,42,0.24)]">
                         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                             <div>
                                 <h2 className="text-lg font-semibold">Ringkasan Pesanan</h2>
@@ -490,30 +618,32 @@ export default function Status({ order }) {
                                         type="button"
                                         onClick={handleCancelOrder}
                                         disabled={cancelForm.processing}
-                                        className="inline-flex items-center justify-center rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm font-semibold text-rose-700 transition hover:bg-rose-100 disabled:opacity-60"
+                                        className="inline-flex items-center justify-center rounded-2xl border border-rose-200 bg-[linear-gradient(180deg,_#fff1f2_0%,_#ffe4e6_100%)] px-4 py-2.5 text-sm font-semibold text-rose-700 shadow-[0_12px_28px_-20px_rgba(225,29,72,0.55)] transition hover:-translate-y-0.5 hover:bg-rose-100 disabled:opacity-60"
                                     >
                                         {cancelForm.processing ? "Membatalkan..." : "Batalkan pesanan"}
                                     </button>
                                 ) : null}
-                                {newOrderHref ? (
+                                {editOrderHref ? (
                                     <Link
-                                        href={newOrderHref}
+                                        href={editOrderHref}
                                         className={`inline-flex items-center justify-center rounded-2xl px-4 py-2.5 text-sm font-semibold transition ${
                                             order.status === "cancelled"
                                                 ? "bg-gradient-to-r from-amber-400 via-orange-400 to-rose-500 text-slate-950 shadow-[0_18px_38px_-18px_rgba(251,146,60,0.9)] hover:scale-[1.01]"
-                                                : "border border-slate-200 text-slate-700 hover:bg-slate-50"
+                                                : "bg-[linear-gradient(135deg,_#0f172a_0%,_#1e293b_100%)] text-white shadow-[0_18px_38px_-20px_rgba(15,23,42,0.55)] hover:-translate-y-0.5"
                                         }`}
                                     >
                                         {order.status === "cancelled"
                                             ? "Pesan Lagi Sekarang"
-                                            : "Pesan lagi"}
+                                            : order.status === "pending_cashier_payment"
+                                              ? "Edit atau tambah pesanan"
+                                              : "Pesan lagi"}
                                     </Link>
                                 ) : null}
                             </div>
                         </div>
 
                         <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1.35fr),minmax(280px,0.65fr)]">
-                            <div className="rounded-[24px] border border-slate-200 bg-[linear-gradient(180deg,_#ffffff_0%,_#f8fafc_100%)] p-4">
+                            <div className="rounded-[24px] border border-slate-200 bg-[linear-gradient(180deg,_#ffffff_0%,_#f8fafc_100%)] p-4 shadow-[0_18px_45px_-36px_rgba(15,23,42,0.28)]">
                                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
                                     Catatan order
                                 </p>
@@ -521,17 +651,17 @@ export default function Status({ order }) {
                                     {order.notes || "Tidak ada catatan tambahan untuk kasir atau dapur."}
                                 </p>
                             </div>
-                            <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-4">
+                            <div className="rounded-[24px] border border-slate-200 bg-[linear-gradient(180deg,_#fffaf3_0%,_#fff6ea_100%)] p-4 shadow-[0_18px_45px_-36px_rgba(180,83,9,0.22)]">
                                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
                                     Aksi yang tersedia
                                 </p>
                                 <div className="mt-3 space-y-3 text-sm text-slate-600">
-                                    <div className="rounded-2xl border border-white bg-white p-3">
-                                        Tunjukkan nomor order ini ke kasir saat pembayaran.
-                                    </div>
-                                    <div className="rounded-2xl border border-white bg-white p-3">
-                                        Pantau progress dapur di halaman ini setelah kasir menyelesaikan pembayaran.
-                                    </div>
+                                        <div className="rounded-2xl border border-amber-100 bg-white/90 p-3">
+                                            Tunjukkan nomor order ini ke kasir saat pembayaran.
+                                        </div>
+                                        <div className="rounded-2xl border border-amber-100 bg-white/90 p-3">
+                                            Pantau progress dapur di halaman ini setelah kasir menyelesaikan pembayaran.
+                                        </div>
                                     {canCancelOrder ? (
                                         <div className="rounded-2xl border border-rose-100 bg-rose-50 p-3 text-rose-700">
                                             Pesanan masih bisa dibatalkan karena belum dibuat transaksi kasir.
@@ -542,13 +672,13 @@ export default function Status({ order }) {
                         </div>
                     </div>
 
-                    <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-[0_18px_60px_-34px_rgba(15,23,42,0.3)]">
+                    <div className="rounded-[30px] border border-slate-200 bg-white p-6 shadow-[0_18px_60px_-34px_rgba(15,23,42,0.24)]">
                         <h2 className="text-lg font-semibold">Menu Pilihanmu</h2>
                         <div className="mt-4 space-y-3">
                             {order.items.map((item) => (
                                 <div
                                     key={item.id}
-                                    className="rounded-2xl border border-slate-200 bg-[linear-gradient(180deg,_#ffffff_0%,_#f8fafc_100%)] px-4 py-3"
+                                    className="rounded-[24px] border border-slate-200 bg-[linear-gradient(180deg,_#ffffff_0%,_#f9fafb_100%)] px-4 py-4 shadow-[0_18px_45px_-38px_rgba(15,23,42,0.26)]"
                                 >
                                     <div className="flex items-start justify-between gap-3">
                                         <div className="min-w-0">
@@ -589,7 +719,7 @@ export default function Status({ order }) {
                                                     ).map(([groupName, modifiers]) => (
                                                         <div
                                                             key={`${item.id}-${groupName}`}
-                                                            className="rounded-2xl border border-[#f1dfd4] bg-[#fff6f0] p-3"
+                                                            className="rounded-2xl border border-amber-200/70 bg-[linear-gradient(180deg,_#fff9f2_0%,_#fff1e1_100%)] p-3"
                                                         >
                                                             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#b06a48]">
                                                                 Kategori topping
@@ -601,7 +731,7 @@ export default function Status({ order }) {
                                                                 {modifiers.map((modifier) => (
                                                                     <span
                                                                         key={modifier.id}
-                                                                        className="rounded-full bg-white px-2.5 py-1 text-xs font-medium text-[#9b4b2e]"
+                                                                        className="rounded-full border border-amber-100 bg-white px-2.5 py-1 text-xs font-medium text-[#9b4b2e]"
                                                                     >
                                                                         {modifier.name} x{modifier.qty}
                                                                     </span>
@@ -612,7 +742,7 @@ export default function Status({ order }) {
                                                 </div>
                                             ) : null}
                                             {item.notes ? (
-                                                <div className="mt-3 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-500">
+                                                <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500">
                                                     {item.notes}
                                                 </div>
                                             ) : null}
@@ -632,7 +762,7 @@ export default function Status({ order }) {
                             ))}
                         </div>
 
-                        <div className="mt-6 space-y-3 border-t border-slate-200 pt-4">
+                        <div className="mt-6 space-y-3 rounded-[24px] border border-slate-200 bg-[linear-gradient(180deg,_#fcfcfd_0%,_#f8fafc_100%)] p-4">
                             <div className="flex items-center justify-between text-sm">
                                 <span className="text-slate-500">Total sebelum promo</span>
                                 <span className="font-semibold text-slate-700">
@@ -654,14 +784,14 @@ export default function Status({ order }) {
                         </div>
                     </div>
 
-                    <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-[0_18px_60px_-34px_rgba(15,23,42,0.3)]">
+                    <div className="rounded-[30px] border border-slate-200 bg-white p-6 shadow-[0_18px_60px_-34px_rgba(15,23,42,0.24)]">
                         <h2 className="text-lg font-semibold">Riwayat Pelanggan</h2>
                         <p className="mt-1 text-sm text-slate-500">
                             Order terbaru dan transaksi sebelumnya yang terkait akun pelanggan ini.
                         </p>
 
                         <div className="mt-4 grid gap-4 lg:grid-cols-2">
-                            <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-4">
+                            <div className="rounded-[24px] border border-slate-200 bg-[linear-gradient(180deg,_#ffffff_0%,_#f8fafc_100%)] p-4">
                                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
                                     Riwayat order meja
                                 </p>
@@ -696,7 +826,7 @@ export default function Status({ order }) {
                                     )}
                                 </div>
                             </div>
-                            <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-4">
+                            <div className="rounded-[24px] border border-slate-200 bg-[linear-gradient(180deg,_#ffffff_0%,_#f8fafc_100%)] p-4">
                                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
                                     Riwayat transaksi kasir
                                 </p>
@@ -729,14 +859,14 @@ export default function Status({ order }) {
                         </div>
                     </div>
 
-                    <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-[0_18px_60px_-34px_rgba(15,23,42,0.3)]">
+                    <div className="rounded-[30px] border border-slate-200 bg-white p-6 shadow-[0_18px_60px_-34px_rgba(15,23,42,0.24)]">
                         <h2 className="text-lg font-semibold">Progress Dapur</h2>
                         {order.transaction?.kitchen_tickets?.length ? (
                             <div className="mt-4 space-y-4">
                                 {order.transaction.kitchen_tickets.map((ticket) => (
                                     <div
                                         key={ticket.id}
-                                        className="rounded-[24px] border border-slate-200 bg-[linear-gradient(180deg,_#ffffff_0%,_#f8fafc_100%)] p-4"
+                                        className="rounded-[24px] border border-slate-200 bg-[linear-gradient(180deg,_#ffffff_0%,_#f8fafc_100%)] p-4 shadow-[0_18px_45px_-36px_rgba(15,23,42,0.24)]"
                                     >
                                         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                                             <div>
@@ -760,7 +890,7 @@ export default function Status({ order }) {
                                                 ["Siap", ticket.ready_at_label, ["ready", "completed"].includes(ticket.status)],
                                                 ["Selesai", ticket.completed_at_label, ticket.status === "completed"],
                                             ].map(([stepLabel, stepTime, isDone], index) => (
-                                                <div key={`${ticket.id}-${stepLabel}`} className="relative rounded-2xl border border-slate-200 bg-white px-3 py-3">
+                                                <div key={`${ticket.id}-${stepLabel}`} className="relative rounded-2xl border border-slate-200 bg-white px-3 py-3 shadow-[0_18px_40px_-36px_rgba(15,23,42,0.2)]">
                                                     {index < 3 ? (
                                                         <span className="pointer-events-none absolute left-[calc(100%-0.4rem)] top-5 hidden h-[2px] w-[calc(100%+0.8rem)] sm:block">
                                                             <span className={`block h-full w-full ${isDone ? "bg-emerald-300" : "bg-slate-200"}`} />
@@ -785,7 +915,7 @@ export default function Status({ order }) {
                                             {ticket.items.map((ticketItem) => (
                                                 <div
                                                     key={ticketItem.id}
-                                                    className="flex items-start justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-3"
+                                                    className="flex items-start justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-3 shadow-[0_18px_40px_-36px_rgba(15,23,42,0.2)]"
                                                 >
                                                     <div className="min-w-0">
                                                         <p className="text-sm font-medium text-slate-900">
@@ -820,7 +950,7 @@ export default function Status({ order }) {
                         )}
                     </div>
 
-                    <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-[0_18px_60px_-34px_rgba(15,23,42,0.3)]">
+                    <div className="rounded-[30px] border border-slate-200 bg-[linear-gradient(180deg,_#ffffff_0%,_#f8fafc_100%)] p-6 shadow-[0_18px_60px_-34px_rgba(15,23,42,0.24)]">
                         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                             <div>
                                 <h2 className="text-lg font-semibold">Butuh Panduan?</h2>
@@ -831,7 +961,7 @@ export default function Status({ order }) {
                             <button
                                 type="button"
                                 onClick={() => setInstructionModalOpen(true)}
-                                className="inline-flex items-center justify-center text-sm font-medium text-sky-700 underline underline-offset-4 hover:text-sky-800"
+                                className="inline-flex items-center justify-center rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm font-semibold text-sky-700 transition hover:bg-sky-100 hover:text-sky-800"
                             >
                                 Lihat instruksi pesanan
                             </button>
@@ -852,7 +982,7 @@ export default function Status({ order }) {
                                 className={`mt-5 inline-flex rounded-2xl px-4 py-3 text-sm font-semibold transition ${
                                     order.status === "cancelled"
                                         ? "bg-gradient-to-r from-amber-400 via-orange-400 to-rose-500 text-slate-950 shadow-[0_18px_38px_-18px_rgba(251,146,60,0.9)] hover:scale-[1.01]"
-                                        : "border border-slate-300 text-slate-700"
+                                        : "bg-[linear-gradient(135deg,_#0f172a_0%,_#1e293b_100%)] text-white shadow-[0_18px_38px_-20px_rgba(15,23,42,0.55)] hover:-translate-y-0.5"
                                 }`}
                             >
                                 {order.status === "cancelled"

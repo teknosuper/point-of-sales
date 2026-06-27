@@ -144,8 +144,7 @@ function IdentityGate({
                             Nomor belum terdaftar
                         </h2>
                         <p className="mt-2 text-sm leading-6 text-slate-500">
-                            Lengkapi data minimum agar order meja ini bisa lanjut
-                            dengan engine promo yang sama seperti POS kasir.
+                            Cukup isi nama pelanggan agar order meja ini bisa lanjut.
                         </p>
                         <p className="mt-1 text-xs font-medium text-slate-400">
                             Nomor: {pendingPhone}
@@ -170,32 +169,6 @@ function IdentityGate({
                                     </p>
                                 ) : null}
                             </div>
-                            <div>
-                                <input
-                                    type="email"
-                                    value={registerForm.data.email}
-                                    onChange={(event) =>
-                                        registerForm.setData("email", event.target.value)
-                                    }
-                                    placeholder="Email opsional"
-                                    autoComplete="email"
-                                    className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm outline-none transition focus:border-primary-500 focus:ring-4 focus:ring-primary-100"
-                                />
-                            </div>
-                            <div>
-                                <textarea
-                                    rows={3}
-                                    value={registerForm.data.address}
-                                    onChange={(event) =>
-                                        registerForm.setData(
-                                            "address",
-                                            event.target.value
-                                        )
-                                    }
-                                    placeholder="Alamat opsional"
-                                    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-primary-500 focus:ring-4 focus:ring-primary-100"
-                                />
-                            </div>
 
                             <button
                                 type="submit"
@@ -219,6 +192,7 @@ export default function Menu({
     outlet,
     products = [],
     identity,
+    editableOrder = null,
 }) {
     const { flash, storeProfile } = usePage().props;
     const customer = identity?.customer || null;
@@ -233,9 +207,23 @@ export default function Menu({
     const pricingRequestTimerRef = useRef(null);
     const modifierModalPricingAbortRef = useRef(null);
     const modifierModalPricingTimerRef = useRef(null);
+    const editableOrderHydratedTokenRef = useRef(null);
+    const editableOrderOpenedRef = useRef(false);
+    const floatingCartDragRef = useRef({
+        dragging: false,
+        moved: false,
+        startX: 0,
+        startY: 0,
+        originX: 16,
+        originY: 96,
+    });
 
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [mobileView, setMobileView] = useState("products");
+    const [floatingCartPosition, setFloatingCartPosition] = useState({
+        x: 16,
+        y: 96,
+    });
     const [searchQuery, setSearchQuery] = useState("");
     const [isSearching, setIsSearching] = useState(false);
     const [addingProductId, setAddingProductId] = useState(null);
@@ -277,8 +265,10 @@ export default function Menu({
             }, {}),
         [products]
     );
-    const cartStorageKey = customer?.id
-        ? `table-order-cart:${table.qr_token}:${customer.id}`
+    const cartStorageKey = editableOrder?.access_token
+        ? `table-order-edit:${editableOrder.access_token}`
+        : customer?.id
+          ? `table-order-cart:${table.qr_token}:${customer.id}`
         : null;
 
     const normalizedCarts = useMemo(
@@ -577,6 +567,35 @@ export default function Menu({
             is_promo_reward: Boolean(rewardPromoMeta),
         }),
         []
+    );
+    const buildEditableOrderCartLines = useCallback(
+        (sourceOrder) =>
+            (sourceOrder?.items || [])
+                .map((line) => {
+                    const product = productsById[Number(line.product_id || 0)];
+                    if (!product) {
+                        return null;
+                    }
+
+                    return {
+                        id: `edit-${sourceOrder.access_token}-${line.id}`,
+                        product_id: Number(line.product_id),
+                        qty: Math.max(1, Number(line.qty || 1)),
+                        notes: line.notes || "",
+                        product,
+                        modifiers: (line.modifiers || []).map((modifier) => ({
+                            id: Number(modifier.id),
+                            name: modifier.name,
+                            group_name: modifier.group_name || null,
+                            price: Number(modifier.unit_price || 0),
+                            unit_price: Number(modifier.unit_price || 0),
+                        })),
+                        promo_reward_meta: null,
+                        is_promo_reward: false,
+                    };
+                })
+                .filter(Boolean),
+        [productsById]
     );
     const buildPreviewRequestItems = useCallback(
         (items = []) =>
@@ -1018,6 +1037,78 @@ export default function Menu({
         setMobileView("payment");
     }, [normalizedCarts.length]);
 
+    const openCartTab = useCallback(() => {
+        if (normalizedCarts.length === 0) {
+            toast("Keranjang masih kosong, tambahkan produk terlebih dahulu", {
+                icon: "🛒",
+                duration: 2000,
+            });
+            setMobileView("products");
+            return;
+        }
+
+        setMobileView("cart");
+    }, [normalizedCarts.length]);
+
+    const startFloatingCartDrag = useCallback(
+        (clientX, clientY) => {
+            floatingCartDragRef.current = {
+                dragging: true,
+                moved: false,
+                startX: clientX,
+                startY: clientY,
+                originX: floatingCartPosition.x,
+                originY: floatingCartPosition.y,
+            };
+        },
+        [floatingCartPosition.x, floatingCartPosition.y]
+    );
+
+    useEffect(() => {
+        if (typeof window === "undefined") {
+            return;
+        }
+
+        const handlePointerMove = (event) => {
+            const drag = floatingCartDragRef.current;
+            if (!drag.dragging) {
+                return;
+            }
+
+            const deltaX = event.clientX - drag.startX;
+            const deltaY = event.clientY - drag.startY;
+            const nextX = Math.min(
+                Math.max(12, drag.originX + deltaX),
+                Math.max(12, window.innerWidth - 220)
+            );
+            const nextY = Math.min(
+                Math.max(12, drag.originY + deltaY),
+                Math.max(12, window.innerHeight - 120)
+            );
+
+            if (Math.abs(deltaX) > 4 || Math.abs(deltaY) > 4) {
+                floatingCartDragRef.current.moved = true;
+            }
+
+            setFloatingCartPosition({
+                x: nextX,
+                y: nextY,
+            });
+        };
+
+        const handlePointerUp = () => {
+            floatingCartDragRef.current.dragging = false;
+        };
+
+        window.addEventListener("pointermove", handlePointerMove);
+        window.addEventListener("pointerup", handlePointerUp);
+
+        return () => {
+            window.removeEventListener("pointermove", handlePointerMove);
+            window.removeEventListener("pointerup", handlePointerUp);
+        };
+    }, []);
+
     const confirmSubmitOrder = useCallback(() => {
         const itemsHtml = paymentPreviewItems
             .map(({ item, resolvedPromoItem, promoState }) => {
@@ -1140,7 +1231,9 @@ export default function Menu({
             : "";
 
         return Swal.fire({
-            title: "Konfirmasi Kirim Order",
+            title: editableOrder?.access_token
+                ? "Konfirmasi Perbarui Pesanan"
+                : "Konfirmasi Kirim Order",
             html: `
                 <div style="text-align:left;display:grid;gap:14px;">
                     <div style="display:grid;gap:10px;">
@@ -1171,7 +1264,9 @@ export default function Menu({
                 </div>
             `,
             showCancelButton: true,
-            confirmButtonText: "Kirim ke Kasir",
+            confirmButtonText: editableOrder?.access_token
+                ? "Simpan perubahan"
+                : "Kirim ke Kasir",
             cancelButtonText: "Periksa Lagi",
             confirmButtonColor: "#16a34a",
             cancelButtonColor: "#64748b",
@@ -1180,6 +1275,7 @@ export default function Menu({
         });
     }, [
         baseSubtotal,
+        editableOrder?.access_token,
         orderForm.data.notes,
         payable,
         paymentPreviewItems,
@@ -1207,7 +1303,7 @@ export default function Menu({
                 items: buildPreviewRequestItems(normalizedCarts),
             }));
 
-            orderForm.post(route("table-order.store", table.qr_token), {
+            const submitConfig = {
                 preserveScroll: true,
                 onSuccess: () => {
                     if (cartStorageKey && typeof window !== "undefined") {
@@ -1218,12 +1314,23 @@ export default function Menu({
                     setPricingPreview(emptyPricingPreview);
                     orderForm.setData("notes", "");
                 },
-            });
+            };
+
+            if (editableOrder?.access_token) {
+                orderForm.patch(
+                    route("table-order.update-items", editableOrder.access_token),
+                    submitConfig
+                );
+                return;
+            }
+
+            orderForm.post(route("table-order.store", table.qr_token), submitConfig);
         },
         [
             buildPreviewRequestItems,
             cartStorageKey,
             confirmSubmitOrder,
+            editableOrder?.access_token,
             normalizedCarts,
             orderForm,
             table.qr_token,
@@ -1311,6 +1418,40 @@ export default function Menu({
     }, [customer, pendingPhone]);
 
     useEffect(() => {
+        if (!editableOrder?.access_token) {
+            editableOrderHydratedTokenRef.current = null;
+            editableOrderOpenedRef.current = false;
+            return;
+        }
+
+        if (editableOrderHydratedTokenRef.current === editableOrder.access_token) {
+            return;
+        }
+
+        editableOrderHydratedTokenRef.current = editableOrder.access_token;
+        setCartLines(buildEditableOrderCartLines(editableOrder));
+        orderForm.setData("notes", editableOrder.notes || "");
+
+        if (!editableOrderOpenedRef.current) {
+            editableOrderOpenedRef.current = true;
+            setMobileView("cart");
+            toast("Keranjang pesanan lama dibuka untuk diedit.", {
+                icon: "🧾",
+                duration: 2400,
+            });
+        }
+    }, [
+        buildEditableOrderCartLines,
+        editableOrder,
+        editableOrder?.access_token,
+        orderForm,
+    ]);
+
+    useEffect(() => {
+        if (editableOrder?.access_token) {
+            return;
+        }
+
         if (!cartStorageKey || typeof window === "undefined") {
             setCartLines([]);
             orderForm.setData("notes", "");
@@ -1356,7 +1497,7 @@ export default function Menu({
             setCartLines([]);
             orderForm.setData("notes", "");
         }
-    }, [cartStorageKey, productsById]);
+    }, [cartStorageKey, editableOrder?.access_token, orderForm, productsById]);
 
     useEffect(() => {
         if (!cartStorageKey || typeof window === "undefined") {
@@ -1757,31 +1898,6 @@ export default function Menu({
                             mobileView !== "products" ? "hidden" : "flex flex-col"
                         }`}
                     >
-                        <div className="border-b border-slate-200 bg-white px-4 py-3">
-                            <div className="flex flex-wrap items-center justify-between gap-3">
-                                <div className="min-w-0">
-                                    <p className="text-sm font-semibold text-slate-800">
-                                        Toko Anda
-                                    </p>
-                                    <p className="text-xs text-slate-500">
-                                        {outlet?.name || storeProfile?.name || "Outlet"}
-                                    </p>
-                                    <p className="text-xs text-slate-500">
-                                        Meja {table.code || table.name} • bayar lewat approval kasir
-                                    </p>
-                                </div>
-                                {customer ? (
-                                    <button
-                                        type="button"
-                                        onClick={logoutCustomer}
-                                        className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
-                                    >
-                                        Ganti akun
-                                    </button>
-                                ) : null}
-                            </div>
-                        </div>
-
                         <ProductGrid
                             products={products}
                             searchQuery={searchQuery}
@@ -1798,6 +1914,39 @@ export default function Menu({
                                 setSearchQuery(barcode);
                                 setIsSearching(false);
                             }}
+                            compactHeaderLayout={true}
+                            embedHeaderInScroll={true}
+                            scrollIntro={
+                                <div className="rounded-[24px] border border-slate-200 bg-white px-4 py-3 shadow-sm">
+                                    <div className="flex flex-wrap items-center justify-between gap-3">
+                                        <div className="min-w-0">
+                                            <p className="text-sm font-semibold text-slate-800">
+                                                Toko Anda
+                                            </p>
+                                            <p className="text-xs text-slate-500">
+                                                {outlet?.name || storeProfile?.name || "Outlet"}
+                                            </p>
+                                            <p className="text-xs text-slate-500">
+                                                Meja {table.code || table.name} • bayar lewat approval kasir
+                                            </p>
+                                            {editableOrder?.order_number ? (
+                                                <p className="mt-1 text-xs font-semibold text-amber-600">
+                                                    Sedang edit order {editableOrder.order_number}
+                                                </p>
+                                            ) : null}
+                                        </div>
+                                        {customer ? (
+                                            <button
+                                                type="button"
+                                                onClick={logoutCustomer}
+                                                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                                            >
+                                                Ganti akun
+                                            </button>
+                                        ) : null}
+                                    </div>
+                                </div>
+                            }
                         />
                     </div>
 
@@ -1812,10 +1961,16 @@ export default function Menu({
                                     <p className="text-sm font-semibold text-slate-800">
                                         Keranjang
                                     </p>
-                                    <p className="text-xs text-slate-500">
-                                        Promo dan struktur item mengikuti engine
-                                        POS kasir.
-                                    </p>
+                                    {editableOrder?.order_number ? (
+                                        <p className="text-xs font-semibold text-amber-600">
+                                            Draft edit {editableOrder.order_number}
+                                        </p>
+                                    ) : (
+                                        <p className="text-xs text-slate-500">
+                                            Promo dan struktur item mengikuti engine
+                                            POS kasir.
+                                        </p>
+                                    )}
                                 </div>
                                 {normalizedCarts.length > 0 && (
                                     <span className="rounded-full bg-primary-100 px-2.5 py-1 text-xs font-bold text-primary-700">
@@ -1925,7 +2080,7 @@ export default function Menu({
                                     type="button"
                                     onClick={openPaymentInfoTab}
                                     className={`flex h-10 w-full items-center justify-center gap-2 rounded-xl text-sm font-semibold transition-all ${
-                                        !normalizedCarts.length || isLoadingPricing
+                                        !normalizedCarts.length
                                             ? "cursor-not-allowed bg-slate-200 text-slate-400"
                                             : "bg-gradient-to-r from-primary-500 to-primary-600 text-white shadow-lg shadow-primary-500/30 hover:from-primary-600 hover:to-primary-700"
                                     }`}
@@ -1934,8 +2089,6 @@ export default function Menu({
                                     <span>
                                         {!normalizedCarts.length
                                             ? "Pilih menu dulu"
-                                            : isLoadingPricing
-                                            ? "Menyiapkan total terbaik..."
                                             : "Lanjut ke info pembayaran"}
                                     </span>
                                 </button>
@@ -2285,13 +2438,11 @@ export default function Menu({
                                 onClick={submitOrder}
                                 disabled={
                                     orderForm.processing ||
-                                    normalizedCarts.length === 0 ||
-                                    isLoadingPricing
+                                    normalizedCarts.length === 0
                                 }
                                 className={`flex h-11 w-full items-center justify-center gap-2 rounded-xl text-sm font-semibold transition-all ${
                                     orderForm.processing ||
-                                    normalizedCarts.length === 0 ||
-                                    isLoadingPricing
+                                    normalizedCarts.length === 0
                                         ? "cursor-not-allowed bg-slate-200 text-slate-400"
                                         : "bg-gradient-to-r from-primary-500 to-primary-600 text-white shadow-lg shadow-primary-500/30 hover:from-primary-600 hover:to-primary-700"
                                 }`}
@@ -2299,10 +2450,12 @@ export default function Menu({
                                 <IconReceipt size={16} />
                                 <span>
                                     {orderForm.processing
-                                        ? "Mengirim order..."
-                                        : isLoadingPricing
-                                        ? "Menyiapkan total terbaik..."
-                                        : "Kirim Order ke Kasir"}
+                                        ? editableOrder?.access_token
+                                          ? "Menyimpan perubahan..."
+                                          : "Mengirim order..."
+                                        : editableOrder?.access_token
+                                          ? "Simpan Perubahan Pesanan"
+                                          : "Kirim Order ke Kasir"}
                                 </span>
                             </button>
                         </div>
@@ -2321,6 +2474,40 @@ export default function Menu({
                 identifyPhoneInputRef={identifyPhoneInputRef}
                 registerNameInputRef={registerNameInputRef}
             />
+
+            {cartCount > 0 ? (
+                <button
+                    type="button"
+                    onPointerDown={(event) =>
+                        startFloatingCartDrag(event.clientX, event.clientY)
+                    }
+                    onClick={() => {
+                        if (floatingCartDragRef.current.moved) {
+                            floatingCartDragRef.current.moved = false;
+                            return;
+                        }
+
+                        openCartTab();
+                    }}
+                    className="fixed z-[55] flex min-w-[164px] max-w-[220px] items-center justify-between gap-3 rounded-2xl bg-slate-950/95 px-4 py-3 text-left text-white shadow-[0_18px_38px_-18px_rgba(15,23,42,0.75)] backdrop-blur active:scale-[0.99]"
+                    style={{
+                        left: `${floatingCartPosition.x}px`,
+                        bottom: `${floatingCartPosition.y}px`,
+                    }}
+                >
+                    <div className="min-w-0">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-300">
+                            Keranjang
+                        </p>
+                        <p className="truncate text-sm font-bold text-white">
+                            {formatPrice(payable)}
+                        </p>
+                    </div>
+                    <div className="shrink-0 rounded-full bg-white/10 px-2.5 py-1 text-xs font-semibold text-white">
+                        {cartCount}
+                    </div>
+                </button>
+            ) : null}
 
             <ModifierOptionsModal
                 product={modifierModalProduct}

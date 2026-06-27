@@ -9,6 +9,7 @@ use App\Models\ProductOutletStock;
 use App\Models\TableOrder;
 use App\Models\TableOrderItem;
 use App\Models\Transaction;
+use App\Models\User;
 use App\Models\TransactionDetail;
 use App\Services\CustomerOutletMetricService;
 use App\Services\LoyaltyService;
@@ -32,7 +33,7 @@ class PublicTableOrderController extends Controller
         private readonly ProductCatalogService $productCatalogService
     ) {}
 
-    public function show(string $qrToken)
+    public function show(Request $request, string $qrToken)
     {
         $table = DiningTable::query()
             ->with('outlet:id,name,city')
@@ -41,7 +42,8 @@ class PublicTableOrderController extends Controller
             ->where('self_order_enabled', true)
             ->firstOrFail();
 
-        $identifiedCustomer = $this->resolvedPublicCustomer(request(), $table->outlet_id);
+        $identifiedCustomer = $this->resolvedPublicCustomer($request, $table->outlet_id);
+        $editableOrder = $this->resolveEditableOrder($request, $table, $identifiedCustomer);
 
         $products = Product::query()
             ->with([
@@ -119,6 +121,24 @@ class PublicTableOrderController extends Controller
                 'customer' => $identifiedCustomer ? $this->customerPayload($identifiedCustomer, $table->outlet_id) : null,
                 'pending_phone' => session()->get($this->pendingPhoneSessionKey($table->outlet_id)),
             ],
+            'editableOrder' => $editableOrder ? [
+                'id' => $editableOrder->id,
+                'access_token' => $editableOrder->access_token,
+                'order_number' => $editableOrder->order_number,
+                'notes' => $editableOrder->notes,
+                'items' => $editableOrder->items->map(fn ($item) => [
+                    'id' => $item->id,
+                    'product_id' => (int) ($item->product_id ?? 0),
+                    'qty' => (int) ($item->qty ?? 0),
+                    'notes' => $item->notes,
+                    'modifiers' => $item->modifiers->map(fn ($modifier) => [
+                        'id' => (int) ($modifier->product_modifier_option_id ?? 0),
+                        'name' => $modifier->name,
+                        'group_name' => $modifier->group_name,
+                        'unit_price' => (int) ($modifier->unit_price ?? 0),
+                    ])->values(),
+                ])->values(),
+            ] : null,
         ]);
     }
 
@@ -233,6 +253,7 @@ class PublicTableOrderController extends Controller
         $order = TableOrder::query()
             ->with([
                 'diningTable:id,name,code,qr_token',
+                'items.product:id,title,stock',
                 'items.modifiers',
                 'transaction:id,invoice,payment_status,payment_method,created_at',
                 'transaction.kitchenTickets:id,transaction_id,kitchen_station_id,ticket_number,status,notes,fired_at,acknowledged_at,ready_at,completed_at,created_at',
@@ -242,6 +263,27 @@ class PublicTableOrderController extends Controller
             ])
             ->where('access_token', $accessToken)
             ->firstOrFail();
+
+        $stockAlerts = $order->items
+            ->map(function (TableOrderItem $item) {
+                $currentStock = (int) ($item->product?->stock ?? 0);
+                $requestedQty = (int) ($item->qty ?? 0);
+
+                if ($currentStock >= $requestedQty) {
+                    return null;
+                }
+
+                return [
+                    'item_id' => $item->id,
+                    'product_id' => (int) ($item->product_id ?? 0),
+                    'product_title' => $item->product_title,
+                    'requested_qty' => $requestedQty,
+                    'current_stock' => $currentStock,
+                    'issue_type' => $currentStock <= 0 ? 'out_of_stock' : 'insufficient_stock',
+                ];
+            })
+            ->filter()
+            ->values();
 
         return Inertia::render('Public/TableOrder/Status', [
             'order' => [
@@ -255,6 +297,7 @@ class PublicTableOrderController extends Controller
                 'payment_method' => $order->payment_method,
                 'status' => $order->status,
                 'can_cancel' => $order->status === 'pending_cashier_payment' && $order->transaction_id === null,
+                'can_adjust_items' => $order->status === 'pending_cashier_payment' && $order->transaction_id === null,
                 'subtotal' => $order->resolvedSubtotal(),
                 'base_subtotal' => (int) $order->items->sum(fn ($item) => ((int) ($item->base_unit_price ?? $item->unit_price) * (int) $item->qty) + (int) $item->modifiers->sum('total_price')),
                 'discount_total' => (int) $order->items->sum('discount_total'),
@@ -270,6 +313,7 @@ class PublicTableOrderController extends Controller
                 ],
                 'items' => $order->items->map(fn ($item) => [
                     'id' => $item->id,
+                    'product_id' => (int) ($item->product_id ?? 0),
                     'product_title' => $item->product_title,
                     'qty' => (int) $item->qty,
                     'base_unit_price' => (int) ($item->base_unit_price ?? $item->unit_price),
@@ -281,6 +325,7 @@ class PublicTableOrderController extends Controller
                     'notes' => $item->notes,
                     'modifiers' => $item->modifiers->map(fn ($modifier) => [
                         'id' => $modifier->id,
+                        'product_modifier_option_id' => (int) ($modifier->product_modifier_option_id ?? 0),
                         'group_name' => $modifier->group_name,
                         'name' => $modifier->name,
                         'qty' => (int) $modifier->qty,
@@ -318,6 +363,7 @@ class PublicTableOrderController extends Controller
                         ])->values(),
                     ])->values(),
                 ] : null,
+                'stock_alerts' => $stockAlerts->all(),
             ],
             'identity' => [
                 'customer' => $order->customer
@@ -349,6 +395,92 @@ class PublicTableOrderController extends Controller
             ->with('success', 'Pesanan berhasil dibatalkan.');
     }
 
+    public function removeUnavailableItems(string $accessToken)
+    {
+        $order = TableOrder::query()
+            ->with(['items.product:id,stock', 'items.modifiers'])
+            ->where('access_token', $accessToken)
+            ->firstOrFail();
+
+        if ($order->status !== 'pending_cashier_payment' || $order->transaction_id !== null) {
+            throw ValidationException::withMessages([
+                'order' => 'Pesanan ini sudah tidak bisa diubah dari halaman pelanggan.',
+            ]);
+        }
+
+        $remainingItems = $order->items
+            ->filter(function (TableOrderItem $item) {
+                $currentStock = (int) ($item->product?->stock ?? 0);
+                return $currentStock >= (int) ($item->qty ?? 0);
+            })
+            ->map(fn (TableOrderItem $item) => [
+                'product_id' => (int) ($item->product_id ?? 0),
+                'qty' => (int) ($item->qty ?? 0),
+                'notes' => $item->notes,
+                'modifier_ids' => $item->modifiers
+                    ->map(fn ($modifier) => [
+                        'id' => (int) ($modifier->product_modifier_option_id ?? 0),
+                    ])
+                    ->filter(fn (array $modifier) => $modifier['id'] > 0)
+                    ->values()
+                    ->all(),
+            ])
+            ->values()
+            ->all();
+
+        $actor = User::query()->orderBy('id')->firstOrFail();
+        $updatedOrder = $this->tableOrderService->updateItems($order, $remainingItems, $actor);
+
+        $message = $updatedOrder->status === 'cancelled'
+            ? 'Semua item kosong dihapus dan pesanan dibatalkan karena tidak ada menu tersisa.'
+            : 'Menu yang stoknya kosong berhasil dihapus dari pesanan.';
+
+        return redirect()
+            ->route('table-order.status', $updatedOrder->access_token)
+            ->with('success', $message);
+    }
+
+    public function updateStatusItems(Request $request, string $accessToken)
+    {
+        $order = TableOrder::query()
+            ->where('access_token', $accessToken)
+            ->firstOrFail();
+
+        $customer = $this->resolvedPublicCustomer($request, (int) $order->outlet_id);
+        abort_unless($customer && (int) $customer->id === (int) $order->customer_id, 403);
+
+        if ($order->status !== 'pending_cashier_payment' || $order->transaction_id !== null) {
+            throw ValidationException::withMessages([
+                'order' => 'Pesanan ini sudah tidak bisa diubah dari halaman pelanggan.',
+            ]);
+        }
+
+        $validated = $this->validatePublicOrderPayload($request);
+        $items = collect($validated['items'] ?? [])
+            ->map(fn (array $item) => [
+                'product_id' => (int) ($item['product_id'] ?? 0),
+                'qty' => (int) ($item['qty'] ?? 0),
+                'notes' => filled($item['notes'] ?? null) ? (string) $item['notes'] : null,
+                'modifier_ids' => collect($item['modifiers'] ?? [])
+                    ->map(fn (array $modifier) => ['id' => (int) ($modifier['id'] ?? 0)])
+                    ->filter(fn (array $modifier) => $modifier['id'] > 0)
+                    ->values()
+                    ->all(),
+            ])
+            ->values()
+            ->all();
+
+        $actor = User::query()->orderBy('id')->firstOrFail();
+        $updatedOrder = $this->tableOrderService->updateItems($order, $items, $actor);
+        $updatedOrder->update([
+            'notes' => filled($validated['notes'] ?? null) ? (string) $validated['notes'] : null,
+        ]);
+
+        return redirect()
+            ->route('table-order.status', $updatedOrder->access_token)
+            ->with('success', 'Pesanan berhasil diperbarui. Silakan lanjutkan pembayaran ke kasir.');
+    }
+
     private function resolveTable(string $qrToken): DiningTable
     {
         return DiningTable::query()
@@ -366,6 +498,24 @@ class PublicTableOrderController extends Controller
         }
 
         return Customer::query()->find($customerId);
+    }
+
+    private function resolveEditableOrder(Request $request, DiningTable $table, ?Customer $customer): ?TableOrder
+    {
+        $accessToken = (string) $request->query('edit_order', '');
+        if ($accessToken === '' || ! $customer) {
+            return null;
+        }
+
+        return TableOrder::query()
+            ->with(['items.modifiers'])
+            ->where('access_token', $accessToken)
+            ->where('dining_table_id', $table->id)
+            ->where('outlet_id', $table->outlet_id)
+            ->where('customer_id', $customer->id)
+            ->where('status', 'pending_cashier_payment')
+            ->whereNull('transaction_id')
+            ->first();
     }
 
     private function rememberPublicCustomer(Request $request, int $outletId, Customer $customer): void

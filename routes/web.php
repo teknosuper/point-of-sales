@@ -83,10 +83,14 @@ Route::post('/order/table/{qrToken}/preview', [PublicTableOrderController::class
     ->name('table-order.preview');
 Route::post('/order/table/{qrToken}', [PublicTableOrderController::class, 'store'])
     ->name('table-order.store');
+Route::patch('/order/status/{accessToken}/items', [PublicTableOrderController::class, 'updateStatusItems'])
+    ->name('table-order.update-items');
 Route::get('/order/status/{accessToken}', [PublicTableOrderController::class, 'status'])
     ->name('table-order.status');
 Route::post('/order/status/{accessToken}/cancel', [PublicTableOrderController::class, 'cancelStatus'])
     ->name('table-order.cancel');
+Route::post('/order/status/{accessToken}/remove-unavailable', [PublicTableOrderController::class, 'removeUnavailableItems'])
+    ->name('table-order.remove-unavailable');
 
 Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
     Route::get('/', [DashboardController::class, 'index'])->middleware(['auth', 'permission:dashboard-access'])->name('dashboard');
