@@ -387,6 +387,7 @@ function SearchInput({
 // Main ProductGrid Component
 export default function ProductGrid({
     products = [],
+    tenantOutlets = [],
     searchQuery,
     onSearchChange,
     onSearch,
@@ -511,8 +512,9 @@ export default function ProductGrid({
 
     const tenantTabs = useMemo(
         () =>
-            products
-                .map((product) => product.tenant_outlet)
+            (tenantOutlets.length > 0
+                ? tenantOutlets
+                : products.map((product) => product.tenant_outlet))
                 .filter((tenant, index, array) =>
                     tenant?.id &&
                     array.findIndex(

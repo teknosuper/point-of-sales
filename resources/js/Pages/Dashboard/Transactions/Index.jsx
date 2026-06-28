@@ -711,6 +711,7 @@ export default function Index({
     const paymentSuccessAudioContextRef = useRef(null);
     const hasUnlockedAudioRef = useRef(false);
     const previousSelectedTableItemNoteRef = useRef("");
+    const hasHydratedOfflineCartRef = useRef(false);
 
     // Set default payment method
     useEffect(() => {
@@ -795,7 +796,6 @@ export default function Index({
 
         if (!isOfflineMode && localCarts.length === 0) {
             lastSyncedCartSignatureRef.current = "";
-            setLocalCarts([]);
         }
     }, [
         carts,
@@ -807,15 +807,81 @@ export default function Index({
     ]);
 
     useEffect(() => {
-        if (isBrowserOnline && isServerReachable) {
+        if (
+            isOfflineMode ||
+            pendingCartMutations > 0 ||
+            carts.length > 0 ||
+            localCarts.length > 0 ||
+            !activeCashierShift
+        ) {
+            return;
+        }
+
+        let cancelled = false;
+
+        axios
+            .get(route("transactions.active-cart"), {
+                headers: {
+                    Accept: "application/json",
+                },
+            })
+            .then((response) => {
+                if (cancelled) {
+                    return;
+                }
+
+                const serverCarts = Array.isArray(response.data?.data?.carts)
+                    ? response.data.data.carts
+                    : [];
+
+                if (serverCarts.length === 0) {
+                    return;
+                }
+
+                setLocalCarts(
+                    normalizeBuyGetRewardCarts(
+                        mergeRewardMetadataIntoCarts(serverCarts, localCarts),
+                        productsById
+                    )
+                );
+            })
+            .catch(() => {});
+
+        return () => {
+            cancelled = true;
+        };
+    }, [
+        activeCashierShift,
+        carts,
+        isOfflineMode,
+        localCarts,
+        normalizeBuyGetRewardCarts,
+        pendingCartMutations,
+        productsById,
+    ]);
+
+    useEffect(() => {
+        if (localCarts.length > 0) {
+            hasHydratedOfflineCartRef.current = true;
             return;
         }
 
         const savedCart = loadOfflineCart();
-        if (savedCart.length > 0 && localCarts.length === 0) {
+        hasHydratedOfflineCartRef.current = true;
+
+        if (savedCart.length === 0) {
+            return;
+        }
+
+        if (!isBrowserOnline || !isServerReachable || carts.length === 0) {
             setLocalCarts(savedCart);
         }
-    }, [isBrowserOnline, isServerReachable, localCarts.length]);
+    }, [
+        carts.length,
+        isBrowserOnline,
+        isServerReachable,
+        localCarts.length,
+    ]);
 
     useEffect(() => {
         const previousAutoNote = previousSelectedTableItemNoteRef.current;
@@ -1902,6 +1968,10 @@ export default function Index({
     }, [resolvedPricingPreview?.eligible_vouchers, selectedVoucherId]);
 
     useEffect(() => {
+        if (!hasHydratedOfflineCartRef.current) {
+            return;
+        }
+
         if (localCarts.length > 0) {
             saveOfflineCart(localCarts);
             return;
@@ -4255,12 +4325,6 @@ export default function Index({
             return;
         }
 
-        router.reload({
-            only: ["carts", "initialPricingPreview"],
-            preserveScroll: true,
-            preserveState: true,
-        });
-
         if (unmetRewardWarnings.length > 0) {
             setCheckoutWarning(
                 unmetRewardWarnings
@@ -5645,6 +5709,7 @@ export default function Index({
                 >
                         <ProductGrid
                             products={allProducts}
+                            tenantOutlets={tenantOutlets}
                             categories={categories}
                             selectedCategory={selectedCategory}
                             onCategoryChange={(categoryId) =>

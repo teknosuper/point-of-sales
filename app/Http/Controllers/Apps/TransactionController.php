@@ -11,6 +11,7 @@ use App\Models\DiningTable;
 use App\Models\KitchenStation;
 use App\Models\Outlet;
 use App\Models\PaymentSetting;
+use App\Models\PosCheckoutReservation;
 use App\Models\Product;
 use App\Models\ProductOutletStock;
 use App\Models\Receivable;
@@ -73,23 +74,55 @@ class TransactionController extends Controller
         );
     }
 
-    private function releaseCheckoutReservationState(Request $request, ?Outlet $outlet = null): void
+    private function checkoutReservationPreviewSessionKey(?int $outletId): string
+    {
+        return sprintf(
+            'pos.checkout_reservation_preview.%s.%s',
+            (string) auth()->id(),
+            (string) ($outletId ?? 'global')
+        );
+    }
+
+    private function activeCheckoutReservationRecord(?int $outletId): ?PosCheckoutReservation
+    {
+        return PosCheckoutReservation::query()
+            ->where('user_id', auth()->id())
+            ->where('status', 'active')
+            ->when(
+                $outletId,
+                fn ($query) => $query->where('outlet_id', $outletId),
+                fn ($query) => $query->whereNull('outlet_id')
+            )
+            ->latest('id')
+            ->first();
+    }
+
+    private function releaseCheckoutReservationState(Request $request, ?Outlet $outlet = null, bool $force = true): void
     {
         $resolvedOutlet = $outlet ?? $this->resolveActiveOutlet($request);
         $sessionKey = $this->checkoutReservationSessionKey($resolvedOutlet?->id);
-        $reservation = $request->session()->get($sessionKey);
+        $previewSessionKey = $this->checkoutReservationPreviewSessionKey($resolvedOutlet?->id);
+        $isPreviewActive = (bool) $request->session()->get($previewSessionKey, false);
 
-        if (! is_array($reservation) || empty($reservation['items'])) {
+        if (! $force && $isPreviewActive) {
+            return;
+        }
+
+        $reservationRecord = $this->activeCheckoutReservationRecord($resolvedOutlet?->id);
+        $reservation = $reservationRecord?->items;
+
+        if (! is_array($reservation) || empty($reservation)) {
             $request->session()->forget($sessionKey);
+            $request->session()->forget($previewSessionKey);
             return;
         }
 
         $products = Product::query()
-            ->whereIn('id', collect($reservation['items'])->pluck('product_id')->filter()->all())
+            ->whereIn('id', collect($reservation)->pluck('product_id')->filter()->all())
             ->get()
             ->keyBy('id');
 
-        foreach ($reservation['items'] as $item) {
+        foreach ($reservation as $item) {
             $product = $products->get((int) ($item['product_id'] ?? 0));
             $qty = (int) ($item['qty'] ?? 0);
 
@@ -108,7 +141,16 @@ class TransactionController extends Controller
             );
         }
 
+        if ($reservationRecord) {
+            $reservationRecord->forceFill([
+                'status' => 'released',
+                'released_at' => now(),
+                'last_seen_at' => now(),
+            ])->save();
+        }
+
         $request->session()->forget($sessionKey);
+        $request->session()->forget($previewSessionKey);
     }
 
     private function currentActiveCartReservationSignature(?Outlet $outlet = null): array
@@ -155,19 +197,31 @@ class TransactionController extends Controller
         }
 
         $sessionKey = $this->checkoutReservationSessionKey($outlet?->id);
-        $existingReservation = $request->session()->get($sessionKey);
+        $existingReservation = $this->activeCheckoutReservationRecord($outlet?->id);
 
         if (
-            is_array($existingReservation)
-            && ($existingReservation['signature'] ?? null) === $reservationState['signature']
+            $existingReservation
+            && $existingReservation->signature === $reservationState['signature']
         ) {
+            $existingReservation->forceFill([
+                'last_seen_at' => now(),
+            ])->save();
+            $request->session()->put($sessionKey, [
+                'signature' => $reservationState['signature'],
+                'items' => $reservationState['items'],
+                'reserved_at' => optional($existingReservation->reserved_at)->toIso8601String(),
+            ]);
+            $request->session()->put(
+                $this->checkoutReservationPreviewSessionKey($outlet?->id),
+                true
+            );
             return response()->json([
                 'success' => true,
                 'message' => 'Reservasi checkout masih aktif.',
             ]);
         }
 
-        if (is_array($existingReservation)) {
+        if ($existingReservation) {
             $this->releaseCheckoutReservationState($request, $outlet);
         }
 
@@ -200,6 +254,19 @@ class TransactionController extends Controller
             'items' => $reservationState['items'],
             'reserved_at' => now()->toIso8601String(),
         ]);
+        PosCheckoutReservation::query()->create([
+            'user_id' => (int) auth()->id(),
+            'outlet_id' => $outlet?->id,
+            'signature' => $reservationState['signature'],
+            'items' => $reservationState['items'],
+            'status' => 'active',
+            'reserved_at' => now(),
+            'last_seen_at' => now(),
+        ]);
+        $request->session()->put(
+            $this->checkoutReservationPreviewSessionKey($outlet?->id),
+            true
+        );
 
         return response()->json([
             'success' => true,
@@ -226,7 +293,7 @@ class TransactionController extends Controller
     {
         $userId = auth()->user()->id;
         $outlet = $this->resolveActiveOutlet();
-        $this->releaseCheckoutReservationState($request, $outlet);
+        $this->releaseCheckoutReservationState($request, $outlet, false);
         $activeShift = $this->cashierShiftService->getActiveShiftForUser($userId, $outlet?->id);
         $outletOpenShift = $activeShift
             ? null
@@ -1656,6 +1723,7 @@ class TransactionController extends Controller
             ->sort()
             ->values()
             ->implode('|');
+        $activeCheckoutReservation = $this->activeCheckoutReservationRecord($outlet?->id);
         $checkoutReservation = $request->session()->get(
             $this->checkoutReservationSessionKey($outlet?->id)
         );
@@ -1712,7 +1780,8 @@ class TransactionController extends Controller
                 $shouldPerfLog,
                 &$stockAuditPayloads,
                 &$usedReservedStock,
-                $checkoutReservation
+                $checkoutReservation,
+                $activeCheckoutReservation
             ) {
                 $shiftStart = hrtime(true);
                 $activeShift = $this->cashierShiftService->requireActiveShiftForUser(
@@ -1887,8 +1956,14 @@ class TransactionController extends Controller
                     ];
                 }
                 
-                $shouldReuseReservedStock = is_array($checkoutReservation)
-                    && ($checkoutReservation['signature'] ?? null) === $currentSignature;
+                $shouldReuseReservedStock = (
+                    is_array($checkoutReservation)
+                    && ($checkoutReservation['signature'] ?? null) === $currentSignature
+                ) || (
+                    $activeCheckoutReservation
+                    && $activeCheckoutReservation->status === 'active'
+                    && $activeCheckoutReservation->signature === $currentSignature
+                );
                 $usedReservedStock = $shouldReuseReservedStock;
 
                 if (! $shouldReuseReservedStock) {
@@ -1931,6 +2006,14 @@ class TransactionController extends Controller
             });
             $markPerf('db_transaction_committed');
             $request->session()->forget($this->checkoutReservationSessionKey($outlet?->id));
+            $request->session()->forget($this->checkoutReservationPreviewSessionKey($outlet?->id));
+            if ($usedReservedStock && $activeCheckoutReservation) {
+                $activeCheckoutReservation->forceFill([
+                    'status' => 'consumed',
+                    'consumed_at' => now(),
+                    'last_seen_at' => now(),
+                ])->save();
+            }
 
             // Batch audit log AFTER DB::transaction commits — single INSERT, no lock contention
             if (! empty($stockAuditPayloads)) {
@@ -3079,7 +3162,6 @@ class TransactionController extends Controller
 
                     return $product;
                 })
-                ->filter(fn (Product $product) => $product->stock > 0)
                 ->values();
 
             $hasMore = ($offset + $limit) < (int) $total;
