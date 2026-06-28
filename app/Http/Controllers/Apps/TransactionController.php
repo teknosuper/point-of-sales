@@ -531,6 +531,22 @@ class TransactionController extends Controller
         ]);
     }
 
+    public function activeCart(Request $request): JsonResponse
+    {
+        $carts = $this->activeCartQuery($request)
+            ->get()
+            ->map(fn (Cart $cart) => $this->serializeCart($cart))
+            ->filter()
+            ->values();
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'carts' => $carts,
+            ],
+        ]);
+    }
+
     /**
      * productCatalog
      */
@@ -1196,6 +1212,55 @@ class TransactionController extends Controller
         ];
     }
 
+    private function activeCartQuery(?Request $request = null): Builder
+    {
+        $outlet = $this->resolveActiveOutlet($request);
+
+        return Cart::with(
+            'product.modifierOptions',
+            'product.kitchenStationMappings.kitchenStation',
+            'tenantOutlet:id,name,code',
+            'modifiers'
+        )
+            ->where('cashier_id', auth()->id())
+            ->when($outlet, fn ($query) => $query->where('outlet_id', $outlet->id))
+            ->active()
+            ->latest();
+    }
+
+    private function cartSnapshotSignature(array $items): string
+    {
+        return collect($items)
+            ->map(function (array $item) {
+                $modifierSignature = collect($item['modifiers'] ?? [])
+                    ->map(fn (array $modifier) => implode(':', [
+                        (int) ($modifier['product_modifier_option_id'] ?? 0),
+                        trim((string) ($modifier['name'] ?? '')),
+                        (int) ($modifier['qty'] ?? 0),
+                        (int) ($modifier['unit_price'] ?? 0),
+                        (int) ($modifier['base_price'] ?? 0),
+                        (int) ($modifier['markup_price'] ?? 0),
+                    ]))
+                    ->sort()
+                    ->values()
+                    ->implode('|');
+
+                return implode('::', [
+                    (int) ($item['product_id'] ?? 0),
+                    (int) ($item['tenant_outlet_id'] ?? 0),
+                    (int) ($item['qty'] ?? 0),
+                    (int) ($item['price'] ?? 0),
+                    trim((string) ($item['notes'] ?? '')),
+                    trim((string) ($item['promo_reward_rule_name'] ?? data_get($item, 'promo_reward_meta.rule_name', ''))),
+                    trim((string) ($item['promo_reward_label'] ?? data_get($item, 'promo_reward_meta.reward_label', ''))),
+                    $modifierSignature,
+                ]);
+            })
+            ->sort()
+            ->values()
+            ->implode('##');
+    }
+
     private function ensureRequiredModifiersSatisfied(?Cart $cart): void
     {
         if (! $cart || ! $cart->product) {
@@ -1459,6 +1524,22 @@ class TransactionController extends Controller
             'reward_cart_meta.*.cart_id' => ['required_with:reward_cart_meta', 'string', 'max:64'],
             'reward_cart_meta.*.rule_name' => ['nullable', 'string', 'max:255'],
             'reward_cart_meta.*.reward_label' => ['nullable', 'string', 'max:255'],
+            'cart_snapshot' => ['nullable', 'array'],
+            'cart_snapshot.*.cart_id' => ['required_with:cart_snapshot', 'string', 'max:64'],
+            'cart_snapshot.*.product_id' => ['required_with:cart_snapshot', 'integer'],
+            'cart_snapshot.*.tenant_outlet_id' => ['nullable', 'integer'],
+            'cart_snapshot.*.qty' => ['required_with:cart_snapshot', 'integer', 'min:1'],
+            'cart_snapshot.*.price' => ['required_with:cart_snapshot', 'integer', 'min:0'],
+            'cart_snapshot.*.notes' => ['nullable', 'string'],
+            'cart_snapshot.*.promo_reward_rule_name' => ['nullable', 'string', 'max:255'],
+            'cart_snapshot.*.promo_reward_label' => ['nullable', 'string', 'max:255'],
+            'cart_snapshot.*.modifiers' => ['nullable', 'array'],
+            'cart_snapshot.*.modifiers.*.product_modifier_option_id' => ['nullable', 'integer'],
+            'cart_snapshot.*.modifiers.*.name' => ['required_with:cart_snapshot.*.modifiers', 'string', 'max:255'],
+            'cart_snapshot.*.modifiers.*.qty' => ['nullable', 'integer', 'min:1'],
+            'cart_snapshot.*.modifiers.*.unit_price' => ['nullable', 'integer', 'min:0'],
+            'cart_snapshot.*.modifiers.*.base_price' => ['nullable', 'integer', 'min:0'],
+            'cart_snapshot.*.modifiers.*.markup_price' => ['nullable', 'integer', 'min:0'],
         ]);
         $isPayLater = $request->boolean('pay_later');
         $paymentGateway = $isPayLater ? null : $request->input('payment_gateway');
@@ -1546,6 +1627,24 @@ class TransactionController extends Controller
                 $checkoutCarts,
                 outletId: $outlet?->id
             );
+
+            if (! empty($validatedMeta['cart_snapshot'])) {
+                $requestSnapshotSignature = $this->cartSnapshotSignature($validatedMeta['cart_snapshot']);
+                $serverSnapshotSignature = $this->cartSnapshotSignature(
+                    $checkoutCarts
+                        ->map(fn (Cart $cart) => $this->serializeCart($cart))
+                        ->filter()
+                        ->values()
+                        ->all()
+                );
+
+                if ($requestSnapshotSignature !== $serverSnapshotSignature) {
+                    return $this->transactionStoreErrorResponse(
+                        $request,
+                        'Keranjang sudah berubah. Muat ulang data keranjang lalu periksa kembali sebelum menyimpan transaksi.'
+                    );
+                }
+            }
             $markPerf('carts_loaded');
 
             if ($checkoutCarts->isEmpty()) {

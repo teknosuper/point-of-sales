@@ -310,6 +310,7 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
     Route::get('/transactions', [TransactionController::class, 'index'])->middleware('permission:transactions-access')->name('transactions.index');
     Route::get('/transactions/product-catalog', [TransactionController::class, 'productCatalog'])->middleware('permission:transactions-access')->name('transactions.product-catalog');
     Route::get('/transactions/offline-bootstrap', [TransactionController::class, 'offlineBootstrap'])->middleware(['permission:transactions-access', 'active_shift'])->name('transactions.offline-bootstrap');
+    Route::get('/transactions/active-cart', [TransactionController::class, 'activeCart'])->middleware(['permission:transactions-access', 'active_shift'])->name('transactions.active-cart');
 
     // route transaction searchProduct
     Route::post('/transactions/searchProduct', [TransactionController::class, 'searchProduct'])->middleware(['permission:transactions-access', 'active_shift'])->name('transactions.searchProduct');

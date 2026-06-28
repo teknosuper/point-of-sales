@@ -179,6 +179,37 @@ const WALK_IN_CUSTOMER = {
 const resolvedProductDisplayPrice = (product) =>
     Number(product?.pricing_badge?.promo_price ?? product?.sell_price ?? 0);
 
+const buildCartConsistencySignature = (items = []) =>
+    (Array.isArray(items) ? items : [])
+        .map((item) => {
+            const modifierSignature = (item.modifiers || [])
+                .map((modifier) =>
+                    [
+                        Number(modifier.product_modifier_option_id || 0),
+                        String(modifier.name || "").trim(),
+                        Number(modifier.qty || 0),
+                        Number(modifier.unit_price || 0),
+                        Number(modifier.base_price || 0),
+                        Number(modifier.markup_price || 0),
+                    ].join(":")
+                )
+                .sort()
+                .join("|");
+
+            return [
+                Number(item.product_id || 0),
+                Number(item.tenant_outlet_id || 0),
+                Number(item.qty || 0),
+                Number(item.price || 0),
+                String(item.notes || "").trim(),
+                String(item.promo_reward_meta?.rule_name || ""),
+                String(item.promo_reward_meta?.reward_label || ""),
+                modifierSignature,
+            ].join("::");
+        })
+        .sort()
+        .join("##");
+
 export default function Index({
     carts = [],
     carts_total = 0,
@@ -2777,8 +2808,8 @@ export default function Index({
         const previousCarts = localCarts;
         const tempId = `temp-${product.id}-${Date.now()}`;
 
-        if (!shouldForceNew) {
-            setLocalCarts((currentCarts) => {
+        setLocalCarts((currentCarts) => {
+            if (!shouldForceNew) {
                 const existingCart = currentCarts.find(
                     (item) =>
                         item.product_id === product.id &&
@@ -2789,7 +2820,7 @@ export default function Index({
 
                 if (existingCart) {
                     return currentCarts.map((item) =>
-                            item.id === existingCart.id
+                        item.id === existingCart.id
                             ? {
                                   ...item,
                                   qty: Number(item.qty || 0) + quantity,
@@ -2804,36 +2835,59 @@ export default function Index({
                             : item
                     );
                 }
+            }
 
-                return [
-                    {
-                        id: tempId,
-                        product_id: product.id,
-                        qty: quantity,
-                        price: resolvedProductDisplayPrice(product) * quantity,
-                        notes: normalizedNotes || null,
-                        product: {
-                            ...product,
-                        },
-                        tenant_outlet_id: product.tenant_outlet_id || null,
-                        promo_reward_meta: rewardPromoMeta,
-                        is_optimistic: true,
+            return [
+                {
+                    id: tempId,
+                    product_id: product.id,
+                    qty: quantity,
+                    price: resolvedProductDisplayPrice(product) * quantity,
+                    notes: normalizedNotes || null,
+                    product: {
+                        ...product,
                     },
-                    ...currentCarts,
-                ];
-            });
-        }
+                    tenant_outlet_id: product.tenant_outlet_id || null,
+                    promo_reward_meta: rewardPromoMeta,
+                    modifiers: modifiers.map((modifier, index) => ({
+                        id: `${tempId}-modifier-${index}`,
+                        name: modifier.name,
+                        qty: 1,
+                        unit_price: Math.max(
+                            0,
+                            Number(modifier.price || 0)
+                        ),
+                        total_price: Math.max(
+                            0,
+                            Number(modifier.price || 0)
+                        ),
+                    })),
+                    is_optimistic: true,
+                },
+                ...currentCarts,
+            ];
+        });
 
         return axios
-            .post(route("transactions.addToCart"), {
-                product_id: product.id,
-                sell_price: product.sell_price,
-                qty: quantity,
-                force_new: shouldForceNew,
-                is_promo_reward: Boolean(rewardPromoMeta),
-                promo_reward_rule_name: rewardPromoMeta?.rule_name || null,
-                promo_reward_label: rewardPromoMeta?.reward_label || null,
-            })
+            .post(
+                route("transactions.addToCart"),
+                {
+                    product_id: product.id,
+                    sell_price: product.sell_price,
+                    qty: quantity,
+                    force_new: shouldForceNew,
+                    is_promo_reward: Boolean(rewardPromoMeta),
+                    promo_reward_rule_name:
+                        rewardPromoMeta?.rule_name || null,
+                    promo_reward_label:
+                        rewardPromoMeta?.reward_label || null,
+                },
+                {
+                    headers: {
+                        Accept: "application/json",
+                    },
+                }
+            )
             .then(async (response) => {
                 let serverCart = response.data?.data?.cart;
 
@@ -2902,40 +2956,16 @@ export default function Index({
                 if (!error?.response) {
                     setIsServerReachable(false);
 
-                    if (shouldForceNew) {
-                        setLocalCarts((currentCarts) => [
-                            {
-                                id: tempId,
-                                product_id: product.id,
-                                qty: quantity,
-                                price: resolvedProductDisplayPrice(product) * quantity,
-                                notes: normalizedNotes || null,
-                                product: {
-                                    ...product,
-                                },
-                                tenant_outlet_id:
-                                    product.tenant_outlet_id || null,
-                                promo_reward_meta: rewardPromoMeta,
-                                modifiers: modifiers.map(
-                                    (modifier, index) => ({
-                                        id: `${tempId}-modifier-${index}`,
-                                        name: modifier.name,
-                                        qty: 1,
-                                        unit_price: Math.max(
-                                            0,
-                                            Number(modifier.price || 0)
-                                        ),
-                                        total_price: Math.max(
-                                            0,
-                                            Number(modifier.price || 0)
-                                        ),
-                                    })
-                                ),
-                                is_offline: true,
-                            },
-                            ...currentCarts,
-                        ]);
-                    }
+                    setLocalCarts((currentCarts) =>
+                        currentCarts.map((item) =>
+                            item.id === tempId
+                                ? {
+                                      ...item,
+                                      is_offline: true,
+                                  }
+                                : item
+                        )
+                    );
 
                     toast("Server tidak merespons. Item dialihkan ke mode offline.", {
                         duration: 4000,
@@ -3330,7 +3360,6 @@ export default function Index({
             }
 
             setCartSyncVersion((version) => version + 1);
-            scheduleCartReconcile(260);
         } catch (error) {
             if (error?.response) {
                 toast.error(
@@ -3768,7 +3797,6 @@ export default function Index({
                 }
 
                 setCartSyncVersion((version) => version + 1);
-                scheduleCartReconcile(220);
             })
             .catch((error) => {
                 if (!error?.response) {
@@ -4145,6 +4173,32 @@ export default function Index({
                     rule_name: item.promo_reward_meta?.rule_name || null,
                     reward_label: item.promo_reward_meta?.reward_label || null,
                 })),
+            cart_snapshot: localCarts.map((item) => ({
+                cart_id: String(item.id),
+                product_id: Number(item.product_id || 0),
+                tenant_outlet_id: item.tenant_outlet_id
+                    ? Number(item.tenant_outlet_id)
+                    : null,
+                qty: Number(item.qty || 0),
+                price: Number(item.price || 0),
+                notes: item.notes || null,
+                promo_reward_rule_name:
+                    item.promo_reward_meta?.rule_name || null,
+                promo_reward_label:
+                    item.promo_reward_meta?.reward_label || null,
+                modifiers: (item.modifiers || []).map((modifier) => ({
+                    product_modifier_option_id: Number(
+                        modifier.product_modifier_option_id || 0
+                    ),
+                    name: modifier.name,
+                    qty: Number(modifier.qty || 1),
+                    unit_price: Number(modifier.unit_price || 0),
+                    base_price: Number(
+                        modifier.base_price ?? modifier.unit_price ?? 0
+                    ),
+                    markup_price: Number(modifier.markup_price || 0),
+                })),
+            })),
             pay_later: payLater,
             due_date: dueDate,
         }),
@@ -4542,9 +4596,16 @@ export default function Index({
             const pricingItem = pricingItemsByCartId[item.id];
             const resolvedLine = resolveCartPricingLine(item, pricingItem);
             const modifiers = (item.modifiers || []).map((modifier) => ({
+                product_modifier_option_id: Number(
+                    modifier.product_modifier_option_id || 0
+                ),
                 name: modifier.name,
                 qty: Number(modifier.qty || 1),
                 unit_price: Number(modifier.unit_price || 0),
+                base_price: Number(
+                    modifier.base_price ?? modifier.unit_price ?? 0
+                ),
+                markup_price: Number(modifier.markup_price || 0),
                 total_price: Number(
                     modifier.total_price ||
                         Number(modifier.unit_price || 0) *
@@ -4978,7 +5039,6 @@ export default function Index({
                     syncRewardProducts(nextCarts);
                 }, 0);
                 setCartSyncVersion((version) => version + 1);
-                scheduleCartReconcile(220);
                 toast.success("Item dihapus dari keranjang");
             })
             .catch((error) => {
@@ -5085,6 +5145,31 @@ export default function Index({
             if (pendingCartMutations > 0) {
                 toast.error(
                     "Perubahan keranjang masih diproses. Tunggu sebentar lalu konfirmasi lagi."
+                );
+                setIsSubmitting(false);
+                return;
+            }
+
+            const activeCartResponse = await axios.get(
+                route("transactions.active-cart"),
+                {
+                    headers: {
+                        Accept: "application/json",
+                    },
+                    timeout: 10000,
+                }
+            );
+            const serverCarts = Array.isArray(activeCartResponse.data?.data?.carts)
+                ? activeCartResponse.data.data.carts
+                : [];
+            const localSignature = buildCartConsistencySignature(localCarts);
+            const serverSignature = buildCartConsistencySignature(serverCarts);
+
+            if (localSignature !== serverSignature) {
+                setLocalCarts(serverCarts);
+                setCartSyncVersion((version) => version + 1);
+                toast.error(
+                    "Keranjang berubah di server. Data keranjang disinkronkan dulu, periksa lagi sebelum submit."
                 );
                 setIsSubmitting(false);
                 return;
@@ -5605,7 +5690,7 @@ export default function Index({
                                         Menyimpan...
                                     </span>
                                 ) : null}
-                                {localCarts.length > 0 && !isCartSyncing && (
+                                {localCarts.length > 0 && (
                                     <span className="rounded-full bg-primary-100 px-2.5 py-1 text-xs font-bold text-primary-700 dark:bg-primary-900/40 dark:text-primary-300">
                                         {cartCount} item
                                     </span>
@@ -6330,56 +6415,58 @@ export default function Index({
                                 </div>
 
                                 {/* Submit Button */}
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        if (
+                                <div className="sticky bottom-0 z-10 -mx-3 mt-2 border-t border-slate-200 bg-slate-50/95 px-3 py-3 backdrop-blur supports-[backdrop-filter]:bg-slate-50/85 dark:border-slate-800 dark:bg-slate-900/95 sm:static sm:mx-0 sm:border-t-0 sm:bg-transparent sm:px-0 sm:py-0 sm:backdrop-blur-0">
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            if (
+                                                !localCarts.length ||
+                                                isLoadingPricing ||
+                                                isSubmitting
+                                            ) {
+                                                return;
+                                            }
+
+                                            if (needsCashAdjustment) {
+                                                setIsCashPaymentModalOpen(true);
+                                                return;
+                                            }
+
+                                            openCheckoutPreview();
+                                        }}
+                                        disabled={
                                             !localCarts.length ||
                                             isLoadingPricing ||
                                             isSubmitting
-                                        ) {
-                                            return;
                                         }
-
-                                        if (needsCashAdjustment) {
-                                            setIsCashPaymentModalOpen(true);
-                                            return;
-                                        }
-
-                                        openCheckoutPreview();
-                                    }}
-                                    disabled={
-                                        !localCarts.length ||
-                                        isLoadingPricing ||
-                                        isSubmitting
-                                    }
-                                    className={`flex h-10 w-full items-center justify-center gap-2 rounded-xl text-sm font-semibold transition-all mt-2 ${
-                                        !localCarts.length ||
-                                        isLoadingPricing ||
-                                        isSubmitting
-                                            ? "cursor-not-allowed bg-slate-200 text-slate-400 dark:bg-slate-800"
-                                            : needsCashAdjustment
-                                            ? "bg-amber-500 text-white shadow-lg shadow-amber-500/25 hover:bg-amber-600"
-                                            : "bg-gradient-to-r from-primary-500 to-primary-600 text-white shadow-lg shadow-primary-500/30 hover:from-primary-600 hover:to-primary-700"
-                                    }`}
-                                >
-                                    {isSubmitting || isLoadingPricing ? (
-                                        <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                                    ) : (
-                                        <>
-                                            <IconReceipt size={16} />
-                                            <span>
-                                                {!localCarts.length
-                                                    ? "Pilih menu dulu"
-                                                    : needsCashAdjustment
-                                                    ? "Atur nominal bayar"
-                                                    : isLoadingPricing
-                                                    ? "Menyiapkan total terbaik..."
-                                                    : "Lanjutkan pembayaran"}
-                                            </span>
-                                        </>
-                                    )}
-                                </button>
+                                        className={`flex h-10 w-full items-center justify-center gap-2 rounded-xl text-sm font-semibold transition-all ${
+                                            !localCarts.length ||
+                                            isLoadingPricing ||
+                                            isSubmitting
+                                                ? "cursor-not-allowed bg-slate-200 text-slate-400 dark:bg-slate-800"
+                                                : needsCashAdjustment
+                                                ? "bg-amber-500 text-white shadow-lg shadow-amber-500/25 hover:bg-amber-600"
+                                                : "bg-gradient-to-r from-primary-500 to-primary-600 text-white shadow-lg shadow-primary-500/30 hover:from-primary-600 hover:to-primary-700"
+                                        }`}
+                                    >
+                                        {isSubmitting || isLoadingPricing ? (
+                                            <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                        ) : (
+                                            <>
+                                                <IconReceipt size={16} />
+                                                <span>
+                                                    {!localCarts.length
+                                                        ? "Pilih menu dulu"
+                                                        : needsCashAdjustment
+                                                        ? "Atur nominal bayar"
+                                                        : isLoadingPricing
+                                                        ? "Menyiapkan total terbaik..."
+                                                        : "Lanjutkan pembayaran"}
+                                                </span>
+                                            </>
+                                        )}
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
