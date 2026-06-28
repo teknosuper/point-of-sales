@@ -101,8 +101,7 @@ const ProductCard = memo(function ProductCard({
     const secondaryLabel =
         product.tenant_outlet?.name || product.category?.name || "-";
     const isSelectable =
-        interactive ||
-        (typeof onProductSelect === "function" && hasModifierOptions);
+        interactive || typeof onProductSelect === "function";
     const CardTag = isSelectable ? "button" : "div";
     const cardProps = isSelectable
         ? {

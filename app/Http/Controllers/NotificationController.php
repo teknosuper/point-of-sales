@@ -156,7 +156,7 @@ class NotificationController extends Controller
                 ->when($activeOutlet, fn ($query) => $query->where('outlet_id', $activeOutlet->id))
                 ->where('status', 'pending_cashier_payment')
                 ->latest('created_at')
-                ->limit(6)
+                ->limit(60)
                 ->get()
                 ->map(fn (TableOrder $order) => [
                     'id' => $order->id,

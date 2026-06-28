@@ -10,6 +10,7 @@ import {
     IconCirclePlus,
     IconChevronDown,
     IconChevronUp,
+    IconCopy,
     IconDatabaseOff,
     IconInfoCircle,
     IconLayoutGrid,
@@ -405,6 +406,7 @@ export default function Index({
     const showCostAsPrimary = isKitchenWorkspace || isTenantWorkspace || !canManagePricing;
     const categories = meta?.categories ?? [];
     const tenantOutlets = meta?.tenantOutlets ?? [];
+    const modifierSourceProducts = meta?.modifierSourceProducts ?? [];
     const kitchenStations = meta?.kitchenStations ?? [];
     const setupIssueCount =
         Number(setupStatus?.needs_tenant_mapping ? 1 : 0) +
@@ -717,6 +719,8 @@ export default function Index({
     const [bulkStockEntries, setBulkStockEntries] = useState([]);
     const [bulkStockNotes, setBulkStockNotes] = useState("");
     const [bulkStockApplyAllValue, setBulkStockApplyAllValue] = useState("");
+    const [showBulkModifierModal, setShowBulkModifierModal] = useState(false);
+    const [bulkModifierSourceId, setBulkModifierSourceId] = useState("");
 
     const openBulkStockModal = () => {
         const allRows = products?.data ?? [];
@@ -748,6 +752,55 @@ export default function Index({
         setBulkStockEntries([]);
         setBulkStockNotes("");
         setBulkStockApplyAllValue("");
+    };
+
+    const availableModifierSourceProducts = useMemo(
+        () =>
+            modifierSourceProducts.length > 0
+                ? modifierSourceProducts
+                : rows.filter((product) => Boolean(product.supports_modifiers)),
+        [modifierSourceProducts, rows]
+    );
+
+    const openBulkModifierModal = () => {
+        if (selectedProducts.length === 0) return;
+
+        const firstMatchingSource = availableModifierSourceProducts.find((product) =>
+            selectedProducts.some((selected) => selected.id === product.id)
+        );
+
+        setBulkModifierSourceId(
+            firstMatchingSource ? String(firstMatchingSource.id) : ""
+        );
+        setShowBulkModifierModal(true);
+    };
+
+    const closeBulkModifierModal = () => {
+        setShowBulkModifierModal(false);
+        setBulkModifierSourceId("");
+    };
+
+    const submitBulkModifierCopy = (event) => {
+        event.preventDefault();
+
+        if (!bulkModifierSourceId || selectedProducts.length === 0) {
+            return;
+        }
+
+        router.post(
+            route("products.bulk-copy-modifiers"),
+            {
+                source_product_id: Number(bulkModifierSourceId),
+                target_product_ids: selectedProducts.map((product) => product.id),
+            },
+            {
+                preserveScroll: true,
+                onSuccess: () => {
+                    closeBulkModifierModal();
+                    setSelectedProducts([]);
+                },
+            }
+        );
     };
 
     const applyBulkStockToAll = () => {
@@ -1383,6 +1436,17 @@ export default function Index({
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2">
+                        {canManageCatalog ? (
+                            <button
+                                onClick={openBulkModifierModal}
+                                className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-amber-600 disabled:cursor-not-allowed disabled:bg-amber-300"
+                                type="button"
+                                disabled={selectedProducts.length === 0}
+                            >
+                                <IconCopy size={18} />
+                                Salin Topping
+                            </button>
+                        ) : null}
                         {canManageCatalog && selectedProducts.length > 0 ? (
                             <button
                                 onClick={handlePrintSelected}
@@ -1505,6 +1569,27 @@ export default function Index({
                             <p className="text-xs text-slate-500 dark:text-slate-400">
                                 Centang hanya bagian yang ingin diubah. Opsi kosong akan menghapus tenant atau kitchen mapping jika bagian itu diterapkan.
                             </p>
+                        </div>
+
+                        <div className="mt-4 rounded-2xl border border-amber-200 bg-white p-4 dark:border-amber-900/40 dark:bg-slate-900">
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                <div>
+                                    <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                                        Samakan topping banyak produk
+                                    </p>
+                                    <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                        Pilih satu produk sumber, lalu salin seluruh group dan opsi topping ke semua produk terpilih.
+                                    </p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={openBulkModifierModal}
+                                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-600"
+                                >
+                                    <IconCopy size={18} />
+                                    Salin Topping Massal
+                                </button>
+                            </div>
                         </div>
                     </div>
                 ) : null}
@@ -1999,6 +2084,96 @@ export default function Index({
                                             </button>
                                         </div>
                                     </div>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                ) : null}
+
+                {showBulkModifierModal ? (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 px-4 py-6">
+                        <div className="w-full max-w-2xl rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-900">
+                            <div className="flex items-start justify-between gap-4">
+                                <div>
+                                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-500">
+                                        Salin Topping Massal
+                                    </p>
+                                    <h3 className="mt-1 text-lg font-semibold text-slate-900 dark:text-white">
+                                        Terapkan topping ke {selectedProducts.length} produk
+                                    </h3>
+                                    <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                        Pilih satu produk sumber. Topping target akan ditimpa mengikuti produk sumber.
+                                    </p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={closeBulkModifierModal}
+                                    className="rounded-xl border border-slate-200 p-2 text-slate-500 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                                >
+                                    <IconX size={18} />
+                                </button>
+                            </div>
+
+                            <form onSubmit={submitBulkModifierCopy} className="mt-5 space-y-5">
+                                <div>
+                                    <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                        Produk sumber topping
+                                    </label>
+                                    <select
+                                        value={bulkModifierSourceId}
+                                        onChange={(event) =>
+                                            setBulkModifierSourceId(event.target.value)
+                                        }
+                                        className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-700 outline-none transition focus:border-amber-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                        required
+                                    >
+                                        <option value="">Pilih produk sumber</option>
+                                        {availableModifierSourceProducts.map((product) => (
+                                            <option key={product.id} value={String(product.id)}>
+                                                {product.tenant_outlet_name
+                                                    ? `${product.title} - ${product.tenant_outlet_name}`
+                                                    : product.title}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    {availableModifierSourceProducts.length === 0 ? (
+                                        <p className="mt-2 text-xs text-rose-500">
+                                            Tidak ada produk bertopping yang bisa dijadikan sumber.
+                                        </p>
+                                    ) : null}
+                                </div>
+
+                                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/40">
+                                    <p className="text-sm font-medium text-slate-700 dark:text-slate-200">
+                                        Produk target
+                                    </p>
+                                    <div className="mt-3 flex max-h-48 flex-wrap gap-2 overflow-y-auto">
+                                        {selectedProducts.map((product) => (
+                                            <span
+                                                key={product.id}
+                                                className="rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-700"
+                                            >
+                                                {product.title}
+                                            </span>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                                    <button
+                                        type="button"
+                                        onClick={closeBulkModifierModal}
+                                        className="inline-flex items-center justify-center rounded-2xl border border-slate-200 px-4 py-3 text-sm font-medium text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                                    >
+                                        Batal
+                                    </button>
+                                    <button
+                                        type="submit"
+                                        disabled={!bulkModifierSourceId}
+                                        className="inline-flex items-center justify-center rounded-2xl bg-amber-500 px-4 py-3 text-sm font-semibold text-white transition hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-60"
+                                    >
+                                        Terapkan Topping
+                                    </button>
                                 </div>
                             </form>
                         </div>

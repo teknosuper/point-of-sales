@@ -404,54 +404,36 @@ class TransactionController extends Controller
             ->get();
 
         $pendingTableOrders = TableOrder::query()
-            ->with(['diningTable:id,name,code', 'items.modifiers'])
+            ->with(['diningTable:id,name,code'])
             ->when($outlet, fn ($query) => $query->where('outlet_id', $outlet->id))
             ->where('status', 'pending_cashier_payment')
             ->latest('created_at')
-            ->limit(6)
+            ->limit(60)
             ->get()
-            ->map(function (TableOrder $order) {
-                $resolvedGrandTotal = $order->resolvedGrandTotal();
-
-                return [
-                'id' => $order->id,
-                'order_number' => $order->order_number,
-                'customer_name' => $order->customer_name,
-                'customer_phone' => $order->customer_phone,
-                'notes' => $order->notes,
-                'grand_total' => $resolvedGrandTotal,
-                'created_at' => optional($order->created_at)->toISOString(),
-                'created_at_label' => $order->created_at 
-                    ? ReportTimezone::formatSourceDateTime($order->getRawOriginal('created_at'), 'd M Y H:i')
-                    : '-',
-                'table' => [
-                    'name' => $order->diningTable?->name,
-                    'code' => $order->diningTable?->code,
-                ],
-                'items' => $order->items->map(fn ($item) => [
-                    'id' => $item->id,
-                    'product_id' => (int) $item->product_id,
-                    'product_title' => $item->product_title,
-                    'qty' => (int) $item->qty,
-                    'base_unit_price' => (int) ($item->base_unit_price ?? $item->unit_price),
-                    'unit_price' => (int) $item->unit_price,
-                    'line_total' => (int) $item->line_total,
-                    'discount_total' => (int) ($item->discount_total ?? 0),
-                    'pricing_rule_name' => $item->pricing_rule_name,
-                    'pricing_rule_kind' => $item->pricing_rule_kind,
-                    'notes' => $item->notes,
-                    'modifiers' => $item->modifiers->map(fn ($modifier) => [
-                        'id' => $modifier->id,
-                        'product_modifier_option_id' => (int) ($modifier->product_modifier_option_id ?? 0),
-                        'name' => $modifier->name,
-                        'qty' => (int) $modifier->qty,
-                        'unit_price' => (int) $modifier->unit_price,
-                        'total_price' => (int) $modifier->total_price,
-                    ])->values(),
-                ])->values(),
-                ];
-            })
+            ->map(fn (TableOrder $order) => $this->serializePendingTableOrderSummary($order))
             ->values();
+
+        if ($openTableOrderId > 0) {
+            $openTableOrder = TableOrder::query()
+                ->with(['diningTable:id,name,code', 'items.modifiers'])
+                ->when($outlet, fn ($query) => $query->where('outlet_id', $outlet->id))
+                ->where('status', 'pending_cashier_payment')
+                ->find($openTableOrderId);
+
+            if ($openTableOrder) {
+                $openTableOrderPayload = $this->serializePendingTableOrderDetail($openTableOrder);
+                $pendingTableOrders = $pendingTableOrders
+                    ->map(fn (array $order) => (int) $order['id'] === (int) $openTableOrder->id
+                        ? $openTableOrderPayload
+                        : $order);
+
+                if (! $pendingTableOrders->contains(fn (array $order) => (int) $order['id'] === (int) $openTableOrder->id)) {
+                    $pendingTableOrders->prepend($openTableOrderPayload);
+                }
+
+                $pendingTableOrders = $pendingTableOrders->values();
+            }
+        }
 
         $kitchenStations = KitchenStation::query()
             ->when($outlet, fn ($query) => $query->where('outlet_id', $outlet->id))
@@ -1326,6 +1308,56 @@ class TransactionController extends Controller
             ->sort()
             ->values()
             ->implode('##');
+    }
+
+    private function serializePendingTableOrderSummary(TableOrder $order): array
+    {
+        return [
+            'id' => $order->id,
+            'order_number' => $order->order_number,
+            'customer_name' => $order->customer_name,
+            'customer_phone' => $order->customer_phone,
+            'notes' => $order->notes,
+            'grand_total' => (int) $order->grand_total,
+            'created_at' => optional($order->created_at)->toISOString(),
+            'created_at_label' => optional($order->created_at)->format('d M Y H:i'),
+            'table' => [
+                'name' => $order->diningTable?->name,
+                'code' => $order->diningTable?->code,
+            ],
+        ];
+    }
+
+    private function serializePendingTableOrderDetail(TableOrder $order): array
+    {
+        return [
+            ...$this->serializePendingTableOrderSummary($order),
+            'grand_total' => $order->resolvedGrandTotal(),
+            'created_at_label' => $order->created_at
+                ? ReportTimezone::formatSourceDateTime($order->getRawOriginal('created_at'), 'd M Y H:i')
+                : '-',
+            'items' => $order->items->map(fn ($item) => [
+                'id' => $item->id,
+                'product_id' => (int) $item->product_id,
+                'product_title' => $item->product_title,
+                'qty' => (int) $item->qty,
+                'base_unit_price' => (int) ($item->base_unit_price ?? $item->unit_price),
+                'unit_price' => (int) $item->unit_price,
+                'line_total' => (int) $item->line_total,
+                'discount_total' => (int) ($item->discount_total ?? 0),
+                'pricing_rule_name' => $item->pricing_rule_name,
+                'pricing_rule_kind' => $item->pricing_rule_kind,
+                'notes' => $item->notes,
+                'modifiers' => $item->modifiers->map(fn ($modifier) => [
+                    'id' => $modifier->id,
+                    'product_modifier_option_id' => (int) ($modifier->product_modifier_option_id ?? 0),
+                    'name' => $modifier->name,
+                    'qty' => (int) $modifier->qty,
+                    'unit_price' => (int) $modifier->unit_price,
+                    'total_price' => (int) $modifier->total_price,
+                ])->values(),
+            ])->values(),
+        ];
     }
 
     private function ensureRequiredModifiersSatisfied(?Cart $cart): void

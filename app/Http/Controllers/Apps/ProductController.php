@@ -157,6 +157,18 @@ class ProductController extends Controller
         $tenantOutletIds = $tenantOutlets
             ->where('outlet_type', 'tenant')
             ->pluck('id');
+        $modifierSourceProducts = $this->applyWorkspaceProductScope(Product::query(), $request)
+            ->select(['products.id', 'products.title', 'products.tenant_outlet_id'])
+            ->with('tenantOutlet:id,name')
+            ->where('supports_modifiers', true)
+            ->orderBy('title')
+            ->get()
+            ->map(fn (Product $product) => [
+                'id' => $product->id,
+                'title' => $product->title,
+                'tenant_outlet_name' => $product->tenantOutlet?->name,
+            ])
+            ->values();
 
         $setupStatus = ($isKitchenWorkspace || $isTenantOutlet)
             ? [
@@ -200,6 +212,7 @@ class ProductController extends Controller
                 'per_page_options' => $allowedPerPage,
                 'categories' => $this->categoryOptionsQuery($request)->get(['id', 'name', 'tenant_outlet_id']),
                 'tenantOutlets' => $tenantOutlets,
+                'modifierSourceProducts' => $modifierSourceProducts,
                 'kitchenStations' => ($isKitchenWorkspace || $isTenantOutlet)
                     ? []
                     : $this->accessibleKitchenStations($request),
@@ -321,6 +334,91 @@ class ProductController extends Controller
         }
 
         return back()->with('success', 'Bulk mapping produk berhasil diperbarui.');
+    }
+
+    public function bulkCopyModifiers(Request $request): RedirectResponse
+    {
+        if ($this->isTenantOutletWorkspace($request)) {
+            return $this->rejectStockOnlyUpdate();
+        }
+
+        $data = $request->validate([
+            'source_product_id' => ['required', 'integer', 'exists:products,id'],
+            'target_product_ids' => ['required', 'array', 'min:1'],
+            'target_product_ids.*' => ['integer', 'exists:products,id'],
+        ]);
+
+        $sourceProduct = Product::query()
+            ->with('modifierOptions')
+            ->findOrFail($data['source_product_id']);
+        $this->resolveWorkspaceProduct($sourceProduct, $request);
+
+        $targetProducts = Product::query()
+            ->whereIn('id', $data['target_product_ids'])
+            ->get()
+            ->filter(function (Product $product) use ($request, $sourceProduct) {
+                $this->resolveWorkspaceProduct($product, $request);
+
+                return (int) $product->id !== (int) $sourceProduct->id;
+            })
+            ->values();
+
+        if ($targetProducts->isEmpty()) {
+            return back()->with('error', 'Pilih minimal satu produk target yang berbeda dari produk sumber.');
+        }
+
+        $modifierRows = $sourceProduct->modifierOptions()
+            ->orderBy('group_sort_order')
+            ->orderBy('sort_order')
+            ->get([
+                'group_name',
+                'selection_mode',
+                'min_select',
+                'max_select',
+                'name',
+                'price',
+                'stock',
+                'is_required',
+                'group_sort_order',
+            ])
+            ->map(fn ($option) => [
+                'group_name' => $option->group_name,
+                'selection_mode' => $option->selection_mode,
+                'min_select' => $option->min_select,
+                'max_select' => $option->max_select,
+                'name' => $option->name,
+                'price' => (int) $option->price,
+                'stock' => $option->stock,
+                'is_required' => (bool) $option->is_required,
+                'group_sort_order' => (int) ($option->group_sort_order ?? 0),
+            ])
+            ->values()
+            ->all();
+
+        foreach ($targetProducts as $product) {
+            $product->forceFill([
+                'supports_modifiers' => (bool) $sourceProduct->supports_modifiers,
+                'requires_modifier_selection' => (bool) $sourceProduct->supports_modifiers
+                    && (bool) $sourceProduct->requires_modifier_selection,
+            ])->save();
+
+            $this->syncModifierOptions($product, $modifierRows);
+        }
+
+        $this->auditLogService->log(
+            event: 'product.bulk_modifiers_copied',
+            module: 'products',
+            auditable: $sourceProduct,
+            description: "Preset topping dari {$sourceProduct->title} disalin ke {$targetProducts->count()} produk.",
+            before: null,
+            after: [
+                'source_product_id' => $sourceProduct->id,
+                'target_product_ids' => $targetProducts->pluck('id')->values()->all(),
+                'modifier_count' => count($modifierRows),
+            ],
+        );
+
+        return back()->with('success', "Topping dari {$sourceProduct->title} berhasil diterapkan ke {$targetProducts->count()} produk.");
     }
 
     /**

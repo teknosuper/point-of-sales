@@ -1381,25 +1381,6 @@ export default function Index({
         const zeroStockItems = cartStockIssues.filter(
             (issue) => issue.availableStock === 0
         );
-        const lowStockItems = cartStockIssues.filter(
-            (issue) => issue.availableStock > 0
-        );
-
-        if (zeroStockItems.length > 0) {
-            const productNames = zeroStockItems.map((i) => i.productTitle).join(", ");
-            toast.error(`${productNames} dihapus dari keranjang karena stok habis.`, {
-                duration: 5000,
-                id: "pos-cart-zero-stock",
-            });
-        }
-
-        if (lowStockItems.length > 0) {
-            const firstIssue = lowStockItems[0];
-            toast(`⚠️ ${firstIssue.productTitle}: qty ${firstIssue.qty} melebihi stok ${firstIssue.availableStock}.`, {
-                duration: 5000,
-                id: "pos-cart-low-stock",
-            });
-        }
 
         const zeroStockCartIds = new Set(zeroStockItems.map((i) => i.cartId));
 
@@ -2449,19 +2430,15 @@ export default function Index({
         }
 
         const currentUrl = new URL(window.location.href);
-        const nextFilters = Object.fromEntries(
-            currentUrl.searchParams.entries()
+        currentUrl.searchParams.delete("open_table_order");
+        window.history.replaceState(
+            window.history.state,
+            "",
+            `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`
         );
-        delete nextFilters.open_table_order;
-
-        router.get(route("transactions.index"), nextFilters, {
-            preserveState: true,
-            preserveScroll: true,
-            replace: true,
-        });
     };
 
-    const closeTableOrderApproval = () => {
+    const closeTableOrderApproval = ({ reopenQrList = false } = {}) => {
         if (isApprovingTableOrder) {
             return;
         }
@@ -2470,6 +2447,10 @@ export default function Index({
         setTableOrderCashInput("");
         setTableOrderPaymentMethod("cash");
         clearOpenTableOrderQuery();
+
+        if (reopenQrList) {
+            window.dispatchEvent(new CustomEvent("pos:open-qr-orders"));
+        }
     };
 
     const confirmQrisPayment = () =>
@@ -2682,12 +2663,21 @@ export default function Index({
             {
                 preserveScroll: true,
                 onSuccess: () => {
+                    toast.success(
+                        `Pesanan ${tableOrderCancelTarget.order_number} sudah dibatalkan.`
+                    );
                     setTableOrderCancelTarget(null);
                     setTableOrderCancelReason("");
                     setTableOrderApprovalTarget(null);
                     setTableOrderCashInput("");
                     setTableOrderPaymentMethod("cash");
                     clearOpenTableOrderQuery();
+                    window.dispatchEvent(new CustomEvent("pos:close-qr-orders"));
+                    router.reload({
+                        only: ["pendingTableOrders"],
+                        preserveScroll: true,
+                        preserveState: true,
+                    });
                 },
                 onFinish: () => setIsCancellingTableOrder(false),
             }
@@ -7451,7 +7441,11 @@ export default function Index({
                         <div className="grid grid-cols-3 gap-3 border-t border-slate-200 bg-slate-50 px-5 py-4 dark:border-slate-800 dark:bg-slate-900/80">
                             <button
                                 type="button"
-                                onClick={closeTableOrderApproval}
+                                onClick={() =>
+                                    closeTableOrderApproval({
+                                        reopenQrList: true,
+                                    })
+                                }
                                 disabled={isApprovingTableOrder}
                                 className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
                             >

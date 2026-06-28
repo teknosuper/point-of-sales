@@ -16,6 +16,10 @@ use Illuminate\Validation\ValidationException;
 
 class StockMutationService
 {
+    private ?array $activeOutletIdsCache = null;
+
+    private array $productOutletIdsCache = [];
+
     public function __construct(
         private readonly AuditLogService $auditLogService
     ) {}
@@ -623,26 +627,40 @@ class StockMutationService
 
     private function ensureAllOutletStocks(Product $product, int $stock = 0): void
     {
-        $existingOutletIds = ProductOutletStock::query()
-            ->where('product_id', $product->id)
-            ->pluck('outlet_id')
-            ->map(fn ($id) => (int) $id)
-            ->all();
+        $productId = (int) $product->id;
 
-        $missingOutletIds = Outlet::query()
-            ->active()
-            ->pluck('id')
-            ->map(fn ($id) => (int) $id)
+        $existingOutletIds = $this->productOutletIdsCache[$productId]
+            ??= ProductOutletStock::query()
+                ->where('product_id', $productId)
+                ->pluck('outlet_id')
+                ->map(fn ($id) => (int) $id)
+                ->all();
+
+        $activeOutletIds = $this->activeOutletIdsCache
+            ??= Outlet::query()
+                ->active()
+                ->pluck('id')
+                ->map(fn ($id) => (int) $id)
+                ->all();
+
+        $missingOutletIds = collect($activeOutletIds)
             ->reject(fn (int $id) => in_array($id, $existingOutletIds, true));
 
         foreach ($missingOutletIds as $missingOutletId) {
             ProductOutletStock::query()->create([
                 'outlet_id' => $missingOutletId,
-                'product_id' => $product->id,
+                'product_id' => $productId,
                 'stock' => $stock,
                 'reorder_level' => 0,
                 'last_counted_at' => now(),
             ]);
+        }
+
+        if ($missingOutletIds->isNotEmpty()) {
+            $this->productOutletIdsCache[$productId] = [
+                ...$existingOutletIds,
+                ...$missingOutletIds->all(),
+            ];
         }
     }
 }

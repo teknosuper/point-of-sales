@@ -181,6 +181,9 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
     Route::post('products/bulk-mapping', [ProductController::class, 'bulkMapping'])
         ->middleware(['permission:products-edit', 'step_up'])
         ->name('products.bulk-mapping');
+    Route::post('products/bulk-copy-modifiers', [ProductController::class, 'bulkCopyModifiers'])
+        ->middleware('permission:products-edit')
+        ->name('products.bulk-copy-modifiers');
     Route::post('products/bulk-stock', [ProductController::class, 'bulkStockUpdate'])
         ->middleware('permission:products-stock-update')
         ->name('products.bulk-stock.update');

@@ -1,8 +1,9 @@
 import ProductGrid from "@/Components/POS/ProductGrid";
-import usePwaInstall from "@/Hooks/usePwaInstall";
+import LazyImage from "@/Components/Dashboard/LazyImage";
 import { Head } from "@inertiajs/react";
+import { getProductImageUrl, getProductThumbUrl } from "@/Utils/imageUrl";
 import {
-    IconDownload,
+    IconPhoto,
     IconRefresh,
     IconWifiOff,
     IconX,
@@ -16,26 +17,11 @@ export default function MenuCatalog({
     outlet,
     store,
 }) {
-    const {
-        appLabel,
-        canPromptInstall,
-        isCheckingInstallState,
-        isChromeLike,
-        isInstalled,
-        installHelpText,
-        isIos,
-        isPwaEnabled,
-        isStandalone,
-        promptInstall,
-        shouldShowInstallEntry,
-    } = usePwaInstall();
     const [products, setProducts] = useState([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [searchQuery, setSearchQuery] = useState("");
     const [selectedProduct, setSelectedProduct] = useState(null);
-    const [showInstallDebug, setShowInstallDebug] = useState(false);
-    const [showInstallGuide, setShowInstallGuide] = useState(false);
     const [lastUpdatedAt, setLastUpdatedAt] = useState(null);
     const [usingCachedData, setUsingCachedData] = useState(false);
     const [syncError, setSyncError] = useState("");
@@ -274,33 +260,6 @@ export default function MenuCatalog({
         };
     }, []);
 
-    const handleInstallApp = useCallback(async () => {
-        if (canPromptInstall) {
-            await promptInstall();
-            return;
-        }
-
-        setShowInstallGuide(true);
-    }, [canPromptInstall, promptInstall]);
-
-    const installGuideSteps = isIos
-        ? [
-              "Buka menu ini dari Safari di iPhone atau iPad.",
-              "Tap tombol Bagikan di browser.",
-              "Pilih Tambahkan ke Layar Utama.",
-          ]
-        : isChromeLike
-          ? [
-                "Buka menu browser Chrome atau Edge.",
-                "Pilih Install app atau Tambahkan ke layar utama.",
-                "Konfirmasi pemasangan GTC Menu ke perangkat.",
-            ]
-          : [
-                "Buka menu browser di perangkat Anda.",
-                "Cari opsi Tambahkan ke layar utama atau Install app.",
-                "Ikuti konfirmasi yang tersedia di browser.",
-            ];
-
     return (
         <>
             <Head title={store?.name ? `Daftar Menu ${store.name}` : "Daftar Menu"} />
@@ -340,14 +299,7 @@ export default function MenuCatalog({
                                         isSearching={false}
                                         searchInputRef={searchInputRef}
                                         interactive={false}
-                                        onProductSelect={(product) => {
-                                            if (
-                                                Array.isArray(product?.modifier_options) &&
-                                                product.modifier_options.length > 0
-                                            ) {
-                                                setSelectedProduct(product);
-                                            }
-                                        }}
+                                        onProductSelect={setSelectedProduct}
                                         searchPlaceholder="Cari menu favorit... (tekan / untuk fokus)"
                                         emptyMessage={
                                             searchQuery
@@ -465,7 +417,7 @@ export default function MenuCatalog({
                                     <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4">
                                         <div>
                                             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary-500">
-                                                Detail Topping
+                                                Detail Menu
                                             </p>
                                             <h3 className="mt-1 text-lg font-bold text-slate-900">
                                                 {selectedProduct.title}
@@ -481,6 +433,30 @@ export default function MenuCatalog({
                                     </div>
 
                                     <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+                                        <div className="mb-4 overflow-hidden rounded-[28px] border border-slate-200 bg-slate-100 shadow-sm">
+                                            <LazyImage
+                                                src={getProductThumbUrl(
+                                                    selectedProduct.image,
+                                                    selectedProduct.title
+                                                )}
+                                                fallbackSrc={getProductImageUrl(
+                                                    selectedProduct.image,
+                                                    selectedProduct.title
+                                                )}
+                                                alt={selectedProduct.title}
+                                                className="aspect-[4/3] w-full"
+                                                imgClassName="object-cover"
+                                                fallback={
+                                                    <div className="flex h-full w-full items-center justify-center bg-slate-100">
+                                                        <IconPhoto
+                                                            size={36}
+                                                            className="text-slate-400"
+                                                        />
+                                                    </div>
+                                                }
+                                            />
+                                        </div>
+
                                         <div className={`mb-4 rounded-[28px] border p-4 shadow-sm ${heroClass}`}>
                                             <div className="flex flex-wrap items-center gap-2">
                                                 <span className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] ${badgeClass}`}>
@@ -491,72 +467,91 @@ export default function MenuCatalog({
                                                         {selectedProduct.category.name}
                                                     </span>
                                                 ) : null}
+                                                {selectedProduct.tenant_outlet?.name ? (
+                                                    <span className="rounded-full bg-white/90 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-600 shadow-sm">
+                                                        {selectedProduct.tenant_outlet.name}
+                                                    </span>
+                                                ) : null}
                                             </div>
-                                            <p className="mt-3 text-sm leading-6 text-slate-600">
-                                                {requiresSelection
-                                                    ? "Menu ini punya topping wajib. Pilihan topping perlu diperhatikan sebelum order."
-                                                    : "Komposisi topping ditampilkan di bawah agar item dengan topping langsung mudah dibedakan."}
-                                            </p>
+                                            <div className="mt-3 space-y-3">
+                                                <p className="text-lg font-bold text-slate-900">
+                                                    {formatPrice(
+                                                        selectedProduct.effective_price ??
+                                                            selectedProduct.sell_price
+                                                    )}
+                                                </p>
+                                                <p className="text-sm leading-6 text-slate-600">
+                                                    {selectedProduct.description?.trim()
+                                                        ? selectedProduct.description
+                                                        : requiresSelection
+                                                          ? "Menu ini punya topping wajib. Pilihan topping perlu diperhatikan sebelum order."
+                                                          : hasModifiers
+                                                            ? "Komposisi topping ditampilkan di bawah agar item dengan topping langsung mudah dibedakan."
+                                                            : "Menu ini belum memiliki deskripsi tambahan."}
+                                                </p>
+                                            </div>
                                         </div>
-                                        <div className="space-y-4">
-                                            {Object.entries(modifierGroups).map(
-                                                ([groupName, options]) => (
-                                                    <div
-                                                        key={groupName}
-                                                        className="rounded-3xl border border-slate-200 bg-white/80 p-3"
-                                                    >
-                                                        <div className="mb-3 flex items-center justify-between gap-3 px-1">
-                                                            <div>
-                                                                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
-                                                                    Kategori topping
-                                                                </p>
-                                                                <p className="mt-1 text-sm font-bold text-slate-900">
-                                                                    {groupName}
-                                                                </p>
+                                        {hasModifiers ? (
+                                            <div className="space-y-4">
+                                                {Object.entries(modifierGroups).map(
+                                                    ([groupName, options]) => (
+                                                        <div
+                                                            key={groupName}
+                                                            className="rounded-3xl border border-slate-200 bg-white/80 p-3"
+                                                        >
+                                                            <div className="mb-3 flex items-center justify-between gap-3 px-1">
+                                                                <div>
+                                                                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                                                                        Kategori topping
+                                                                    </p>
+                                                                    <p className="mt-1 text-sm font-bold text-slate-900">
+                                                                        {groupName}
+                                                                    </p>
+                                                                </div>
+                                                                <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600">
+                                                                    {options.length} opsi
+                                                                </span>
                                                             </div>
-                                                            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600">
-                                                                {options.length} opsi
-                                                            </span>
-                                                        </div>
 
-                                                        <div className="space-y-3">
-                                                            {options.map((option) => (
-                                                                <div
-                                                                    key={option.id}
-                                                                    className={`flex items-center justify-between gap-3 rounded-2xl border px-4 py-3 ${
-                                                                        option.price > 0
-                                                                            ? "border-sky-200 bg-sky-50"
-                                                                            : "border-emerald-200 bg-emerald-50"
-                                                                    }`}
-                                                                >
-                                                                    <div className="min-w-0">
-                                                                        <p className="text-sm font-semibold text-slate-900">
-                                                                            {option.name}
-                                                                        </p>
-                                                                        <p className="mt-0.5 text-xs text-slate-500">
-                                                                            {option.price > 0
-                                                                                ? "Topping berbayar"
-                                                                                : "Topping gratis"}
-                                                                        </p>
-                                                                    </div>
+                                                            <div className="space-y-3">
+                                                                {options.map((option) => (
                                                                     <div
-                                                                        className={`shrink-0 text-sm font-bold ${
+                                                                        key={option.id}
+                                                                        className={`flex items-center justify-between gap-3 rounded-2xl border px-4 py-3 ${
                                                                             option.price > 0
-                                                                                ? "text-sky-700"
-                                                                                : "text-emerald-700"
+                                                                                ? "border-sky-200 bg-sky-50"
+                                                                                : "border-emerald-200 bg-emerald-50"
                                                                         }`}
                                                                     >
-                                                                        {option.price > 0
-                                                                            ? `+ ${formatPrice(option.price)}`
-                                                                            : "Gratis"}
+                                                                        <div className="min-w-0">
+                                                                            <p className="text-sm font-semibold text-slate-900">
+                                                                                {option.name}
+                                                                            </p>
+                                                                            <p className="mt-0.5 text-xs text-slate-500">
+                                                                                {option.price > 0
+                                                                                    ? "Topping berbayar"
+                                                                                    : "Topping gratis"}
+                                                                            </p>
+                                                                        </div>
+                                                                        <div
+                                                                            className={`shrink-0 text-sm font-bold ${
+                                                                                option.price > 0
+                                                                                    ? "text-sky-700"
+                                                                                    : "text-emerald-700"
+                                                                            }`}
+                                                                        >
+                                                                            {option.price > 0
+                                                                                ? `+ ${formatPrice(option.price)}`
+                                                                                : "Gratis"}
+                                                                        </div>
                                                                     </div>
-                                                                </div>
-                                                            ))}
+                                                                ))}
+                                                            </div>
                                                         </div>
-                                                    </div>
-                                                )
-                                            )}
-                                        </div>
+                                                    )
+                                                )}
+                                            </div>
+                                        ) : null}
                                     </div>
                                 </>
                             );
@@ -565,168 +560,6 @@ export default function MenuCatalog({
                 </div>
             ) : null}
 
-            {shouldShowInstallEntry && !isCheckingInstallState ? (
-                <div
-                    className={`fixed z-[90] print:hidden ${
-                        isShortLandscape
-                            ? "bottom-3 right-3 left-auto w-[min(22rem,calc(100vw-1.5rem))]"
-                            : "inset-x-0 bottom-0 px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] sm:px-4"
-                    }`}
-                >
-                    <div className="mx-auto w-full max-w-md rounded-[24px] border border-slate-200 bg-white/95 p-3 shadow-[0_20px_60px_-30px_rgba(15,23,42,0.45)] backdrop-blur">
-                        <button
-                            type="button"
-                            onClick={handleInstallApp}
-                            className="inline-flex min-h-[52px] w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 active:scale-[0.99]"
-                        >
-                            <IconDownload size={16} />
-                            {canPromptInstall
-                                ? `Install ${appLabel}`
-                                : `Cara Install ${appLabel}`}
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() =>
-                                setShowInstallDebug((current) => !current)
-                            }
-                            className="mt-2 inline-flex w-full items-center justify-center rounded-xl px-3 py-2 text-xs font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
-                        >
-                            {showInstallDebug
-                                ? "Sembunyikan status perangkat"
-                                : "Lihat status perangkat"}
-                        </button>
-                        {showInstallDebug && (
-                            <div className="mt-2 rounded-2xl bg-slate-100 p-3 text-xs text-slate-600">
-                                <div className="grid grid-cols-2 gap-2">
-                                    <span>Prompt browser</span>
-                                    <span className="font-semibold text-right">
-                                        {canPromptInstall ? "Siap" : "Belum"}
-                                    </span>
-                                    <span>Sudah terpasang</span>
-                                    <span className="font-semibold text-right">
-                                        {isInstalled ? "Ya" : "Belum"}
-                                    </span>
-                                    <span>Mode standalone</span>
-                                    <span className="font-semibold text-right">
-                                        {isStandalone ? "Aktif" : "Tidak"}
-                                    </span>
-                                    <span>Browser iOS</span>
-                                    <span className="font-semibold text-right">
-                                        {isIos ? "Ya" : "Tidak"}
-                                    </span>
-                                    <span>Chrome / Edge</span>
-                                    <span className="font-semibold text-right">
-                                        {isChromeLike ? "Ya" : "Tidak"}
-                                    </span>
-                                    <span>PWA aktif</span>
-                                    <span className="font-semibold text-right">
-                                        {isPwaEnabled ? "Ya" : "Tidak"}
-                                    </span>
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                </div>
-            ) : !isCheckingInstallState && !isInstalled && !isStandalone ? (
-                <div className="fixed inset-x-0 bottom-0 z-[90] px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] sm:px-4 print:hidden">
-                    <div className="mx-auto w-full max-w-md rounded-[24px] border border-slate-200 bg-white/95 p-3 shadow-[0_20px_60px_-30px_rgba(15,23,42,0.45)] backdrop-blur">
-                        <button
-                            type="button"
-                            onClick={handleInstallApp}
-                            className="inline-flex min-h-[52px] w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 active:scale-[0.99]"
-                        >
-                            <IconDownload size={16} />
-                            Cara Install {appLabel}
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() =>
-                                setShowInstallDebug((current) => !current)
-                            }
-                            className="mt-2 inline-flex w-full items-center justify-center rounded-xl px-3 py-2 text-xs font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
-                        >
-                            {showInstallDebug
-                                ? "Sembunyikan status perangkat"
-                                : "Lihat status perangkat"}
-                        </button>
-                        {showInstallDebug && (
-                            <div className="mt-2 rounded-2xl bg-slate-100 p-3 text-xs text-slate-600">
-                                <div className="grid grid-cols-2 gap-2">
-                                    <span>Prompt browser</span>
-                                    <span className="font-semibold text-right">
-                                        {canPromptInstall ? "Siap" : "Belum"}
-                                    </span>
-                                    <span>Sudah terpasang</span>
-                                    <span className="font-semibold text-right">
-                                        {isInstalled ? "Ya" : "Belum"}
-                                    </span>
-                                    <span>Mode standalone</span>
-                                    <span className="font-semibold text-right">
-                                        {isStandalone ? "Aktif" : "Tidak"}
-                                    </span>
-                                    <span>Browser iOS</span>
-                                    <span className="font-semibold text-right">
-                                        {isIos ? "Ya" : "Tidak"}
-                                    </span>
-                                    <span>Chrome / Edge</span>
-                                    <span className="font-semibold text-right">
-                                        {isChromeLike ? "Ya" : "Tidak"}
-                                    </span>
-                                    <span>PWA aktif</span>
-                                    <span className="font-semibold text-right">
-                                        {isPwaEnabled ? "Ya" : "Tidak"}
-                                    </span>
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                </div>
-            ) : null}
-
-            {showInstallGuide ? (
-                <div className="fixed inset-0 z-[95] flex items-end justify-center p-3 sm:items-center sm:p-4">
-                    <div
-                        className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm"
-                        onClick={() => setShowInstallGuide(false)}
-                    />
-                    <div className="relative w-full max-w-md overflow-hidden rounded-[28px] bg-white shadow-2xl">
-                        <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4">
-                            <div>
-                                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary-500">
-                                    Install {appLabel}
-                                </p>
-                                <h3 className="mt-1 text-lg font-bold text-slate-900">
-                                    Panduan install di perangkat ini
-                                </h3>
-                            </div>
-                            <button
-                                type="button"
-                                onClick={() => setShowInstallGuide(false)}
-                                className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 text-slate-500 hover:bg-slate-200"
-                            >
-                                <IconX size={18} />
-                            </button>
-                        </div>
-                        <div className="space-y-4 px-5 py-4">
-                            <p className="text-sm text-slate-500">
-                                {installHelpText}
-                            </p>
-                            <ol className="list-decimal space-y-2 pl-5 text-sm text-slate-700">
-                                {installGuideSteps.map((step) => (
-                                    <li key={step}>{step}</li>
-                                ))}
-                            </ol>
-                            <button
-                                type="button"
-                                onClick={() => setShowInstallGuide(false)}
-                                className="inline-flex w-full items-center justify-center rounded-2xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white"
-                            >
-                                Tutup
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            ) : null}
         </>
     );
 }
