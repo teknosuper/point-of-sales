@@ -855,7 +855,7 @@ class TransactionController extends Controller
             ? $this->stockMutationService->stockForOutlet($cart->product, $this->resolveActiveOutlet($request)->id)
             : (int) $cart->product->stock;
 
-        if ($availableStock < $request->qty) {
+        if ($availableStock < $request->qty && (int) $request->qty > (int) $cart->qty) {
             return response()->json([
                 'success' => false,
                 'message' => 'Stok outlet tidak mencukupi untuk produk ' . $cart->product->title . '. Stok tersedia: '.$availableStock,
