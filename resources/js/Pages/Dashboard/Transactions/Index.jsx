@@ -72,6 +72,7 @@ import {
     IconWallet,
     IconX,
     IconCheck,
+    IconLoader2,
     IconChevronDown, IconMinus, IconPlus,
     IconChevronUp,
 } from "@/Utils/icons";
@@ -5590,10 +5591,21 @@ export default function Index({
                                         Keranjang
                                     </p>
                                     <p className="text-xs text-slate-500 dark:text-slate-400">
-                                        Fokus ke daftar item yang sedang dipesan.
+                                        {isCartSyncing
+                                            ? "Item sedang dikirim ke server. Keranjang akan terbarui otomatis."
+                                            : "Fokus ke daftar item yang sedang dipesan."}
                                     </p>
                                 </div>
-                                {localCarts.length > 0 && (
+                                {isCartSyncing ? (
+                                    <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-2.5 py-1 text-xs font-bold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                                        <IconLoader2
+                                            size={12}
+                                            className="animate-spin"
+                                        />
+                                        Menyimpan...
+                                    </span>
+                                ) : null}
+                                {localCarts.length > 0 && !isCartSyncing && (
                                     <span className="rounded-full bg-primary-100 px-2.5 py-1 text-xs font-bold text-primary-700 dark:bg-primary-900/40 dark:text-primary-300">
                                         {cartCount} item
                                     </span>
@@ -5706,16 +5718,33 @@ export default function Index({
                                     </div>
                                 ) : (
                                     <div className="py-10 text-center">
-                                        <IconShoppingCart
-                                            size={36}
-                                            className="mx-auto mb-3 text-slate-300 dark:text-slate-600"
-                                        />
-                                        <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
-                                            Keranjang kosong
-                                        </p>
-                                        <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
-                                            Tambahkan produk dari tab Produk.
-                                        </p>
+                                        {isCartSyncing ? (
+                                            <>
+                                                <IconLoader2
+                                                    size={36}
+                                                    className="mx-auto mb-3 animate-spin text-primary-500"
+                                                />
+                                                <p className="text-sm font-medium text-slate-600 dark:text-slate-300">
+                                                    Menambahkan item ke keranjang...
+                                                </p>
+                                                <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
+                                                    Permintaan sedang diproses server. Mohon tunggu sebentar.
+                                                </p>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <IconShoppingCart
+                                                    size={36}
+                                                    className="mx-auto mb-3 text-slate-300 dark:text-slate-600"
+                                                />
+                                                <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
+                                                    Keranjang kosong
+                                                </p>
+                                                <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
+                                                    Tambahkan produk dari tab Produk.
+                                                </p>
+                                            </>
+                                        )}
                                     </div>
                                 )}
                             </div>
