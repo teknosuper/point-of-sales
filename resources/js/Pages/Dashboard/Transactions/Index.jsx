@@ -1228,8 +1228,12 @@ export default function Index({
         [localCarts]
     );
     const cartStockIssues = useMemo(
-        () =>
-            localCarts
+        () => {
+            if (checkoutModalStep === "preview") {
+                return [];
+            }
+
+            return localCarts
                 .map((item) => {
                     const qty = Math.max(0, Number(item?.qty || 0));
                     const availableStock = Math.max(
@@ -1248,8 +1252,9 @@ export default function Index({
                         availableStock,
                     };
                 })
-                .filter(Boolean),
-        [localCarts]
+                .filter(Boolean);
+        },
+        [checkoutModalStep, localCarts]
     );
     const hasCartStockIssue = cartStockIssues.length > 0;
     const lowStockCartWarnings = useMemo(() => {
@@ -6495,6 +6500,9 @@ export default function Index({
                                 </div>
 
                                 <div className="overflow-y-auto px-5 py-4">
+                                    <div className="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-300">
+                                        Stok untuk item di konfirmasi transaksi ini sudah dikunci oleh POS kasir. Perubahan stok live dari dapur atau layar lain tidak akan membatalkan checkout ini selama keranjang tidak diubah lagi.
+                                    </div>
                                     <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                                         <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/40">
                                             <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
