@@ -64,6 +64,159 @@ class TransactionController extends Controller
         private readonly TransactionInvoiceService $transactionInvoiceService
     ) {}
 
+    private function checkoutReservationSessionKey(?int $outletId): string
+    {
+        return sprintf(
+            'pos.checkout_reservation.%s.%s',
+            (string) auth()->id(),
+            (string) ($outletId ?? 'global')
+        );
+    }
+
+    private function releaseCheckoutReservationState(Request $request, ?Outlet $outlet = null): void
+    {
+        $resolvedOutlet = $outlet ?? $this->resolveActiveOutlet($request);
+        $sessionKey = $this->checkoutReservationSessionKey($resolvedOutlet?->id);
+        $reservation = $request->session()->get($sessionKey);
+
+        if (! is_array($reservation) || empty($reservation['items'])) {
+            $request->session()->forget($sessionKey);
+            return;
+        }
+
+        $products = Product::query()
+            ->whereIn('id', collect($reservation['items'])->pluck('product_id')->filter()->all())
+            ->get()
+            ->keyBy('id');
+
+        foreach ($reservation['items'] as $item) {
+            $product = $products->get((int) ($item['product_id'] ?? 0));
+            $qty = (int) ($item['qty'] ?? 0);
+
+            if (! $product || $qty <= 0 || ! $resolvedOutlet) {
+                continue;
+            }
+
+            $this->stockMutationService->incrementForOutlet(
+                $product,
+                (int) $resolvedOutlet->id,
+                $qty,
+                'pos_checkout_reservation',
+                (int) auth()->id(),
+                'Reservasi checkout POS dilepas otomatis karena cart berubah atau checkout dibatalkan.',
+                auth()->id()
+            );
+        }
+
+        $request->session()->forget($sessionKey);
+    }
+
+    private function currentActiveCartReservationSignature(?Outlet $outlet = null): array
+    {
+        $activeCarts = Cart::query()
+            ->with('product:id,title')
+            ->where('cashier_id', auth()->id())
+            ->when($outlet, fn ($query) => $query->where('outlet_id', $outlet->id))
+            ->active()
+            ->get();
+
+        $groupedItems = $activeCarts
+            ->groupBy('product_id')
+            ->map(fn ($group, $productId) => [
+                'product_id' => (int) $productId,
+                'qty' => (int) $group->sum('qty'),
+            ])
+            ->sortBy('product_id')
+            ->values()
+            ->all();
+
+        $signature = $activeCarts
+            ->map(fn (Cart $cart) => $cart->id.':'.$cart->product_id.':'.$cart->qty.':'.$cart->price)
+            ->sort()
+            ->implode('|');
+
+        return [
+            'carts' => $activeCarts,
+            'items' => $groupedItems,
+            'signature' => $signature,
+        ];
+    }
+
+    public function reserveCheckoutStock(Request $request): JsonResponse
+    {
+        $outlet = $this->resolveActiveOutlet($request);
+        $reservationState = $this->currentActiveCartReservationSignature($outlet);
+
+        if ($reservationState['carts']->isEmpty()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Keranjang kosong.',
+            ], 422);
+        }
+
+        $sessionKey = $this->checkoutReservationSessionKey($outlet?->id);
+        $existingReservation = $request->session()->get($sessionKey);
+
+        if (
+            is_array($existingReservation)
+            && ($existingReservation['signature'] ?? null) === $reservationState['signature']
+        ) {
+            return response()->json([
+                'success' => true,
+                'message' => 'Reservasi checkout masih aktif.',
+            ]);
+        }
+
+        if (is_array($existingReservation)) {
+            $this->releaseCheckoutReservationState($request, $outlet);
+        }
+
+        $products = Product::query()
+            ->whereIn('id', collect($reservationState['items'])->pluck('product_id')->filter()->all())
+            ->get()
+            ->keyBy('id');
+
+        foreach ($reservationState['items'] as $item) {
+            $product = $products->get((int) ($item['product_id'] ?? 0));
+            $qty = (int) ($item['qty'] ?? 0);
+
+            if (! $product || $qty <= 0 || ! $outlet) {
+                continue;
+            }
+
+            $this->stockMutationService->decrementForOutlet(
+                $product,
+                (int) $outlet->id,
+                $qty,
+                'pos_checkout_reservation',
+                (int) auth()->id(),
+                'Stok dikunci sementara untuk checkout POS kasir.',
+                auth()->id()
+            );
+        }
+
+        $request->session()->put($sessionKey, [
+            'signature' => $reservationState['signature'],
+            'items' => $reservationState['items'],
+            'reserved_at' => now()->toIso8601String(),
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Stok checkout berhasil dikunci sementara.',
+        ]);
+    }
+
+    public function releaseCheckoutStock(Request $request): JsonResponse
+    {
+        $this->releaseCheckoutReservationState($request, $this->resolveActiveOutlet($request));
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Reservasi checkout dilepas.',
+        ]);
+    }
+
     /**
      * index
      *
@@ -73,6 +226,7 @@ class TransactionController extends Controller
     {
         $userId = auth()->user()->id;
         $outlet = $this->resolveActiveOutlet();
+        $this->releaseCheckoutReservationState($request, $outlet);
         $activeShift = $this->cashierShiftService->getActiveShiftForUser($userId, $outlet?->id);
         $outletOpenShift = $activeShift
             ? null
@@ -503,6 +657,7 @@ class TransactionController extends Controller
     public function addToCart(Request $request)
     {
         $outlet = $this->resolveActiveOutlet($request);
+        $this->releaseCheckoutReservationState($request, $outlet);
         $forceNew = $request->boolean('force_new');
         $supportsPromoRewardMeta = Schema::hasColumn('carts', 'is_promo_reward');
         $isPromoReward = $request->boolean('is_promo_reward');
@@ -617,6 +772,7 @@ class TransactionController extends Controller
      */
     public function destroyCart(Request $request, $cart_id)
     {
+        $this->releaseCheckoutReservationState($request, $this->resolveActiveOutlet($request));
         $cart = Cart::with('product.modifierOptions', 'product.kitchenStationMappings.kitchenStation', 'tenantOutlet:id,name,code', 'modifiers')
             ->whereId($cart_id)
             ->where('cashier_id', auth()->id())
@@ -664,6 +820,7 @@ class TransactionController extends Controller
         $request->validate([
             'qty' => 'required|integer|min:1',
         ]);
+        $this->releaseCheckoutReservationState($request, $this->resolveActiveOutlet($request));
 
         $cart = Cart::with('product.modifierOptions', 'product.kitchenStationMappings.kitchenStation', 'tenantOutlet:id,name,code', 'modifiers')->whereId($cart_id)
             ->where('cashier_id', auth()->user()->id)
@@ -742,6 +899,7 @@ class TransactionController extends Controller
 
     public function storeCartModifier(Request $request, $cart_id): JsonResponse
     {
+        $this->releaseCheckoutReservationState($request, $this->resolveActiveOutlet($request));
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:120'],
             'qty' => ['nullable', 'integer', 'min:1', 'max:99'],
@@ -785,6 +943,7 @@ class TransactionController extends Controller
 
     public function updateCartModifier(Request $request, $cart_id, CartModifier $modifier): JsonResponse
     {
+        $this->releaseCheckoutReservationState($request, $this->resolveActiveOutlet($request));
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:120'],
             'qty' => ['nullable', 'integer', 'min:1', 'max:99'],
@@ -822,6 +981,7 @@ class TransactionController extends Controller
 
     public function syncCartModifiers(Request $request, $cart_id): JsonResponse
     {
+        $this->releaseCheckoutReservationState($request, $this->resolveActiveOutlet($request));
         $validated = $request->validate([
             'modifiers' => ['nullable', 'array'],
             'modifiers.*.name' => ['required_with:modifiers', 'string', 'max:120'],
@@ -875,6 +1035,7 @@ class TransactionController extends Controller
 
     public function destroyCartModifier(Request $request, $cart_id, CartModifier $modifier): JsonResponse
     {
+        $this->releaseCheckoutReservationState($request, $this->resolveActiveOutlet($request));
         $cart = $this->findEditableCart($request, $cart_id);
         if (! $cart || (int) $modifier->cart_id !== (int) $cart->id) {
             return response()->json([
@@ -898,6 +1059,7 @@ class TransactionController extends Controller
 
     public function updateCartTenant(Request $request, $cart_id): JsonResponse
     {
+        $this->releaseCheckoutReservationState($request, $this->resolveActiveOutlet($request));
         $validated = $request->validate([
             'tenant_outlet_id' => ['required', 'integer', 'exists:outlets,id'],
         ]);
@@ -1114,6 +1276,7 @@ class TransactionController extends Controller
 
         $userId = auth()->user()->id;
         $outlet = $this->resolveActiveOutlet($request);
+        $this->releaseCheckoutReservationState($request, $outlet);
 
         // Get active cart items
         $activeCarts = Cart::where('cashier_id', $userId)
@@ -1394,6 +1557,9 @@ class TransactionController extends Controller
             ->sort()
             ->values()
             ->implode('|');
+        $checkoutReservation = $request->session()->get(
+            $this->checkoutReservationSessionKey($outlet?->id)
+        );
 
         $pricingPreview = $this->pricingService->previewCart($checkoutCarts, $customer, outletId: $outlet?->id);
         $checkoutPreview = $this->loyaltyService->previewCheckout($pricingPreview, $customer, [
@@ -1412,6 +1578,7 @@ class TransactionController extends Controller
         $changeAmount = $isCashPayment ? max(0, $cashAmount - $grandTotal) : 0;
 
             $stockAuditPayloads = [];
+            $usedReservedStock = false;
             $transaction = DB::transaction(function () use (
                 $request,
             $invoice,
@@ -1444,7 +1611,9 @@ class TransactionController extends Controller
                 &$perfMarks,
                 $markPerf,
                 $shouldPerfLog,
-                &$stockAuditPayloads
+                &$stockAuditPayloads,
+                &$usedReservedStock,
+                $checkoutReservation
             ) {
                 $shiftStart = hrtime(true);
                 $activeShift = $this->cashierShiftService->requireActiveShiftForUser(
@@ -1619,12 +1788,22 @@ class TransactionController extends Controller
                     ];
                 }
                 
-                // Batch decrement stock - returns audit payloads to log AFTER transaction
-                $stockAuditPayloads = $this->stockMutationService->decrementBatchForTransaction(
-                    $stockMutationItems,
-                    $transaction,
-                    auth()->id()
-                );
+                $shouldReuseReservedStock = is_array($checkoutReservation)
+                    && ($checkoutReservation['signature'] ?? null) === $currentSignature;
+                $usedReservedStock = $shouldReuseReservedStock;
+
+                if (! $shouldReuseReservedStock) {
+                    if (is_array($checkoutReservation)) {
+                        $this->releaseCheckoutReservationState($request, $outlet);
+                    }
+
+                    // Batch decrement stock - returns audit payloads to log AFTER transaction
+                    $stockAuditPayloads = $this->stockMutationService->decrementBatchForTransaction(
+                        $stockMutationItems,
+                        $transaction,
+                        auth()->id()
+                    );
+                }
                 $markPerf('details_saved');
 
                 Cart::where('cashier_id', auth()->user()->id)
@@ -1652,6 +1831,7 @@ class TransactionController extends Controller
                 return $transaction->fresh(['customer', 'waiter', 'diningTable']);
             });
             $markPerf('db_transaction_committed');
+            $request->session()->forget($this->checkoutReservationSessionKey($outlet?->id));
 
             // Batch audit log AFTER DB::transaction commits — single INSERT, no lock contention
             if (! empty($stockAuditPayloads)) {
@@ -1775,6 +1955,9 @@ class TransactionController extends Controller
                 return response()->json([
                     'message' => 'Transaksi berhasil disimpan.',
                     'warning' => $combinedWarning !== '' ? $combinedWarning : null,
+                    'meta' => [
+                        'used_reserved_stock' => $usedReservedStock,
+                    ],
                     'data' => [
                         'transaction' => $transaction,
                         'print_url' => route('transactions.print', [

@@ -329,6 +329,8 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
     Route::delete('/transactions/{cart_id}/modifiers/{modifier}', [TransactionController::class, 'destroyCartModifier'])->middleware(['permission:transactions-access', 'active_shift'])->name('transactions.destroyCartModifier');
     Route::patch('/transactions/{cart_id}/tenant', [TransactionController::class, 'updateCartTenant'])->middleware(['permission:transactions-access', 'active_shift'])->name('transactions.updateCartTenant');
     Route::post('/transactions/pricing-preview', [TransactionController::class, 'previewPricing'])->middleware(['permission:transactions-access', 'active_shift'])->name('transactions.pricing-preview');
+    Route::post('/transactions/checkout-reserve', [TransactionController::class, 'reserveCheckoutStock'])->middleware(['permission:transactions-access', 'active_shift'])->name('transactions.checkout-reserve');
+    Route::post('/transactions/checkout-release', [TransactionController::class, 'releaseCheckoutStock'])->middleware(['permission:transactions-access', 'active_shift'])->name('transactions.checkout-release');
 
     // route hold transaction
     Route::post('/transactions/hold', [TransactionController::class, 'holdCart'])->middleware(['permission:transactions-access', 'active_shift'])->name('transactions.hold');

@@ -73,6 +73,12 @@ class TableOrderService
                 }
             }
 
+            $this->reserveStockForOrderItems(
+                $order,
+                $orderItems,
+                "Stok dikunci otomatis saat self-order {$order->order_number} dikirim ke kasir."
+            );
+
             return $order->load(['items.modifiers', 'diningTable', 'outlet']);
         });
 
@@ -423,13 +429,6 @@ class TableOrderService
                     'total' => ((int) $item->line_total) - ((int) $product->buy_price * (int) $item->qty),
                 ]);
 
-                $this->stockMutationService->decrementForTransactionDetail(
-                    $product,
-                    $transaction,
-                    $detail,
-                    (int) $item->qty,
-                    $cashier->id
-                );
             }
 
             $tableOrder->update([
@@ -485,6 +484,8 @@ class TableOrderService
             ]);
         }
 
+        $tableOrder->loadMissing(['items.product']);
+
         $validatedItems = collect($items ?? [])
             ->map(function (array $item) {
                 return [
@@ -526,8 +527,11 @@ class TableOrderService
         $requestedQtyByProduct = $validatedItems
             ->groupBy('product_id')
             ->map(fn (Collection $group) => (int) $group->sum('qty'));
+        $currentReservedQtyByProduct = $tableOrder->items
+            ->groupBy('product_id')
+            ->map(fn (Collection $group) => (int) $group->sum('qty'));
 
-        $orderItems = $validatedItems->map(function (array $item) use ($products, $modifierOptions, $tableOrder, $requestedQtyByProduct) {
+        $orderItems = $validatedItems->map(function (array $item) use ($products, $modifierOptions, $tableOrder, $requestedQtyByProduct, $currentReservedQtyByProduct) {
             $product = $products->get($item['product_id']);
             if (! $product) {
                 throw ValidationException::withMessages([
@@ -535,7 +539,8 @@ class TableOrderService
                 ]);
             }
 
-            $availableStock = $this->resolveAvailableStock($product, $tableOrder->outlet_id);
+            $availableStock = $this->resolveAvailableStock($product, $tableOrder->outlet_id)
+                + (int) ($currentReservedQtyByProduct->get($product->id) ?? 0);
             $requestedQty = (int) ($requestedQtyByProduct->get($product->id) ?? $item['qty']);
 
             if ($availableStock < $requestedQty) {
@@ -589,7 +594,13 @@ class TableOrderService
             ];
         });
 
-        return DB::transaction(function () use ($tableOrder, $orderItems) {
+        return DB::transaction(function () use ($tableOrder, $orderItems, $products, $currentReservedQtyByProduct, $requestedQtyByProduct) {
+            $this->releaseReservedStockForOrder(
+                $tableOrder,
+                $tableOrder->items,
+                "Stok reservasi order {$tableOrder->order_number} dikembalikan sementara untuk proses edit pesanan."
+            );
+
             // Delete old items
             $tableOrder->items()->delete();
 
@@ -612,6 +623,12 @@ class TableOrderService
                 'subtotal' => $grandTotal,
             ]);
 
+            $this->reserveStockForOrderItems(
+                $tableOrder,
+                $orderItems,
+                "Stok reservasi order {$tableOrder->order_number} diperbarui setelah edit pesanan."
+            );
+
             return $tableOrder->fresh(['items.modifiers', 'diningTable', 'customer']);
         });
     }
@@ -623,6 +640,17 @@ class TableOrderService
                 'order' => 'Hanya order yang masih menunggu pembayaran yang bisa dibatalkan.',
             ]);
         }
+
+        $tableOrder->loadMissing(['items.product']);
+
+        $this->releaseReservedStockForOrder(
+            $tableOrder,
+            $tableOrder->items,
+            $reason
+                ? "Order {$tableOrder->order_number} dibatalkan. Stok dikembalikan otomatis sistem. Alasan: {$reason}"
+                : "Order {$tableOrder->order_number} dibatalkan. Stok dikembalikan otomatis sistem.",
+            $actor->id
+        );
 
         $tableOrder->update([
             'status' => 'cancelled',
@@ -652,6 +680,72 @@ class TableOrderService
     private function resolveAvailableStock(Product $product, int $outletId): int
     {
         return (int) ($product->stock ?? 0);
+    }
+
+    private function reserveStockForOrderItems(
+        TableOrder $tableOrder,
+        Collection $orderItems,
+        string $notes,
+        ?int $userId = null
+    ): void {
+        $products = Product::query()
+            ->whereIn('id', $orderItems->pluck('product_id')->filter()->unique()->all())
+            ->get()
+            ->keyBy('id');
+
+        $qtyByProduct = $orderItems
+            ->groupBy('product_id')
+            ->map(fn (Collection $group) => (int) $group->sum('qty'));
+
+        foreach ($qtyByProduct as $productId => $qty) {
+            $product = $products->get((int) $productId);
+            if (! $product || $qty <= 0) {
+                continue;
+            }
+
+            $this->stockMutationService->decrementForOutlet(
+                $product,
+                (int) $tableOrder->outlet_id,
+                $qty,
+                'table_order',
+                (int) $tableOrder->id,
+                $notes,
+                $userId
+            );
+        }
+    }
+
+    private function releaseReservedStockForOrder(
+        TableOrder $tableOrder,
+        Collection $items,
+        string $notes,
+        ?int $userId = null
+    ): void {
+        $products = Product::query()
+            ->whereIn('id', $items->pluck('product_id')->filter()->unique()->all())
+            ->get()
+            ->keyBy('id');
+
+        $qtyByProduct = $items
+            ->groupBy('product_id')
+            ->map(fn (Collection $group) => (int) $group->sum('qty'));
+
+        foreach ($qtyByProduct as $productId => $qty) {
+            $product = $products->get((int) $productId);
+            if (! $product || $qty <= 0) {
+                continue;
+            }
+
+            $this->stockMutationService->incrementForOutlet(
+                $product,
+                (int) $tableOrder->outlet_id,
+                $qty,
+                'table_order',
+                (int) $tableOrder->id,
+                $notes,
+                $userId
+            );
+        }
     }
 
     private function generateOrderNumber(): string

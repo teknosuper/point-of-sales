@@ -733,7 +733,7 @@ export default function Index({
 
         if (carts.length > 0) {
             const nextCarts = normalizeBuyGetRewardCarts(
-                mergeRewardMetadataIntoCarts(carts, loadOfflineCart()),
+                mergeRewardMetadataIntoCarts(carts, localCarts),
                 productsById
             );
             const nextSignature = nextCarts
@@ -768,6 +768,7 @@ export default function Index({
     }, [
         carts,
         isOfflineMode,
+        localCarts,
         normalizeBuyGetRewardCarts,
         pendingCartMutations,
         productsById,
@@ -1219,6 +1220,37 @@ export default function Index({
         [localCarts]
     );
     const hasCartStockIssue = cartStockIssues.length > 0;
+    const lowStockCartWarnings = useMemo(() => {
+        const seenProductIds = new Set();
+
+        return localCarts
+            .map((item) => {
+                const productId = Number(item?.product_id || 0);
+                const availableStock = Math.max(
+                    0,
+                    Number(item?.product?.stock || 0)
+                );
+
+                if (!productId || seenProductIds.has(productId)) {
+                    return null;
+                }
+
+                seenProductIds.add(productId);
+
+                if (availableStock <= 0 || availableStock >= 5) {
+                    return null;
+                }
+
+                return {
+                    productId,
+                    productTitle: item?.product?.title || "Produk",
+                    availableStock,
+                };
+            })
+            .filter(Boolean)
+            .sort((left, right) => left.availableStock - right.availableStock);
+    }, [localCarts]);
+    const hasLowStockCartWarning = lowStockCartWarnings.length > 0;
     
     useEffect(() => {
         if (!cartStockIssues || cartStockIssues.length === 0) {
@@ -2730,6 +2762,17 @@ export default function Index({
 
         setAddingProductId(product.id);
         setPendingCartMutations((count) => count + 1);
+        if (checkoutModalStep === "preview") {
+            try {
+                await axios.post(route("transactions.checkout-release"));
+            } catch {
+                // Backend also releases on cart mutations.
+            } finally {
+                setCheckoutModalStep(null);
+                setCheckoutWarning("");
+                setIsReceiptFrameReady(false);
+            }
+        }
         const previousCarts = localCarts;
         const tempId = `temp-${product.id}-${Date.now()}`;
 
@@ -2911,6 +2954,7 @@ export default function Index({
                 setAddingProductId(null);
             });
     }, [
+        checkoutModalStep,
         isOfflineMode,
         localCarts,
         playAddToCartSound,
@@ -2919,6 +2963,10 @@ export default function Index({
 
     const handleAddRewardProducts = useCallback(
         async (rule, options = {}) => {
+            if (checkoutModalStep === "preview" || isSubmitting) {
+                return;
+            }
+
             if (
                 !rule ||
                 rule.kind !== "buy_x_get_y" ||
@@ -3055,7 +3103,7 @@ export default function Index({
                 );
             }
         },
-        [addProductToCart, localCarts, productsById]
+        [addProductToCart, checkoutModalStep, isSubmitting, localCarts, productsById]
     );
 
     const collectActiveBuyGetRules = useCallback((cartItems = localCarts) => {
@@ -3303,6 +3351,10 @@ export default function Index({
     ]);
 
     const handleAddAllMissingRewards = useCallback(async () => {
+        if (checkoutModalStep === "preview" || isSubmitting) {
+            return;
+        }
+
         if (unmetRewardWarnings.length === 0) {
             return;
         }
@@ -3320,14 +3372,18 @@ export default function Index({
         } finally {
             setIsAddingMissingRewards(false);
         }
-    }, [handleAddRewardProducts, unmetRewardWarnings]);
+    }, [checkoutModalStep, handleAddRewardProducts, isSubmitting, unmetRewardWarnings]);
 
     // Handle add product to cart
     const handleAddToCart = useCallback(
         async (product) => {
+            if (checkoutModalStep === "preview" || isSubmitting) {
+                return;
+            }
+
             openProductSelection(product);
         },
-        [openProductSelection]
+        [checkoutModalStep, isSubmitting, openProductSelection]
     );
 
     const handleToggleModifierOption = useCallback(
@@ -3396,6 +3452,10 @@ export default function Index({
     }, [isModifierModalSubmitting]);
 
     const openCartModifierModal = useCallback((item) => {
+        if (checkoutModalStep === "preview" || isSubmitting) {
+            return;
+        }
+
         if (
             !item?.id ||
             !item?.product?.supports_modifiers ||
@@ -3422,7 +3482,7 @@ export default function Index({
         setModifierModalNotes(item.notes || "");
         setIsModifierPromoDetailOpen(false);
         setSelectedModifierOptionIds(activeOptionIds);
-    }, []);
+    }, [checkoutModalStep, isSubmitting]);
 
     const submitModifierModal = useCallback(
         async (includeModifiers) => {
@@ -3639,6 +3699,7 @@ export default function Index({
 
     const handleUpdateQty = (cartId, newQty) => {
         if (newQty < 1) return;
+        if (isSubmitting) return;
 
         if (isOfflineMode) {
             const nextCarts = localCarts.map((item) =>
@@ -3677,8 +3738,17 @@ export default function Index({
         );
         setLocalCarts(nextCarts);
 
-        axios
-            .patch(route("transactions.updateCart", cartId), { qty: newQty })
+        const requestChain =
+            checkoutModalStep === "preview"
+                ? releaseCheckoutReservationSilently()
+                : Promise.resolve();
+
+        requestChain
+            .then(() =>
+                axios.patch(route("transactions.updateCart", cartId), {
+                    qty: newQty,
+                })
+            )
             .then((response) => {
                 const serverCart = response.data?.data?.cart;
 
@@ -3721,6 +3791,10 @@ export default function Index({
     };
 
     const handleUpdateTenantOutlet = (cartId, tenantOutletId) => {
+        if (checkoutModalStep === "preview" || isSubmitting) {
+            return;
+        }
+
         if (!tenantOutletId) return;
 
         if (isOfflineMode) {
@@ -3765,6 +3839,10 @@ export default function Index({
     };
 
     const handleLocalCartNotesChange = useCallback((cartId, notes) => {
+        if (checkoutModalStep === "preview" || isSubmitting) {
+            return;
+        }
+
         setLocalCarts((currentCarts) =>
             currentCarts.map((item) =>
                 item.id === cartId
@@ -3775,10 +3853,14 @@ export default function Index({
                     : item
             )
         );
-    }, []);
+    }, [checkoutModalStep, isSubmitting]);
 
     const handleSaveCartNotes = useCallback(
         (cartId, notes) => {
+            if (checkoutModalStep === "preview" || isSubmitting) {
+                return;
+            }
+
             if (!cartId) {
                 return;
             }
@@ -3818,10 +3900,14 @@ export default function Index({
                     setSavingNoteCartId(null);
                 });
         },
-        [isOfflineMode, localCarts]
+        [checkoutModalStep, isOfflineMode, isSubmitting, localCarts]
     );
 
     const handleRemoveModifier = useCallback((cartId, modifierId) => {
+        if (checkoutModalStep === "preview" || isSubmitting) {
+            return;
+        }
+
         if (isOfflineMode) {
             setLocalCarts((currentCarts) =>
                 currentCarts.map((item) =>
@@ -3868,7 +3954,7 @@ export default function Index({
             .finally(() => {
                 setSavingModifierCartId(null);
             });
-    }, [isOfflineMode]);
+    }, [checkoutModalStep, isOfflineMode, isSubmitting]);
 
     // Handle numpad confirm for cash input
     const handleNumpadConfirm = useCallback((value) => {
@@ -4080,10 +4166,40 @@ export default function Index({
         ]
     );
 
-    const openCheckoutPreview = useCallback(() => {
+    const releaseCheckoutReservationSilently = useCallback(async () => {
+        try {
+            await axios.post(route("transactions.checkout-release"));
+        } catch {
+            // Ignore release failures; backend also releases on cart mutations.
+        } finally {
+            setCheckoutModalStep(null);
+            setCheckoutWarning("");
+            setIsReceiptFrameReady(false);
+        }
+    }, []);
+
+    const openCheckoutPreview = useCallback(async () => {
         if (!validateTransactionSubmission()) {
             return;
         }
+
+        try {
+            await axios.post(route("transactions.checkout-reserve"));
+        } catch (error) {
+            toast.error(
+                formatApiErrorMessage(
+                    error,
+                    "Stok gagal dikunci untuk checkout"
+                )
+            );
+            return;
+        }
+
+        router.reload({
+            only: ["carts", "initialPricingPreview"],
+            preserveScroll: true,
+            preserveState: true,
+        });
 
         if (unmetRewardWarnings.length > 0) {
             setCheckoutWarning(
@@ -4100,10 +4216,16 @@ export default function Index({
         setCompletedTransaction(null);
         setIsReceiptFrameReady(false);
         setCheckoutModalStep("preview");
-    }, [unmetRewardWarnings, validateTransactionSubmission]);
+    }, [router, unmetRewardWarnings, validateTransactionSubmission]);
 
     const closeCheckoutModal = useCallback(() => {
         if (isSubmitting) {
+            return;
+        }
+
+        if (checkoutModalStep === "preview") {
+            void releaseCheckoutReservationSilently();
+            setCompletedTransaction(null);
             return;
         }
 
@@ -4111,7 +4233,7 @@ export default function Index({
         setCompletedTransaction(null);
         setCheckoutWarning("");
         setIsReceiptFrameReady(false);
-    }, [isSubmitting]);
+    }, [checkoutModalStep, isSubmitting, releaseCheckoutReservationSilently]);
 
     const openReceiptDocument = useCallback((url) => {
         if (!url) {
@@ -4823,6 +4945,10 @@ export default function Index({
 
     // Handle remove from cart
     const handleRemoveFromCart = (cartId) => {
+        if (isSubmitting) {
+            return;
+        }
+
         if (isOfflineMode) {
             const nextCarts = localCarts.filter((item) => item.id !== cartId);
             setLocalCarts(nextCarts);
@@ -4839,8 +4965,13 @@ export default function Index({
         const nextCarts = localCarts.filter((item) => item.id !== cartId);
         setLocalCarts(nextCarts);
 
-        axios
-            .delete(route("transactions.destroyCart", cartId))
+        const requestChain =
+            checkoutModalStep === "preview"
+                ? releaseCheckoutReservationSilently()
+                : Promise.resolve();
+
+        requestChain
+            .then(() => axios.delete(route("transactions.destroyCart", cartId)))
             .then(() => {
                 window.setTimeout(() => {
                     syncRewardProducts(nextCarts);
@@ -4950,6 +5081,14 @@ export default function Index({
         }
 
         try {
+            if (pendingCartMutations > 0) {
+                toast.error(
+                    "Perubahan keranjang masih diproses. Tunggu sebentar lalu konfirmasi lagi."
+                );
+                setIsSubmitting(false);
+                return;
+            }
+
             const response = await axios.post(
                 route("transactions.store"),
                 buildTransactionPayload(),
@@ -4962,8 +5101,16 @@ export default function Index({
             );
 
             const receiptData = response.data?.data || null;
+            const usedReservedStock = Boolean(
+                response.data?.meta?.used_reserved_stock
+            );
             setCompletedTransaction(receiptData);
-            setCheckoutWarning(response.data?.warning || "");
+            setCheckoutWarning(
+                response.data?.warning ||
+                    (usedReservedStock
+                        ? "Stok checkout sudah dikunci dan transaksi berhasil diteruskan ke dapur."
+                        : "")
+            );
             setCheckoutModalStep(null);
             setIsReceiptFrameReady(false);
             resetTransactionForm();
@@ -5536,6 +5683,11 @@ export default function Index({
                                                         removingItemId ===
                                                         item.id
                                                     }
+                                                    isLocked={
+                                                        checkoutModalStep ===
+                                                            "preview" ||
+                                                        isSubmitting
+                                                    }
                                                     stockIssue={
                                                         cartStockIssues.find(
                                                             (issue) =>
@@ -5688,46 +5840,68 @@ export default function Index({
                                 </p>
                             </div>
                         </div>
-                        <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 dark:border-slate-700 dark:bg-slate-800/50">
+                        <div
+                            className={`mt-3 rounded-xl px-3 py-3 ${
+                                hasLowStockCartWarning
+                                    ? "border border-amber-200 bg-amber-50 dark:border-amber-900/40 dark:bg-amber-950/20"
+                                    : "border border-emerald-200 bg-emerald-50 dark:border-emerald-900/40 dark:bg-emerald-950/20"
+                            }`}
+                        >
                             <div className="flex items-start justify-between gap-3">
                                 <div>
-                                    <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
-                                        Dapur Aktif
+                                    <p
+                                        className={`text-[10px] font-semibold uppercase tracking-wide ${
+                                            hasLowStockCartWarning
+                                                ? "text-amber-700 dark:text-amber-300"
+                                                : "text-emerald-700 dark:text-emerald-300"
+                                        }`}
+                                    >
+                                        Konfirmasi Dapur
                                     </p>
-                                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                        Semua station aktif untuk outlet
-                                        {activeOutlet?.name
-                                            ? ` ${activeOutlet.name}`
-                                            : " ini"}
-                                        .
+                                    <p
+                                        className={`mt-1 text-xs ${
+                                            hasLowStockCartWarning
+                                                ? "text-amber-700/80 dark:text-amber-300/80"
+                                                : "text-emerald-700/80 dark:text-emerald-300/80"
+                                        }`}
+                                    >
+                                        {hasLowStockCartWarning
+                                            ? "Ada item stok tipis di keranjang. Pastikan kasir benar-benar konfirmasi pesanan ke dapur sebelum pembayaran akhir."
+                                            : "Keranjang siap dikonfirmasi. Lanjutkan checkout lalu kirim pesanan ke dapur setelah pembayaran dikonfirmasi."}
                                     </p>
                                 </div>
-                                <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-600 ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-700">
-                                    {kitchenStations.length} station
+                                <span
+                                    className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ring-1 ${
+                                        hasLowStockCartWarning
+                                            ? "bg-white text-amber-700 ring-amber-200 dark:bg-slate-900 dark:text-amber-300 dark:ring-amber-900/40"
+                                            : "bg-white text-emerald-700 ring-emerald-200 dark:bg-slate-900 dark:text-emerald-300 dark:ring-emerald-900/40"
+                                    }`}
+                                >
+                                    {hasLowStockCartWarning
+                                        ? `${lowStockCartWarnings.length} item stok tipis`
+                                        : `${cartCount} item siap diproses`}
                                 </span>
                             </div>
 
-                            {kitchenStations.length > 0 ? (
+                            {hasLowStockCartWarning ? (
                                 <div className="mt-3 flex max-h-24 flex-wrap gap-2 overflow-y-auto pr-1">
-                                    {kitchenStations.map((station) => (
+                                    {lowStockCartWarnings.map((warning) => (
                                         <div
-                                            key={station.id}
-                                            className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-900"
+                                            key={warning.productId}
+                                            className="rounded-2xl border border-amber-200 bg-white px-3 py-2 text-xs dark:border-amber-900/40 dark:bg-slate-900"
                                         >
-                                            <p className="font-semibold text-slate-800 dark:text-slate-100">
-                                                {station.name}
+                                            <p className="font-semibold text-amber-800 dark:text-amber-200">
+                                                {warning.productTitle}
                                             </p>
-                                            <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
-                                                {[station.code, station.station_type, station.processing_mode]
-                                                    .filter(Boolean)
-                                                    .join(" • ")}
+                                            <p className="mt-0.5 text-[11px] text-amber-700/80 dark:text-amber-300/80">
+                                                Stok tersisa {warning.availableStock}
                                             </p>
                                         </div>
                                     ))}
                                 </div>
                             ) : (
-                                <p className="mt-3 text-xs text-amber-600 dark:text-amber-300">
-                                    Belum ada station dapur aktif untuk outlet ini.
+                                <p className="mt-3 text-xs text-emerald-700 dark:text-emerald-300">
+                                    Tidak ada item stok tipis. Keranjang aman untuk dilanjutkan ke checkout dan konfirmasi dapur.
                                 </p>
                             )}
                         </div>
@@ -6194,13 +6368,13 @@ export default function Index({
                             <>
                                 <div className="border-b border-slate-200 px-5 py-4 dark:border-slate-800">
                                     <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary-500">
-                                        Preview Transaksi
+                                        Konfirmasi Transaksi
                                     </p>
                                     <h3 className="mt-1 text-lg font-bold text-slate-900 dark:text-white">
-                                        Periksa sebelum disimpan
+                                        Periksa sebelum kirim transaksi
                                     </h3>
                                     <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                                        Setelah dikonfirmasi, transaksi langsung disimpan dan resi tampil di modal yang sama.
+                                        Setelah dikonfirmasi, transaksi langsung disimpan, order diteruskan ke dapur, dan resi tampil di modal yang sama.
                                     </p>
                                 </div>
 
@@ -6592,7 +6766,7 @@ export default function Index({
                                         >
                                             {isSubmitting
                                                 ? "Menyimpan..."
-                                                : "Konfirmasi & Simpan"}
+                                                : "Konfirmasi & Kirim ke Dapur"}
                                         </button>
                                     </div>
                                 </div>

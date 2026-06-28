@@ -31,6 +31,7 @@ export default function CartLineItem({
     modifierSaving = false,
     qtyUpdating = false,
     itemRemoving = false,
+    isLocked = false,
     highlightRewardProductIds = [],
     stockIssue = null,
     notePlaceholder = "Catatan item...",
@@ -238,7 +239,8 @@ export default function CartLineItem({
                         <button
                             type="button"
                             onClick={() => onAddRewardProducts(previewRule)}
-                            className="mt-2 inline-flex items-center rounded-xl border border-primary-200 bg-primary-50 px-3 py-1.5 text-[11px] font-semibold text-primary-700 hover:bg-primary-100 dark:border-primary-900/40 dark:bg-primary-950/30 dark:text-primary-300 dark:hover:bg-primary-950/50"
+                            disabled={isLocked}
+                            className="mt-2 inline-flex items-center rounded-xl border border-primary-200 bg-primary-50 px-3 py-1.5 text-[11px] font-semibold text-primary-700 hover:bg-primary-100 disabled:opacity-50 dark:border-primary-900/40 dark:bg-primary-950/30 dark:text-primary-300 dark:hover:bg-primary-950/50"
                         >
                             Tambah item bonus
                         </button>
@@ -254,7 +256,7 @@ export default function CartLineItem({
                                 <button
                                     type="button"
                                     onClick={() => onOpenModifierModal(item)}
-                                    disabled={modifierSaving}
+                                    disabled={modifierSaving || isLocked}
                                     className="inline-flex items-center justify-center rounded-xl border border-primary-200 bg-primary-50 px-3 py-2 text-[11px] font-semibold text-primary-700 hover:border-primary-300 hover:bg-primary-100 disabled:opacity-60 dark:border-primary-900/60 dark:bg-primary-950/30 dark:text-primary-300"
                                 >
                                     {modifierActionLabel}
@@ -345,6 +347,7 @@ export default function CartLineItem({
 
                                 onNotesBlur?.(item.id, nextNotes);
                             }}
+                            disabled={isLocked}
                             rows={2}
                             placeholder={notePlaceholder}
                             className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] text-slate-700 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
@@ -360,7 +363,7 @@ export default function CartLineItem({
                         <div className="flex items-center rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
                             <button
                                 onClick={() => onQtyChange?.(item.id, item.qty - 1)}
-                                disabled={qtyUpdating || item.qty <= 1}
+                                disabled={isLocked || qtyUpdating || item.qty <= 1}
                                 className="px-2 py-1.5 text-slate-500 disabled:opacity-40"
                             >
                                 -
@@ -370,7 +373,7 @@ export default function CartLineItem({
                             </span>
                             <button
                                 onClick={() => onQtyChange?.(item.id, item.qty + 1)}
-                                disabled={qtyUpdating}
+                                disabled={isLocked || qtyUpdating}
                                 className="px-2 py-1.5 text-slate-500 disabled:opacity-40"
                             >
                                 +
@@ -396,7 +399,7 @@ export default function CartLineItem({
                         <button
                             type="button"
                             onClick={() => onRemoveItem?.(item.id)}
-                            disabled={itemRemoving}
+                            disabled={isLocked || itemRemoving}
                             className="ml-1 flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 hover:bg-danger-50 hover:text-danger-500 dark:hover:bg-danger-950/50"
                         >
                             <IconTrash size={12} />

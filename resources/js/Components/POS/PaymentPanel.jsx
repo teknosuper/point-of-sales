@@ -156,7 +156,7 @@ export default function PaymentPanel({
         if (!selectedCustomer) return "Pilih pelanggan dulu";
         if (isCashPayment && remaining > 0)
             return `Tambah ${formatPrice(remaining)} lagi`;
-        return "Lanjutkan pembayaran";
+        return "Konfirmasi & Lanjutkan Pembayaran";
     }, [hasItems, selectedCustomer, isCashPayment, remaining]);
 
     return (

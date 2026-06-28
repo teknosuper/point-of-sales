@@ -23,6 +23,34 @@ const formatDateTime = (value) =>
           }).format(new Date(value))
         : "-";
 
+const mutationTypeBadge = (mutationType) => {
+    if (mutationType === "in") {
+        return "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300";
+    }
+
+    if (mutationType === "out") {
+        return "bg-rose-100 text-rose-700 dark:bg-rose-950/30 dark:text-rose-300";
+    }
+
+    return "bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300";
+};
+
+const mutationTypeLabel = (mutationType) => {
+    if (mutationType === "in") return "Stok Masuk";
+    if (mutationType === "out") return "Stok Keluar";
+    return "Adjustment";
+};
+
+const resolveReferenceLabel = (mutation) => {
+    if (mutation.reference_type === "table_order") {
+        return mutation.mutation_type === "out"
+            ? "Reserve Self Order"
+            : "Release Cancel Order";
+    }
+
+    return mutation.reference_type || "-";
+};
+
 export default function Index({ stockMutations, products, filters, summary = {} }) {
     const { activeOutlet } = usePage().props;
     const isTenantMode = activeOutlet?.outlet_type === "tenant";
@@ -239,8 +267,8 @@ export default function Index({ stockMutations, products, filters, summary = {} 
                                         </div>
                                     </Table.Td>
                                     <Table.Td>
-                                        <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-300">
-                                            {mutation.mutation_type}
+                                        <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${mutationTypeBadge(mutation.mutation_type)}`}>
+                                            {mutationTypeLabel(mutation.mutation_type)}
                                         </span>
                                     </Table.Td>
                                     <Table.Td>{mutation.qty}</Table.Td>
@@ -250,7 +278,7 @@ export default function Index({ stockMutations, products, filters, summary = {} 
                                     <Table.Td>
                                         <div>
                                             <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                                                {mutation.reference_type}
+                                                {resolveReferenceLabel(mutation)}
                                             </p>
                                             <p className="text-xs text-slate-500 dark:text-slate-400">
                                                 {mutation.notes || "-"}

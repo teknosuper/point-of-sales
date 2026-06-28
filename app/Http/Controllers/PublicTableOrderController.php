@@ -266,7 +266,7 @@ class PublicTableOrderController extends Controller
 
         $stockAlerts = $order->items
             ->map(function (TableOrderItem $item) {
-                $currentStock = (int) ($item->product?->stock ?? 0);
+                $currentStock = (int) ($item->product?->stock ?? 0) + (int) ($item->qty ?? 0);
                 $requestedQty = (int) ($item->qty ?? 0);
 
                 if ($currentStock >= $requestedQty) {
@@ -385,10 +385,12 @@ class PublicTableOrderController extends Controller
             ]);
         }
 
-        $order->update([
-            'status' => 'cancelled',
-            'approved_at' => now(),
-        ]);
+        $actor = User::query()->orderBy('id')->firstOrFail();
+        $this->tableOrderService->cancel(
+            $order,
+            $actor,
+            'Pesanan dibatalkan dari halaman pelanggan.'
+        );
 
         return redirect()
             ->route('table-order.status', $order->access_token)
@@ -410,7 +412,7 @@ class PublicTableOrderController extends Controller
 
         $remainingItems = $order->items
             ->filter(function (TableOrderItem $item) {
-                $currentStock = (int) ($item->product?->stock ?? 0);
+                $currentStock = (int) ($item->product?->stock ?? 0) + (int) ($item->qty ?? 0);
                 return $currentStock >= (int) ($item->qty ?? 0);
             })
             ->map(fn (TableOrderItem $item) => [
