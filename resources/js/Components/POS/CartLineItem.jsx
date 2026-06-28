@@ -399,7 +399,7 @@ export default function CartLineItem({
                         <button
                             type="button"
                             onClick={() => onRemoveItem?.(item.id)}
-                            disabled={isLocked || itemRemoving}
+                            disabled={itemRemoving}
                             className="ml-1 flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 hover:bg-danger-50 hover:text-danger-500 dark:hover:bg-danger-950/50"
                         >
                             <IconTrash size={12} />

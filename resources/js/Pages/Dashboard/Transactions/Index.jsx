@@ -355,6 +355,7 @@ export default function Index({
     const lastSyncedCartSignatureRef = useRef("");
     const lastShownStockIssueSignatureRef = useRef("");
     const cartReloadTimerRef = useRef(null);
+    const hydratedOfflineCartRef = useRef(false);
     const [numpadOpen, setNumpadOpen] = useState(false);
     const [showShortcuts, setShowShortcuts] = useState(false);
     const [selectedBankAccount, setSelectedBankAccount] = useState(null);
@@ -794,12 +795,28 @@ export default function Index({
             return;
         }
 
+        if (
+            !isOfflineMode &&
+            isBrowserOnline &&
+            isServerReachable &&
+            hydratedOfflineCartRef.current &&
+            localCarts.length > 0
+        ) {
+            lastSyncedCartSignatureRef.current = "";
+            hydratedOfflineCartRef.current = false;
+            setLocalCarts([]);
+            clearOfflineCart();
+            return;
+        }
+
         if (!isOfflineMode && localCarts.length === 0) {
             lastSyncedCartSignatureRef.current = "";
         }
     }, [
         carts,
+        isBrowserOnline,
         isOfflineMode,
+        isServerReachable,
         localCarts,
         normalizeBuyGetRewardCarts,
         pendingCartMutations,
@@ -873,11 +890,11 @@ export default function Index({
             return;
         }
 
-        if (!isBrowserOnline || !isServerReachable || carts.length === 0) {
+        if (!isBrowserOnline || !isServerReachable) {
+            hydratedOfflineCartRef.current = true;
             setLocalCarts(savedCart);
         }
     }, [
-        carts.length,
         isBrowserOnline,
         isServerReachable,
         localCarts.length,
@@ -5107,6 +5124,16 @@ export default function Index({
                         duration: 4000,
                         icon: "📴",
                     });
+                    return;
+                }
+
+                if (error?.response?.status === 404) {
+                    window.setTimeout(() => {
+                        syncRewardProducts(nextCarts);
+                    }, 0);
+                    setCartSyncVersion((version) => version + 1);
+                    scheduleCartReconcile(180);
+                    toast.success("Item sudah tidak ada di server dan dibersihkan dari keranjang");
                     return;
                 }
 

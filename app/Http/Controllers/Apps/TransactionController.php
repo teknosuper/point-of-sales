@@ -85,6 +85,10 @@ class TransactionController extends Controller
 
     private function activeCheckoutReservationRecord(?int $outletId): ?PosCheckoutReservation
     {
+        if (! Schema::hasTable('pos_checkout_reservations')) {
+            return null;
+        }
+
         return PosCheckoutReservation::query()
             ->where('user_id', auth()->id())
             ->where('status', 'active')
