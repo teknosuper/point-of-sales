@@ -762,7 +762,7 @@ export default function Index({
             return;
         }
 
-        if (!isOfflineMode) {
+        if (!isOfflineMode && localCarts.length === 0) {
             lastSyncedCartSignatureRef.current = "";
             setLocalCarts([]);
         }
