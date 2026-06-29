@@ -21,4 +21,12 @@ class PaymentGatewayManager
             default => throw new PaymentGatewayException("Gateway {$gateway} belum didukung."),
         };
     }
+
+    public function fetchPaymentStatus(Transaction $transaction, string $gateway, PaymentSetting $setting): array
+    {
+        return match ($gateway) {
+            PaymentSetting::GATEWAY_XENDIT => $this->xenditGateway->getInvoiceStatus($transaction, $setting->xenditConfig()),
+            default => throw new PaymentGatewayException("Cek status {$gateway} belum didukung."),
+        };
+    }
 }

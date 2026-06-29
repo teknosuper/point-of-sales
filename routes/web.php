@@ -87,6 +87,10 @@ Route::patch('/order/status/{accessToken}/items', [PublicTableOrderController::c
     ->name('table-order.update-items');
 Route::get('/order/status/{accessToken}', [PublicTableOrderController::class, 'status'])
     ->name('table-order.status');
+Route::post('/order/status/{accessToken}/payment-link', [PublicTableOrderController::class, 'regeneratePaymentLink'])
+    ->name('table-order.payment-link');
+Route::post('/order/status/{accessToken}/check-payment', [PublicTableOrderController::class, 'checkPaymentStatus'])
+    ->name('table-order.check-payment');
 Route::post('/order/status/{accessToken}/cancel', [PublicTableOrderController::class, 'cancelStatus'])
     ->name('table-order.cancel');
 Route::post('/order/status/{accessToken}/remove-unavailable', [PublicTableOrderController::class, 'removeUnavailableItems'])

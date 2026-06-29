@@ -2435,10 +2435,43 @@ export default function Index({
         }
     }, []);
 
+    const tableOrderPaymentMethodLabel = (order) => {
+        const method = String(
+            order?.transaction?.payment_method || order?.payment_method || "cash"
+        ).toLowerCase();
+
+        return (
+            {
+                cash: "Tunai Kasir",
+                qris: "QRIS Kasir",
+                xendit: "Xendit Online",
+                midtrans: "Midtrans Online",
+                bank_transfer: "Transfer Bank",
+            }[method] || method
+        );
+    };
+
+    const isTableOrderOnlinePayment = (order) =>
+        ["xendit", "midtrans"].includes(
+            String(order?.transaction?.payment_method || order?.payment_method || "").toLowerCase()
+        );
+
+    const tableOrderPaymentStateLabel = (order) => {
+        if (isTableOrderOnlinePayment(order)) {
+            return String(order?.transaction?.payment_status || "").toLowerCase() === "paid"
+                ? "Sudah Dibayar Online"
+                : "Menunggu Bayar Online";
+        }
+
+        return "Menunggu Bayar Kasir";
+    };
+
     const openTableOrderApproval = (order) => {
         setTableOrderApprovalTarget(order);
         setTableOrderCashInput(String(order?.grand_total || 0));
-        setTableOrderPaymentMethod("cash");
+        setTableOrderPaymentMethod(
+            isTableOrderOnlinePayment(order) ? "qris" : "cash"
+        );
     };
 
     const clearOpenTableOrderQuery = () => {
@@ -7207,6 +7240,14 @@ export default function Index({
                                     ? ` • ${tableOrderApprovalTarget.customer_name}`
                                     : ""}
                             </p>
+                            <div className="mt-3 flex flex-wrap items-center gap-2">
+                                <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
+                                    {tableOrderPaymentStateLabel(tableOrderApprovalTarget)}
+                                </span>
+                                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                                    {tableOrderPaymentMethodLabel(tableOrderApprovalTarget)}
+                                </span>
+                            </div>
                         </div>
 
                         <div className="flex-1 overflow-y-auto px-5 py-4">
@@ -7331,56 +7372,86 @@ export default function Index({
                                         {formatPrice(tableOrderApprovalTarget.grand_total)}
                                     </span>
                                 </div>
+                                {tableOrderApprovalTarget.transaction?.invoice ? (
+                                    <div className="mt-3 flex items-center justify-between text-sm">
+                                        <span className="text-slate-500">Invoice</span>
+                                        <span className="font-semibold text-slate-800 dark:text-slate-100">
+                                            {tableOrderApprovalTarget.transaction.invoice}
+                                        </span>
+                                    </div>
+                                ) : null}
                             </div>
 
-                            <div>
-                                <label className="mb-2 block text-xs font-medium text-slate-600 dark:text-slate-400">
-                                    Metode Pembayaran
-                                </label>
-                                <div className="grid grid-cols-2 gap-2">
-                                    {[
-                                        {
-                                            value: "cash",
-                                            label: "Tunai",
-                                            description:
-                                                "Pembayaran tunai langsung di kasir.",
-                                        },
-                                        {
-                                            value: "qris",
-                                            label: "QRIS",
-                                            description:
-                                                "Konfirmasi setelah pembayaran QRIS diterima.",
-                                        },
-                                    ].map((option) => (
-                                        <button
-                                            key={option.value}
-                                            type="button"
-                                            onClick={() => {
-                                                setTableOrderPaymentMethod(option.value);
-                                                setTableOrderCashInput(
-                                                    String(
-                                                        tableOrderApprovalTarget.grand_total || 0
-                                                    )
-                                                );
-                                            }}
-                                            className={`rounded-2xl border px-4 py-3 text-left transition ${
-                                                tableOrderPaymentMethod === option.value
-                                                    ? "border-primary-500 bg-primary-50 text-primary-700 dark:bg-primary-950/30 dark:text-primary-200"
-                                                    : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"
-                                            }`}
+                            {isTableOrderOnlinePayment(tableOrderApprovalTarget) ? (
+                                <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4 dark:border-sky-900/40 dark:bg-sky-950/20">
+                                    <p className="text-sm font-semibold text-sky-900 dark:text-sky-100">
+                                        Pembayaran online dipantau otomatis
+                                    </p>
+                                    <p className="mt-1 text-xs leading-5 text-sky-800 dark:text-sky-200">
+                                        Order ini tidak perlu ditagih lagi di kasir. Tunggu webhook atau sinkronisasi status pembayaran dari gateway.
+                                    </p>
+                                    {tableOrderApprovalTarget.transaction?.payment_url ? (
+                                        <a
+                                            href={tableOrderApprovalTarget.transaction.payment_url}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="mt-3 inline-flex items-center justify-center rounded-2xl border border-sky-300 bg-white px-4 py-2 text-sm font-semibold text-sky-700 hover:bg-sky-100 dark:border-sky-800 dark:bg-slate-950 dark:text-sky-200"
                                         >
-                                            <p className="text-sm font-semibold">
-                                                {option.label}
-                                            </p>
-                                            <p className="mt-1 text-xs opacity-80">
-                                                {option.description}
-                                            </p>
-                                        </button>
-                                    ))}
+                                            Buka Link Pembayaran
+                                        </a>
+                                    ) : null}
                                 </div>
-                            </div>
+                            ) : (
+                                <div>
+                                    <label className="mb-2 block text-xs font-medium text-slate-600 dark:text-slate-400">
+                                        Metode Pembayaran
+                                    </label>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        {[
+                                            {
+                                                value: "cash",
+                                                label: "Tunai",
+                                                description:
+                                                    "Pembayaran tunai langsung di kasir.",
+                                            },
+                                            {
+                                                value: "qris",
+                                                label: "QRIS",
+                                                description:
+                                                    "Konfirmasi setelah pembayaran QRIS diterima.",
+                                            },
+                                        ].map((option) => (
+                                            <button
+                                                key={option.value}
+                                                type="button"
+                                                onClick={() => {
+                                                    setTableOrderPaymentMethod(option.value);
+                                                    setTableOrderCashInput(
+                                                        String(
+                                                            tableOrderApprovalTarget.grand_total || 0
+                                                        )
+                                                    );
+                                                }}
+                                                className={`rounded-2xl border px-4 py-3 text-left transition ${
+                                                    tableOrderPaymentMethod === option.value
+                                                        ? "border-primary-500 bg-primary-50 text-primary-700 dark:bg-primary-950/30 dark:text-primary-200"
+                                                        : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"
+                                                }`}
+                                            >
+                                                <p className="text-sm font-semibold">
+                                                    {option.label}
+                                                </p>
+                                                <p className="mt-1 text-xs opacity-80">
+                                                    {option.description}
+                                                </p>
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
 
                             {tableOrderPaymentMethod === "qris" &&
+                            !isTableOrderOnlinePayment(tableOrderApprovalTarget) &&
                             qrisPaymentImageUrl ? (
                                 <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950/40">
                                     <p className="text-sm font-semibold text-slate-900 dark:text-white">
@@ -7399,33 +7470,36 @@ export default function Index({
                                 </div>
                             ) : null}
 
-                            <div>
-                                <label className="mb-2 block text-xs font-medium text-slate-600 dark:text-slate-400">
-                                    {tableOrderPaymentMethod === "cash"
-                                        ? "Jumlah Bayar Tunai"
-                                        : "Nominal Pembayaran"}
-                                </label>
-                                <input
-                                    type="text"
-                                    inputMode="numeric"
-                                    value={tableOrderCashInput}
-                                    onChange={(event) =>
-                                        tableOrderPaymentMethod === "cash"
-                                            ? setTableOrderCashInput(
-                                                  event.target.value.replace(
-                                                      /[^\d]/g,
-                                                      ""
+                            {!isTableOrderOnlinePayment(tableOrderApprovalTarget) ? (
+                                <div>
+                                    <label className="mb-2 block text-xs font-medium text-slate-600 dark:text-slate-400">
+                                        {tableOrderPaymentMethod === "cash"
+                                            ? "Jumlah Bayar Tunai"
+                                            : "Nominal Pembayaran"}
+                                    </label>
+                                    <input
+                                        type="text"
+                                        inputMode="numeric"
+                                        value={tableOrderCashInput}
+                                        onChange={(event) =>
+                                            tableOrderPaymentMethod === "cash"
+                                                ? setTableOrderCashInput(
+                                                      event.target.value.replace(
+                                                          /[^\d]/g,
+                                                          ""
+                                                      )
                                                   )
-                                              )
-                                            : undefined
-                                    }
-                                    placeholder="0"
-                                    readOnly={tableOrderPaymentMethod !== "cash"}
-                                    className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-base font-semibold text-slate-800 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"
-                                />
-                            </div>
+                                                : undefined
+                                        }
+                                        placeholder="0"
+                                        readOnly={tableOrderPaymentMethod !== "cash"}
+                                        className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-base font-semibold text-slate-800 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"
+                                    />
+                                </div>
+                            ) : null}
 
-                            {tableOrderPaymentMethod === "cash" ? (
+                            {tableOrderPaymentMethod === "cash" &&
+                            !isTableOrderOnlinePayment(tableOrderApprovalTarget) ? (
                                 <>
                                     <div className="grid grid-cols-3 gap-2">
                                         {[
@@ -7502,12 +7576,19 @@ export default function Index({
                                 onClick={submitTableOrderApproval}
                                 disabled={
                                     isApprovingTableOrder ||
+                                    isTableOrderOnlinePayment(
+                                        tableOrderApprovalTarget
+                                    ) ||
                                     tableOrderCashAmount <
                                         Number(tableOrderApprovalTarget.grand_total || 0)
                                 }
                                 className="rounded-2xl bg-[#b8572f] px-4 py-3 text-sm font-semibold text-white disabled:opacity-60"
                             >
-                                {isApprovingTableOrder ? "Memproses..." : "Approve Pembayaran"}
+                                {isTableOrderOnlinePayment(tableOrderApprovalTarget)
+                                    ? "Menunggu Pembayaran Online"
+                                    : isApprovingTableOrder
+                                      ? "Memproses..."
+                                      : "Approve Pembayaran"}
                             </button>
                         </div>
                     </div>

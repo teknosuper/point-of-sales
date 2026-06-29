@@ -5,11 +5,16 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\PaymentSetting;
 use App\Models\Transaction;
+use App\Services\TableOrderService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
 class PaymentWebhookController extends Controller
 {
+    public function __construct(
+        private readonly TableOrderService $tableOrderService
+    ) {}
+
     /**
      * Handle Midtrans notification webhook
      * URL: POST /api/webhooks/midtrans
@@ -63,10 +68,16 @@ class PaymentWebhookController extends Controller
 
             $newStatus = $this->mapMidtransStatus($transactionStatus, $fraudStatus);
 
+            $previousStatus = (string) ($transaction->payment_status ?? '');
+
             $transaction->update([
                 'payment_status' => $newStatus,
                 'payment_reference' => $request->input('transaction_id') ?: $transaction->payment_reference,
             ]);
+
+            if ($newStatus === 'paid' && $previousStatus !== 'paid') {
+                $this->tableOrderService->finalizePublicPayment($transaction->fresh());
+            }
 
             Log::info('Midtrans Webhook: Transaction updated', [
                 'provider' => 'midtrans',
@@ -153,10 +164,16 @@ class PaymentWebhookController extends Controller
             // Map Xendit status to our status
             $newStatus = $this->mapXenditStatus($status);
 
+            $previousStatus = (string) ($transaction->payment_status ?? '');
+
             $transaction->update([
                 'payment_status' => $newStatus,
                 'payment_reference' => $paymentId ?: $transaction->payment_reference,
             ]);
+
+            if ($newStatus === 'paid' && $previousStatus !== 'paid') {
+                $this->tableOrderService->finalizePublicPayment($transaction->fresh());
+            }
 
             Log::info('Xendit Webhook: Transaction updated', [
                 'provider' => 'xendit',

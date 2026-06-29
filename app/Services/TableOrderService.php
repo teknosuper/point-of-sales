@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Customer;
 use App\Models\DiningTable;
+use App\Models\PaymentSetting;
 use App\Models\Product;
 use App\Models\ProductModifierOption;
 use App\Models\ProductOutletStock;
@@ -39,8 +40,12 @@ class TableOrderService
         $preview = $this->previewPublicMenu($table, $customer, $payload);
         $orderItems = collect($preview['items'] ?? []);
         $subtotal = (int) ($preview['subtotal'] ?? 0);
+        $paymentMethod = $this->normalizePublicPaymentMethod($payload['payment_method'] ?? null);
+        $bankAccountId = $paymentMethod === PaymentSetting::GATEWAY_BANK_TRANSFER
+            ? (int) ($payload['bank_account_id'] ?? 0)
+            : null;
 
-        $tableOrder = DB::transaction(function () use ($table, $customer, $payload, $orderItems, $subtotal) {
+        $tableOrder = DB::transaction(function () use ($table, $customer, $payload, $orderItems, $subtotal, $paymentMethod, $bankAccountId) {
             $order = TableOrder::create([
                 'outlet_id' => $table->outlet_id,
                 'dining_table_id' => $table->id,
@@ -52,7 +57,7 @@ class TableOrderService
                 'customer_phone' => (string) ($customer->no_telp ?? ''),
                 'customer_email' => filled($customer->email ?? null) ? (string) $customer->email : null,
                 'notes' => filled($payload['notes'] ?? null) ? (string) $payload['notes'] : null,
-                'payment_method' => 'cash',
+                'payment_method' => $paymentMethod,
                 'status' => 'pending_cashier_payment',
                 'subtotal' => $subtotal,
                 'grand_total' => $subtotal,
@@ -79,7 +84,19 @@ class TableOrderService
                 "Stok dikunci otomatis saat self-order {$order->order_number} dikirim ke kasir."
             );
 
-            return $order->load(['items.modifiers', 'diningTable', 'outlet']);
+            if ($paymentMethod !== 'cash') {
+                $transaction = $this->createPendingSelfServiceTransaction(
+                    $order->fresh(['items.product', 'items.modifiers', 'customer']),
+                    $paymentMethod,
+                    $bankAccountId
+                );
+
+                $order->forceFill([
+                    'transaction_id' => $transaction->id,
+                ])->save();
+            }
+
+            return $order->fresh(['items.modifiers', 'diningTable', 'outlet', 'transaction.bankAccount']);
         });
 
         $this->auditLogService->log(
@@ -748,6 +765,59 @@ class TableOrderService
         }
     }
 
+    public function finalizePublicPayment(Transaction $transaction): ?TableOrder
+    {
+        $tableOrder = TableOrder::query()
+            ->with(['customer', 'items.modifiers'])
+            ->where('transaction_id', $transaction->id)
+            ->first();
+
+        if (! $tableOrder) {
+            return null;
+        }
+
+        if ($tableOrder->status === 'paid') {
+            return $tableOrder;
+        }
+
+        $tableOrder->update([
+            'status' => 'paid',
+            'approved_by' => $transaction->cashier_id,
+            'approved_at' => now(),
+        ]);
+
+        $transaction = $transaction->fresh(['customer', 'details.product.kitchenStationMappings', 'details.modifiers', 'diningTable', 'details.product']);
+        $customer = $tableOrder->customer?->fresh();
+
+        if ($customer) {
+            $this->loyaltyService->finalizeTransaction($transaction, $customer, []);
+        }
+
+        $this->foodcourtTenantAllocationService->rebuildForTransaction($transaction->fresh(['details']));
+        $this->kitchenTicketService->createForTransaction($transaction, 'table_qr');
+
+        $this->auditLogService->log(
+            event: 'table_order.self_payment_completed',
+            module: 'table_orders',
+            auditable: $tableOrder->fresh(),
+            description: "Pembayaran {$transaction->payment_method} order {$tableOrder->order_number} terkonfirmasi otomatis.",
+            before: [
+                'status' => 'pending_cashier_payment',
+                'transaction_id' => $transaction->id,
+            ],
+            after: [
+                'status' => 'paid',
+                'transaction_id' => $transaction->id,
+                'payment_status' => $transaction->payment_status,
+                'payment_method' => $transaction->payment_method,
+            ],
+        );
+
+        $this->printJobService->queueReceipt($transaction, userId: $transaction->cashier_id);
+
+        return $tableOrder;
+    }
+
     private function generateOrderNumber(): string
     {
         return 'TBL-'.Str::upper(Str::random(8));
@@ -771,6 +841,110 @@ class TableOrderService
         );
 
         return $attributes;
+    }
+
+    private function normalizePublicPaymentMethod(mixed $value): string
+    {
+        $paymentMethod = strtolower(trim((string) $value));
+
+        return in_array($paymentMethod, [
+            'cash',
+            PaymentSetting::GATEWAY_BANK_TRANSFER,
+            PaymentSetting::GATEWAY_MIDTRANS,
+            PaymentSetting::GATEWAY_XENDIT,
+        ], true)
+            ? $paymentMethod
+            : 'cash';
+    }
+
+    private function createPendingSelfServiceTransaction(
+        TableOrder $tableOrder,
+        string $paymentMethod,
+        ?int $bankAccountId = null
+    ): Transaction {
+        $openShift = $this->cashierShiftService->getOpenShiftForOutlet($tableOrder->outlet_id);
+
+        if (! $openShift) {
+            throw ValidationException::withMessages([
+                'payment_method' => 'Belum ada shift kasir aktif di outlet ini, jadi pembayaran self order belum bisa diproses.',
+            ]);
+        }
+
+        $transaction = Transaction::create([
+            'cashier_id' => (int) $openShift->user_id,
+            'cashier_shift_id' => (int) $openShift->id,
+            'outlet_id' => (int) $tableOrder->outlet_id,
+            'customer_id' => (int) $tableOrder->customer_id,
+            'order_type' => 'dine_in',
+            'order_reference_name' => $tableOrder->customer_name,
+            'table_id' => (int) $tableOrder->dining_table_id,
+            'invoice' => $this->generateInvoiceNumber(),
+            'cash' => 0,
+            'change' => 0,
+            'discount' => 0,
+            'shipping_cost' => 0,
+            'grand_total' => (int) $tableOrder->resolvedGrandTotal(),
+            'payment_method' => $paymentMethod,
+            'payment_status' => $paymentMethod === PaymentSetting::GATEWAY_BANK_TRANSFER ? 'unpaid' : 'pending',
+            'bank_account_id' => $paymentMethod === PaymentSetting::GATEWAY_BANK_TRANSFER ? $bankAccountId : null,
+        ]);
+
+        foreach ($tableOrder->items as $item) {
+            $product = $item->product;
+
+            if (! $product) {
+                throw ValidationException::withMessages([
+                    'items' => "Produk {$item->product_title} tidak lagi tersedia.",
+                ]);
+            }
+
+            $detail = $transaction->details()->create([
+                'transaction_id' => $transaction->id,
+                'outlet_id' => $tableOrder->outlet_id,
+                'tenant_outlet_id' => $item->tenant_outlet_id ?: $tableOrder->outlet_id,
+                'product_id' => $product->id,
+                'qty' => (int) $item->qty,
+                'base_unit_price' => (int) ($item->base_unit_price ?? $item->unit_price),
+                'customer_base_unit_price' => (int) ($item->customer_base_unit_price ?? $item->base_unit_price ?? $item->unit_price),
+                'tenant_base_unit_price' => (int) ($item->tenant_base_unit_price ?? $product->buy_price),
+                'owner_markup_unit_price' => (int) ($item->owner_markup_unit_price ?? max(0, (int) $product->sell_price - (int) $product->buy_price)),
+                'unit_price' => (int) $item->unit_price,
+                'price' => (int) $item->line_total,
+                'notes' => $item->notes,
+                'discount_total' => (int) ($item->discount_total ?? 0),
+                'tenant_discount_total' => (int) ($item->tenant_discount_total ?? 0),
+                'owner_discount_total' => (int) ($item->owner_discount_total ?? 0),
+                'tenant_net_total' => (int) ($item->tenant_net_total ?? ((int) $product->buy_price * (int) $item->qty)),
+                'owner_net_total' => (int) ($item->owner_net_total ?? max(0, ((int) $product->sell_price - (int) $product->buy_price) * (int) $item->qty)),
+                'pricing_rule_id' => $item->pricing_rule_id,
+                'pricing_rule_name' => $item->pricing_rule_name,
+                'pricing_rule_kind' => $item->pricing_rule_kind,
+                'pricing_rule_price_basis' => $item->pricing_rule_price_basis,
+                'pricing_group_key' => $item->pricing_group_key,
+                'pricing_group_label' => $item->pricing_group_label,
+                'is_promo_reward' => (bool) ($item->is_promo_reward ?? false),
+                'promo_reward_rule_name' => $item->promo_reward_rule_name,
+                'promo_reward_label' => $item->promo_reward_label,
+            ]);
+
+            foreach ($item->modifiers as $modifier) {
+                $detail->modifiers()->create([
+                    'name' => $modifier->name,
+                    'qty' => (int) $modifier->qty,
+                    'unit_price' => (int) $modifier->unit_price,
+                    'base_price' => (int) ($modifier->base_price ?? $modifier->unit_price),
+                    'markup_price' => (int) ($modifier->markup_price ?? 0),
+                    'total_price' => (int) $modifier->total_price,
+                ]);
+            }
+
+            $transaction->profits()->create([
+                'transaction_id' => $transaction->id,
+                'total' => ((int) $item->line_total) - ((int) $product->buy_price * (int) $item->qty),
+            ]);
+        }
+
+        return $transaction;
     }
 
     private function ensureGroupedModifiersSatisfied(

@@ -29,7 +29,7 @@ class TableOrderController extends Controller
             ->with([
                 'diningTable:id,name,code',
                 'items',
-                'transaction:id,invoice,payment_status',
+                'transaction:id,invoice,payment_status,payment_method',
             ])
             ->when($outlet, fn ($builder) => $builder->where('outlet_id', $outlet->id))
             ->when($filters['status'] !== '', fn ($builder) => $builder->where('status', $filters['status']))
@@ -68,6 +68,7 @@ class TableOrderController extends Controller
                 'transaction' => $order->transaction ? [
                     'invoice' => $order->transaction->invoice,
                     'payment_status' => $order->transaction->payment_status,
+                    'payment_method' => $order->transaction->payment_method,
                 ] : null,
                 'items' => $order->items->map(fn ($item) => [
                     'id' => $item->id,
@@ -86,6 +87,18 @@ class TableOrderController extends Controller
             'filters' => $filters,
             'summary' => [
                 'pending_cashier_payment' => (clone $summaryQuery)->where('status', 'pending_cashier_payment')->count(),
+                'pending_cashier_count' => (clone $summaryQuery)
+                    ->where('status', 'pending_cashier_payment')
+                    ->where(function ($builder) {
+                        $builder
+                            ->whereDoesntHave('transaction')
+                            ->orWhereHas('transaction', fn ($transactionQuery) => $transactionQuery->whereIn('payment_method', ['cash', 'qris', 'bank_transfer']));
+                    })
+                    ->count(),
+                'pending_online_count' => (clone $summaryQuery)
+                    ->where('status', 'pending_cashier_payment')
+                    ->whereHas('transaction', fn ($transactionQuery) => $transactionQuery->whereIn('payment_method', ['xendit', 'midtrans']))
+                    ->count(),
                 'paid' => (clone $summaryQuery)->where('status', 'paid')->count(),
                 'rejected' => (clone $summaryQuery)->where('status', 'rejected')->count(),
                 'cancelled' => (clone $summaryQuery)->where('status', 'cancelled')->count(),

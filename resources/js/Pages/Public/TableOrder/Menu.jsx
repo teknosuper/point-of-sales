@@ -193,12 +193,27 @@ export default function Menu({
     products = [],
     identity,
     editableOrder = null,
+    paymentMethods = [],
+    bankAccounts = [],
 }) {
     const { flash, storeProfile } = usePage().props;
     const customer = identity?.customer || null;
     const pendingPhone = identity?.pending_phone || "";
     const recentOrders = customer?.recent_orders || [];
     const recentTransactions = customer?.recent_transactions || [];
+    const availablePaymentMethods =
+        Array.isArray(paymentMethods) && paymentMethods.length > 0
+            ? paymentMethods
+            : [
+                  {
+                      value: "cash",
+                      label: "Bayar di Kasir",
+                      description:
+                          "Pesanan dikirim dulu ke kasir, lalu pembayaran di-approve kasir.",
+                      kind: "cashier",
+                  },
+              ];
+    const defaultPaymentMethod = availablePaymentMethods[0]?.value || "cash";
 
     const identifyPhoneInputRef = useRef(null);
     const registerNameInputRef = useRef(null);
@@ -249,6 +264,8 @@ export default function Menu({
 
     const orderForm = useForm({
         notes: "",
+        payment_method: defaultPaymentMethod,
+        bank_account_id: "",
         items: [],
     });
     const identifyForm = useForm({
@@ -268,6 +285,12 @@ export default function Menu({
 
         setOrderNotesDraft(orderForm.data.notes || "");
     }, [orderForm.data.notes]);
+
+    useEffect(() => {
+        if (!orderForm.data.payment_method && defaultPaymentMethod) {
+            orderForm.setData("payment_method", defaultPaymentMethod);
+        }
+    }, [defaultPaymentMethod, orderForm]);
 
     const productsById = useMemo(
         () =>
@@ -346,6 +369,19 @@ export default function Menu({
     const payable = Number(
         resolvedPricingPreview?.summary?.grand_total ?? subtotal ?? 0
     );
+    const selectedPaymentMethod =
+        availablePaymentMethods.find(
+            (method) => method.value === orderForm.data.payment_method
+        ) || availablePaymentMethods[0] || null;
+    const selectedBankAccount = (bankAccounts || []).find(
+        (account) => String(account.id) === String(orderForm.data.bank_account_id)
+    );
+    const paymentHeadline =
+        orderForm.data.payment_method === "cash"
+            ? "Menunggu approval kasir"
+            : orderForm.data.payment_method === "bank_transfer"
+              ? "Menunggu transfer & konfirmasi"
+              : "Siap bayar mandiri dari meja";
     const appliedPromoGroups = useMemo(() => {
         const groups = resolvedPricingPreview?.applied_groups || [];
 
@@ -1139,6 +1175,14 @@ export default function Menu({
     }, []);
 
     const confirmSubmitOrder = useCallback(() => {
+        const paymentMethodLabel =
+            selectedPaymentMethod?.label || "Bayar di Kasir";
+        const paymentFlowSummary =
+            orderForm.data.payment_method === "cash"
+                ? "Pembayaran diselesaikan dan di-approve kasir seperti alur sekarang."
+                : orderForm.data.payment_method === "bank_transfer"
+                  ? "Anda transfer manual ke rekening outlet, lalu admin/kasir mengonfirmasi setelah dana diterima."
+                  : "Setelah order dibuat, Anda bisa langsung bayar sendiri dari meja lewat tautan pembayaran otomatis.";
         const itemsHtml = paymentPreviewItems
             .map(({ item, resolvedPromoItem, promoState }) => {
                 const { resolvedLine } = promoState;
@@ -1269,9 +1313,9 @@ export default function Menu({
                         <div style="border:1px solid #bfdbfe;border-radius:18px;padding:14px;background:linear-gradient(135deg,#eff6ff 0%,#f8fafc 100%);">
                             <div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#1d4ed8;">Alur pembayaran</div>
                             <div style="margin-top:8px;display:grid;gap:8px;font-size:13px;color:#334155;">
-                                <div style="display:flex;gap:10px;"><span style="display:inline-flex;height:22px;min-width:22px;align-items:center;justify-content:center;border-radius:999px;background:#2563eb;color:#fff;font-size:11px;font-weight:700;">1</span><span>Order ini dikirim dulu ke panel kasir, belum langsung dibayar.</span></div>
-                                <div style="display:flex;gap:10px;"><span style="display:inline-flex;height:22px;min-width:22px;align-items:center;justify-content:center;border-radius:999px;background:#0f766e;color:#fff;font-size:11px;font-weight:700;">2</span><span>Kasir akan cek item, topping, promo, dan total akhir yang sama.</span></div>
-                                <div style="display:flex;gap:10px;"><span style="display:inline-flex;height:22px;min-width:22px;align-items:center;justify-content:center;border-radius:999px;background:#b45309;color:#fff;font-size:11px;font-weight:700;">3</span><span>Setelah itu kasir memproses pembayaran dan order masuk ke dapur.</span></div>
+                                <div style="display:flex;gap:10px;"><span style="display:inline-flex;height:22px;min-width:22px;align-items:center;justify-content:center;border-radius:999px;background:#2563eb;color:#fff;font-size:11px;font-weight:700;">1</span><span>Metode dipilih: <strong>${paymentMethodLabel}</strong>.</span></div>
+                                <div style="display:flex;gap:10px;"><span style="display:inline-flex;height:22px;min-width:22px;align-items:center;justify-content:center;border-radius:999px;background:#0f766e;color:#fff;font-size:11px;font-weight:700;">2</span><span>${paymentFlowSummary}</span></div>
+                                <div style="display:flex;gap:10px;"><span style="display:inline-flex;height:22px;min-width:22px;align-items:center;justify-content:center;border-radius:999px;background:#b45309;color:#fff;font-size:11px;font-weight:700;">3</span><span>Pesanan masuk ke dapur setelah pembayaran terkonfirmasi atau di-approve kasir.</span></div>
                             </div>
                         </div>
                         <div style="border:1px solid #e2e8f0;border-radius:18px;padding:14px;background:#fff;">
@@ -1288,14 +1332,16 @@ export default function Menu({
                         <div style="display:flex;justify-content:space-between;gap:12px;font-size:13px;"><span style="color:#64748b;">${PROMO_TOTAL_LABEL}</span><strong style="color:#e11d48;">-${formatPrice(promoDiscount)}</strong></div>
                         <div style="display:flex;justify-content:space-between;gap:12px;font-size:13px;"><span style="color:#64748b;">Subtotal Setelah Promo</span><strong>${formatPrice(subtotal)}</strong></div>
                         <div style="height:1px;background:#e2e8f0;"></div>
-                        <div style="display:flex;justify-content:space-between;gap:12px;font-size:17px;"><span><strong>Total dibayar ke kasir</strong></span><strong style="color:#4f46e5;">${formatPrice(payable)}</strong></div>
+                        <div style="display:flex;justify-content:space-between;gap:12px;font-size:17px;"><span><strong>Total pembayaran</strong></span><strong style="color:#4f46e5;">${formatPrice(payable)}</strong></div>
                     </div>
                 </div>
             `,
             showCancelButton: true,
             confirmButtonText: editableOrder?.access_token
                 ? "Simpan perubahan"
-                : "Kirim ke Kasir",
+                : orderForm.data.payment_method === "cash"
+                  ? "Kirim ke Kasir"
+                  : "Buat Pesanan",
             cancelButtonText: "Periksa Lagi",
             confirmButtonColor: "#16a34a",
             cancelButtonColor: "#64748b",
@@ -1309,6 +1355,7 @@ export default function Menu({
         payable,
         paymentPreviewItems,
         promoDiscount,
+        selectedPaymentMethod?.label,
         subtotal,
     ]);
 
@@ -1322,6 +1369,15 @@ export default function Menu({
                 return;
             }
 
+            if (
+                orderForm.data.payment_method === "bank_transfer" &&
+                !orderForm.data.bank_account_id
+            ) {
+                toast.error("Pilih rekening tujuan transfer terlebih dahulu.");
+                setMobileView("payment");
+                return;
+            }
+
             const result = await confirmSubmitOrder();
             if (!result.isConfirmed) {
                 return;
@@ -1329,6 +1385,12 @@ export default function Menu({
 
             orderForm.transform((data) => ({
                 ...data,
+                payment_method: data.payment_method,
+                bank_account_id:
+                    data.payment_method === "bank_transfer" &&
+                    data.bank_account_id
+                        ? Number(data.bank_account_id)
+                        : null,
                 items: buildPreviewRequestItems(normalizedCarts),
             }));
 
@@ -1723,7 +1785,7 @@ export default function Menu({
                                 {outlet?.name || storeProfile?.name || "Outlet"}
                             </p>
                             <p className="text-xs text-slate-500">
-                                Meja {table.code || table.name} • bayar lewat approval kasir
+                                Meja {table.code || table.name} • {selectedPaymentMethod?.label || "Bayar di Kasir"}
                             </p>
                         </div>
 
@@ -1966,7 +2028,7 @@ export default function Menu({
                                                 {outlet?.name || storeProfile?.name || "Outlet"}
                                             </p>
                                             <p className="text-xs text-slate-500">
-                                                Meja {table.code || table.name} • bayar lewat approval kasir
+                                                Meja {table.code || table.name} • {selectedPaymentMethod?.label || "Bayar di Kasir"}
                                             </p>
                                             {editableOrder?.order_number ? (
                                                 <p className="mt-1 text-xs font-semibold text-amber-600">
@@ -2154,7 +2216,7 @@ export default function Menu({
                                 Info Pembayaran
                             </p>
                             <p className="text-xs text-slate-500">
-                                Cek total pesanan di sini, lalu kirim ke kasir untuk diproses dan dibayar.
+                                Cek total pesanan dan pilih alur pembayaran yang sesuai untuk meja ini.
                             </p>
                         </div>
 
@@ -2166,7 +2228,7 @@ export default function Menu({
                                             Status saat ini
                                         </p>
                                         <p className="mt-1 text-base font-bold text-slate-900">
-                                            Menunggu approval kasir
+                                            {paymentHeadline}
                                         </p>
                                     </div>
                                     <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">
@@ -2174,7 +2236,11 @@ export default function Menu({
                                     </span>
                                 </div>
                                 <p className="mt-3 text-sm leading-6 text-slate-600">
-                                    Order dari meja ini belum masuk pembayaran. Setelah Anda konfirmasi, kasir menerima detail yang sama untuk dicek dan diproses.
+                                    {orderForm.data.payment_method === "cash"
+                                        ? "Order dari meja ini dikirim dulu ke kasir. Kasir akan mengecek dan meng-approve pembayaran seperti alur sekarang."
+                                        : orderForm.data.payment_method === "bank_transfer"
+                                          ? "Order dibuat lebih dulu, lalu Anda transfer ke rekening outlet yang dipilih. Kasir/admin akan mengonfirmasi setelah dana diterima."
+                                          : "Order dibuat lebih dulu, lalu Anda bisa langsung bayar sendiri dari meja memakai tautan pembayaran otomatis."}
                                 </p>
                                 <div className="mt-4 grid gap-3 sm:grid-cols-3">
                                     <div className="rounded-2xl border border-white/80 bg-white/90 p-3">
@@ -2182,26 +2248,121 @@ export default function Menu({
                                             1. Kirim order
                                         </p>
                                         <p className="mt-1 text-xs leading-5 text-slate-600">
-                                            Anda kirim detail menu dan catatan ke kasir.
+                                            {orderForm.data.payment_method === "cash"
+                                                ? "Anda kirim detail menu dan catatan ke kasir."
+                                                : "Anda kirim detail menu dan sistem menyiapkan tagihan untuk meja ini."}
                                         </p>
                                     </div>
                                     <div className="rounded-2xl border border-white/80 bg-white/90 p-3">
                                         <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
-                                            2. Kasir cek
+                                            2. Verifikasi pesanan
                                         </p>
                                         <p className="mt-1 text-xs leading-5 text-slate-600">
-                                            Kasir memverifikasi item, topping, promo, dan total.
+                                            {orderForm.data.payment_method === "cash"
+                                                ? "Kasir memverifikasi item, topping, promo, dan total."
+                                                : "Sistem menyiapkan tagihan sesuai item, topping, promo, dan total akhir yang sama."}
                                         </p>
                                     </div>
                                     <div className="rounded-2xl border border-white/80 bg-white/90 p-3">
                                         <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
-                                            3. Bayar ke kasir
+                                            {orderForm.data.payment_method === "cash"
+                                                ? "3. Bayar ke kasir"
+                                                : "3. Konfirmasi pembayaran"}
                                         </p>
                                         <p className="mt-1 text-xs leading-5 text-slate-600">
-                                            Pembayaran diselesaikan di kasir, bukan di halaman ini.
+                                            {orderForm.data.payment_method === "cash"
+                                                ? "Pembayaran diselesaikan di kasir, bukan di halaman ini."
+                                                : orderForm.data.payment_method === "bank_transfer"
+                                                  ? "Transfer diverifikasi manual oleh kasir/admin sebelum pesanan masuk ke dapur."
+                                                  : "Setelah pembayaran sukses, pesanan otomatis lanjut diproses tanpa perlu bayar di kasir."}
                                         </p>
                                     </div>
                                 </div>
+                            </div>
+
+                            <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                    Metode pembayaran
+                                </p>
+                                <div className="mt-3 space-y-2">
+                                    {availablePaymentMethods.map((method) => (
+                                        <label
+                                            key={method.value}
+                                            className={`flex cursor-pointer items-start gap-3 rounded-2xl border px-3 py-3 transition ${
+                                                orderForm.data.payment_method === method.value
+                                                    ? "border-primary-300 bg-primary-50"
+                                                    : "border-slate-200 bg-slate-50"
+                                            }`}
+                                        >
+                                            <input
+                                                type="radio"
+                                                name="payment_method"
+                                                value={method.value}
+                                                checked={orderForm.data.payment_method === method.value}
+                                                onChange={() => {
+                                                    orderForm.setData("payment_method", method.value);
+                                                    if (method.value !== "bank_transfer") {
+                                                        orderForm.setData("bank_account_id", "");
+                                                    } else if (!orderForm.data.bank_account_id && bankAccounts[0]?.id) {
+                                                        orderForm.setData("bank_account_id", String(bankAccounts[0].id));
+                                                    }
+                                                }}
+                                                className="mt-1"
+                                            />
+                                            <div className="min-w-0">
+                                                <p className="text-sm font-semibold text-slate-900">
+                                                    {method.label}
+                                                </p>
+                                                <p className="mt-1 text-xs leading-5 text-slate-500">
+                                                    {method.description}
+                                                </p>
+                                            </div>
+                                        </label>
+                                    ))}
+                                </div>
+
+                                {orderForm.data.payment_method === "bank_transfer" ? (
+                                    <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-3">
+                                        <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">
+                                            Pilih rekening tujuan
+                                        </p>
+                                        <div className="mt-3 space-y-2">
+                                            {bankAccounts.map((account) => (
+                                                <label
+                                                    key={account.id}
+                                                    className={`flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-3 ${
+                                                        String(orderForm.data.bank_account_id) === String(account.id)
+                                                            ? "border-amber-300 bg-white"
+                                                            : "border-amber-100 bg-white/70"
+                                                    }`}
+                                                >
+                                                    <input
+                                                        type="radio"
+                                                        name="bank_account_id"
+                                                        value={account.id}
+                                                        checked={String(orderForm.data.bank_account_id) === String(account.id)}
+                                                        onChange={() =>
+                                                            orderForm.setData("bank_account_id", String(account.id))
+                                                        }
+                                                    />
+                                                    <div className="min-w-0">
+                                                        <p className="text-sm font-semibold text-slate-900">
+                                                            {account.bank_name}
+                                                        </p>
+                                                        <p className="text-xs text-slate-500">
+                                                            {account.account_number} a.n. {account.account_name}
+                                                        </p>
+                                                    </div>
+                                                </label>
+                                            ))}
+                                        </div>
+                                        {selectedBankAccount ? (
+                                            <p className="mt-3 text-xs text-amber-800">
+                                                Transfer ke {selectedBankAccount.bank_name} {selectedBankAccount.account_number} a.n. {selectedBankAccount.account_name}.
+                                            </p>
+                                        ) : null}
+                                    </div>
+                                ) : null}
                             </div>
 
                             <div className="rounded-2xl border border-slate-200 bg-white p-4">

@@ -408,7 +408,7 @@ class TransactionController extends Controller
             ->get();
 
         $pendingTableOrders = TableOrder::query()
-            ->with(['diningTable:id,name,code'])
+            ->with(['diningTable:id,name,code', 'transaction:id,invoice,payment_method,payment_status,payment_url'])
             ->when($outlet, fn ($query) => $query->where('outlet_id', $outlet->id))
             ->where('status', 'pending_cashier_payment')
             ->latest('created_at')
@@ -419,7 +419,7 @@ class TransactionController extends Controller
 
         if ($openTableOrderId > 0) {
             $openTableOrder = TableOrder::query()
-                ->with(['diningTable:id,name,code', 'items.modifiers'])
+                ->with(['diningTable:id,name,code', 'items.modifiers', 'transaction:id,invoice,payment_method,payment_status,payment_url'])
                 ->when($outlet, fn ($query) => $query->where('outlet_id', $outlet->id))
                 ->where('status', 'pending_cashier_payment')
                 ->find($openTableOrderId);
@@ -1322,6 +1322,7 @@ class TransactionController extends Controller
             'customer_name' => $order->customer_name,
             'customer_phone' => $order->customer_phone,
             'notes' => $order->notes,
+            'payment_method' => $order->payment_method,
             'grand_total' => (int) $order->grand_total,
             'created_at' => optional($order->created_at)->toISOString(),
             'created_at_label' => optional($order->created_at)->format('d M Y H:i'),
@@ -1329,6 +1330,12 @@ class TransactionController extends Controller
                 'name' => $order->diningTable?->name,
                 'code' => $order->diningTable?->code,
             ],
+            'transaction' => $order->transaction ? [
+                'invoice' => $order->transaction->invoice,
+                'payment_method' => $order->transaction->payment_method,
+                'payment_status' => $order->transaction->payment_status,
+                'payment_url' => $order->transaction->payment_url,
+            ] : null,
         ];
     }
 

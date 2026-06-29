@@ -20,6 +20,35 @@ const statusLabel = {
     cancelled: "Dibatalkan",
 };
 
+const paymentMethodLabel = (value) => {
+    const normalized = String(value || "").toLowerCase();
+
+    return (
+        {
+            cash: "Tunai Kasir",
+            qris: "QRIS Kasir",
+            xendit: "Xendit",
+            midtrans: "Midtrans",
+            bank_transfer: "Transfer Bank",
+        }[normalized] || value || "-"
+    );
+};
+
+const orderStatusLabel = (order) => {
+    const paymentMethod = String(
+        order?.transaction?.payment_method || order?.payment_method || ""
+    ).toLowerCase();
+    const paymentStatus = String(order?.transaction?.payment_status || "").toLowerCase();
+
+    if (order?.status === "pending_cashier_payment" && paymentMethod === "xendit") {
+        return paymentStatus === "paid"
+            ? "Sudah Dibayar Online"
+            : "Menunggu Bayar Online";
+    }
+
+    return statusLabel[order?.status] || order?.status;
+};
+
 export default function Index({ orders, filters = {}, summary = {} }) {
     const { flash } = usePage().props;
     const { can } = useAuthorization();
@@ -32,6 +61,14 @@ export default function Index({ orders, filters = {}, summary = {} }) {
     const [cancelTarget, setCancelTarget] = useState(null);
     const [cancelReason, setCancelReason] = useState("");
     const [isCancelling, setIsCancelling] = useState(false);
+
+    const canApproveCashierPayment = (order) => {
+        const paymentMethod = String(
+            order?.transaction?.payment_method || order?.payment_method || ""
+        ).toLowerCase();
+
+        return order?.status === "pending_cashier_payment" && paymentMethod === "cash";
+    };
 
     useEffect(() => {
         if (flash?.success) toast.success(flash.success);
@@ -128,7 +165,7 @@ export default function Index({ orders, filters = {}, summary = {} }) {
                             Pesanan QR Meja
                         </h1>
                         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                            Kasir mengonfirmasi pembayaran tunai self-order sebelum pesanan masuk dapur.
+                            Pembayaran tunai tetap diproses kasir, sedangkan pembayaran Xendit dipantau sebagai pembayaran online.
                         </p>
                     </div>
 
@@ -149,7 +186,7 @@ export default function Index({ orders, filters = {}, summary = {} }) {
                             className="h-11 rounded-xl border border-slate-200 bg-white px-4 text-sm dark:border-slate-700 dark:bg-slate-900"
                         >
                             <option value="">Semua status</option>
-                            <option value="pending_cashier_payment">Menunggu Bayar Kasir</option>
+                            <option value="pending_cashier_payment">Menunggu Pembayaran</option>
                             <option value="paid">Sudah Dibayar</option>
                             <option value="rejected">Ditolak</option>
                             <option value="cancelled">Dibatalkan</option>
@@ -164,11 +201,19 @@ export default function Index({ orders, filters = {}, summary = {} }) {
                     </div>
                 </div>
 
-                <div className="grid gap-4 md:grid-cols-3">
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
                     {[
                         {
-                            label: "Menunggu Bayar Kasir",
+                            label: "Menunggu Pembayaran",
                             value: summary.pending_cashier_payment ?? 0,
+                        },
+                        {
+                            label: "Pending Kasir",
+                            value: summary.pending_cashier_count ?? 0,
+                        },
+                        {
+                            label: "Pending Online",
+                            value: summary.pending_online_count ?? 0,
                         },
                         { label: "Sudah Dibayar", value: summary.paid ?? 0 },
                         { label: "Ditolak", value: summary.rejected ?? 0 },
@@ -202,7 +247,7 @@ export default function Index({ orders, filters = {}, summary = {} }) {
                                                 {order.order_number}
                                             </h3>
                                             <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-700">
-                                                {statusLabel[order.status] || order.status}
+                                                {orderStatusLabel(order)}
                                             </span>
                                         </div>
                                         <div className="text-sm text-slate-500 dark:text-slate-400">
@@ -211,6 +256,12 @@ export default function Index({ orders, filters = {}, summary = {} }) {
                                                 {order.customer_name ? ` • ${order.customer_name}` : ""}
                                             </p>
                                             <p>Total {formatPrice(order.grand_total)}</p>
+                                            <p>
+                                                Pembayaran {paymentMethodLabel(order.transaction?.payment_method || order.payment_method)}
+                                                {order.transaction?.payment_status
+                                                    ? ` • ${order.transaction.payment_status}`
+                                                    : ""}
+                                            </p>
                                         </div>
                                         <div className="space-y-1 text-sm text-slate-600 dark:text-slate-300">
                                             {order.items.map((item) => (
@@ -228,7 +279,7 @@ export default function Index({ orders, filters = {}, summary = {} }) {
                                                 {order.transaction.invoice}
                                             </span>
                                         ) : null}
-                                        {canApprove && order.status === "pending_cashier_payment" ? (
+                                        {canApprove && canApproveCashierPayment(order) ? (
                                             <>
                                                 <button
                                                     type="button"

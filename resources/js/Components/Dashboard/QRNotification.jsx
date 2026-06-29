@@ -11,6 +11,47 @@ import {
 
 const PAGE_SIZE = 8;
 
+const paymentMethodLabel = (order) => {
+    const method = String(
+        order?.transaction?.payment_method || order?.payment_method || "cash"
+    ).toLowerCase();
+
+    return (
+        {
+            cash: "Tunai Kasir",
+            qris: "QRIS Kasir",
+            xendit: "Xendit Online",
+            midtrans: "Midtrans Online",
+            bank_transfer: "Transfer Bank",
+        }[method] || method
+    );
+};
+
+const isOnlinePayment = (order) =>
+    ["xendit", "midtrans"].includes(
+        String(order?.transaction?.payment_method || order?.payment_method || "").toLowerCase()
+    );
+
+const paymentStateLabel = (order) => {
+    if (isOnlinePayment(order)) {
+        return String(order?.transaction?.payment_status || "").toLowerCase() === "paid"
+            ? "Sudah Dibayar Online"
+            : "Menunggu Bayar Online";
+    }
+
+    return "Menunggu Bayar Kasir";
+};
+
+const paymentStateTone = (order) => {
+    if (isOnlinePayment(order)) {
+        return String(order?.transaction?.payment_status || "").toLowerCase() === "paid"
+            ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300"
+            : "bg-sky-100 text-sky-700 dark:bg-sky-950/30 dark:text-sky-300";
+    }
+
+    return "bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300";
+};
+
 export default function QRNotification() {
     const { pendingTableOrders = [], notificationAccess = {} } = usePage().props;
     const [isOpen, setIsOpen] = useState(false);
@@ -271,7 +312,11 @@ export default function QRNotification() {
                                                 href={route("transactions.index", {
                                                     open_table_order: order.id,
                                                 })}
-                                                className="block rounded-2xl border border-slate-200 px-4 py-3 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"
+                                                className={`block rounded-2xl border px-4 py-3 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800 ${
+                                                    isOnlinePayment(order)
+                                                        ? "border-sky-200 bg-sky-50/40 dark:border-sky-900/40 dark:bg-sky-950/10"
+                                                        : "border-slate-200 dark:border-slate-700"
+                                                }`}
                                             >
                                                 <div className="flex items-start justify-between gap-3">
                                                     <div className="min-w-0">
@@ -289,9 +334,25 @@ export default function QRNotification() {
                                                                 Number(order.grand_total || 0)
                                                             )}
                                                         </p>
+                                                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                                                            <span
+                                                                className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${paymentStateTone(order)}`}
+                                                            >
+                                                                {paymentStateLabel(order)}
+                                                            </span>
+                                                            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                                                                {paymentMethodLabel(order)}
+                                                            </span>
+                                                        </div>
                                                     </div>
                                                     <div className="shrink-0 text-right">
-                                                        <div className="mt-1 ml-auto h-2 w-2 rounded-full bg-primary-600" />
+                                                        <div
+                                                            className={`mt-1 ml-auto h-2.5 w-2.5 rounded-full ${
+                                                                isOnlinePayment(order)
+                                                                    ? "bg-sky-500"
+                                                                    : "bg-amber-500"
+                                                            }`}
+                                                        />
                                                         <p className="mt-2 text-[11px] text-slate-400 dark:text-slate-500">
                                                             {order.created_at_label}
                                                         </p>

@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Models\Customer;
 use App\Models\DiningTable;
+use App\Models\BankAccount;
+use App\Models\PaymentSetting;
 use App\Models\Product;
 use App\Models\ProductOutletStock;
 use App\Models\TableOrder;
@@ -12,7 +14,9 @@ use App\Models\Transaction;
 use App\Models\User;
 use App\Models\TransactionDetail;
 use App\Services\CustomerOutletMetricService;
+use App\Exceptions\PaymentGatewayException;
 use App\Services\LoyaltyService;
+use App\Services\Payments\PaymentGatewayManager;
 use App\Services\ProductCatalogService;
 use App\Services\TableOrderService;
 use App\Support\ReportTimezone;
@@ -101,6 +105,32 @@ class PublicTableOrderController extends Controller
             $table->outlet_id,
             $identifiedCustomer
         );
+        $paymentSetting = PaymentSetting::resolveForOutlet($table->outlet_id);
+        $paymentMethods = collect($paymentSetting?->enabledGateways($table->outlet_id) ?? [])
+            ->reject(fn (array $gateway) => ($gateway['value'] ?? null) === PaymentSetting::GATEWAY_QRIS)
+            ->values();
+        $selfOrderPaymentMethods = collect([
+            [
+                'value' => 'cash',
+                'label' => 'Bayar di Kasir',
+                'description' => 'Pesanan dikirim dulu ke kasir, lalu pembayaran di-approve kasir seperti alur sekarang.',
+                'kind' => 'cashier',
+            ],
+        ])->concat(
+            $paymentMethods->map(fn (array $gateway) => [
+                'value' => (string) $gateway['value'],
+                'label' => (string) $gateway['label'],
+                'description' => (string) $gateway['description'],
+                'kind' => in_array($gateway['value'], [PaymentSetting::GATEWAY_XENDIT, PaymentSetting::GATEWAY_MIDTRANS], true)
+                    ? 'online'
+                    : 'manual',
+            ])
+        )->values();
+        $bankAccounts = BankAccount::query()
+            ->active()
+            ->where('outlet_id', $table->outlet_id)
+            ->ordered()
+            ->get(['id', 'bank_name', 'account_number', 'account_name', 'logo', 'outlet_id', 'is_active', 'sort_order']);
 
         return Inertia::render('Public/TableOrder/Menu', [
             'table' => [
@@ -139,6 +169,14 @@ class PublicTableOrderController extends Controller
                     ])->values(),
                 ])->values(),
             ] : null,
+            'paymentMethods' => $selfOrderPaymentMethods,
+            'bankAccounts' => $bankAccounts->map(fn (BankAccount $bankAccount) => [
+                'id' => (int) $bankAccount->id,
+                'bank_name' => $bankAccount->bank_name,
+                'account_number' => $bankAccount->account_number,
+                'account_name' => $bankAccount->account_name,
+                'logo_url' => $bankAccount->logo_url,
+            ])->values(),
         ]);
     }
 
@@ -218,15 +256,26 @@ class PublicTableOrderController extends Controller
             ->with('success', 'Sesi pembeli meja berhasil dihapus.');
     }
 
-    public function store(Request $request, string $qrToken)
+    public function store(Request $request, string $qrToken, PaymentGatewayManager $paymentGatewayManager)
     {
         $table = $this->resolveTable($qrToken);
         $customer = $this->resolvedPublicCustomer($request, $table->outlet_id);
         abort_unless($customer, 422, 'Identitas pembeli belum dipilih.');
 
-        $validated = $this->validatePublicOrderPayload($request);
-
+        $validated = $this->validatePublicOrderPayload($request, $table->outlet_id);
         $order = $this->tableOrderService->createFromPublicMenu($table, $customer, $validated);
+
+        $paymentMethod = strtolower((string) ($validated['payment_method'] ?? 'cash'));
+
+        if (in_array($paymentMethod, [PaymentSetting::GATEWAY_XENDIT, PaymentSetting::GATEWAY_MIDTRANS], true) && $order->transaction) {
+            try {
+                $this->refreshPaymentLink($order, $paymentGatewayManager);
+            } catch (PaymentGatewayException $exception) {
+                return redirect()
+                    ->route('table-order.status', $order->access_token)
+                    ->with('error', $exception->getMessage());
+            }
+        }
 
         return redirect()->route('table-order.status', $order->access_token);
     }
@@ -237,7 +286,7 @@ class PublicTableOrderController extends Controller
         $customer = $this->resolvedPublicCustomer($request, $table->outlet_id);
         abort_unless($customer, 422, 'Identitas pembeli belum dipilih.');
 
-        $validated = $this->validatePublicOrderPayload($request);
+        $validated = $this->validatePublicOrderPayload($request, $table->outlet_id);
         $preview = $this->tableOrderService->previewPublicMenu($table, $customer, $validated);
 
         return response()->json($preview['pricing_preview'] ?? [
@@ -248,14 +297,15 @@ class PublicTableOrderController extends Controller
         ]);
     }
 
-    public function status(string $accessToken)
+    public function status(Request $request, string $accessToken, PaymentGatewayManager $paymentGatewayManager)
     {
         $order = TableOrder::query()
             ->with([
                 'diningTable:id,name,code,qr_token',
                 'items.product:id,title,stock',
                 'items.modifiers',
-                'transaction:id,invoice,payment_status,payment_method,created_at',
+                'transaction:id,invoice,payment_status,payment_method,payment_reference,payment_url,bank_account_id,created_at',
+                'transaction.bankAccount:id,bank_name,account_number,account_name,logo',
                 'transaction.kitchenTickets:id,transaction_id,kitchen_station_id,ticket_number,status,notes,fired_at,acknowledged_at,ready_at,completed_at,created_at',
                 'transaction.kitchenTickets.kitchenStation:id,name,code',
                 'transaction.kitchenTickets.items:id,kitchen_ticket_id,product_title,qty,status,notes,completed_at',
@@ -263,6 +313,8 @@ class PublicTableOrderController extends Controller
             ])
             ->where('access_token', $accessToken)
             ->firstOrFail();
+
+        $order = $this->syncPendingXenditOrderStatus($order, $paymentGatewayManager);
 
         $stockAlerts = $order->items
             ->map(function (TableOrderItem $item) {
@@ -337,8 +389,17 @@ class PublicTableOrderController extends Controller
                     'invoice' => $order->transaction->invoice,
                     'payment_status' => $order->transaction->payment_status,
                     'payment_method' => $order->transaction->payment_method,
+                    'payment_reference' => $order->transaction->payment_reference,
+                    'payment_url' => $order->transaction->payment_url,
                     'created_at' => ReportTimezone::formatSourceIso8601($order->transaction->getRawOriginal('created_at')),
                     'created_at_label' => ReportTimezone::formatSourceDateTime($order->transaction->getRawOriginal('created_at'), 'd M Y H:i'),
+                    'bank_account' => $order->transaction->bankAccount ? [
+                        'id' => (int) $order->transaction->bankAccount->id,
+                        'bank_name' => $order->transaction->bankAccount->bank_name,
+                        'account_number' => $order->transaction->bankAccount->account_number,
+                        'account_name' => $order->transaction->bankAccount->account_name,
+                        'logo_url' => $order->transaction->bankAccount->logo_url,
+                    ] : null,
                     'kitchen_tickets' => $order->transaction->kitchenTickets->map(fn ($ticket) => [
                         'id' => $ticket->id,
                         'ticket_number' => $ticket->ticket_number,
@@ -367,7 +428,12 @@ class PublicTableOrderController extends Controller
             ],
             'identity' => [
                 'customer' => $order->customer
-                    ? $this->customerPayload($order->customer, (int) $order->outlet_id)
+                    ? $this->customerPayload(
+                        $order->customer,
+                        (int) $order->outlet_id,
+                        max(1, (int) $request->integer('orders_page', 1)),
+                        max(1, (int) $request->integer('transactions_page', 1))
+                    )
                     : null,
             ],
         ]);
@@ -395,6 +461,102 @@ class PublicTableOrderController extends Controller
         return redirect()
             ->route('table-order.status', $order->access_token)
             ->with('success', 'Pesanan berhasil dibatalkan.');
+    }
+
+    public function regeneratePaymentLink(string $accessToken, PaymentGatewayManager $paymentGatewayManager)
+    {
+        $order = TableOrder::query()
+            ->with('transaction')
+            ->where('access_token', $accessToken)
+            ->firstOrFail();
+
+        if (! $order->transaction) {
+            throw ValidationException::withMessages([
+                'order' => 'Pesanan ini belum memiliki transaksi pembayaran online.',
+            ]);
+        }
+
+        if ($order->status === 'paid' || $order->transaction->payment_status === 'paid') {
+            return redirect()
+                ->route('table-order.status', $order->access_token)
+                ->with('info', 'Pembayaran order ini sudah berhasil, link tidak perlu dibuat ulang.');
+        }
+
+        try {
+            $this->refreshPaymentLink($order, $paymentGatewayManager);
+        } catch (PaymentGatewayException $exception) {
+            return redirect()
+                ->route('table-order.status', $order->access_token)
+                ->with('error', $exception->getMessage());
+        }
+
+        return redirect()
+            ->route('table-order.status', $order->access_token)
+            ->with('success', 'Link pembayaran berhasil dibuat ulang.');
+    }
+
+    public function checkPaymentStatus(string $accessToken, PaymentGatewayManager $paymentGatewayManager)
+    {
+        $order = TableOrder::query()
+            ->with('transaction')
+            ->where('access_token', $accessToken)
+            ->firstOrFail();
+
+        $transaction = $order->transaction;
+        if (! $transaction) {
+            throw ValidationException::withMessages([
+                'order' => 'Transaksi pembayaran untuk order ini belum tersedia.',
+            ]);
+        }
+
+        $paymentMethod = strtolower((string) ($transaction->payment_method ?? $order->payment_method ?? ''));
+        if ($paymentMethod !== PaymentSetting::GATEWAY_XENDIT) {
+            throw ValidationException::withMessages([
+                'payment_method' => 'Cek status langsung saat ini hanya tersedia untuk pembayaran Xendit.',
+            ]);
+        }
+
+        $paymentSetting = PaymentSetting::resolveForOutlet((int) $order->outlet_id);
+        if (! $paymentSetting || ! $paymentSetting->isGatewayReady($paymentMethod, (int) $order->outlet_id)) {
+            throw ValidationException::withMessages([
+                'payment_method' => 'Konfigurasi Xendit belum lengkap untuk outlet ini.',
+            ]);
+        }
+
+        try {
+            $invoice = $paymentGatewayManager->fetchPaymentStatus($transaction, $paymentMethod, $paymentSetting);
+        } catch (PaymentGatewayException $exception) {
+            return redirect()
+                ->route('table-order.status', $order->access_token)
+                ->with('error', $exception->getMessage());
+        }
+
+        $status = strtoupper((string) ($invoice['status'] ?? 'PENDING'));
+        $mappedStatus = match ($status) {
+            'PAID', 'SETTLED' => 'paid',
+            'EXPIRED', 'FAILED' => 'failed',
+            default => 'pending',
+        };
+        $previousStatus = (string) ($transaction->payment_status ?? '');
+
+        $transaction->update([
+            'payment_status' => $mappedStatus,
+            'payment_reference' => $invoice['id'] ?? $transaction->payment_reference,
+            'payment_url' => $invoice['invoice_url'] ?? $transaction->payment_url,
+        ]);
+
+        if ($mappedStatus === 'paid' && $previousStatus !== 'paid') {
+            $this->tableOrderService->finalizePublicPayment($transaction->fresh());
+        }
+
+        return redirect()
+            ->route('table-order.status', $order->access_token)
+            ->with(
+                $mappedStatus === 'paid' ? 'success' : 'info',
+                $mappedStatus === 'paid'
+                    ? 'Status pembayaran Xendit berhasil diperbarui. Pesanan sudah dinyatakan lunas.'
+                    : "Status invoice Xendit saat ini: {$status}."
+            );
     }
 
     public function removeUnavailableItems(string $accessToken)
@@ -492,6 +654,94 @@ class PublicTableOrderController extends Controller
             ->firstOrFail();
     }
 
+    private function refreshPaymentLink(TableOrder $order, PaymentGatewayManager $paymentGatewayManager): void
+    {
+        $transaction = $order->transaction;
+        $paymentMethod = strtolower((string) ($transaction?->payment_method ?? $order->payment_method ?? ''));
+
+        if (! $transaction || ! in_array($paymentMethod, [PaymentSetting::GATEWAY_XENDIT, PaymentSetting::GATEWAY_MIDTRANS], true)) {
+            throw ValidationException::withMessages([
+                'payment_method' => 'Metode pembayaran order ini tidak mendukung link otomatis.',
+            ]);
+        }
+
+        $paymentSetting = PaymentSetting::resolveForOutlet((int) $order->outlet_id);
+
+        if (! $paymentSetting || ! $paymentSetting->isGatewayReady($paymentMethod, (int) $order->outlet_id)) {
+            throw ValidationException::withMessages([
+                'payment_method' => 'Konfigurasi gateway pembayaran belum lengkap atau belum aktif untuk outlet ini.',
+            ]);
+        }
+
+        $paymentResponse = $paymentGatewayManager->createPayment($transaction, $paymentMethod, $paymentSetting);
+
+        $transaction->update([
+            'payment_reference' => $paymentResponse['reference'] ?? null,
+            'payment_url' => $paymentResponse['payment_url'] ?? null,
+        ]);
+    }
+
+    private function syncPendingXenditOrderStatus(TableOrder $order, PaymentGatewayManager $paymentGatewayManager): TableOrder
+    {
+        $transaction = $order->transaction;
+        $paymentMethod = strtolower((string) ($transaction?->payment_method ?? $order->payment_method ?? ''));
+        $paymentStatus = strtolower((string) ($transaction?->payment_status ?? ''));
+
+        if (
+            ! $transaction
+            || $order->status !== 'pending_cashier_payment'
+            || $paymentMethod !== PaymentSetting::GATEWAY_XENDIT
+            || $paymentStatus === 'paid'
+            || blank($transaction->payment_reference)
+        ) {
+            return $order;
+        }
+
+        $paymentSetting = PaymentSetting::resolveForOutlet((int) $order->outlet_id);
+        if (! $paymentSetting || ! $paymentSetting->isGatewayReady($paymentMethod, (int) $order->outlet_id)) {
+            return $order;
+        }
+
+        try {
+            $invoice = $paymentGatewayManager->fetchPaymentStatus($transaction, $paymentMethod, $paymentSetting);
+        } catch (PaymentGatewayException) {
+            return $order;
+        }
+
+        $status = strtoupper((string) ($invoice['status'] ?? 'PENDING'));
+        $mappedStatus = match ($status) {
+            'PAID', 'SETTLED' => 'paid',
+            'EXPIRED', 'FAILED' => 'failed',
+            default => 'pending',
+        };
+
+        if ($mappedStatus !== (string) ($transaction->payment_status ?? '')) {
+            $transaction->update([
+                'payment_status' => $mappedStatus,
+                'payment_reference' => $invoice['id'] ?? $transaction->payment_reference,
+                'payment_url' => $invoice['invoice_url'] ?? $transaction->payment_url,
+            ]);
+
+            if ($mappedStatus === 'paid') {
+                $this->tableOrderService->finalizePublicPayment($transaction->fresh());
+            }
+
+            $order->refresh();
+        }
+
+        return $order->load([
+            'diningTable:id,name,code,qr_token',
+            'items.product:id,title,stock',
+            'items.modifiers',
+            'transaction:id,invoice,payment_status,payment_method,payment_reference,payment_url,bank_account_id,created_at',
+            'transaction.bankAccount:id,bank_name,account_number,account_name,logo',
+            'transaction.kitchenTickets:id,transaction_id,kitchen_station_id,ticket_number,status,notes,fired_at,acknowledged_at,ready_at,completed_at,created_at',
+            'transaction.kitchenTickets.kitchenStation:id,name,code',
+            'transaction.kitchenTickets.items:id,kitchen_ticket_id,product_title,qty,status,notes,completed_at',
+            'customer:id,name,no_telp,email,address,is_loyalty_member,member_code,loyalty_tier,loyalty_points',
+        ]);
+    }
+
     private function resolvedPublicCustomer(Request $request, int $outletId): ?Customer
     {
         $customerId = $request->session()->get($this->customerSessionKey($outletId));
@@ -536,23 +786,36 @@ class PublicTableOrderController extends Controller
         return "public_table_order.pending_phone.{$outletId}";
     }
 
-    private function customerPayload(Customer $customer, int $outletId): array
+    private function customerPayload(
+        Customer $customer,
+        int $outletId,
+        int $ordersPage = 1,
+        int $transactionsPage = 1
+    ): array
     {
+        $perPage = 5;
+        $ordersPage = max(1, $ordersPage);
+        $transactionsPage = max(1, $transactionsPage);
         $metrics = $this->customerOutletMetricService->metricsForCustomer($customer, $outletId);
-        $recentTableOrders = TableOrder::query()
+        $recentTableOrdersQuery = TableOrder::query()
             ->with('items:id,table_order_id,line_total')
             ->select('id', 'order_number', 'grand_total', 'status', 'created_at', 'access_token')
             ->where('customer_id', $customer->id)
             ->where('outlet_id', $outletId)
-            ->latest('created_at')
-            ->limit(5)
+            ->latest('created_at');
+        $recentTableOrdersTotal = (clone $recentTableOrdersQuery)->count();
+        $recentTableOrders = $recentTableOrdersQuery
+            ->forPage($ordersPage, $perPage)
             ->get();
-        $recentTransactions = $customer->transactions()
+
+        $recentTransactionsQuery = $customer->transactions()
             ->select('id', 'invoice', 'grand_total', 'payment_status', 'created_at', 'outlet_id')
             ->with('outlet:id,name')
             ->where('outlet_id', $outletId)
-            ->latest('created_at')
-            ->limit(5)
+            ->latest('created_at');
+        $recentTransactionsTotal = (clone $recentTransactionsQuery)->count();
+        $recentTransactions = $recentTransactionsQuery
+            ->forPage($transactionsPage, $perPage)
             ->get();
 
         return [
@@ -576,6 +839,14 @@ class PublicTableOrderController extends Controller
                 'created_at' => ReportTimezone::formatSourceIso8601($order->getRawOriginal('created_at')),
                 'access_token' => $order->access_token,
             ])->values(),
+            'recent_orders_pagination' => [
+                'current_page' => $ordersPage,
+                'per_page' => $perPage,
+                'total' => $recentTableOrdersTotal,
+                'last_page' => max(1, (int) ceil($recentTableOrdersTotal / $perPage)),
+                'has_prev' => $ordersPage > 1,
+                'has_next' => ($ordersPage * $perPage) < $recentTableOrdersTotal,
+            ],
             'recent_transactions' => $recentTransactions->map(fn ($transaction) => [
                 'id' => $transaction->id,
                 'invoice' => $transaction->invoice,
@@ -584,6 +855,14 @@ class PublicTableOrderController extends Controller
                 'created_at' => ReportTimezone::formatSourceIso8601($transaction->getRawOriginal('created_at')),
                 'outlet_name' => $transaction->outlet?->name,
             ])->values(),
+            'recent_transactions_pagination' => [
+                'current_page' => $transactionsPage,
+                'per_page' => $perPage,
+                'total' => $recentTransactionsTotal,
+                'last_page' => max(1, (int) ceil($recentTransactionsTotal / $perPage)),
+                'has_prev' => $transactionsPage > 1,
+                'has_next' => ($transactionsPage * $perPage) < $recentTransactionsTotal,
+            ],
         ];
     }
 
@@ -671,10 +950,31 @@ class PublicTableOrderController extends Controller
         return $promoPrice > 0 && $promoPrice < $basePrice;
     }
 
-    private function validatePublicOrderPayload(Request $request): array
+    private function validatePublicOrderPayload(Request $request, int $outletId): array
     {
+        $paymentSetting = PaymentSetting::resolveForOutlet($outletId);
+        $enabledGatewayValues = collect($paymentSetting?->enabledGateways($outletId) ?? [])
+            ->pluck('value')
+            ->filter()
+            ->reject(fn ($value) => $value === PaymentSetting::GATEWAY_QRIS)
+            ->map(fn ($value) => (string) $value)
+            ->values()
+            ->all();
+        $allowedPaymentMethods = array_values(array_unique([
+            'cash',
+            ...$enabledGatewayValues,
+        ]));
+
         return $request->validate([
             'notes' => ['nullable', 'string', 'max:1000'],
+            'payment_method' => ['nullable', Rule::in($allowedPaymentMethods)],
+            'bank_account_id' => [
+                'nullable',
+                'integer',
+                Rule::exists('bank_accounts', 'id')->where(fn ($query) => $query
+                    ->where('outlet_id', $outletId)
+                    ->where('is_active', true)),
+            ],
             'items' => ['required', 'array', 'min:1'],
             'items.*.client_key' => ['nullable', 'string', 'max:120'],
             'items.*.product_id' => ['required', 'integer', 'exists:products,id'],

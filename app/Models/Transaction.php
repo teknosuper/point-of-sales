@@ -120,6 +120,11 @@ class Transaction extends Model
         return $this->hasMany(TransactionTenantAllocation::class);
     }
 
+    public function tableOrder()
+    {
+        return $this->hasOne(TableOrder::class);
+    }
+
     /**
      * bankAccount
      *
