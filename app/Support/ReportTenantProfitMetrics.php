@@ -44,14 +44,17 @@ class ReportTenantProfitMetrics
         $ordersCount = (int) $allocations->count();
         $revenueTotal = (int) $allocations->sum('grand_total');
         $profitTotal = (int) $allocations->sum('profit_total');
-        $walkInCount = (int) $allocations->filter(fn ($allocation) => blank($allocation->transaction?->customer_id))->count();
+        $customerProfileSummary = ReportCustomerProfileMetrics::fromRows(
+            $allocations,
+            'transaction.customer_id'
+        );
 
         return [
             'profit_total' => $profitTotal,
             'revenue_total' => $revenueTotal,
             'orders_count' => $ordersCount,
             'items_sold' => (int) $allocations->sum('total_items'),
-            'walk_in_count' => $walkInCount,
+            'walk_in_count' => (int) ($customerProfileSummary['walk_in_count'] ?? 0),
             'average_profit' => $ordersCount > 0 ? (int) round($profitTotal / $ordersCount) : 0,
             'margin' => $revenueTotal > 0 ? round(($profitTotal / $revenueTotal) * 100, 2) : 0,
             'best_invoice' => $allocations->sortByDesc('profit_total')->first()?->transaction?->invoice,
@@ -65,7 +68,8 @@ class ReportTenantProfitMetrics
             'owner_direct_markup_total' => 0,
             'tenant_markup_total' => $profitTotal,
             'tenant_profit_total' => $profitTotal,
-            'registered_customer_count' => max(0, $ordersCount - $walkInCount),
+            'registered_customer_count' => (int) ($customerProfileSummary['registered_customer_count'] ?? 0),
+            'active_customer_count' => (int) ($customerProfileSummary['active_customer_count'] ?? 0),
         ];
     }
 
@@ -76,7 +80,11 @@ class ReportTenantProfitMetrics
             ->filter(fn (Collection $rows, int $cashierId) => $cashierId > 0)
             ->map(function (Collection $rows, int $cashierId) {
                 $ordersCount = (int) $rows->count();
-                $walkInCount = (int) $rows->filter(fn ($allocation) => blank($allocation->transaction?->customer_id))->count();
+                $customerProfileSummary = ReportCustomerProfileMetrics::fromRows(
+                    $rows,
+                    'transaction.customer_id'
+                );
+                $walkInCount = (int) ($customerProfileSummary['walk_in_count'] ?? 0);
                 $profitTotal = (int) $rows->sum('profit_total');
 
                 return [
@@ -84,7 +92,7 @@ class ReportTenantProfitMetrics
                     'cashier_name' => $rows->first()?->transaction?->cashier?->name,
                     'orders_count' => $ordersCount,
                     'walk_in_count' => $walkInCount,
-                    'registered_customer_count' => max(0, $ordersCount - $walkInCount),
+                    'registered_customer_count' => (int) ($customerProfileSummary['registered_customer_count'] ?? 0),
                     'revenue_total' => (int) $rows->sum('grand_total'),
                     'profit_total' => $profitTotal,
                     'walk_in_share' => $ordersCount > 0 ? round(($walkInCount / $ordersCount) * 100, 2) : 0,

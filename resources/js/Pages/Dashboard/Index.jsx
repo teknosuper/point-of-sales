@@ -728,21 +728,26 @@ export default function Dashboard({
                         icon={IconMoneybag}
                     />
                     <InfoCard
-                        title="Total Pelanggan"
+                        title="Customer Aktif"
                         value={totalCustomers}
+                        subtitle={
+                            isTenantDashboard
+                                ? "Customer unik yang pernah bertransaksi di tenant ini"
+                                : "Customer unik yang pernah bertransaksi di outlet aktif"
+                        }
                         icon={IconUsers}
                     />
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <InfoCard
-                        title="Transaksi Umum / Walk-in"
+                        title="Transaksi Tanpa Profil Customer"
                         value={walkInTransactions}
                         subtitle={`${totalTransactions > 0 ? ((walkInTransactions / totalTransactions) * 100).toFixed(0) : 0}% dari total transaksi`}
                         icon={IconUsers}
                     />
                     <InfoCard
-                        title="Transaksi Customer Terdaftar"
+                        title="Transaksi Dengan Profil Customer"
                         value={memberTransactions}
                         subtitle={`${totalTransactions > 0 ? ((memberTransactions / totalTransactions) * 100).toFixed(0) : 0}% dari total transaksi`}
                         icon={IconWallet}

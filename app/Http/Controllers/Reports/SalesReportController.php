@@ -3,9 +3,11 @@
 namespace App\Http\Controllers\Reports;
 
 use App\Http\Controllers\Controller;
+use App\Models\CashierSettlementRequest;
 use App\Models\Customer;
 use App\Models\Outlet;
 use App\Models\Profit;
+use App\Models\SalesReturn;
 use App\Models\Setting;
 use App\Models\Transaction;
 use App\Models\TransactionDetail;
@@ -20,7 +22,9 @@ use App\Support\ReportOwnerTenantSplit;
 use App\Support\ReportTargetSummary;
 use App\Support\ReportTenantSalesMetrics;
 use App\Support\ReportTimezone;
+use App\Support\TenantWalletMetrics;
 use Illuminate\Http\Request;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Schema;
 use Inertia\Inertia;
@@ -41,6 +45,8 @@ class SalesReportController extends Controller
         $activeOutlet = $this->outletResolver->resolve($request, $request->user());
         $outletId = $activeOutlet?->id;
         $isTenantOutlet = (string) ($activeOutlet?->outlet_type ?? '') === 'tenant';
+        $activeTab = $this->resolveActiveTab($request);
+        $settlementView = $this->resolveSettlementView($request);
         $filters = [
             'start_date' => $request->input('start_date'),
             'end_date' => $request->input('end_date'),
@@ -49,11 +55,12 @@ class SalesReportController extends Controller
             'customer_id' => $request->input('customer_id'),
             'tenant_outlet_id' => $isTenantOutlet ? $outletId : $request->input('tenant_outlet_id'),
             'settlement_status' => $request->input('settlement_status'),
+            'mutation_q' => $request->input('mutation_q'),
             'outlet_id' => $isTenantOutlet ? null : $outletId,
         ];
 
         if ($isTenantOutlet) {
-            return $this->renderTenantSalesReport($request, $filters, $outletId);
+            return $this->renderTenantSalesReport($request, $filters, $outletId, $activeTab);
         }
 
         $baseListQuery = $this->applyFilters(
@@ -71,16 +78,19 @@ class SalesReportController extends Controller
 
         $detailColumns = $this->transactionDetailSelectColumns();
 
-        $transactions = (clone $baseListQuery)
-            ->with(['details' => fn ($query) => $query
-                ->select($detailColumns)
-                ->with(['product:id,title', 'modifiers' => fn ($modifierQuery) => $modifierQuery->select(ReportOwnerTenantSplit::modifierSelectColumns())])])
-            ->paginate(10)
-            ->withQueryString();
-        $transactions->setCollection(
-            $this->transactionReturnImpactService->enrichTransactions($transactions->getCollection())
-        );
-        $transactions->through(fn (Transaction $transaction) => $this->transformTransactionRow($transaction));
+        $transactions = null;
+        if ($activeTab === 'transactions') {
+            $transactions = (clone $baseListQuery)
+                ->with(['details' => fn ($query) => $query
+                    ->select($detailColumns)
+                    ->with(['product:id,title', 'modifiers' => fn ($modifierQuery) => $modifierQuery->select(ReportOwnerTenantSplit::modifierSelectColumns())])])
+                ->paginate(10, ['*'], 'transactions_page')
+                ->withQueryString();
+            $transactions->setCollection(
+                $this->transactionReturnImpactService->enrichTransactions($transactions->getCollection())
+            );
+            $transactions->through(fn (Transaction $transaction) => $this->transformTransactionRow($transaction));
+        }
 
         $aggregateQuery = $this->applyFilters(Transaction::query(), $filters);
         $transactionMetricRows = $this->transactionReturnImpactService->enrichTransactions(
@@ -142,16 +152,36 @@ class SalesReportController extends Controller
             $filters
         );
 
-        $tenantMetricAllocations = (clone $tenantAllocationBaseQuery)
-            ->get();
-        $tenantMetricAllocations = $this->appendAllocationMetrics($tenantMetricAllocations);
+        $tenantMetricAllocations = collect();
+        $tenantAllocations = null;
+        $settlementRequests = null;
+        $settlementMutations = null;
+        $settlementSummary = [
+            'pending_count' => 0,
+            'approved_count' => 0,
+            'rejected_count' => 0,
+            'requested_total' => 0,
+            'approved_total' => 0,
+            'pending_total' => 0,
+            'outstanding_total' => 0,
+            'balance_total' => 0,
+        ];
+        if ($activeTab === 'settlement') {
+            $tenantMetricAllocations = (clone $tenantAllocationBaseQuery)
+                ->get();
+            $tenantMetricAllocations = $this->appendAllocationMetrics($tenantMetricAllocations);
 
-        $tenantAllocations = (clone $tenantAllocationBaseQuery)
-            ->orderByDesc('created_at')
-            ->limit(20)
-            ->get();
-        $tenantAllocations = $this->appendAllocationMetrics($tenantAllocations);
-        $tenantAllocations = $this->formatAllocationReportRows($tenantAllocations);
+            $tenantAllocations = (clone $tenantAllocationBaseQuery)
+                ->orderByDesc('created_at')
+                ->paginate(10, ['*'], 'settlement_page')
+                ->withQueryString();
+            $tenantAllocations = $this->appendAllocationMetrics($tenantAllocations);
+            $tenantAllocations = $this->formatAllocationReportRows($tenantAllocations);
+
+            $settlementRequests = $this->buildSettlementRequestPaginator($filters, false);
+            $settlementSummary = $this->buildSettlementRequestSummary($filters, false);
+            $settlementMutations = $this->buildSettlementMutationReport($filters, false);
+        }
 
         $tenantSummary = [
             'allocation_count' => $tenantMetricAllocations->count(),
@@ -169,33 +199,35 @@ class SalesReportController extends Controller
             $tenantSummary['revenue_total'] - $tenantSummary['settled_total']
         );
 
-        $topTenants = $tenantMetricAllocations
-            ->groupBy('tenant_outlet_id')
-            ->map(function ($allocations) {
-                $first = $allocations->first();
-                $revenueTotal = (int) $allocations->sum('grand_total');
-                $costTotal = (int) $allocations->sum('cost_total');
-                $profitTotal = $revenueTotal - $costTotal;
-                $managementFeeTotal = (int) round($allocations->sum('management_fee_total'));
-                $tenantPayoutTotal = $profitTotal - $managementFeeTotal;
+        $topTenants = $activeTab === 'settlement'
+            ? $tenantMetricAllocations
+                ->groupBy('tenant_outlet_id')
+                ->map(function ($allocations) {
+                    $first = $allocations->first();
+                    $revenueTotal = (int) $allocations->sum('grand_total');
+                    $costTotal = (int) $allocations->sum('cost_total');
+                    $profitTotal = $revenueTotal - $costTotal;
+                    $managementFeeTotal = (int) round($allocations->sum('management_fee_total'));
+                    $tenantPayoutTotal = $profitTotal - $managementFeeTotal;
 
-                return (object) [
-                    'tenant_outlet_id' => $first->tenant_outlet_id,
-                    'tenant_outlet' => $first->tenantOutlet,
-                    'orders_count' => $allocations->count(),
-                    'revenue_total' => $revenueTotal,
-                    'cost_total' => $costTotal,
-                    'profit_total' => $profitTotal,
-                    'management_fee_total' => $managementFeeTotal,
-                    'tenant_payout_total' => $tenantPayoutTotal,
-                    'margin_percentage' => $revenueTotal > 0
-                        ? round(($profitTotal / $revenueTotal) * 100, 2)
-                        : 0.0,
-                ];
-            })
-            ->sortByDesc('revenue_total')
-            ->take(5)
-            ->values();
+                    return (object) [
+                        'tenant_outlet_id' => $first->tenant_outlet_id,
+                        'tenant_outlet' => $first->tenantOutlet,
+                        'orders_count' => $allocations->count(),
+                        'revenue_total' => $revenueTotal,
+                        'cost_total' => $costTotal,
+                        'profit_total' => $profitTotal,
+                        'management_fee_total' => $managementFeeTotal,
+                        'tenant_payout_total' => $tenantPayoutTotal,
+                        'margin_percentage' => $revenueTotal > 0
+                            ? round(($profitTotal / $revenueTotal) * 100, 2)
+                            : 0.0,
+                    ];
+                })
+                ->sortByDesc('revenue_total')
+                ->take(5)
+                ->values()
+            : collect();
 
         $summary = [
             'orders_count' => (int) $metricSummary['orders_count'],
@@ -207,44 +239,50 @@ class SalesReportController extends Controller
             'profit_total' => (int) $profitTotal,
             'owner_product_markup_total' => (int) ($ownerSplitSummary['owner_product_markup_total'] ?? 0),
             'owner_topping_markup_total' => (int) ($ownerSplitSummary['owner_topping_markup_total'] ?? 0),
+            'owner_net_total' => (int) ($ownerSplitSummary['owner_net_total'] ?? 0),
             'average_order' => (int) $metricSummary['average_order'],
         ];
         $summary['walk_in_count'] = (int) $metricSummary['walk_in_count'];
         $summary['registered_customer_count'] = (int) $metricSummary['registered_customer_count'];
         $tenantSummary['management_fee_total'] = (int) round($tenantMetricAllocations->sum('management_fee_total'));
         $tenantSummary['tenant_payout_total'] = (int) round($tenantMetricAllocations->sum('tenant_payout_total'));
-        $dailyRecap = $this->buildAllocationDailyRecap($tenantMetricAllocations);
+        $dailyRecap = $activeTab === 'settlement'
+            ? $this->buildAllocationDailyRecap($tenantMetricAllocations)
+            : collect();
 
         // Build analytics - filter by tenant_outlet_id if owner selected a specific tenant
-        if (! $isTenantOutlet && ($filters['tenant_outlet_id'] ?? null)) {
-            $tenantDetailIds = TransactionDetail::query()
-                ->where('tenant_outlet_id', $filters['tenant_outlet_id'])
-                ->whereIn('transaction_id', $transactionIds)
-                ->pluck('transaction_id')
-                ->unique();
+        $analytics = [];
+        if ($activeTab === 'analytics') {
+            if (! $isTenantOutlet && ($filters['tenant_outlet_id'] ?? null)) {
+                $tenantDetailIds = TransactionDetail::query()
+                    ->where('tenant_outlet_id', $filters['tenant_outlet_id'])
+                    ->whereIn('transaction_id', $transactionIds)
+                    ->pluck('transaction_id')
+                    ->unique();
 
-            $tenantFilteredIds = $tenantDetailIds->isNotEmpty() ? $tenantDetailIds : collect([-1]);
-            $tenantFilteredQuery = Transaction::query()->whereIn('id', $tenantFilteredIds);
+                $tenantFilteredIds = $tenantDetailIds->isNotEmpty() ? $tenantDetailIds : collect([-1]);
+                $tenantFilteredQuery = Transaction::query()->whereIn('id', $tenantFilteredIds);
 
-            $analytics = [
-                'hourly_breakdown' => $this->analyticsService->buildHourlyBreakdown((clone $tenantFilteredQuery)),
-                'daily_breakdown' => $this->analyticsService->buildDailyBreakdown((clone $tenantFilteredQuery)),
-                'top_products' => $this->analyticsService->buildTopProducts($tenantFilteredIds, 10, $filters['tenant_outlet_id']),
-                'full_products' => $this->analyticsService->buildProductPerformance($tenantFilteredIds, null, $filters['tenant_outlet_id']),
-                'slow_moving_products' => $this->analyticsService->buildSlowMovingProducts($tenantFilteredIds, 10, $filters['tenant_outlet_id']),
-                'category_breakdown' => $this->analyticsService->buildCategoryBreakdown($tenantFilteredIds, $filters['tenant_outlet_id']),
-                'payment_method_breakdown' => $this->analyticsService->buildPaymentMethodBreakdown((clone $tenantFilteredQuery)),
-            ];
-        } else {
-            $analytics = [
-                'hourly_breakdown' => $this->analyticsService->buildHourlyBreakdown($aggregateQuery),
-                'daily_breakdown' => $this->analyticsService->buildDailyBreakdown($aggregateQuery),
-                'top_products' => $this->analyticsService->buildTopProducts($transactionIds, 10),
-                'full_products' => $this->analyticsService->buildProductPerformance($transactionIds),
-                'slow_moving_products' => $this->analyticsService->buildSlowMovingProducts($transactionIds, 10),
-                'category_breakdown' => $this->analyticsService->buildCategoryBreakdown($transactionIds),
-                'payment_method_breakdown' => $this->analyticsService->buildPaymentMethodBreakdown($aggregateQuery),
-            ];
+                $analytics = [
+                    'hourly_breakdown' => $this->analyticsService->buildHourlyBreakdown((clone $tenantFilteredQuery)),
+                    'daily_breakdown' => $this->analyticsService->buildDailyBreakdown((clone $tenantFilteredQuery)),
+                    'top_products' => $this->analyticsService->buildTopProducts($tenantFilteredIds, 10, $filters['tenant_outlet_id']),
+                    'full_products' => $this->analyticsService->buildProductPerformance($tenantFilteredIds, null, $filters['tenant_outlet_id']),
+                    'slow_moving_products' => $this->analyticsService->buildSlowMovingProducts($tenantFilteredIds, 10, $filters['tenant_outlet_id']),
+                    'category_breakdown' => $this->analyticsService->buildCategoryBreakdown($tenantFilteredIds, $filters['tenant_outlet_id']),
+                    'payment_method_breakdown' => $this->analyticsService->buildPaymentMethodBreakdown((clone $tenantFilteredQuery)),
+                ];
+            } else {
+                $analytics = [
+                    'hourly_breakdown' => $this->analyticsService->buildHourlyBreakdown($aggregateQuery),
+                    'daily_breakdown' => $this->analyticsService->buildDailyBreakdown($aggregateQuery),
+                    'top_products' => $this->analyticsService->buildTopProducts($transactionIds, 10),
+                    'full_products' => $this->analyticsService->buildProductPerformance($transactionIds),
+                    'slow_moving_products' => $this->analyticsService->buildSlowMovingProducts($transactionIds, 10),
+                    'category_breakdown' => $this->analyticsService->buildCategoryBreakdown($transactionIds),
+                    'payment_method_breakdown' => $this->analyticsService->buildPaymentMethodBreakdown($aggregateQuery),
+                ];
+            }
         }
         $targets = $this->targetSummary(
             $summary,
@@ -256,12 +294,21 @@ class SalesReportController extends Controller
                 $filters['tenant_outlet_id'] ?? null
             )
         );
+        $ownerToppingBreakdown = ! $isTenantOutlet
+            ? ReportOwnerTenantSplit::toppingBreakdownForTransactionIds(
+                $transactionIdQuery,
+                $filters['tenant_outlet_id'] ?? null
+            )
+            : [];
 
         return Inertia::render('Dashboard/Reports/Sales', [
             'transactions' => $transactions,
             'summary' => $summary,
             'targets' => $targets,
             'analytics' => $analytics,
+            'ownerToppingBreakdown' => $ownerToppingBreakdown,
+            'activeTab' => $activeTab,
+            'settlementView' => $settlementView,
             'tenantSettlement' => [
                 'summary' => [
                     'allocation_count' => (int) $tenantSummary['allocation_count'],
@@ -273,10 +320,18 @@ class SalesReportController extends Controller
                     'management_fee_total' => (int) $tenantSummary['management_fee_total'],
                     'tenant_payout_total' => (int) $tenantSummary['tenant_payout_total'],
                     'margin_percentage' => (float) $tenantSummary['margin_percentage'],
-                    'outstanding_total' => (int) $tenantSummary['outstanding_total'],
+                    'outstanding_total' => (int) ($settlementSummary['outstanding_total'] ?? 0),
+                    'request_pending_count' => (int) ($settlementSummary['pending_count'] ?? 0),
+                    'request_approved_count' => (int) ($settlementSummary['approved_count'] ?? 0),
+                    'request_rejected_count' => (int) ($settlementSummary['rejected_count'] ?? 0),
+                    'request_pending_total' => (int) ($settlementSummary['pending_total'] ?? 0),
+                    'request_approved_total' => (int) ($settlementSummary['approved_total'] ?? 0),
+                    'request_balance_total' => (int) ($settlementSummary['balance_total'] ?? 0),
                 ],
                 'top_tenants' => $topTenants,
                 'allocations' => $tenantAllocations,
+                'requests' => $settlementRequests,
+                'mutations' => $settlementMutations,
                 'daily_recap' => $dailyRecap,
             ],
             'filters' => $filters,
@@ -300,8 +355,10 @@ class SalesReportController extends Controller
         ]);
     }
 
-    protected function renderTenantSalesReport(Request $request, array $filters, int $tenantOutletId)
+    protected function renderTenantSalesReport(Request $request, array $filters, int $tenantOutletId, string $activeTab)
     {
+        $settlementView = $this->resolveSettlementView($request);
+
         $tenantBaseQuery = $this->applyAllocationFilters(
             $this->withAllocationDiscountSplit(TransactionTenantAllocation::query())
                 ->with([
@@ -324,16 +381,37 @@ class SalesReportController extends Controller
 
         $tenantMetricAllocations = $this->appendTenantWorkspaceAllocationMetrics((clone $tenantBaseQuery)->get());
         $activeTenantMetricAllocations = $this->excludeReturnedAllocations($tenantMetricAllocations);
-        $transactions = $this->appendTenantWorkspaceAllocationMetrics(
-            (clone $tenantBaseQuery)->paginate(10)->withQueryString()
-        )->through(fn (TransactionTenantAllocation $allocation) => $this->transformTenantAllocationTransactionRow($allocation));
+        $transactions = null;
+        if ($activeTab === 'transactions') {
+            $transactions = $this->appendTenantWorkspaceAllocationMetrics(
+                (clone $tenantBaseQuery)->paginate(10, ['*'], 'transactions_page')->withQueryString()
+            )->through(fn (TransactionTenantAllocation $allocation) => $this->transformTenantAllocationTransactionRow($allocation));
+        }
 
         $summary = ReportTenantSalesMetrics::summary($activeTenantMetricAllocations);
 
-        $tenantAllocations = $this->appendTenantWorkspaceAllocationMetrics(
-            (clone $tenantBaseQuery)->limit(20)->get()
-        );
-        $tenantAllocations = $this->formatAllocationReportRows($tenantAllocations);
+        $tenantAllocations = null;
+        $settlementRequests = null;
+        $settlementMutations = null;
+        $settlementSummary = [
+            'pending_count' => 0,
+            'approved_count' => 0,
+            'rejected_count' => 0,
+            'requested_total' => 0,
+            'approved_total' => 0,
+            'pending_total' => 0,
+            'outstanding_total' => 0,
+            'balance_total' => 0,
+        ];
+        if ($activeTab === 'settlement') {
+            $tenantAllocations = $this->appendTenantWorkspaceAllocationMetrics(
+                (clone $tenantBaseQuery)->paginate(10, ['*'], 'settlement_page')->withQueryString()
+            );
+            $tenantAllocations = $this->formatAllocationReportRows($tenantAllocations);
+            $settlementRequests = $this->buildSettlementRequestPaginator($filters, true);
+            $settlementSummary = $this->buildSettlementRequestSummary($filters, true);
+            $settlementMutations = $this->buildSettlementMutationReport($filters, true);
+        }
 
         $tenantSummary = [
             'allocation_count' => (int) $activeTenantMetricAllocations->count(),
@@ -352,7 +430,7 @@ class SalesReportController extends Controller
 
         $topTenantOutlet = $tenantMetricAllocations->first()?->tenantOutlet;
         $topTenants = collect();
-        if ($topTenantOutlet) {
+        if ($activeTab === 'settlement' && $topTenantOutlet) {
             $topTenants = collect([[
                 'tenant_outlet_id' => $topTenantOutlet->id,
                 'tenant_outlet' => [
@@ -384,16 +462,18 @@ class SalesReportController extends Controller
         $dailyBreakdown = [];
         $paymentMethodBreakdown = [];
 
-        if ($tenantTransactionIds->isNotEmpty()) {
+        if ($activeTab === 'analytics' && $tenantTransactionIds->isNotEmpty()) {
             $topProducts = $this->analyticsService->buildTopProducts($tenantTransactionIds, 10, $tenantOutletId);
             $fullProducts = $this->analyticsService->buildProductPerformance($tenantTransactionIds, null, $tenantOutletId);
             $slowMovingProducts = $this->analyticsService->buildSlowMovingProducts($tenantTransactionIds, 10, $tenantOutletId);
             $categoryBreakdown = $this->analyticsService->buildCategoryBreakdown($tenantTransactionIds, $tenantOutletId);
         }
 
-        $hourlyBreakdown = ReportTenantSalesMetrics::hourlyBreakdown($activeTenantMetricAllocations);
-        $dailyBreakdown = ReportTenantSalesMetrics::dailyBreakdown($activeTenantMetricAllocations);
-        $paymentMethodBreakdown = ReportTenantSalesMetrics::paymentMethodBreakdown($activeTenantMetricAllocations);
+        if ($activeTab === 'analytics') {
+            $hourlyBreakdown = ReportTenantSalesMetrics::hourlyBreakdown($activeTenantMetricAllocations);
+            $dailyBreakdown = ReportTenantSalesMetrics::dailyBreakdown($activeTenantMetricAllocations);
+            $paymentMethodBreakdown = ReportTenantSalesMetrics::paymentMethodBreakdown($activeTenantMetricAllocations);
+        }
 
         $analytics = [
             'hourly_breakdown' => $hourlyBreakdown,
@@ -416,11 +496,26 @@ class SalesReportController extends Controller
             'summary' => $summary,
             'targets' => $targets,
             'analytics' => $analytics,
+            'activeTab' => $activeTab,
+            'settlementView' => $settlementView,
             'tenantSettlement' => [
-                'summary' => $tenantSummary,
+                'summary' => [
+                    ...$tenantSummary,
+                    'request_pending_count' => (int) ($settlementSummary['pending_count'] ?? 0),
+                    'request_approved_count' => (int) ($settlementSummary['approved_count'] ?? 0),
+                    'request_rejected_count' => (int) ($settlementSummary['rejected_count'] ?? 0),
+                    'request_pending_total' => (int) ($settlementSummary['pending_total'] ?? 0),
+                    'request_approved_total' => (int) ($settlementSummary['approved_total'] ?? 0),
+                    'request_balance_total' => (int) ($settlementSummary['balance_total'] ?? 0),
+                    'outstanding_total' => (int) ($settlementSummary['outstanding_total'] ?? 0),
+                ],
                 'top_tenants' => $topTenants,
                 'allocations' => $tenantAllocations,
-                'daily_recap' => $this->buildAllocationDailyRecap($tenantMetricAllocations),
+                'requests' => $settlementRequests,
+                'mutations' => $settlementMutations,
+                'daily_recap' => $activeTab === 'settlement'
+                    ? $this->buildAllocationDailyRecap($tenantMetricAllocations)
+                    : collect(),
             ],
             'filters' => $filters,
             'cashiers' => User::select('id', 'name')->orderBy('name')->get(),
@@ -447,15 +542,26 @@ class SalesReportController extends Controller
     private function accessibleTenantOutlets(Request $request)
     {
         $user = $request->user();
+        $activeOutlet = $this->outletResolver->resolve($request, $user);
 
         if (! $user) {
             return Outlet::query()->whereRaw('1 = 0');
         }
 
-        return $user->accessibleOutletsQuery()
+        $query = $user->accessibleOutletsQuery()
             ->active()
             ->where('outlet_type', 'tenant')
             ->ordered();
+
+        if (($activeOutlet?->outlet_type ?? 'main') === 'main' && $activeOutlet?->id) {
+            $query->where('parent_outlet_id', (int) $activeOutlet->id);
+        }
+
+        if (($activeOutlet?->outlet_type ?? '') === 'tenant' && $activeOutlet?->id) {
+            $query->where('outlets.id', (int) $activeOutlet->id);
+        }
+
+        return $query;
     }
 
     /**
@@ -536,9 +642,7 @@ class SalesReportController extends Controller
             'tenant_net_total' => (int) $transaction->details->sum(
                 fn (TransactionDetail $detail) => (int) ($detail->tenant_net_total ?? 0)
             ),
-            'owner_net_total' => (int) $transaction->details->sum(
-                fn (TransactionDetail $detail) => (int) ($detail->owner_net_total ?? 0)
-            ),
+            'owner_net_total' => (int) ($ownerSplit['owner_net_total'] ?? 0),
             'owner_product_markup_total' => (int) ($ownerSplit['owner_product_markup_total'] ?? 0),
             'owner_topping_markup_total' => (int) ($ownerSplit['owner_topping_markup_total'] ?? 0),
             'detail_items' => $transaction->details
@@ -559,6 +663,14 @@ class SalesReportController extends Controller
                         'owner_topping_markup_total' => (int) ($ownerSplit['owner_topping_markup_total'] ?? 0),
                         'pricing_rule_name' => $detail->pricing_rule_name,
                         'pricing_rule_kind' => $detail->pricing_rule_kind,
+                        'modifier_items' => $detail->modifiers->map(fn ($modifier) => [
+                            'id' => $modifier->id,
+                            'name' => $modifier->name,
+                            'qty' => (int) ($modifier->qty ?? 0),
+                            'total_price' => (int) ($modifier->total_price ?? 0),
+                            'base_total' => max(0, (int) ($modifier->base_price ?? 0)) * max(1, (int) ($modifier->qty ?? 0)),
+                            'owner_markup_total' => max(0, (int) ($modifier->markup_price ?? 0)) * max(1, (int) ($modifier->qty ?? 0)),
+                        ])->values()->all(),
                     ];
                 })
                 ->values()
@@ -1376,6 +1488,12 @@ class SalesReportController extends Controller
 
     protected function formatAllocationReportRows($allocations)
     {
+        if ($allocations instanceof \Illuminate\Contracts\Pagination\LengthAwarePaginator) {
+            $allocations->setCollection($this->formatAllocationReportRows($allocations->getCollection()));
+
+            return $allocations;
+        }
+
         return collect($allocations)->map(function ($allocation) {
             $row = $allocation->toArray();
             $row['is_returned'] = $this->isReturnedAllocation($allocation);
@@ -1406,6 +1524,359 @@ class SalesReportController extends Controller
 
             return $row;
         })->values();
+    }
+
+    protected function resolveActiveTab(Request $request): string
+    {
+        $allowedTabs = ['overview', 'analytics', 'transactions', 'settlement'];
+        $activeTab = (string) $request->query('tab', 'overview');
+
+        return in_array($activeTab, $allowedTabs, true) ? $activeTab : 'overview';
+    }
+
+    protected function buildSettlementRequestPaginator(array $filters, bool $tenantWorkspace)
+    {
+        $rangeFilters = ['start_date' => null, 'end_date' => $filters['end_date'] ?? null];
+        $tenantOutletIds = $this->resolveSettlementTenantOutletIds($filters);
+        $query = CashierSettlementRequest::query()
+            ->with(['cashier:id,name', 'approvedBy:id,name', 'rejectedBy:id,name'])
+            ->whereNull('cashier_shift_id')
+            ->whereIn('outlet_id', $tenantOutletIds->all())
+            ->when(($filters['settlement_status'] ?? '') === 'outstanding', fn ($builder) => $builder->where('status', CashierSettlementRequest::STATUS_PENDING))
+            ->when(($filters['settlement_status'] ?? '') === 'settled', fn ($builder) => $builder->where('status', CashierSettlementRequest::STATUS_APPROVED))
+            ->latest('created_at');
+
+        $query = ReportTimezone::applySourceDateRange($query, 'created_at', $rangeFilters);
+
+        return $query
+            ->paginate(10, ['*'], 'settlement_requests_page')
+            ->withQueryString()
+            ->through(fn (CashierSettlementRequest $request) => $this->transformSettlementRequestRow($request));
+    }
+
+    protected function buildSettlementRequestSummary(array $filters, bool $tenantWorkspace): array
+    {
+        $balanceTotal = 0;
+        $balanceFilters = [...$filters, 'start_date' => null];
+        $tenantOutletIds = $this->resolveSettlementTenantOutletIds($filters);
+        $balanceTransactionQuery = $this->applyFilters(
+            Transaction::query()->select('transactions.id'),
+            $balanceFilters
+        );
+
+        if ($this->hasTable('transaction_tenant_allocations')) {
+            $allocationIds = TransactionTenantAllocation::query()
+                ->whereIn('transaction_id', $balanceTransactionQuery->select('transactions.id'))
+                ->when($filters['outlet_id'] ?? null, fn ($query, $outletId) => $query->where('outlet_id', $outletId))
+                ->whereIn('tenant_outlet_id', $tenantOutletIds->all())
+                ->where('waiter_status', 'delivered')
+                ->whereNotNull('delivered_at')
+                ->pluck('id');
+
+            $balanceTotal = TenantWalletMetrics::sumTenantNetValueForAllocationIds($allocationIds);
+        }
+
+        $query = CashierSettlementRequest::query()
+            ->whereNull('cashier_shift_id')
+            ->whereIn('outlet_id', $tenantOutletIds->all());
+
+        $cumulativeFilters = ['start_date' => null, 'end_date' => $filters['end_date'] ?? null];
+        $filteredQuery = ReportTimezone::applySourceDateRange(clone $query, 'created_at', $cumulativeFilters);
+        $pendingTotal = (int) round((clone $filteredQuery)->where('status', CashierSettlementRequest::STATUS_PENDING)->sum('requested_amount'));
+        $approvedTotal = (int) round(
+            ReportTimezone::applySourceDateRange(
+                (clone $query)->where('status', CashierSettlementRequest::STATUS_APPROVED),
+                'paid_at',
+                ['start_date' => null, 'end_date' => $filters['end_date'] ?? null]
+            )->sum('approved_amount')
+        );
+
+        return [
+            'pending_count' => (int) ((clone $filteredQuery)->where('status', CashierSettlementRequest::STATUS_PENDING)->count()),
+            'approved_count' => (int) ((clone $filteredQuery)->where('status', CashierSettlementRequest::STATUS_APPROVED)->count()),
+            'rejected_count' => (int) ((clone $filteredQuery)->where('status', CashierSettlementRequest::STATUS_REJECTED)->count()),
+            'requested_total' => (int) round((clone $filteredQuery)->sum('requested_amount')),
+            'approved_total' => $approvedTotal,
+            'pending_total' => $pendingTotal,
+            'balance_total' => $balanceTotal,
+            'outstanding_total' => max(0, $balanceTotal - $approvedTotal),
+        ];
+    }
+
+    protected function buildSettlementMutationReport(array $filters, bool $tenantWorkspace): array
+    {
+        $rows = $this->buildSettlementMutationRows($filters, $tenantWorkspace)
+            ->sortByDesc('activity_ts')
+            ->values();
+
+        $groupedRows = $rows
+            ->groupBy(fn ($row) => $row['date_key'])
+            ->map(function (Collection $items, string $dateKey) {
+                return [
+                    'date_key' => $dateKey,
+                    'date_label' => ReportTimezone::formatSourceDateLabel($dateKey, 'd M Y') ?? $dateKey,
+                    'tenant_total' => (int) $items->sum('mutation_total'),
+                    'owner_markup_total' => (int) $items->sum('owner_markup_total'),
+                    'gross_total' => (int) $items->sum('gross_total'),
+                    'discount_total' => (int) $items->sum('discount_total'),
+                    'transactions_count' => (int) $items->where('entry_type', 'allocation')->count(),
+                    'returns_count' => (int) $items->where('entry_type', 'return')->count(),
+                    'entries_count' => (int) $items->count(),
+                ];
+            })
+            ->sortByDesc('date_key')
+            ->values();
+
+        $daysCurrentPage = max(1, (int) request()->integer('mutations_page', 1));
+        $daysPerPage = 7;
+        $daysPageRows = $groupedRows->slice(($daysCurrentPage - 1) * $daysPerPage, $daysPerPage)->values();
+        $daysPaginator = new LengthAwarePaginator(
+            $daysPageRows,
+            $groupedRows->count(),
+            $daysPerPage,
+            $daysCurrentPage,
+            [
+                'path' => request()->url(),
+                'pageName' => 'mutations_page',
+                'query' => request()->query(),
+            ]
+        );
+
+        $selectedDay = (string) request()->query('mutation_day', '');
+        $selectedDay = $groupedRows->firstWhere('date_key', $selectedDay)['date_key']
+            ?? ($daysPageRows->first()['date_key'] ?? ($groupedRows->first()['date_key'] ?? ''));
+
+        $selectedDayRows = $selectedDay !== ''
+            ? $rows->filter(fn ($row) => $row['date_key'] === $selectedDay)->values()
+            : collect();
+        $selectedDaySummary = $groupedRows->firstWhere('date_key', $selectedDay) ?? null;
+
+        $detailCurrentPage = max(1, (int) request()->integer('mutation_detail_page', 1));
+        $detailPerPage = 10;
+        $detailPageRows = $selectedDayRows->slice(($detailCurrentPage - 1) * $detailPerPage, $detailPerPage)->values();
+        $detailPaginator = new LengthAwarePaginator(
+            $detailPageRows,
+            $selectedDayRows->count(),
+            $detailPerPage,
+            $detailCurrentPage,
+            [
+                'path' => request()->url(),
+                'pageName' => 'mutation_detail_page',
+                'query' => request()->query(),
+            ]
+        );
+
+        return [
+            'days' => $daysPaginator,
+            'selected_day' => $selectedDay,
+            'selected_day_label' => $selectedDay !== '' ? (ReportTimezone::formatSourceDateLabel($selectedDay, 'd M Y') ?? $selectedDay) : null,
+            'selected_day_summary' => $selectedDaySummary,
+            'details' => $detailPaginator,
+        ];
+    }
+
+    protected function resolveSettlementView(Request $request): string
+    {
+        return $request->input('settlement_view') === 'mutations'
+            ? 'mutations'
+            : 'withdraw';
+    }
+
+    protected function buildSettlementMutationRows(array $filters, bool $tenantWorkspace): Collection
+    {
+        $rangeFilters = ['start_date' => null, 'end_date' => $filters['end_date'] ?? null];
+        $tenantOutletIds = $this->resolveSettlementTenantOutletIds($filters);
+        $mutationQuery = trim((string) ($filters['mutation_q'] ?? ''));
+
+        $allocationQuery = TransactionTenantAllocation::query()
+            ->with(['transaction.customer:id,name', 'transaction.cashier:id,name', 'tenantOutlet:id,name,code'])
+            ->when($filters['outlet_id'] ?? null, fn ($query, $outletId) => $query->where('outlet_id', $outletId))
+            ->whereIn('tenant_outlet_id', $tenantOutletIds->all())
+            ->where('waiter_status', 'delivered')
+            ->whereNotNull('delivered_at')
+            ->when($filters['cashier_id'] ?? null, fn ($query, $cashierId) => $query->where('cashier_id', $cashierId))
+            ->when($filters['customer_id'] ?? null, function ($query, $customer) {
+                return match ((string) $customer) {
+                    'walk_in' => $query->whereHas('transaction', fn ($trx) => $trx->whereNull('customer_id')),
+                    default => $query->whereHas('transaction', fn ($trx) => $trx->where('customer_id', $customer)),
+                };
+            })
+            ->when($mutationQuery !== '', function ($query) use ($mutationQuery) {
+                $query->where(function ($nested) use ($mutationQuery) {
+                    $nested
+                        ->where('allocation_number', 'like', '%'.$mutationQuery.'%')
+                        ->orWhereHas('transaction', function ($trx) use ($mutationQuery) {
+                            $trx->where('invoice', 'like', '%'.$mutationQuery.'%')
+                                ->orWhereHas('customer', fn ($customer) => $customer->where('name', 'like', '%'.$mutationQuery.'%'))
+                                ->orWhereHas('cashier', fn ($cashier) => $cashier->where('name', 'like', '%'.$mutationQuery.'%'));
+                        });
+                });
+            });
+
+        $allocationQuery = ReportTimezone::applySourceDateRange($allocationQuery, 'delivered_at', $rangeFilters);
+        $allocations = $allocationQuery->get();
+        $tenantNetTotals = TenantWalletMetrics::tenantNetTotalsByAllocationIds($allocations->pluck('id'));
+        $ownerMarkupTotals = TenantWalletMetrics::ownerMarkupTotalsByAllocationIds($allocations->pluck('id'));
+        $allocationRows = $this->appendAllocationMetrics($allocations)
+            ->map(function ($allocation) use ($tenantNetTotals, $ownerMarkupTotals) {
+                return [
+                    'id' => 'allocation-'.$allocation->id,
+                    'entry_type' => 'allocation',
+                    'invoice' => $allocation->transaction?->invoice ?? $allocation->allocation_number,
+                    'reference' => $allocation->allocation_number,
+                    'customer_name' => $allocation->transaction?->customer?->name ?? 'Pelanggan umum',
+                    'cashier_name' => $allocation->transaction?->cashier?->name ?? '-',
+                    'tenant_name' => $allocation->tenantOutlet?->name ?? '-',
+                    'gross_total' => (int) ($allocation->grand_total ?? 0),
+                    'mutation_total' => (int) ($tenantNetTotals->get($allocation->id, 0) ?? 0),
+                    'owner_markup_total' => (int) ($ownerMarkupTotals->get($allocation->id, 0) ?? 0),
+                    'profit_total' => (int) ($allocation->profit_total ?? 0),
+                    'discount_total' => (int) ($allocation->tenant_discount_total ?? 0) + (int) ($allocation->owner_discount_total ?? 0),
+                    'activity_at' => ReportTimezone::formatSourceDateTime($allocation->getRawOriginal('delivered_at'), 'd M Y H:i'),
+                    'activity_ts' => strtotime((string) $allocation->getRawOriginal('delivered_at')),
+                    'date_key' => ReportTimezone::sourceDateKey($allocation->getRawOriginal('delivered_at')),
+                    'status' => 'Masuk saldo',
+                ];
+            });
+
+        $returnQuery = SalesReturn::query()
+            ->with(['transaction.customer:id,name', 'transaction.cashier:id,name'])
+            ->where('status', 'completed')
+            ->when($filters['outlet_id'] ?? null, fn ($query, $outletId) => $query->where('outlet_id', $outletId))
+            ->when($filters['cashier_id'] ?? null, fn ($query, $cashierId) => $query->where('cashier_id', $cashierId))
+            ->when($filters['customer_id'] ?? null, function ($query, $customer) {
+                return match ((string) $customer) {
+                    'walk_in' => $query->whereHas('transaction', fn ($trx) => $trx->whereNull('customer_id')),
+                    default => $query->whereHas('transaction', fn ($trx) => $trx->where('customer_id', $customer)),
+                };
+            })
+            ->when($mutationQuery !== '', function ($query) use ($mutationQuery) {
+                $query->where(function ($nested) use ($mutationQuery) {
+                    $nested
+                        ->where('code', 'like', '%'.$mutationQuery.'%')
+                        ->orWhereHas('transaction', function ($trx) use ($mutationQuery) {
+                            $trx->where('invoice', 'like', '%'.$mutationQuery.'%')
+                                ->orWhereHas('customer', fn ($customer) => $customer->where('name', 'like', '%'.$mutationQuery.'%'))
+                                ->orWhereHas('cashier', fn ($cashier) => $cashier->where('name', 'like', '%'.$mutationQuery.'%'));
+                        });
+                });
+            })
+            ->whereHas('items.transactionDetail', fn ($detail) => $detail->whereIn('tenant_outlet_id', $tenantOutletIds->all()));
+
+        $returnQuery = ReportTimezone::applySourceDateRange($returnQuery, 'completed_at', $rangeFilters);
+        $returnRows = $returnQuery->get()->map(function ($return) use ($tenantOutletIds) {
+            $relevantItems = $return->items
+                ->filter(fn ($item) => $tenantOutletIds->contains((int) ($item->transactionDetail?->tenant_outlet_id ?? 0)))
+                ->values();
+
+            $tenantMutationTotal = 0;
+            $ownerMarkupTotal = 0;
+            $grossTotal = 0;
+            $discountTotal = 0;
+
+            $relevantItems->each(function ($item) use (&$tenantMutationTotal, &$ownerMarkupTotal, &$grossTotal, &$discountTotal) {
+                $detail = $item->transactionDetail;
+                $qty = (int) ($item->qty_return ?? 0);
+                $detailQty = max(1, (int) ($detail?->qty ?? 1));
+                $customerUnitPrice = (int) ($detail?->customer_base_unit_price ?? $detail?->unit_price ?? 0);
+                $tenantBaseUnitPrice = (int) ($detail?->tenant_base_unit_price ?? 0);
+                $ownerMarkupUnitPrice = (int) ($detail?->owner_markup_unit_price ?? 0);
+                $discountUnitValue = max(0, (int) round(((int) ($detail?->discount_total ?? 0)) / $detailQty));
+
+                $lineTotal = $customerUnitPrice * $qty;
+                $tenantNetTotal = (int) ($detail?->tenant_net_total ?? 0) > 0
+                    ? (int) round(((int) $detail->tenant_net_total / $detailQty) * $qty)
+                    : $tenantBaseUnitPrice * $qty;
+                $ownerNetTotal = (int) ($detail?->owner_net_total ?? 0) > 0
+                    ? (int) round(((int) $detail->owner_net_total / $detailQty) * $qty)
+                    : $ownerMarkupUnitPrice * $qty;
+
+                $grossTotal += $lineTotal;
+                $tenantMutationTotal += $tenantNetTotal;
+                $ownerMarkupTotal += $ownerNetTotal;
+                $discountTotal += $discountUnitValue * $qty;
+            });
+
+            return [
+                'id' => 'return-'.$return->id,
+                'entry_type' => 'return',
+                'invoice' => $return->transaction?->invoice ?? $return->code,
+                'reference' => $return->code,
+                'customer_name' => $return->transaction?->customer?->name ?? 'Pelanggan umum',
+                'cashier_name' => $return->transaction?->cashier?->name ?? ($return->cashier?->name ?? '-'),
+                'tenant_name' => '-',
+                'gross_total' => -$grossTotal,
+                'mutation_total' => -$tenantMutationTotal,
+                'owner_markup_total' => -$ownerMarkupTotal,
+                'profit_total' => 0,
+                'discount_total' => -$discountTotal,
+                'activity_at' => ReportTimezone::formatSourceDateTime($return->getRawOriginal('completed_at'), 'd M Y H:i'),
+                'activity_ts' => strtotime((string) $return->getRawOriginal('completed_at')),
+                'date_key' => ReportTimezone::sourceDateKey($return->getRawOriginal('completed_at')),
+                'status' => 'Retur',
+            ];
+        })->filter(fn (array $row) => $row['mutation_total'] !== 0 || $row['owner_markup_total'] !== 0 || $row['gross_total'] !== 0);
+
+        return $allocationRows
+            ->merge($returnRows)
+            ->values();
+    }
+
+    protected function transformSettlementRequestRow(CashierSettlementRequest $request): array
+    {
+        return [
+            'id' => $request->id,
+            'request_number' => $request->request_number,
+            'business_date' => optional($request->business_date)?->toDateString(),
+            'status' => $request->status,
+            'gross_sales_total' => (int) $request->gross_sales_total,
+            'base_sales_total' => (int) $request->base_sales_total,
+            'markup_total' => (int) $request->markup_total,
+            'requested_amount' => (int) $request->requested_amount,
+            'approved_amount' => (int) $request->approved_amount,
+            'recipient_name' => $request->recipient_name,
+            'requested_notes' => $request->requested_notes,
+            'approval_notes' => $request->approval_notes,
+            'approval_reference' => $request->approval_reference,
+            'created_at' => ReportTimezone::formatSourceDateTime($request->getRawOriginal('created_at'), 'd M Y H:i'),
+            'paid_at' => ReportTimezone::formatSourceDateTime($request->getRawOriginal('paid_at'), 'd M Y H:i'),
+            'cashier' => $request->cashier ? [
+                'id' => $request->cashier->id,
+                'name' => $request->cashier->name,
+            ] : null,
+            'approved_by' => $request->approvedBy ? [
+                'id' => $request->approvedBy->id,
+                'name' => $request->approvedBy->name,
+            ] : null,
+            'rejected_by' => $request->rejectedBy ? [
+                'id' => $request->rejectedBy->id,
+                'name' => $request->rejectedBy->name,
+            ] : null,
+        ];
+    }
+
+    protected function hasTable(string $table): bool
+    {
+        return Schema::hasTable($table);
+    }
+
+    protected function resolveSettlementTenantOutletIds(array $filters): Collection
+    {
+        if (! empty($filters['tenant_outlet_id'])) {
+            return collect([(int) $filters['tenant_outlet_id']]);
+        }
+
+        if (! empty($filters['outlet_id'])) {
+            return Outlet::query()
+                ->active()
+                ->where('outlet_type', 'tenant')
+                ->where('parent_outlet_id', (int) $filters['outlet_id'])
+                ->pluck('id')
+                ->map(fn ($id) => (int) $id)
+                ->values();
+        }
+
+        return collect();
     }
 
 }

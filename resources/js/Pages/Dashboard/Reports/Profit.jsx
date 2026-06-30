@@ -39,7 +39,7 @@ const reportTabs = [
 
 const WALK_IN_CUSTOMER_OPTION = {
     id: "walk_in",
-    name: "Transaksi Umum / Walk-in",
+    name: "Transaksi Tanpa Profil Customer",
 };
 
 const formatCurrency = (value = 0) =>
@@ -698,7 +698,7 @@ const ProfitReport = ({
                 note: "Akumulasi kuantitas item terjual.",
             },
             {
-                label: "Pelanggan Walk-in",
+                label: "Transaksi Tanpa Profil Customer",
                 value: formatNumber(summary?.walk_in_count ?? 0),
                 note:
                     Number(summary?.orders_count ?? 0) > 0
@@ -710,7 +710,7 @@ const ProfitReport = ({
                         : "Belum ada transaksi",
             },
             {
-                label: "Pelanggan Terdaftar",
+                label: "Transaksi Dengan Profil Customer",
                 value: formatNumber(summary?.registered_customer_count ?? 0),
                 note:
                     Number(summary?.orders_count ?? 0) > 0
@@ -1894,7 +1894,7 @@ const ProfitReport = ({
                 {cashierSummary.length > 0 && (
                     <SectionCard
                         title="Produktivitas Kasir"
-                        description="Membaca kontribusi kasir terhadap penjualan bersih, laba, dan komposisi pelanggan walk-in versus pelanggan terdaftar."
+                        description="Membaca kontribusi kasir terhadap penjualan bersih, laba, dan komposisi transaksi tanpa profil customer versus transaksi dengan profil customer."
                     >
                         <div className="overflow-x-auto">
                             <table className="w-full">
@@ -1907,7 +1907,7 @@ const ProfitReport = ({
                                             Transaksi
                                         </th>
                                         <th className="px-4 py-3 text-center text-xs font-semibold uppercase text-slate-500">
-                                            Walk-in
+                                            Tanpa Profil
                                         </th>
                                         <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500">
                                             Omzet
@@ -1928,7 +1928,7 @@ const ProfitReport = ({
                                                     {item.cashier_name || "-"}
                                                 </p>
                                                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                                                    Porsi walk-in {item.walk_in_share}%
+                                                    Porsi tanpa profil {item.walk_in_share}%
                                                 </p>
                                             </td>
                                             <td className="px-4 py-4 text-center text-sm text-slate-700 dark:text-slate-300">

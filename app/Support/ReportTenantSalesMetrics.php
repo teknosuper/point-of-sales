@@ -13,9 +13,10 @@ class ReportTenantSalesMetrics
         $discountTotal = (int) $allocations->sum('total_discount_total');
         $itemsSold = (int) $allocations->sum('total_items');
         $profitTotal = (int) $allocations->sum('profit_total');
-        $walkInCount = (int) $allocations
-            ->filter(fn ($allocation) => blank($allocation->transaction?->customer_id))
-            ->count();
+        $customerProfileSummary = ReportCustomerProfileMetrics::fromRows(
+            $allocations,
+            'transaction.customer_id'
+        );
 
         return [
             'orders_count' => $ordersCount,
@@ -28,8 +29,9 @@ class ReportTenantSalesMetrics
             'average_order' => $ordersCount > 0
                 ? (int) round($revenueTotal / $ordersCount)
                 : 0,
-            'walk_in_count' => $walkInCount,
-            'registered_customer_count' => max(0, $ordersCount - $walkInCount),
+            'walk_in_count' => (int) ($customerProfileSummary['walk_in_count'] ?? 0),
+            'registered_customer_count' => (int) ($customerProfileSummary['registered_customer_count'] ?? 0),
+            'active_customer_count' => (int) ($customerProfileSummary['active_customer_count'] ?? 0),
         ];
     }
 

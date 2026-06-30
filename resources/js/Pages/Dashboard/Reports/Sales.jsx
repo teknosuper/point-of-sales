@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Head, router } from "@inertiajs/react";
+import { Head, router, usePage } from "@inertiajs/react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import InputSelect from "@/Components/Dashboard/InputSelect";
 import Button from "@/Components/Dashboard/Button";
@@ -66,11 +66,12 @@ const defaultFilterState = {
     customer_id: "",
     tenant_outlet_id: "",
     settlement_status: "",
+    mutation_q: "",
 };
 
 const WALK_IN_REPORT_OPTION = {
     id: "walk_in",
-    name: "Transaksi Umum / Walk-in",
+    name: "Transaksi Tanpa Profil Customer",
 };
 
 const formatCurrency = (value = 0) =>
@@ -106,8 +107,14 @@ const Sales = ({
     tenantOutlets = [],
     workspace = {},
     analytics = {},
+    ownerToppingBreakdown = [],
+    tenantSettlement = {},
+    activeTab = "overview",
+    settlementView = "withdraw",
     reportMeta = {},
 }) => {
+    const page = usePage();
+    const auth = page.props?.auth ?? {};
     const isTenantWorkspace = Boolean(workspace?.is_tenant_workspace);
     const { timezone: reportTimezone, timezoneLabel: reportTimezoneLabel } =
         resolveReportTimezone(reportMeta);
@@ -124,6 +131,7 @@ const Sales = ({
         customer_id: castFilterString(filters?.customer_id),
         tenant_outlet_id: castFilterString(filters?.tenant_outlet_id),
         settlement_status: castFilterString(filters?.settlement_status),
+        mutation_q: castFilterString(filters?.mutation_q),
     });
 
     const cashierFromFilters = useMemo(
@@ -171,6 +179,7 @@ const Sales = ({
             customer_id: castFilterString(filters?.customer_id),
             tenant_outlet_id: castFilterString(filters?.tenant_outlet_id),
             settlement_status: castFilterString(filters?.settlement_status),
+            mutation_q: castFilterString(filters?.mutation_q),
         });
     }, [filters]);
 
@@ -187,10 +196,23 @@ const Sales = ({
     const exportQuery = new URLSearchParams(
         Object.entries(filterData).filter(([, value]) => value !== "")
     ).toString();
+    const buildQueryPayload = (overrides = {}) => ({
+        ...filterData,
+        tab: activeTab,
+        settlement_view: activeTab === "settlement" ? settlementView : undefined,
+        ...overrides,
+    });
 
     const applyFilters = (e) => {
         e.preventDefault();
-        router.get(route("reports.sales.index"), filterData, {
+        router.get(route("reports.sales.index"), buildQueryPayload({
+            transactions_page: 1,
+            settlement_page: 1,
+            settlement_requests_page: 1,
+            mutations_page: 1,
+            mutation_detail_page: 1,
+            mutation_day: "",
+        }), {
             preserveScroll: true,
             preserveState: true,
         });
@@ -201,7 +223,62 @@ const Sales = ({
         setFilterData(defaultFilterState);
         setSelectedCashier(null);
         setSelectedCustomer(null);
-        router.get(route("reports.sales.index"), defaultFilterState, {
+        router.get(
+            route("reports.sales.index"),
+            {
+                ...defaultFilterState,
+                tab: activeTab,
+                transactions_page: 1,
+                settlement_page: 1,
+                settlement_requests_page: 1,
+                mutations_page: 1,
+                mutation_detail_page: 1,
+                mutation_day: "",
+            },
+            {
+            preserveScroll: true,
+            preserveState: true,
+            replace: true,
+            }
+        );
+    };
+
+    const handleTabChange = (tab) => {
+        router.get(route("reports.sales.index"), buildQueryPayload({
+            tab,
+            transactions_page: 1,
+            settlement_page: 1,
+            settlement_requests_page: 1,
+            mutations_page: 1,
+            mutation_detail_page: 1,
+            mutation_day: "",
+        }), {
+            preserveScroll: true,
+            preserveState: true,
+            replace: true,
+        });
+    };
+
+    const handleSettlementViewChange = (view) => {
+        router.get(route("reports.sales.index"), buildQueryPayload({
+            settlement_view: view,
+            settlement_requests_page: 1,
+            mutations_page: 1,
+            mutation_detail_page: 1,
+            mutation_day: "",
+        }), {
+            preserveScroll: true,
+            preserveState: true,
+            replace: true,
+        });
+    };
+
+    const handleSelectMutationDay = (dateKey) => {
+        router.get(route("reports.sales.index"), buildQueryPayload({
+            mutations_page: mutationDayCurrentPage,
+            mutation_day: dateKey,
+            mutation_detail_page: 1,
+        }), {
             preserveScroll: true,
             preserveState: true,
             replace: true,
@@ -214,6 +291,48 @@ const Sales = ({
     const perPage = transactions?.per_page
         ? Number(transactions?.per_page)
         : rows.length || 1;
+    const settlementRows = tenantSettlement?.allocations?.data ?? [];
+    const settlementPaginationLinks = tenantSettlement?.allocations?.links ?? [];
+    const settlementCurrentPage =
+        tenantSettlement?.allocations?.current_page ?? 1;
+    const settlementPerPage = tenantSettlement?.allocations?.per_page
+        ? Number(tenantSettlement?.allocations?.per_page)
+        : settlementRows.length || 1;
+    const settlementSummary = tenantSettlement?.summary ?? {};
+    const selectedTenant = useMemo(
+        () =>
+            tenantOutlets.find(
+                (tenant) =>
+                    castFilterString(tenant.id) ===
+                    castFilterString(filterData.tenant_outlet_id)
+            ) ?? null,
+        [tenantOutlets, filterData.tenant_outlet_id]
+    );
+    const settlementRequestRows = tenantSettlement?.requests?.data ?? [];
+    const settlementRequestPaginationLinks =
+        tenantSettlement?.requests?.links ?? [];
+    const settlementRequestCurrentPage =
+        tenantSettlement?.requests?.current_page ?? 1;
+    const settlementRequestPerPage = tenantSettlement?.requests?.per_page
+        ? Number(tenantSettlement?.requests?.per_page)
+        : settlementRequestRows.length || 1;
+    const dailyRecapRows = tenantSettlement?.daily_recap ?? [];
+    const topTenantRows = tenantSettlement?.top_tenants ?? [];
+    const mutationDayRows = tenantSettlement?.mutations?.days?.data ?? [];
+    const mutationDayLinks = tenantSettlement?.mutations?.days?.links ?? [];
+    const mutationDayCurrentPage = tenantSettlement?.mutations?.days?.current_page ?? 1;
+    const mutationDayPerPage = tenantSettlement?.mutations?.days?.per_page
+        ? Number(tenantSettlement?.mutations?.days?.per_page)
+        : mutationDayRows.length || 1;
+    const mutationSelectedDay = tenantSettlement?.mutations?.selected_day ?? "";
+    const mutationSelectedDayLabel = tenantSettlement?.mutations?.selected_day_label ?? null;
+    const mutationSelectedDaySummary = tenantSettlement?.mutations?.selected_day_summary ?? null;
+    const mutationRows = tenantSettlement?.mutations?.details?.data ?? [];
+    const mutationLinks = tenantSettlement?.mutations?.details?.links ?? [];
+    const mutationCurrentPage = tenantSettlement?.mutations?.details?.current_page ?? 1;
+    const mutationPerPage = tenantSettlement?.mutations?.details?.per_page
+        ? Number(tenantSettlement?.mutations?.details?.per_page)
+        : mutationRows.length || 1;
 
     const hasActiveFilters =
         filterData.invoice ||
@@ -274,6 +393,7 @@ const Sales = ({
         owner_discount_total: summary?.owner_discount_total ?? 0,
         items_sold: summary?.items_sold ?? 0,
         profit_total: summary?.profit_total ?? 0,
+        owner_net_total: summary?.owner_net_total ?? 0,
         owner_product_markup_total: summary?.owner_product_markup_total ?? 0,
         owner_topping_markup_total: summary?.owner_topping_markup_total ?? 0,
         average_order: summary?.average_order ?? 0,
@@ -290,10 +410,14 @@ const Sales = ({
         },
         {
             title: isTenantWorkspace ? "Total Profit" : "Markup Owner",
-            value: formatCurrency(safeSummary.profit_total),
+            value: formatCurrency(
+                isTenantWorkspace
+                    ? safeSummary.profit_total
+                    : safeSummary.owner_net_total
+            ),
             description: isTenantWorkspace
                 ? `Selisih harga beli outlet vs HPP tenant`
-                : `Produk ${formatCurrency(safeSummary.owner_product_markup_total)} • Topping ${formatCurrency(safeSummary.owner_topping_markup_total)}`,
+                : `Produk ${formatCurrency(safeSummary.owner_product_markup_total)} • Topping ${formatCurrency(safeSummary.owner_topping_markup_total)} • Total ${formatCurrency(safeSummary.owner_net_total)}`,
             icon: <IconCoin />,
         },
         {
@@ -311,13 +435,13 @@ const Sales = ({
             icon: <IconDiscount2 />,
         },
         {
-            title: "Transaksi Walk-in",
+            title: "Transaksi Tanpa Profil Customer",
             value: safeSummary.walk_in_count.toLocaleString("id-ID"),
             description: `${safeSummary.orders_count > 0 ? ((safeSummary.walk_in_count / safeSummary.orders_count) * 100).toFixed(0) : 0}% dari transaksi`,
             icon: <IconUsers />,
         },
         {
-            title: "Customer Terdaftar",
+            title: "Transaksi Dengan Profil Customer",
             value: safeSummary.registered_customer_count.toLocaleString("id-ID"),
             description: `${safeSummary.orders_count > 0 ? ((safeSummary.registered_customer_count / safeSummary.orders_count) * 100).toFixed(0) : 0}% dari transaksi`,
             icon: <IconWallet />,
@@ -581,6 +705,18 @@ const Sales = ({
             row.profit_met === true &&
             row.items_met === true
     ).length;
+    const tabs = [
+        { key: "overview", label: "Ringkasan" },
+        { key: "analytics", label: "Analitik" },
+        { key: "transactions", label: "Transaksi" },
+        { key: "settlement", label: "Settlement" },
+    ];
+    const activeOutletName = workspace?.active_outlet?.name || "-";
+    const settlementScopeLabel = isTenantWorkspace
+        ? `Tenant aktif ${activeOutletName}`
+        : selectedTenant
+          ? `Outlet ${activeOutletName} • Tenant ${selectedTenant.name}`
+          : `Semua tenant di ${activeOutletName}`;
 
     return (
         <>
@@ -609,7 +745,7 @@ const Sales = ({
                             }`}
                         >
                             <IconFilter size={18} />
-                            <span>{showFilters ? "Sembunyikan filter" : "Buka filter"}</span>
+                            <span>{showFilters ? "Tutup filter" : "Buka filter"}</span>
                             {showFilters ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
                             {hasActiveFilters && (
                                 <span className="w-2 h-2 rounded-full bg-primary-500"></span>
@@ -634,53 +770,62 @@ const Sales = ({
                     </div>
                 </div>
 
-                {/* Filters Panel - Collapsible */}
+                {/* Filters Modal */}
                 {showFilters && (
-                    <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">
-                        <div className="flex items-center justify-between mb-4">
-                            <div>
-                                <div className="flex items-center gap-2">
-                                    <IconCalendar size={20} className="text-slate-400" />
-                                    <h3 className="text-base font-semibold text-slate-900 dark:text-white">
-                                        Filter Laporan
-                                    </h3>
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+                        <div className="w-full max-w-6xl rounded-3xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-900">
+                            <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-5 dark:border-slate-800">
+                                <div>
+                                    <div className="flex items-center gap-2">
+                                        <IconCalendar size={20} className="text-slate-400" />
+                                        <h3 className="text-base font-semibold text-slate-900 dark:text-white">
+                                            Filter Laporan
+                                        </h3>
+                                        {hasActiveFilters && (
+                                            <span className="rounded-full bg-primary-100 px-2 py-0.5 text-xs font-semibold text-primary-700 dark:bg-primary-900/50 dark:text-primary-400">
+                                                Aktif
+                                            </span>
+                                        )}
+                                    </div>
+                                    <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
+                                        Semua tanggal dan waktu mengikuti {reportTimezone} ({reportTimezoneLabel}).
+                                    </p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowFilters(false)}
+                                    className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 text-slate-500 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                                >
+                                    <IconX size={18} />
+                                </button>
+                            </div>
+
+                            <div className="max-h-[80vh] overflow-y-auto px-6 py-5">
+                                <div className="mb-4 flex flex-wrap items-center gap-2">
+                                    {datePresets.map((preset) => (
+                                        <button
+                                            key={preset.value}
+                                            type="button"
+                                            onClick={() => applyDatePreset(preset.value)}
+                                            className="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-primary-100 dark:hover:bg-primary-900/50 hover:text-primary-700 dark:hover:text-primary-300 transition-colors"
+                                        >
+                                            {preset.label}
+                                        </button>
+                                    ))}
                                     {hasActiveFilters && (
-                                        <span className="rounded-full bg-primary-100 px-2 py-0.5 text-xs font-semibold text-primary-700 dark:bg-primary-900/50 dark:text-primary-400">
-                                            Aktif
-                                        </span>
+                                        <button
+                                            type="button"
+                                            onClick={resetFilters}
+                                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                                        >
+                                            <IconX size={14} />
+                                            Reset
+                                        </button>
                                     )}
                                 </div>
-                                <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
-                                    Semua tanggal dan waktu mengikuti {reportTimezone} ({reportTimezoneLabel}).
-                                </p>
-                            </div>
-                            {/* Date Presets - Quick filters */}
-                            <div className="flex items-center gap-2">
-                                {datePresets.map((preset) => (
-                                    <button
-                                        key={preset.value}
-                                        type="button"
-                                        onClick={() => applyDatePreset(preset.value)}
-                                        className="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-primary-100 dark:hover:bg-primary-900/50 hover:text-primary-700 dark:hover:text-primary-300 transition-colors"
-                                    >
-                                        {preset.label}
-                                    </button>
-                                ))}
-                                {hasActiveFilters && (
-                                    <button
-                                        type="button"
-                                        onClick={resetFilters}
-                                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                                    >
-                                        <IconX size={14} />
-                                        Reset
-                                    </button>
-                                )}
-                            </div>
-                        </div>
 
-                        <form onSubmit={applyFilters}>
-                            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-6">
+                                <form onSubmit={applyFilters}>
+                                    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-6">
                                 <div>
                                     <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
                                         Tanggal Mulai
@@ -806,27 +951,176 @@ const Sales = ({
                                     </select>
                                 </div>
                             </div>
-                            <div className="flex justify-end gap-2 mt-4">
-                                <button
-                                    type="submit"
-                                    className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-primary-500 hover:bg-primary-600 text-white font-medium transition-colors"
-                                >
-                                    <IconSearch size={18} />
-                                    Terapkan Filter
-                                </button>
+                                    <div className="mt-5 flex justify-end gap-2 border-t border-slate-100 pt-4 dark:border-slate-800">
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowFilters(false)}
+                                            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-5 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                                        >
+                                            Tutup
+                                        </button>
+                                        <button
+                                            type="submit"
+                                            className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-primary-500 hover:bg-primary-600 text-white font-medium transition-colors"
+                                        >
+                                            <IconSearch size={18} />
+                                            Terapkan Filter
+                                        </button>
+                                    </div>
+                                </form>
                             </div>
-                        </form>
+                        </div>
                     </div>
                 )}
 
-                {/* Summary Cards */}
-                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                    {summaryCards.map((card) => (
-                        <SummaryCard key={card.title} {...card} />
-                    ))}
+                <div className="rounded-2xl border border-slate-200 bg-white p-2 dark:border-slate-800 dark:bg-slate-900">
+                    <div className="grid gap-2 md:grid-cols-4">
+                        {tabs.map((tab) => (
+                            <button
+                                key={tab.key}
+                                type="button"
+                                onClick={() => handleTabChange(tab.key)}
+                                className={`rounded-xl px-4 py-3 text-sm font-semibold transition ${
+                                    activeTab === tab.key
+                                        ? "bg-primary-600 text-white shadow-lg shadow-primary-500/20"
+                                        : "bg-slate-50 text-slate-600 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                                }`}
+                            >
+                                {tab.label}
+                            </button>
+                        ))}
+                    </div>
                 </div>
 
-                <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+                <div className="rounded-2xl border border-blue-200 bg-blue-50/80 p-4 text-sm text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-100">
+                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                        <div>
+                            <p className="text-[11px] font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-300">
+                                Melihat Sebagai
+                            </p>
+                            <p className="mt-1 font-semibold">
+                                {auth?.user?.name || "-"}
+                            </p>
+                            <p className="mt-1 text-xs text-blue-700/80 dark:text-blue-200/80">
+                                {isTenantWorkspace ? "Workspace tenant" : "Owner / outlet utama"}
+                            </p>
+                        </div>
+                        <div>
+                            <p className="text-[11px] font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-300">
+                                Outlet Aktif
+                            </p>
+                            <p className="mt-1 font-semibold">
+                                {workspace?.active_outlet?.name || "-"}
+                            </p>
+                            <p className="mt-1 text-xs text-blue-700/80 dark:text-blue-200/80">
+                                {workspace?.active_outlet?.code || workspace?.active_outlet?.outlet_type || "-"}
+                            </p>
+                        </div>
+                        <div>
+                            <p className="text-[11px] font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-300">
+                                Scope Data
+                            </p>
+                            <p className="mt-1 font-semibold">
+                                {isTenantWorkspace
+                                    ? "Tenant aktif"
+                                    : selectedTenant
+                                      ? `Outlet ${activeOutletName} dengan filter tenant ${selectedTenant.name}`
+                                      : "Semua tenant di outlet aktif"}
+                            </p>
+                            <p className="mt-1 text-xs text-blue-700/80 dark:text-blue-200/80">
+                                {isTenantWorkspace
+                                    ? "Semua data dibatasi ke tenant aktif pada session ini."
+                                    : selectedTenant
+                                    ? "Outlet aktif tetap mengikuti dropdown utama, tetapi report ini sedang difilter ke tenant yang dipilih."
+                                    : "Summary mengikuti outlet aktif dan seluruh tenant yang termasuk di dalamnya"}
+                            </p>
+                        </div>
+                        <div>
+                            <p className="text-[11px] font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-300">
+                                Periode Tampil
+                            </p>
+                            <p className="mt-1 font-semibold">
+                                {filterData.start_date || "Awal data"} - {filterData.end_date || "Sekarang"}
+                            </p>
+                            <p className="mt-1 text-xs text-blue-700/80 dark:text-blue-200/80">
+                                Tab settlement memakai saldo kumulatif sampai akhir periode
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                {activeTab === "overview" ? (
+                    <>
+                        {/* Summary Cards */}
+                        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                            {summaryCards.map((card) => (
+                                <SummaryCard key={card.title} {...card} />
+                            ))}
+                        </div>
+
+                        {!isTenantWorkspace && ownerToppingBreakdown.length > 0 ? (
+                            <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+                                <div className="mb-4 flex items-start justify-between gap-3">
+                                    <div>
+                                        <h2 className="text-base font-semibold text-slate-900 dark:text-white">
+                                            Breakdown Markup Topping Owner
+                                        </h2>
+                                        <p className="text-sm text-slate-500 dark:text-slate-400">
+                                            Rincian topping yang menyumbang markup owner pada periode aktif.
+                                        </p>
+                                    </div>
+                                    <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                                        Total {formatCurrency(safeSummary.owner_topping_markup_total)}
+                                    </span>
+                                </div>
+                                <div className="overflow-x-auto">
+                                    <table className="w-full min-w-[560px]">
+                                        <thead>
+                                            <tr className="border-b border-slate-100 dark:border-slate-800">
+                                                <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-slate-500">
+                                                    Topping
+                                                </th>
+                                                <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">
+                                                    Qty
+                                                </th>
+                                                <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">
+                                                    Nilai Topping
+                                                </th>
+                                                <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">
+                                                    Markup Owner
+                                                </th>
+                                                <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">
+                                                    Kontribusi
+                                                </th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                            {ownerToppingBreakdown.map((item, index) => (
+                                                <tr key={`${item.name}-${index}`}>
+                                                    <td className="px-3 py-3 text-sm font-medium text-slate-800 dark:text-slate-200">
+                                                        {item.name}
+                                                    </td>
+                                                    <td className="px-3 py-3 text-right text-sm text-slate-600 dark:text-slate-300">
+                                                        {Number(item.total_qty ?? 0).toLocaleString("id-ID")}
+                                                    </td>
+                                                    <td className="px-3 py-3 text-right text-sm text-slate-600 dark:text-slate-300">
+                                                        {formatCurrency(item.topping_total ?? 0)}
+                                                    </td>
+                                                    <td className="px-3 py-3 text-right text-sm font-semibold text-slate-900 dark:text-white">
+                                                        {formatCurrency(item.owner_markup_total ?? 0)}
+                                                    </td>
+                                                    <td className="px-3 py-3 text-right text-sm text-slate-600 dark:text-slate-300">
+                                                        {roundToTwo(item.owner_markup_share_percent ?? 0)}%
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        ) : null}
+
+                        <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
                     <div className="mb-4 flex items-start justify-between gap-3">
                         <div>
                             <h2 className="text-base font-semibold text-slate-900 dark:text-white">
@@ -1099,9 +1393,11 @@ const Sales = ({
                             </div>
                         </div>
                     ) : null}
-                </div>
+                        </div>
+                    </>
+                ) : null}
 
-                {/* Analytics Charts Section */}
+                {activeTab === "analytics" ? (
                 <div className="space-y-6">
                     <div className="flex items-center justify-between">
                         <div>
@@ -1136,6 +1432,7 @@ const Sales = ({
                     {/* Slow Moving Products */}
                     <SlowMovingProductsTable data={analytics?.slow_moving_products || []} />
                 </div>
+                ) : null}
 
                 {/* Product Detail Modal */}
                 <ProductDetailModal 
@@ -1143,8 +1440,8 @@ const Sales = ({
                     onClose={() => setProductDetailModal(null)} 
                 />
 
-                {/* Table */}
-                {/* Header */}
+                {activeTab === "transactions" ? (
+                <>
                 {rows.length > 0 ? (
                     <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
                         <div className="overflow-x-auto">
@@ -1289,6 +1586,28 @@ const Sales = ({
                                                                                 {item.qty} item
                                                                                 {item.pricing_rule_name ? ` • ${item.pricing_rule_name}` : ""}
                                                                             </div>
+                                                                            {Array.isArray(item.modifier_items) && item.modifier_items.length > 0 ? (
+                                                                                <div className="mt-2 space-y-1.5">
+                                                                                    {item.modifier_items.map((modifier) => (
+                                                                                        <div
+                                                                                            key={modifier.id}
+                                                                                            className="rounded-lg border border-amber-100 bg-amber-50/60 px-2.5 py-2 text-[11px] text-slate-600 dark:border-amber-900/30 dark:bg-amber-950/10 dark:text-slate-300"
+                                                                                        >
+                                                                                            <div className="font-medium text-slate-700 dark:text-slate-200">
+                                                                                                {modifier.name} x{modifier.qty}
+                                                                                            </div>
+                                                                                            <div className="mt-1">
+                                                                                                Nilai topping {formatCurrency(modifier.total_price ?? 0)}
+                                                                                            </div>
+                                                                                            {!isTenantWorkspace ? (
+                                                                                                <div>
+                                                                                                    Markup owner topping {formatCurrency(modifier.owner_markup_total ?? 0)}
+                                                                                                </div>
+                                                                                            ) : null}
+                                                                                        </div>
+                                                                                    ))}
+                                                                                </div>
+                                                                            ) : null}
                                                                         </div>
                                                                         <div className="text-slate-600 dark:text-slate-300">
                                                                             <div>Sblm promo {formatCurrency(item.pre_promo_total ?? item.line_total ?? 0)}</div>
@@ -1343,6 +1662,402 @@ const Sales = ({
                 {paginationLinks.length > 3 && (
                     <Pagination links={paginationLinks} />
                 )}
+                </>
+                ) : null}
+
+                {activeTab === "settlement" ? (
+                    <>
+                        <div className="flex flex-wrap items-center gap-2">
+                            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                                Melihat sebagai: {auth?.user?.name || "-"}
+                            </span>
+                            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                                Outlet aktif: {workspace?.active_outlet?.name || "-"}
+                            </span>
+                            <span className="rounded-full bg-primary-100 px-3 py-1 text-xs font-semibold text-primary-700 dark:bg-primary-950/40 dark:text-primary-300">
+                                Scope: {isTenantWorkspace
+                                    ? `Tenant aktif ${activeOutletName}`.trim()
+                                    : settlementScopeLabel}
+                            </span>
+                        </div>
+                        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                            <SummaryCard
+                                icon={<IconWallet />}
+                                title="Outstanding Tenant"
+                                value={formatCurrency(settlementSummary.outstanding_total ?? 0)}
+                                description={`Saldo masuk tenant ${formatCurrency(settlementSummary.request_balance_total ?? 0)}`}
+                            />
+                            <SummaryCard
+                                icon={<IconCoin />}
+                                title="Pending Request"
+                                value={formatCurrency(settlementSummary.request_pending_total ?? 0)}
+                                description={`${Number(settlementSummary.request_pending_count ?? 0).toLocaleString("id-ID")} request menunggu approval`}
+                            />
+                            <SummaryCard
+                                icon={<IconTrendingUp />}
+                                title="Sudah Dibayar"
+                                value={formatCurrency(settlementSummary.request_approved_total ?? 0)}
+                                description={`${Number(settlementSummary.request_approved_count ?? 0).toLocaleString("id-ID")} request disetujui`}
+                            />
+                            <SummaryCard
+                                icon={<IconReceipt2 />}
+                                title="Request Ditolak"
+                                value={Number(settlementSummary.request_rejected_count ?? 0).toLocaleString("id-ID")}
+                                description="Riwayat request yang ditolak"
+                            />
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2">
+                            <button
+                                type="button"
+                                onClick={() => handleSettlementViewChange("withdraw")}
+                                className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+                                    settlementView === "withdraw"
+                                        ? "bg-primary-600 text-white"
+                                        : "bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 dark:bg-slate-900 dark:text-slate-200 dark:border-slate-800 dark:hover:bg-slate-800"
+                                }`}
+                            >
+                                Riwayat Withdraw Tenant
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => handleSettlementViewChange("mutations")}
+                                className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+                                    settlementView === "mutations"
+                                        ? "bg-primary-600 text-white"
+                                        : "bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 dark:bg-slate-900 dark:text-slate-200 dark:border-slate-800 dark:hover:bg-slate-800"
+                                }`}
+                            >
+                                Mutasi Saldo Tenant
+                            </button>
+                        </div>
+
+                        {settlementView === "withdraw" && settlementRequestRows.length > 0 ? (
+                            <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+                                <h2 className="text-base font-semibold text-slate-900 dark:text-white">
+                                    Riwayat Withdraw Tenant
+                                </h2>
+                                <div className="mt-2 inline-flex rounded-full bg-primary-100 px-3 py-1 text-[11px] font-semibold text-primary-700 dark:bg-primary-950/40 dark:text-primary-300">
+                                    Scope: {settlementScopeLabel}
+                                </div>
+                                <div className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                    Data ini mengikuti request operasional di halaman cashier settlements: pending, approved, rejected, dan nominal withdraw.
+                                </div>
+                            </div>
+                        ) : null}
+
+                        {settlementView === "withdraw" && settlementRequestRows.length > 0 ? (
+                            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+                                <div className="overflow-x-auto">
+                                    <table className="w-full">
+                                        <thead>
+                                            <tr className="border-b border-slate-100 dark:border-slate-800">
+                                                <th className="px-4 py-4 text-left text-xs font-semibold uppercase text-slate-500">No</th>
+                                                <th className="px-4 py-4 text-left text-xs font-semibold uppercase text-slate-500">Request</th>
+                                                <th className="px-4 py-4 text-left text-xs font-semibold uppercase text-slate-500">Tanggal</th>
+                                                <th className="px-4 py-4 text-right text-xs font-semibold uppercase text-slate-500">Saldo Dasar</th>
+                                                <th className="px-4 py-4 text-right text-xs font-semibold uppercase text-slate-500">Markup Owner</th>
+                                                <th className="px-4 py-4 text-right text-xs font-semibold uppercase text-slate-500">Diminta</th>
+                                                <th className="px-4 py-4 text-right text-xs font-semibold uppercase text-slate-500">Disetujui</th>
+                                                <th className="px-4 py-4 text-left text-xs font-semibold uppercase text-slate-500">Status</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                            {settlementRequestRows.map((row, index) => (
+                                                <tr key={row.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                                                    <td className="px-4 py-4 text-sm text-slate-600 dark:text-slate-400">
+                                                        {index + 1 + (settlementRequestCurrentPage - 1) * settlementRequestPerPage}
+                                                    </td>
+                                                    <td className="px-4 py-4 text-sm font-semibold text-slate-900 dark:text-white">
+                                                        <div>{row.request_number ?? "-"}</div>
+                                                        <div className="mt-1 text-xs font-medium text-slate-500 dark:text-slate-400">
+                                                            {row.cashier?.name ?? "-"}
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-4 py-4 text-sm text-slate-600 dark:text-slate-400">
+                                                        <div>{row.created_at ?? "-"}</div>
+                                                        <div className="mt-1 text-xs font-medium text-slate-500 dark:text-slate-400">
+                                                            Dibayar {row.paid_at ?? "-"}
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-4 py-4 text-right text-sm text-slate-700 dark:text-slate-300">
+                                                        {formatCurrency(row.base_sales_total ?? 0)}
+                                                    </td>
+                                                    <td className="px-4 py-4 text-right text-sm text-slate-700 dark:text-slate-300">
+                                                        {formatCurrency(row.markup_total ?? 0)}
+                                                    </td>
+                                                    <td className="px-4 py-4 text-right text-sm text-slate-700 dark:text-slate-300">
+                                                        {formatCurrency(row.requested_amount ?? 0)}
+                                                    </td>
+                                                    <td className="px-4 py-4 text-right text-sm font-semibold text-slate-900 dark:text-white">
+                                                        {formatCurrency(row.approved_amount ?? 0)}
+                                                    </td>
+                                                    <td className="px-4 py-4 text-sm text-slate-600 dark:text-slate-400">
+                                                        {row.status === "approved"
+                                                            ? "Disetujui"
+                                                            : row.status === "rejected"
+                                                              ? "Ditolak"
+                                                              : "Menunggu Approval"}
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        ) : settlementView === "withdraw" ? (
+                            <div className="flex flex-col items-center justify-center py-16 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
+                                <div className="w-16 h-16 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center mb-4">
+                                    <IconDatabaseOff size={32} className="text-slate-400" />
+                                </div>
+                                <h3 className="text-lg font-medium text-slate-800 dark:text-slate-200 mb-1">
+                                    Tidak Ada Riwayat Withdraw
+                                </h3>
+                                <p className="text-sm text-slate-500 dark:text-slate-400">
+                                    Tidak ada request withdraw tenant sesuai filter.
+                                </p>
+                            </div>
+                        ) : null}
+
+                        {settlementView === "withdraw" && settlementRequestPaginationLinks.length > 3 ? (
+                            <Pagination links={settlementRequestPaginationLinks} />
+                        ) : null}
+
+                        {settlementView === "mutations" && mutationDayRows.length > 0 ? (
+                            <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+                                <h2 className="text-base font-semibold text-slate-900 dark:text-white">
+                                    Mutasi Saldo Tenant
+                                </h2>
+                                <div className="mt-2 inline-flex rounded-full bg-primary-100 px-3 py-1 text-[11px] font-semibold text-primary-700 dark:bg-primary-950/40 dark:text-primary-300">
+                                    Scope: {settlementScopeLabel}
+                                </div>
+                                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                    Riwayat mutasi dari awal tenant sampai sekarang: transaksi yang menambah hak tenant dan retur yang mengurangi saldo tenant.
+                                </p>
+                                <div className="mt-4 flex flex-wrap items-center gap-3">
+                                    <div className="min-w-[260px] flex-1">
+                                        <input
+                                            type="text"
+                                            value={filterData.mutation_q}
+                                            onChange={(e) => handleChange("mutation_q", e.target.value)}
+                                            placeholder="Cari invoice, referensi, customer, atau kasir"
+                                            className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-primary-400 focus:ring-2 focus:ring-primary-100 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200 dark:placeholder:text-slate-500"
+                                        />
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => router.get(route("reports.sales.index"), buildQueryPayload({
+                                            settlement_view: "mutations",
+                                            mutations_page: 1,
+                                            mutation_detail_page: 1,
+                                            mutation_day: "",
+                                        }), {
+                                            preserveScroll: true,
+                                            preserveState: true,
+                                            replace: true,
+                                        })}
+                                        className="rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-700"
+                                    >
+                                        Cari Mutasi
+                                    </button>
+                                </div>
+                                <div className="mt-4 grid gap-3 md:grid-cols-4">
+                                    <SummaryCard
+                                        icon={<IconCalendar />}
+                                        title="Hari Ditampilkan"
+                                        value={Number(mutationDayRows.length || 0).toLocaleString("id-ID")}
+                                        description={`Halaman ${mutationDayCurrentPage} dari mutasi harian`}
+                                    />
+                                    <SummaryCard
+                                        icon={<IconWallet />}
+                                        title="Tanggal Dipilih"
+                                        value={mutationSelectedDayLabel || "-"}
+                                        description="Detail transaksi harian di bawah"
+                                    />
+                                    <SummaryCard
+                                        icon={<IconCoin />}
+                                        title="Hak Tenant Harian"
+                                        value={formatCurrency(mutationSelectedDaySummary?.tenant_total ?? 0)}
+                                        description={`${Number(mutationSelectedDaySummary?.entries_count ?? 0).toLocaleString("id-ID")} mutasi pada hari ini`}
+                                    />
+                                    <SummaryCard
+                                        icon={<IconTrendingUp />}
+                                        title="Markup Owner Harian"
+                                        value={formatCurrency(mutationSelectedDaySummary?.owner_markup_total ?? 0)}
+                                        description={`${Number(mutationSelectedDaySummary?.transactions_count ?? 0).toLocaleString("id-ID")} masuk saldo • ${Number(mutationSelectedDaySummary?.returns_count ?? 0).toLocaleString("id-ID")} retur`}
+                                    />
+                                </div>
+
+                                <div className="mt-5 overflow-x-auto">
+                                    <table className="w-full min-w-[760px]">
+                                        <thead>
+                                            <tr className="border-b border-slate-100 dark:border-slate-800">
+                                                <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-slate-500">No</th>
+                                                <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-slate-500">Tanggal</th>
+                                                <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Hak Tenant</th>
+                                                <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Markup Owner</th>
+                                                <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Mutasi</th>
+                                                <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-slate-500">Aksi</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                            {mutationDayRows.map((row, index) => {
+                                                const isSelected = row.date_key === mutationSelectedDay;
+
+                                                return (
+                                                    <tr key={row.date_key} className={isSelected ? "bg-primary-50/60 dark:bg-primary-950/10" : ""}>
+                                                        <td className="px-3 py-3 text-sm text-slate-600 dark:text-slate-300">
+                                                            {index + 1 + (mutationDayCurrentPage - 1) * mutationDayPerPage}
+                                                        </td>
+                                                        <td className="px-3 py-3">
+                                                            <div className="text-sm font-semibold text-slate-900 dark:text-white">
+                                                                {row.date_label}
+                                                            </div>
+                                                            <div className="text-xs text-slate-500 dark:text-slate-400">
+                                                                {Number(row.transactions_count ?? 0).toLocaleString("id-ID")} masuk saldo • {Number(row.returns_count ?? 0).toLocaleString("id-ID")} retur
+                                                            </div>
+                                                        </td>
+                                                        <td className={`px-3 py-3 text-right text-sm font-semibold ${
+                                                            Number(row.tenant_total ?? 0) < 0
+                                                                ? "text-rose-600 dark:text-rose-300"
+                                                                : "text-emerald-600 dark:text-emerald-300"
+                                                        }`}>
+                                                            {formatCurrency(row.tenant_total ?? 0)}
+                                                        </td>
+                                                        <td className="px-3 py-3 text-right text-sm text-slate-700 dark:text-slate-300">
+                                                            {formatCurrency(row.owner_markup_total ?? 0)}
+                                                        </td>
+                                                        <td className="px-3 py-3 text-right text-sm text-slate-600 dark:text-slate-300">
+                                                            {Number(row.entries_count ?? 0).toLocaleString("id-ID")}
+                                                        </td>
+                                                        <td className="px-3 py-3 text-sm">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleSelectMutationDay(row.date_key)}
+                                                                className={`inline-flex items-center rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                                                                    isSelected
+                                                                        ? "bg-primary-600 text-white"
+                                                                        : "bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                                                                }`}
+                                                            >
+                                                                {isSelected ? "Hari aktif" : "Lihat detail"}
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
+                                </div>
+                                {mutationDayLinks.length > 3 ? (
+                                    <Pagination links={mutationDayLinks} />
+                                ) : null}
+
+                                <div className="mt-6 border-t border-slate-100 pt-5 dark:border-slate-800">
+                                    <div className="flex flex-wrap items-center justify-between gap-3">
+                                        <div>
+                                            <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
+                                                Breakdown Detail {mutationSelectedDayLabel || "Hari Terpilih"}
+                                            </h3>
+                                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                Daftar transaksi pada hari yang dipilih. Detail ini punya pagination sendiri.
+                                            </p>
+                                        </div>
+                                        {mutationSelectedDaySummary ? (
+                                            <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                                                <span className="rounded-full bg-emerald-50 px-3 py-1 font-semibold text-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-300">
+                                                    Hak tenant {formatCurrency(mutationSelectedDaySummary.tenant_total ?? 0)}
+                                                </span>
+                                                <span className="rounded-full bg-blue-50 px-3 py-1 font-semibold text-blue-700 dark:bg-blue-950/20 dark:text-blue-300">
+                                                    Markup owner {formatCurrency(mutationSelectedDaySummary.owner_markup_total ?? 0)}
+                                                </span>
+                                            </div>
+                                        ) : null}
+                                    </div>
+                                </div>
+
+                                <div className="mt-4 overflow-x-auto">
+                                    <table className="w-full min-w-[840px]">
+                                        <thead>
+                                            <tr className="border-b border-slate-100 dark:border-slate-800">
+                                                <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-slate-500">No</th>
+                                                <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-slate-500">Aktivitas</th>
+                                                <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-slate-500">Kasir</th>
+                                                <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Referensi</th>
+                                                <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Hak Tenant</th>
+                                                <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Markup Owner</th>
+                                                <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-slate-500">Waktu</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                            {mutationRows.length > 0 ? mutationRows.map((row, index) => (
+                                                <tr key={row.id}>
+                                                    <td className="px-3 py-3 text-sm text-slate-600 dark:text-slate-300">
+                                                        {index + 1 + (mutationCurrentPage - 1) * mutationPerPage}
+                                                    </td>
+                                                    <td className="px-3 py-3">
+                                                        <div className="text-sm font-semibold text-slate-900 dark:text-white">
+                                                            {row.invoice}
+                                                        </div>
+                                                        <div className="text-xs text-slate-500 dark:text-slate-400">
+                                                            {row.reference} • {row.customer_name}
+                                                        </div>
+                                                        <div className="mt-1 inline-flex rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                                                            {row.status}
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-3 py-3 text-sm text-slate-600 dark:text-slate-300">
+                                                        {row.cashier_name}
+                                                    </td>
+                                                    <td className="px-3 py-3 text-right text-sm text-slate-600 dark:text-slate-300">
+                                                        {formatCurrency(row.gross_total ?? 0)}
+                                                        <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                                                            Promo {formatCurrency(row.discount_total ?? 0)}
+                                                        </div>
+                                                    </td>
+                                                    <td className={`px-3 py-3 text-right text-sm font-semibold ${
+                                                        Number(row.mutation_total ?? 0) < 0
+                                                            ? "text-rose-600 dark:text-rose-300"
+                                                            : "text-emerald-600 dark:text-emerald-300"
+                                                    }`}>
+                                                        {formatCurrency(row.mutation_total ?? 0)}
+                                                    </td>
+                                                    <td className="px-3 py-3 text-right text-sm text-slate-600 dark:text-slate-300">
+                                                        {formatCurrency(row.owner_markup_total ?? 0)}
+                                                    </td>
+                                                    <td className="px-3 py-3 text-sm text-slate-600 dark:text-slate-300">
+                                                        {row.activity_at}
+                                                    </td>
+                                                </tr>
+                                            )) : (
+                                                <tr>
+                                                    <td colSpan={7} className="px-3 py-8 text-center text-sm text-slate-500 dark:text-slate-400">
+                                                        Tidak ada detail mutasi pada hari yang dipilih.
+                                                    </td>
+                                                </tr>
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+                                {mutationLinks.length > 3 ? (
+                                    <Pagination links={mutationLinks} />
+                                ) : null}
+                            </div>
+                        ) : settlementView === "mutations" ? (
+                            <div className="flex flex-col items-center justify-center py-16 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
+                                <div className="w-16 h-16 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center mb-4">
+                                    <IconDatabaseOff size={32} className="text-slate-400" />
+                                </div>
+                                <h3 className="text-lg font-medium text-slate-800 dark:text-slate-200 mb-1">
+                                    Tidak Ada Mutasi Harian
+                                </h3>
+                                <p className="text-sm text-slate-500 dark:text-slate-400">
+                                    Tidak ada mutasi saldo tenant sesuai scope dan pencarian yang dipilih.
+                                </p>
+                            </div>
+                        ) : null}
+                    </>
+                ) : null}
 
                 {showTargetBreakdownModal ? (
                     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">

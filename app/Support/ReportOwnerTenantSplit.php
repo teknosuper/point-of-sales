@@ -105,4 +105,45 @@ class ReportOwnerTenantSplit
             'owner_net_total' => $ownerProductMarkupTotal + $ownerToppingMarkupTotal,
         ];
     }
+
+    public static function toppingBreakdownForTransactionIds(
+        EloquentBuilder|QueryBuilder $transactionIdQuery,
+        mixed $tenantOutletId = null,
+        int $limit = 10
+    ): array {
+        if (
+            ! Schema::hasColumn('transaction_detail_modifiers', 'markup_price')
+            || ! Schema::hasColumn('transaction_detail_modifiers', 'qty')
+        ) {
+            return [];
+        }
+
+        $rows = DB::table('transaction_detail_modifiers')
+            ->join('transaction_details', 'transaction_details.id', '=', 'transaction_detail_modifiers.transaction_detail_id')
+            ->whereIn('transaction_details.transaction_id', clone $transactionIdQuery)
+            ->when(
+                $tenantOutletId && Schema::hasColumn('transaction_details', 'tenant_outlet_id'),
+                fn ($query) => $query->where('transaction_details.tenant_outlet_id', $tenantOutletId)
+            )
+            ->selectRaw('transaction_detail_modifiers.name')
+            ->selectRaw('COALESCE(SUM(COALESCE(transaction_detail_modifiers.qty, 0)), 0) as total_qty')
+            ->selectRaw('COALESCE(SUM(COALESCE(transaction_detail_modifiers.total_price, 0)), 0) as topping_total')
+            ->selectRaw('COALESCE(SUM(COALESCE(transaction_detail_modifiers.markup_price, 0) * COALESCE(transaction_detail_modifiers.qty, 0)), 0) as owner_markup_total')
+            ->groupBy('transaction_detail_modifiers.name')
+            ->orderByDesc('owner_markup_total')
+            ->limit($limit)
+            ->get();
+
+        $totalOwnerMarkup = (int) collect($rows)->sum(fn ($row) => (int) ($row->owner_markup_total ?? 0));
+
+        return collect($rows)->map(fn ($row) => [
+            'name' => $row->name ?: 'Topping',
+            'total_qty' => (int) ($row->total_qty ?? 0),
+            'topping_total' => (int) ($row->topping_total ?? 0),
+            'owner_markup_total' => (int) ($row->owner_markup_total ?? 0),
+            'owner_markup_share_percent' => $totalOwnerMarkup > 0
+                ? round((((int) ($row->owner_markup_total ?? 0)) / $totalOwnerMarkup) * 100, 2)
+                : 0,
+        ])->values()->all();
+    }
 }

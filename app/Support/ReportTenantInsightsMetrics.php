@@ -8,12 +8,20 @@ class ReportTenantInsightsMetrics
 {
     public static function summary(Collection $allocations): object
     {
+        $customerProfileSummary = ReportCustomerProfileMetrics::fromRows(
+            $allocations,
+            'transaction.customer_id'
+        );
+
         return (object) [
             'orders_count' => (int) $allocations->count(),
             'revenue_total' => (int) $allocations->sum('grand_total'),
             'manual_discount_total' => (int) $allocations->sum('manual_discount_total'),
             'items_sold' => (int) $allocations->sum('total_items'),
             'profit_total' => (int) $allocations->sum('profit_total'),
+            'walk_in_count' => (int) ($customerProfileSummary['walk_in_count'] ?? 0),
+            'registered_customer_count' => (int) ($customerProfileSummary['registered_customer_count'] ?? 0),
+            'active_customer_count' => (int) ($customerProfileSummary['active_customer_count'] ?? 0),
         ];
     }
 
@@ -68,7 +76,11 @@ class ReportTenantInsightsMetrics
             ->filter(fn (Collection $rows, int $cashierId) => $cashierId > 0)
             ->map(function (Collection $rows, int $cashierId) {
                 $ordersCount = (int) $rows->count();
-                $walkInOrders = (int) $rows->filter(fn ($allocation) => blank($allocation->transaction?->customer_id))->count();
+                $customerProfileSummary = ReportCustomerProfileMetrics::fromRows(
+                    $rows,
+                    'transaction.customer_id'
+                );
+                $walkInOrders = (int) ($customerProfileSummary['walk_in_count'] ?? 0);
                 $revenueTotal = (int) $rows->sum('grand_total');
                 $walkInRevenue = (int) $rows
                     ->filter(fn ($allocation) => blank($allocation->transaction?->customer_id))
@@ -79,7 +91,7 @@ class ReportTenantInsightsMetrics
                     'cashier_name' => $rows->first()?->transaction?->cashier?->name,
                     'orders_count' => $ordersCount,
                     'walk_in_orders_count' => $walkInOrders,
-                    'registered_orders_count' => max(0, $ordersCount - $walkInOrders),
+                    'registered_orders_count' => (int) ($customerProfileSummary['registered_customer_count'] ?? 0),
                     'items_sold' => (int) $rows->sum('total_items'),
                     'revenue_total' => (int) round($revenueTotal),
                     'walk_in_revenue_total' => (int) round($walkInRevenue),

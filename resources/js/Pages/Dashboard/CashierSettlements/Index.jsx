@@ -6,6 +6,7 @@ import KitchenLayout from "@/Layouts/KitchenLayout";
 import Modal from "@/Components/Dashboard/Modal";
 import Pagination from "@/Components/Dashboard/Pagination";
 import {
+    IconCalendar,
     IconCashBanknote,
     IconCheck,
     IconChevronDown,
@@ -42,6 +43,8 @@ const defaultFilters = {
     cashier_id: "",
     date_from: "",
     date_to: "",
+    entry_type: "",
+    payment_method: "",
 };
 
 const defaultApprovalForm = {
@@ -122,10 +125,11 @@ export default function Index({
     walletTransactions = {},
 }) {
     const page = usePage();
-    const { auth, errors, flash } = page.props;
+    const { auth, errors, flash, activeOutlet, availableOutlets = [] } = page.props;
     const isKitchenWorkspace = auth?.user?.preferred_workspace === "kitchen";
     const isTenantRequestMode = Boolean(canCreateRequest);
     const [showHelpModal, setShowHelpModal] = useState(false);
+    const [showWalletFilterModal, setShowWalletFilterModal] = useState(false);
 
     useEffect(() => {
         if (flash?.success) toast.success(flash.success);
@@ -181,6 +185,8 @@ export default function Index({
         cashier_id: walletFilters?.cashier_id ?? "",
         date_from: walletFilters?.date_from ?? "",
         date_to: walletFilters?.date_to ?? "",
+        entry_type: walletFilters?.entry_type ?? "",
+        payment_method: walletFilters?.payment_method ?? "",
     });
     const [createData, setCreateData] = useState({
         cashier_shift_id: "",
@@ -209,15 +215,43 @@ export default function Index({
             cashier_id: walletFilters?.cashier_id ?? "",
             date_from: walletFilters?.date_from ?? "",
             date_to: walletFilters?.date_to ?? "",
+            entry_type: walletFilters?.entry_type ?? "",
+            payment_method: walletFilters?.payment_method ?? "",
         });
     }, [walletFilters]);
 
     const rows = requests?.data ?? [];
     const links = requests?.links ?? [];
-    const walletRows = walletTransactions?.data ?? [];
-    const walletLinks = walletTransactions?.links ?? [];
+    const walletMonthRows = walletTransactions?.months?.data ?? [];
+    const walletMonthLinks = walletTransactions?.months?.links ?? [];
+    const walletMonthCurrentPage = walletTransactions?.months?.current_page ?? 1;
+    const walletMonthPerPage = walletTransactions?.months?.per_page
+        ? Number(walletTransactions?.months?.per_page)
+        : walletMonthRows.length || 1;
+    const walletSelectedMonth = walletTransactions?.selected_month ?? "";
+    const walletSelectedMonthLabel = walletTransactions?.selected_month_label ?? null;
+    const walletDayRows = walletTransactions?.days?.data ?? [];
+    const walletDayLinks = walletTransactions?.days?.links ?? [];
+    const walletDayCurrentPage = walletTransactions?.days?.current_page ?? 1;
+    const walletDayPerPage = walletTransactions?.days?.per_page
+        ? Number(walletTransactions?.days?.per_page)
+        : walletDayRows.length || 1;
+    const walletSelectedDay = walletTransactions?.selected_day ?? "";
+    const walletSelectedDayLabel = walletTransactions?.selected_day_label ?? null;
+    const walletRows = walletTransactions?.details?.data ?? [];
+    const walletLinks = walletTransactions?.details?.links ?? [];
     const isWalletReturnDetail =
         walletDetailModal.transaction?.entry_type === "sales_return";
+    const visibleTenantCount = useMemo(
+        () =>
+            availableOutlets.filter(
+                (outlet) => (outlet?.outlet_type ?? "main") === "tenant"
+            ).length,
+        [availableOutlets]
+    );
+    const ownerScopeLabel = isTenantRequestMode
+        ? `Tenant ${activeOutlet?.name || "-"}`
+        : `Semua tenant ${activeOutlet?.name || "outlet aktif"}`;
     const selectedShift = useMemo(
         () =>
             shiftOptions.find(
@@ -234,10 +268,19 @@ export default function Index({
 
     const applyFilters = (event) => {
         event.preventDefault();
-        router.get(route("cashier-settlements.index"), { ...filterData, tab: "transactions" }, {
+        router.get(route("cashier-settlements.index"), {
+            ...filterData,
+            tab: "transactions",
+            wallet_month_page: 1,
+            wallet_day_page: 1,
+            wallet_detail_page: 1,
+            wallet_month: "",
+            wallet_day: "",
+        }, {
             preserveScroll: true,
             preserveState: true,
         });
+        setShowWalletFilterModal(false);
     };
 
     const resetFilters = () => {
@@ -245,6 +288,39 @@ export default function Index({
         router.get(route("cashier-settlements.index"), { tab: "transactions" }, {
             preserveScroll: true,
             preserveState: false,
+            replace: true,
+        });
+        setShowWalletFilterModal(false);
+    };
+
+    const selectWalletMonth = (monthKey) => {
+        router.get(route("cashier-settlements.index"), {
+            ...filterData,
+            tab: "transactions",
+            wallet_month: monthKey,
+            wallet_day: "",
+            wallet_month_page: walletMonthCurrentPage,
+            wallet_day_page: 1,
+            wallet_detail_page: 1,
+        }, {
+            preserveScroll: true,
+            preserveState: true,
+            replace: true,
+        });
+    };
+
+    const selectWalletDay = (dateKey) => {
+        router.get(route("cashier-settlements.index"), {
+            ...filterData,
+            tab: "transactions",
+            wallet_month: walletSelectedMonth,
+            wallet_day: dateKey,
+            wallet_month_page: walletMonthCurrentPage,
+            wallet_day_page: walletDayCurrentPage,
+            wallet_detail_page: 1,
+        }, {
+            preserveScroll: true,
+            preserveState: true,
             replace: true,
         });
     };
@@ -421,6 +497,61 @@ export default function Index({
                     </div>
                 </div>
 
+                <div className="rounded-2xl border border-blue-200 bg-blue-50/80 p-4 text-sm text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-100">
+                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                        <div>
+                            <p className="text-[11px] font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-300">
+                                Melihat Sebagai
+                            </p>
+                            <p className="mt-1 font-semibold">
+                                {auth?.user?.name || "-"}
+                            </p>
+                            <p className="mt-1 text-xs text-blue-700/80 dark:text-blue-200/80">
+                                {isTenantRequestMode ? "Tenant / dapur" : "Owner / approver"}
+                            </p>
+                        </div>
+                        <div>
+                            <p className="text-[11px] font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-300">
+                                Outlet Aktif
+                            </p>
+                            <p className="mt-1 font-semibold">
+                                {activeOutlet?.name || "-"}
+                            </p>
+                            <p className="mt-1 text-xs text-blue-700/80 dark:text-blue-200/80">
+                                {activeOutlet?.code || activeOutlet?.outlet_type || "-"}
+                            </p>
+                        </div>
+                        <div>
+                            <p className="text-[11px] font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-300">
+                                Scope Data
+                            </p>
+                            <p className="mt-1 font-semibold">
+                                {isTenantRequestMode
+                                    ? "Data tenant aktif saja"
+                                    : "Semua tenant yang terlihat owner"}
+                            </p>
+                            <p className="mt-1 text-xs text-blue-700/80 dark:text-blue-200/80">
+                                {isTenantRequestMode
+                                    ? "Saldo, request, dan mutasi hanya untuk tenant yang sedang aktif"
+                                    : `Summary menggabungkan seluruh tenant yang termasuk akses owner. Tenant terdeteksi: ${visibleTenantCount}`}
+                            </p>
+                        </div>
+                        <div>
+                            <p className="text-[11px] font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-300">
+                                Cara Baca
+                            </p>
+                            <p className="mt-1 font-semibold">
+                                {isTenantRequestMode ? "Saldo tenant" : "Approval owner"}
+                            </p>
+                            <p className="mt-1 text-xs text-blue-700/80 dark:text-blue-200/80">
+                                {isTenantRequestMode
+                                    ? "Angka saldo di sini adalah hak tenant yang bisa diajukan"
+                                    : "Angka pending/disetujui di sini adalah agregat request withdraw tenant"}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
                 {isTenantRequestMode ? (
                     <div className="rounded-3xl border border-slate-200 bg-white p-2 dark:border-slate-800 dark:bg-slate-900">
                         <div className="grid gap-2 md:grid-cols-3">
@@ -483,12 +614,25 @@ export default function Index({
                 ) : null}
 
                 {(!isTenantRequestMode || activeTab === "request") ? (
-                    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                        <SummaryCard title="Menunggu Approval" value={String(summary?.pending_count ?? 0)} description="Pengajuan yang belum divalidasi" icon={<IconClockHour4 size={20} />} tone="amber" />
-                        <SummaryCard title="Disetujui" value={String(summary?.approved_count ?? 0)} description="Pengajuan yang sudah dibayar" icon={<IconCheck size={20} />} tone="emerald" />
-                        <SummaryCard title="Total Pending" value={formatCurrency(summary?.requested_total ?? 0)} description="Nominal pengajuan yang menunggu approval" icon={<IconReceipt2 size={20} />} tone="blue" />
-                        <SummaryCard title="Total Disetujui" value={formatCurrency(summary?.approved_total ?? 0)} description="Nominal sudah dibayar" icon={<IconCashBanknote size={20} />} tone="slate" />
-                    </div>
+                    <>
+                        <div className="flex flex-wrap items-center gap-2">
+                            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                                Melihat sebagai: {auth?.user?.name || "-"}
+                            </span>
+                            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                                Outlet aktif: {activeOutlet?.name || "-"}
+                            </span>
+                            <span className="rounded-full bg-primary-100 px-3 py-1 text-xs font-semibold text-primary-700 dark:bg-primary-950/40 dark:text-primary-300">
+                                Scope: {isTenantRequestMode ? "Tenant aktif saja" : "Agregat semua tenant yang terlihat owner"}
+                            </span>
+                        </div>
+                        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                            <SummaryCard title="Menunggu Approval" value={String(summary?.pending_count ?? 0)} description="Pengajuan yang belum divalidasi" icon={<IconClockHour4 size={20} />} tone="amber" />
+                            <SummaryCard title="Disetujui" value={String(summary?.approved_count ?? 0)} description="Pengajuan yang sudah dibayar" icon={<IconCheck size={20} />} tone="emerald" />
+                            <SummaryCard title="Total Pending" value={formatCurrency(summary?.requested_total ?? 0)} description="Nominal pengajuan yang menunggu approval" icon={<IconReceipt2 size={20} />} tone="blue" />
+                            <SummaryCard title="Total Disetujui" value={formatCurrency(summary?.approved_total ?? 0)} description="Nominal sudah dibayar" icon={<IconCashBanknote size={20} />} tone="slate" />
+                        </div>
+                    </>
                 ) : null}
 
                 {isTenantRequestMode && wallet && activeTab === "balance" ? (
@@ -820,6 +964,9 @@ export default function Index({
                             <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
                                 Riwayat Pengajuan
                             </h2>
+                            <div className="mt-2 inline-flex rounded-full bg-primary-100 px-3 py-1 text-[11px] font-semibold text-primary-700 dark:bg-primary-950/40 dark:text-primary-300">
+                                Scope: {ownerScopeLabel}
+                            </div>
                             <p className="text-sm text-slate-500 dark:text-slate-400">
                                 Menampilkan {requests?.from || 0}-{requests?.to || 0} dari {requests?.total || 0} pengajuan.
                             </p>
@@ -966,12 +1113,47 @@ export default function Index({
                             <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
                                 Transaksi Masuk ke Saldo
                             </h2>
+                            <div className="mt-2 inline-flex rounded-full bg-primary-100 px-3 py-1 text-[11px] font-semibold text-primary-700 dark:bg-primary-950/40 dark:text-primary-300">
+                                Scope: {ownerScopeLabel}
+                            </div>
                             <p className="text-sm text-slate-500 dark:text-slate-400">
-                                Menampilkan {walletTransactions?.from || 0}-{walletTransactions?.to || 0} dari {walletTransactions?.total || 0} aktivitas saldo. Fokus utama tabel ini adalah hak tenant yang bertambah atau berkurang.
+                                Breakdown dibuat per bulan, per hari, lalu detail transaksi agar mutasi saldo tenant lebih mudah dibaca dan diaudit.
                             </p>
                         </div>
 
-                        <div className="mb-5 rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/40">
+                        <div className="mb-5 flex flex-wrap items-center gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setShowWalletFilterModal(true)}
+                                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                            >
+                                <IconSearch size={16} />
+                                Buka Filter Transaksi
+                            </button>
+                        </div>
+
+                        {showWalletFilterModal ? (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+                            <div className="w-full max-w-5xl rounded-3xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-900">
+                                <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-5 dark:border-slate-800">
+                                    <div>
+                                        <h3 className="text-base font-semibold text-slate-900 dark:text-white">
+                                            Filter Detail Transaksi Saldo
+                                        </h3>
+                                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                            Advanced search untuk invoice, allocation, customer, kasir, tanggal, jenis aktivitas, dan metode bayar.
+                                        </p>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowWalletFilterModal(false)}
+                                        className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 text-slate-500 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                                    >
+                                        <IconX size={18} />
+                                    </button>
+                                </div>
+                                <div className="max-h-[80vh] overflow-y-auto px-6 py-5">
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/40">
                             <div className="mb-4">
                                 <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
                                     Filter Detail
@@ -980,7 +1162,7 @@ export default function Index({
                                     Advanced search untuk invoice, nomor allocation, customer, kasir, dan rentang tanggal aktivitas saldo.
                                 </p>
                             </div>
-                            <form onSubmit={applyFilters} className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+                            <form onSubmit={applyFilters} className="grid gap-3 md:grid-cols-2 xl:grid-cols-7">
                                 <div className="xl:col-span-2">
                                     <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
                                         Cari Invoice / Allocation / Customer
@@ -1056,7 +1238,49 @@ export default function Index({
                                         className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm dark:border-slate-700 dark:bg-slate-900"
                                     />
                                 </div>
-                                <div className="xl:col-span-5 flex flex-wrap gap-2">
+                                <div>
+                                    <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                        Jenis Aktivitas
+                                    </label>
+                                    <select
+                                        value={filterData.entry_type}
+                                        onChange={(event) =>
+                                            setFilterData((prev) => ({
+                                                ...prev,
+                                                entry_type: event.target.value,
+                                            }))
+                                        }
+                                        className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm dark:border-slate-700 dark:bg-slate-900"
+                                    >
+                                        <option value="">Semua aktivitas</option>
+                                        <option value="allocation">Masuk saldo</option>
+                                        <option value="sales_return">Retur</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                        Metode Bayar
+                                    </label>
+                                    <select
+                                        value={filterData.payment_method}
+                                        onChange={(event) =>
+                                            setFilterData((prev) => ({
+                                                ...prev,
+                                                payment_method: event.target.value,
+                                            }))
+                                        }
+                                        className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm dark:border-slate-700 dark:bg-slate-900"
+                                    >
+                                        <option value="">Semua metode</option>
+                                        <option value="cash">Tunai</option>
+                                        <option value="qris">QRIS</option>
+                                        <option value="transfer">Transfer</option>
+                                        <option value="card">Kartu</option>
+                                        <option value="midtrans">Midtrans</option>
+                                        <option value="xendit">Xendit</option>
+                                    </select>
+                                </div>
+                                <div className="xl:col-span-7 flex flex-wrap gap-2">
                                     <button type="submit" className="rounded-xl bg-primary-600 px-4 py-3 text-sm font-semibold text-white">
                                         Terapkan Filter
                                     </button>
@@ -1066,9 +1290,87 @@ export default function Index({
                                 </div>
                             </form>
                         </div>
+                                </div>
+                            </div>
+                        </div>
+                        ) : null}
 
-                        {walletRows.length > 0 ? (
-                            <div className="overflow-x-auto">
+                        {walletMonthRows.length > 0 ? (
+                            <>
+                            <div className="grid gap-3 md:grid-cols-4">
+                                <SummaryCard title="Bulan Ditampilkan" value={String(walletMonthRows.length)} description={`Halaman ${walletMonthCurrentPage} breakdown bulanan`} icon={<IconCalendar size={18} className="text-slate-700 dark:text-slate-200" />} tone="blue" />
+                                <SummaryCard title="Bulan Aktif" value={walletSelectedMonthLabel || "-"} description="Dipakai untuk breakdown harian" icon={<IconClockHour4 size={18} className="text-slate-700 dark:text-slate-200" />} tone="slate" />
+                                <SummaryCard title="Hari Ditampilkan" value={String(walletDayRows.length)} description={`Halaman ${walletDayCurrentPage} breakdown harian`} icon={<IconReceipt2 size={18} className="text-slate-700 dark:text-slate-200" />} tone="slate" />
+                                <SummaryCard title="Hari Aktif" value={walletSelectedDayLabel || "-"} description={`${walletRows.length} detail transaksi di halaman ini`} icon={<IconInfoCircle size={18} className="text-slate-700 dark:text-slate-200" />} tone="slate" />
+                            </div>
+
+                            <div className="mt-5 overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
+                                <table className="w-full text-sm">
+                                    <thead className="bg-slate-50 dark:bg-slate-950/40">
+                                        <tr className="border-b border-slate-100 dark:border-slate-800">
+                                            <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">No</th>
+                                            <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Bulan</th>
+                                            <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Hak Tenant</th>
+                                            <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Markup Owner</th>
+                                            <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Mutasi</th>
+                                            <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Aksi</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                        {walletMonthRows.map((row, index) => {
+                                            const isSelected = row.month_key === walletSelectedMonth;
+                                            return (
+                                                <tr key={row.month_key} className={isSelected ? "bg-primary-50/50 dark:bg-primary-950/10" : ""}>
+                                                    <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{index + 1 + (walletMonthCurrentPage - 1) * walletMonthPerPage}</td>
+                                                    <td className="px-4 py-3"><div className="font-semibold text-slate-900 dark:text-white">{row.month_label}</div><div className="text-xs text-slate-500 dark:text-slate-400">{row.sales_count} masuk saldo • {row.returns_count} retur</div></td>
+                                                    <td className={`px-4 py-3 text-right font-semibold ${row.tenant_sales_total < 0 ? "text-danger-600 dark:text-danger-300" : "text-emerald-600 dark:text-emerald-300"}`}>{formatCurrency(row.tenant_sales_total)}</td>
+                                                    <td className="px-4 py-3 text-right text-slate-700 dark:text-slate-300">{formatCurrency(row.owner_markup_total)}</td>
+                                                    <td className="px-4 py-3 text-right text-slate-700 dark:text-slate-300">{row.entries_count}</td>
+                                                    <td className="px-4 py-3"><button type="button" onClick={() => selectWalletMonth(row.month_key)} className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${isSelected ? "bg-primary-600 text-white" : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200"}`}>{isSelected ? "Bulan aktif" : "Lihat hari"}</button></td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div className="mt-4 flex justify-end">
+                                {walletTransactions?.months?.last_page > 1 ? <Pagination links={walletMonthLinks} /> : null}
+                            </div>
+
+                            <div className="mt-6 overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
+                                <table className="w-full text-sm">
+                                    <thead className="bg-slate-50 dark:bg-slate-950/40">
+                                        <tr className="border-b border-slate-100 dark:border-slate-800">
+                                            <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">No</th>
+                                            <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Hari</th>
+                                            <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Hak Tenant</th>
+                                            <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Markup Owner</th>
+                                            <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Mutasi</th>
+                                            <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Aksi</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                        {walletDayRows.map((row, index) => {
+                                            const isSelected = row.date_key === walletSelectedDay;
+                                            return (
+                                                <tr key={row.date_key} className={isSelected ? "bg-primary-50/50 dark:bg-primary-950/10" : ""}>
+                                                    <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{index + 1 + (walletDayCurrentPage - 1) * walletDayPerPage}</td>
+                                                    <td className="px-4 py-3"><div className="font-semibold text-slate-900 dark:text-white">{row.date_label}</div><div className="text-xs text-slate-500 dark:text-slate-400">{row.sales_count} masuk saldo • {row.returns_count} retur</div></td>
+                                                    <td className={`px-4 py-3 text-right font-semibold ${row.tenant_sales_total < 0 ? "text-danger-600 dark:text-danger-300" : "text-emerald-600 dark:text-emerald-300"}`}>{formatCurrency(row.tenant_sales_total)}</td>
+                                                    <td className="px-4 py-3 text-right text-slate-700 dark:text-slate-300">{formatCurrency(row.owner_markup_total)}</td>
+                                                    <td className="px-4 py-3 text-right text-slate-700 dark:text-slate-300">{row.entries_count}</td>
+                                                    <td className="px-4 py-3"><button type="button" onClick={() => selectWalletDay(row.date_key)} className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${isSelected ? "bg-primary-600 text-white" : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200"}`}>{isSelected ? "Hari aktif" : "Lihat detail"}</button></td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div className="mt-4 flex justify-end">
+                                {walletTransactions?.days?.last_page > 1 ? <Pagination links={walletDayLinks} /> : null}
+                            </div>
+
+                            <div className="mt-6 overflow-x-auto">
                                 <table className="w-full text-sm">
                                     <thead>
                                         <tr className="border-b border-slate-100 dark:border-slate-800">
@@ -1136,9 +1438,10 @@ export default function Index({
                                     </tbody>
                                 </table>
                                 <div className="mt-4 flex justify-end">
-                                    {walletTransactions?.last_page > 1 ? <Pagination links={walletLinks} /> : null}
+                                    {walletTransactions?.details?.last_page > 1 ? <Pagination links={walletLinks} /> : null}
                                 </div>
                             </div>
+                            </>
                         ) : (
                             <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-10 text-center text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
                                 Belum ada transaksi delivered yang masuk ke saldo tenant.

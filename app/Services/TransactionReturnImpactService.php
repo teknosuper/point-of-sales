@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\SalesReturn;
+use App\Support\ReportCustomerProfileMetrics;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 
@@ -76,14 +77,15 @@ class TransactionReturnImpactService
         $ordersCount = $activeRows->count();
         $revenueTotal = (int) $rows->sum(fn ($row) => (int) data_get($row, 'net_grand_total', data_get($row, 'grand_total', 0)));
         $discountTotal = (int) $rows->sum(fn ($row) => (int) data_get($row, 'discount', 0));
-        $walkInCount = $activeRows->whereNull('customer_id')->count();
+        $customerProfileSummary = ReportCustomerProfileMetrics::fromRows($activeRows);
 
         return [
             'orders_count' => $ordersCount,
             'revenue_total' => $revenueTotal,
             'discount_total' => $discountTotal,
-            'walk_in_count' => $walkInCount,
-            'registered_customer_count' => max(0, $ordersCount - $walkInCount),
+            'walk_in_count' => (int) ($customerProfileSummary['walk_in_count'] ?? 0),
+            'registered_customer_count' => (int) ($customerProfileSummary['registered_customer_count'] ?? 0),
+            'active_customer_count' => (int) ($customerProfileSummary['active_customer_count'] ?? 0),
             'average_order' => $ordersCount > 0 ? (int) round($revenueTotal / $ordersCount) : 0,
         ];
     }

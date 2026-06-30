@@ -31,7 +31,7 @@ const defaultFilters = {
 
 const WALK_IN_CUSTOMER_OPTION = {
     id: "walk_in",
-    name: "Transaksi Umum / Walk-in",
+    name: "Transaksi Tanpa Profil Customer",
 };
 
 const formatCurrency = (value = 0) =>

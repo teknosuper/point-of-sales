@@ -21,6 +21,7 @@ use App\Services\CashierShiftService;
 use App\Services\OutletResolver;
 use App\Services\TransactionReturnImpactService;
 use App\Support\ReportTimezone;
+use App\Support\ReportCustomerProfileMetrics;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
@@ -56,8 +57,19 @@ class DashboardController extends Controller
             return $this->renderTenantDashboard($activeOutlet);
         }
 
-        $totalCategories = Category::count();
-        $totalProducts = Product::count();
+        $totalCategories = $outletId
+            ? Product::query()
+                ->whereHas('outletStocks', fn (Builder $query) => $query->where('outlet_id', $outletId))
+                ->whereNotNull('category_id')
+                ->distinct('category_id')
+                ->count('category_id')
+            : Category::count();
+        $totalProducts = $outletId
+            ? ProductOutletStock::query()
+                ->where('outlet_id', $outletId)
+                ->distinct('product_id')
+                ->count('product_id')
+            : Product::count();
         $transactionQuery = Transaction::query()
             ->when($outletId, fn ($query) => $query->where('outlet_id', $outletId));
         $detailQuery = TransactionDetail::query()
@@ -69,7 +81,10 @@ class DashboardController extends Controller
             ->filter(fn ($row) => ! (bool) data_get($row, 'is_fully_returned', false))
             ->values();
         $totalTransactions = $activeTransactionMetricRows->count();
-        $totalCustomers = Customer::count();
+        $customerProfileSummary = ReportCustomerProfileMetrics::fromRows($activeTransactionMetricRows);
+        $totalCustomers = $outletId
+            ? (int) ($customerProfileSummary['active_customer_count'] ?? 0)
+            : Customer::count();
         $totalRevenue = (int) $transactionMetricRows->sum('net_grand_total');
         $totalProfit = $this->calcOwnerProfit($outletId, null, null);
         $averageOrder = $totalTransactions > 0
@@ -86,8 +101,8 @@ class DashboardController extends Controller
                 && $createdAt->lessThanOrEqualTo($todayEnd);
         });
         $todayTransactions = $todayRows->count();
-        $walkInTransactions = $activeTransactionMetricRows->whereNull('customer_id')->count();
-        $memberTransactions = max(0, $totalTransactions - $walkInTransactions);
+        $walkInTransactions = (int) ($customerProfileSummary['walk_in_count'] ?? 0);
+        $memberTransactions = (int) ($customerProfileSummary['registered_customer_count'] ?? 0);
 
         // New: Today's Sales and Profit
         $todaySales = (int) $todayRows->sum('net_grand_total');
@@ -397,6 +412,7 @@ class DashboardController extends Controller
             ->with(['transaction.cashier:id,name', 'transaction.customer:id,name'])
             ->where('tenant_outlet_id', $tenantOutletId);
 
+        $metricAllocations = (clone $allocationQuery)->get();
         $allocationIds = (clone $allocationQuery)->pluck('id');
         $transactionIds = (clone $allocationQuery)->pluck('transaction_id')->filter()->unique();
 
@@ -407,10 +423,11 @@ class DashboardController extends Controller
             ->count('category_id');
         $totalProducts = Product::query()->where('tenant_outlet_id', $tenantOutletId)->count();
         $totalTransactions = (clone $allocationQuery)->count();
-        $totalCustomers = (clone $allocationQuery)
-            ->whereHas('transaction', fn (Builder $query) => $query->whereNotNull('customer_id'))
-            ->distinct('transaction_id')
-            ->count('transaction_id');
+        $customerProfileSummary = ReportCustomerProfileMetrics::fromRows(
+            $metricAllocations,
+            'transaction.customer_id'
+        );
+        $totalCustomers = (int) ($customerProfileSummary['active_customer_count'] ?? 0);
         $totalRevenue = (int) ((clone $allocationQuery)->sum('grand_total') ?? 0);
         $totalCost = $this->sumTenantAllocationCost($allocationIds);
         $totalProfit = max(0, $totalRevenue - $totalCost);
@@ -423,10 +440,8 @@ class DashboardController extends Controller
         $todayTransactions = (clone $todayQuery)->count();
         $todaySales = (int) ((clone $todayQuery)->sum('grand_total') ?? 0);
         $todayProfit = max(0, $todaySales - $this->sumTenantAllocationCost((clone $todayQuery)->pluck('id')));
-        $walkInTransactions = (clone $allocationQuery)
-            ->whereHas('transaction', fn (Builder $query) => $query->whereNull('customer_id'))
-            ->count();
-        $memberTransactions = max(0, $totalTransactions - $walkInTransactions);
+        $walkInTransactions = (int) ($customerProfileSummary['walk_in_count'] ?? 0);
+        $memberTransactions = (int) ($customerProfileSummary['registered_customer_count'] ?? 0);
 
         $monthlyTarget = Setting::get('monthly_sales_target', 0, $tenantOutletId);
         $monthlyProfitTarget = Setting::get('monthly_profit_target', 0, $tenantOutletId);
