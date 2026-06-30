@@ -12,6 +12,7 @@ use App\Models\TransactionTenantAllocation;
 use App\Models\TransactionTenantAllocationItem;
 use App\Models\User;
 use App\Services\OutletResolver;
+use App\Support\ReportOwnerTenantSplit;
 use App\Support\ReportTimezone;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
@@ -75,9 +76,15 @@ class WorkspaceSalesController extends Controller
 
         $filteredTransactionIds = (clone $baseQuery)->pluck('id');
         $baseTotalsByTransaction = $this->baseTotalsByTransactionIds($filteredTransactionIds);
+        $ownerMarkupTotalsByTransaction = $this->ownerMarkupTotalsByTransactionIds($filteredTransactionIds);
         $filteredGrossTotal = (int) ((clone $baseQuery)->sum('grand_total') ?? 0);
         $filteredBaseTotal = $this->sumBaseValueForTransactionIds($filteredTransactionIds);
-        $filteredMarkupTotal = max(0, $filteredGrossTotal - $filteredBaseTotal);
+        $ownerSplitSummary = ReportOwnerTenantSplit::aggregateForTransactionIds(
+            Transaction::query()
+                ->whereIn('id', $filteredTransactionIds)
+                ->select('id')
+        );
+        $filteredMarkupTotal = (int) ($ownerSplitSummary['owner_net_total'] ?? 0);
         $filteredPromoTotal = $this->sumPromoDiscountsForTransactionIds($filteredTransactionIds);
         $filteredPreDiscountTotal = max(0, $filteredGrossTotal + $filteredPromoTotal);
 
@@ -85,8 +92,9 @@ class WorkspaceSalesController extends Controller
             ->latest('created_at')
             ->paginate($filters['per_page'])
             ->withQueryString()
-            ->through(function (Transaction $transaction) use ($baseTotalsByTransaction, $isKitchenWorkspace) {
+            ->through(function (Transaction $transaction) use ($baseTotalsByTransaction, $ownerMarkupTotalsByTransaction, $isKitchenWorkspace) {
                 $baseTotal = (int) ($baseTotalsByTransaction[$transaction->id] ?? 0);
+                $ownerMarkupTotal = (int) ($ownerMarkupTotalsByTransaction[$transaction->id] ?? 0);
                 $grossTotal = (int) $transaction->grand_total;
                 $promoTotal = (int) ($transaction->details()->sum('discount_total') ?? 0)
                     + (int) ($transaction->discount ?? 0)
@@ -109,7 +117,7 @@ class WorkspaceSalesController extends Controller
                     'base_total' => $baseTotal,
                     'promo_total' => $promoTotal,
                     'pre_discount_total' => $preDiscountTotal,
-                    'markup_total' => max(0, $grossTotal - $baseTotal),
+                    'markup_total' => $ownerMarkupTotal,
                     'display_total' => $isKitchenWorkspace ? $baseTotal : $grossTotal,
                     'created_at' => ReportTimezone::formatSourceIso8601($transaction->getRawOriginal('created_at')),
                 ];
@@ -741,6 +749,32 @@ class WorkspaceSalesController extends Controller
             ->selectRaw('transaction_id, COALESCE(SUM(base_unit_price * qty), 0) as total_base_value')
             ->groupBy('transaction_id')
             ->pluck('total_base_value', 'transaction_id');
+    }
+
+    private function sumOwnerMarkupValueForTransactionIds(Collection $transactionIds): int
+    {
+        if ($transactionIds->isEmpty()) {
+            return 0;
+        }
+
+        return (int) (TransactionDetail::query()
+            ->whereIn('transaction_id', $transactionIds)
+            ->selectRaw('COALESCE(SUM(owner_net_total), 0) as total_owner_markup_value')
+            ->value('total_owner_markup_value') ?? 0);
+    }
+
+    private function ownerMarkupTotalsByTransactionIds(Collection $transactionIds): Collection
+    {
+        if ($transactionIds->isEmpty()) {
+            return collect();
+        }
+
+        return TransactionDetail::query()
+            ->whereIn('transaction_id', $transactionIds)
+            ->with(['modifiers' => fn ($query) => $query->select(ReportOwnerTenantSplit::modifierSelectColumns())])
+            ->get()
+            ->groupBy('transaction_id')
+            ->map(fn (Collection $details) => (int) (ReportOwnerTenantSplit::summarizeDetails($details)['owner_net_total'] ?? 0));
     }
 
     private function sumBaseValueFromAllocationQuery($query): int

@@ -94,6 +94,7 @@ export default function WorkspaceSalesIndex({
     const slowMoverHint = productPerformance?.slow_movers?.[0] ?? null;
     const [showFilters, setShowFilters] = useState(false);
     const [showHelpModal, setShowHelpModal] = useState(false);
+    const [selectedTransaction, setSelectedTransaction] = useState(null);
     const [filterData, setFilterData] = useState({
         ...defaultFilters,
         q: filters?.q ?? "",
@@ -747,7 +748,27 @@ export default function WorkspaceSalesIndex({
                     </div>
 
                     {showFilters ? (
-                        <form onSubmit={applyFilters} className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+                            <div className="w-full max-w-5xl rounded-3xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-900">
+                                <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-5 dark:border-slate-800">
+                                    <div>
+                                        <h3 className="text-base font-semibold text-slate-900 dark:text-white">
+                                            Filter Workspace Sales
+                                        </h3>
+                                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                            Filter lanjutan untuk tanggal, metode bayar, status bayar, jenis pesanan, dan kasir.
+                                        </p>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowFilters(false)}
+                                        className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 text-slate-500 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                                    >
+                                        <IconX size={18} />
+                                    </button>
+                                </div>
+                                <div className="max-h-[80vh] overflow-y-auto px-6 py-5">
+                        <form onSubmit={applyFilters} className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                             <div>
                                 <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">Tanggal Mulai</label>
                                 <input type="date" value={filterData.start_date} onChange={(e) => handleChange("start_date", e.target.value)} className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800" />
@@ -814,6 +835,9 @@ export default function WorkspaceSalesIndex({
                                 </button>
                             </div>
                         </form>
+                                </div>
+                            </div>
+                        </div>
                     ) : null}
                 </div>
 
@@ -1040,13 +1064,22 @@ export default function WorkspaceSalesIndex({
                                         {isKitchenWorkspace ? <th className="px-4 py-3">Status Antar</th> : null}
                                         {!isKitchenWorkspace ? <th className="px-4 py-3 text-right">Sebelum Promo</th> : null}
                                         {!isKitchenWorkspace ? <th className="px-4 py-3 text-right">Promo</th> : null}
+                                        {!isKitchenWorkspace ? <th className="px-4 py-3 text-right">Markup Owner</th> : null}
                                         <th className="px-4 py-3 text-right">{isKitchenWorkspace ? "Penjualan Tenant" : "Total"}</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {rows.map((row) => (
                                         <tr key={row.id} className="border-b border-slate-100 dark:border-slate-800">
-                                            <td className="px-4 py-3 font-medium text-slate-900 dark:text-white">{row.invoice}</td>
+                                            <td className="px-4 py-3">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setSelectedTransaction(row)}
+                                                    className="font-medium text-left text-primary-700 hover:underline dark:text-primary-300"
+                                                >
+                                                    {row.invoice}
+                                                </button>
+                                            </td>
                                             <td className="px-4 py-3 text-slate-600 dark:text-slate-300">
                                                 {(isKitchenWorkspace ? row.delivered_at : row.created_at)
                                                     ? new Date(isKitchenWorkspace ? row.delivered_at : row.created_at).toLocaleString("id-ID", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })
@@ -1078,6 +1111,11 @@ export default function WorkspaceSalesIndex({
                                                     {row.promo_total > 0 ? `- ${formatCurrency(row.promo_total)}` : formatCurrency(0)}
                                                 </td>
                                             ) : null}
+                                            {!isKitchenWorkspace ? (
+                                                <td className="px-4 py-3 text-right font-medium text-blue-600 dark:text-blue-400">
+                                                    {formatCurrency(row.markup_total || 0)}
+                                                </td>
+                                            ) : null}
                                             <td className="px-4 py-3 text-right font-semibold text-primary-600 dark:text-primary-400">
                                                 {formatCurrency(isKitchenWorkspace ? row.tenant_sale_total : row.display_total)}
                                             </td>
@@ -1105,6 +1143,66 @@ export default function WorkspaceSalesIndex({
                     ) : null}
                 </div>
             </div>
+
+            <Modal
+                show={Boolean(selectedTransaction)}
+                onClose={() => setSelectedTransaction(null)}
+                title="Detail Transaksi"
+                maxWidth="2xl"
+            >
+                {selectedTransaction ? (
+                    <div className="space-y-4 text-sm text-slate-600 dark:text-slate-300">
+                        <div className="grid gap-3 md:grid-cols-2">
+                            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/40">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Invoice</p>
+                                <p className="mt-1 font-semibold text-slate-900 dark:text-white">{selectedTransaction.invoice}</p>
+                                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                                    {selectedTransaction.customer_name} • {selectedTransaction.cashier_name}
+                                </p>
+                            </div>
+                            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/40">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Status</p>
+                                <p className="mt-1 font-semibold text-slate-900 dark:text-white">
+                                    {selectedTransaction.payment_status_label || selectedTransaction.payment_status || "-"}
+                                </p>
+                                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                                    {selectedTransaction.payment_method_label || selectedTransaction.payment_method || "-"} • {selectedTransaction.order_type_label || selectedTransaction.order_type || "-"}
+                                </p>
+                            </div>
+                        </div>
+                        <div className="grid gap-3 md:grid-cols-3">
+                            {!isKitchenWorkspace ? (
+                                <>
+                                    <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+                                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Sebelum Promo</p>
+                                        <p className="mt-1 text-lg font-bold text-slate-900 dark:text-white">{formatCurrency(selectedTransaction.pre_discount_total || selectedTransaction.display_total)}</p>
+                                    </div>
+                                    <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+                                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Promo</p>
+                                        <p className="mt-1 text-lg font-bold text-rose-600 dark:text-rose-400">{selectedTransaction.promo_total > 0 ? `- ${formatCurrency(selectedTransaction.promo_total)}` : formatCurrency(0)}</p>
+                                    </div>
+                                    <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+                                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Markup Owner</p>
+                                        <p className="mt-1 text-lg font-bold text-blue-600 dark:text-blue-400">{formatCurrency(selectedTransaction.markup_total || 0)}</p>
+                                    </div>
+                                </>
+                            ) : null}
+                            <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{isKitchenWorkspace ? "Penjualan Tenant" : "Total Akhir"}</p>
+                                <p className="mt-1 text-lg font-bold text-primary-600 dark:text-primary-400">{formatCurrency(isKitchenWorkspace ? selectedTransaction.tenant_sale_total : selectedTransaction.display_total)}</p>
+                            </div>
+                        </div>
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/40">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Waktu</p>
+                            <p className="mt-1 text-slate-900 dark:text-white">
+                                {(isKitchenWorkspace ? selectedTransaction.delivered_at : selectedTransaction.created_at)
+                                    ? new Date(isKitchenWorkspace ? selectedTransaction.delivered_at : selectedTransaction.created_at).toLocaleString("id-ID", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })
+                                    : "-"}
+                            </p>
+                        </div>
+                    </div>
+                ) : null}
+            </Modal>
 
             <Modal
                 show={showHelpModal}
