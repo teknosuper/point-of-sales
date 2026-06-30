@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Reports;
 use App\Http\Controllers\Controller;
 use App\Models\CashierSettlementRequest;
 use App\Models\Customer;
+use App\Models\Expense;
 use App\Models\Outlet;
 use App\Models\Profit;
 use App\Models\SalesReturn;
@@ -18,6 +19,7 @@ use Carbon\Carbon;
 use App\Services\OutletResolver;
 use App\Services\SalesAnalyticsService;
 use App\Services\TransactionReturnImpactService;
+use App\Support\ReportCashSummary;
 use App\Support\ReportOwnerTenantSplit;
 use App\Support\ReportTargetSummary;
 use App\Support\ReportTenantSalesMetrics;
@@ -156,6 +158,24 @@ class SalesReportController extends Controller
         $tenantAllocations = null;
         $settlementRequests = null;
         $settlementMutations = null;
+        $ownerMarkupMutations = null;
+        $settlementExpenses = null;
+        $ownerCashHistory = collect();
+        $closingReport = null;
+        $ownerCashSummary = [
+            'tenant_rights_total' => 0,
+            'tenant_paid_total' => 0,
+            'tenant_outstanding_total' => 0,
+            'expense_total' => 0,
+            'expense_paid_total' => 0,
+            'expense_unpaid_total' => 0,
+            'expense_paid_cumulative_total' => 0,
+            'actual_cash_remaining_total' => 0,
+            'actual_cash_after_rights_total' => 0,
+            'owner_markup_total' => 0,
+            'owner_markup_remaining_total' => 0,
+            'owner_markup_after_expense_total' => 0,
+        ];
         $settlementSummary = [
             'pending_count' => 0,
             'approved_count' => 0,
@@ -167,20 +187,88 @@ class SalesReportController extends Controller
             'balance_total' => 0,
         ];
         if ($activeTab === 'settlement') {
-            $tenantMetricAllocations = (clone $tenantAllocationBaseQuery)
-                ->get();
-            $tenantMetricAllocations = $this->appendAllocationMetrics($tenantMetricAllocations);
+            $needsSummary = in_array($settlementView, ['closing', 'withdraw'], true);
+            $needsMutationRows = in_array($settlementView, ['closing', 'tenant_mutations', 'owner_markup', 'cash'], true);
+            $needsCash = in_array($settlementView, ['closing', 'cash'], true);
 
-            $tenantAllocations = (clone $tenantAllocationBaseQuery)
-                ->orderByDesc('created_at')
-                ->paginate(10, ['*'], 'settlement_page')
-                ->withQueryString();
-            $tenantAllocations = $this->appendAllocationMetrics($tenantAllocations);
-            $tenantAllocations = $this->formatAllocationReportRows($tenantAllocations);
+            if ($needsSummary) {
+                $settlementSummary = $this->buildSettlementRequestSummary($filters, false);
+            }
 
-            $settlementRequests = $this->buildSettlementRequestPaginator($filters, false);
-            $settlementSummary = $this->buildSettlementRequestSummary($filters, false);
-            $settlementMutations = $this->buildSettlementMutationReport($filters, false);
+            if ($settlementView === 'withdraw') {
+                $settlementRequests = $this->buildSettlementRequestPaginator($filters, false);
+            }
+
+            $settlementMutationRows = collect();
+            if ($needsMutationRows) {
+                $settlementMutationRows = $this->buildSettlementMutationRows($filters, false)
+                    ->sortByDesc('activity_ts')
+                    ->values();
+            }
+
+            if ($settlementView === 'tenant_mutations') {
+                $settlementMutations = $this->buildSettlementMutationReport($settlementMutationRows);
+            }
+
+            if ($settlementView === 'owner_markup') {
+                $ownerMarkupMutations = $this->buildOwnerMarkupMutationReport($settlementMutationRows);
+            }
+
+            if ($settlementView === 'cash') {
+                $settlementExpenses = $this->buildSettlementExpensePaginator($filters, $outletId);
+            }
+
+            if ($needsCash || $settlementView === 'closing') {
+                $balanceFilters = [...$filters, 'start_date' => null];
+                $balanceTransactionQuery = $this->applyFilters(
+                    Transaction::query()->select('transactions.id'),
+                    $balanceFilters
+                );
+                if ($filters['tenant_outlet_id'] ?? null) {
+                    $balanceTransactionQuery->whereHas('details', fn ($query) => $query->where('tenant_outlet_id', $filters['tenant_outlet_id']));
+                }
+
+                if ($settlementView === 'closing') {
+                    $expenseSummary = ReportCashSummary::expenseSummary($filters, $outletId);
+                    $tenantPayoutSummary = ReportCashSummary::tenantPayoutSummary(
+                        $filters,
+                        $outletId,
+                        $balanceTransactionQuery->select('transactions.id')
+                    );
+
+                    $ownerCashSummary = [
+                        'tenant_rights_total' => (int) ($tenantPayoutSummary['balance_total'] ?? 0),
+                        'tenant_paid_total' => (int) ($tenantPayoutSummary['paid_cumulative_total'] ?? 0),
+                        'tenant_outstanding_total' => (int) ($tenantPayoutSummary['outstanding_total'] ?? 0),
+                        'expense_total' => (int) ($expenseSummary['expense_total'] ?? 0),
+                        'expense_paid_total' => (int) ($expenseSummary['expense_paid_total'] ?? 0),
+                        'expense_unpaid_total' => (int) ($expenseSummary['expense_unpaid_total'] ?? 0),
+                        'expense_paid_cumulative_total' => (int) ($expenseSummary['expense_paid_cumulative_total'] ?? 0),
+                        'actual_cash_remaining_total' => (int) ($metricSummary['revenue_total'] ?? 0)
+                            - (int) ($tenantPayoutSummary['paid_cumulative_total'] ?? 0)
+                            - (int) ($expenseSummary['expense_paid_cumulative_total'] ?? 0),
+                        'actual_cash_after_rights_total' => (int) ($metricSummary['revenue_total'] ?? 0)
+                            - (int) ($tenantPayoutSummary['balance_total'] ?? 0)
+                            - (int) ($expenseSummary['expense_total'] ?? 0),
+                        'owner_markup_total' => (int) $settlementMutationRows->sum('owner_markup_total'),
+                        'owner_markup_remaining_total' => (int) $settlementMutationRows->sum('owner_markup_total')
+                            - (int) ($expenseSummary['expense_paid_cumulative_total'] ?? 0),
+                        'owner_markup_after_expense_total' => (int) $settlementMutationRows->sum('owner_markup_total')
+                            - (int) ($expenseSummary['expense_total'] ?? 0),
+                    ];
+                }
+
+                $ownerCashHistory = $this->buildOwnerCashDailyHistory(
+                    $filters,
+                    $outletId,
+                    $balanceTransactionQuery->select('transactions.id'),
+                    $settlementMutationRows
+                );
+
+                if ($settlementView === 'closing') {
+                    $closingReport = $this->buildSettlementClosingReport($ownerCashHistory, $settlementMutationRows);
+                }
+            }
         }
 
         $tenantSummary = [
@@ -327,11 +415,27 @@ class SalesReportController extends Controller
                     'request_pending_total' => (int) ($settlementSummary['pending_total'] ?? 0),
                     'request_approved_total' => (int) ($settlementSummary['approved_total'] ?? 0),
                     'request_balance_total' => (int) ($settlementSummary['balance_total'] ?? 0),
+                    'tenant_rights_total' => (int) ($ownerCashSummary['tenant_rights_total'] ?? 0),
+                    'tenant_paid_total' => (int) ($ownerCashSummary['tenant_paid_total'] ?? 0),
+                    'tenant_outstanding_total' => (int) ($ownerCashSummary['tenant_outstanding_total'] ?? 0),
+                    'expense_total' => (int) ($ownerCashSummary['expense_total'] ?? 0),
+                    'expense_paid_total' => (int) ($ownerCashSummary['expense_paid_total'] ?? 0),
+                    'expense_unpaid_total' => (int) ($ownerCashSummary['expense_unpaid_total'] ?? 0),
+                    'expense_paid_cumulative_total' => (int) ($ownerCashSummary['expense_paid_cumulative_total'] ?? 0),
+                    'actual_cash_remaining_total' => (int) ($ownerCashSummary['actual_cash_remaining_total'] ?? 0),
+                    'actual_cash_after_rights_total' => (int) ($ownerCashSummary['actual_cash_after_rights_total'] ?? 0),
+                    'owner_markup_total' => (int) ($ownerCashSummary['owner_markup_total'] ?? 0),
+                    'owner_markup_remaining_total' => (int) ($ownerCashSummary['owner_markup_remaining_total'] ?? 0),
+                    'owner_markup_after_expense_total' => (int) ($ownerCashSummary['owner_markup_after_expense_total'] ?? 0),
                 ],
                 'top_tenants' => $topTenants,
                 'allocations' => $tenantAllocations,
                 'requests' => $settlementRequests,
                 'mutations' => $settlementMutations,
+                'owner_markup_mutations' => $ownerMarkupMutations,
+                'expenses' => $settlementExpenses,
+                'cash_history' => $ownerCashHistory,
+                'closing' => $closingReport,
                 'daily_recap' => $dailyRecap,
             ],
             'filters' => $filters,
@@ -410,7 +514,10 @@ class SalesReportController extends Controller
             $tenantAllocations = $this->formatAllocationReportRows($tenantAllocations);
             $settlementRequests = $this->buildSettlementRequestPaginator($filters, true);
             $settlementSummary = $this->buildSettlementRequestSummary($filters, true);
-            $settlementMutations = $this->buildSettlementMutationReport($filters, true);
+            $settlementMutationRows = $this->buildSettlementMutationRows($filters, true)
+                ->sortByDesc('activity_ts')
+                ->values();
+            $settlementMutations = $this->buildSettlementMutationReport($settlementMutationRows);
         }
 
         $tenantSummary = [
@@ -507,6 +614,15 @@ class SalesReportController extends Controller
                     'request_pending_total' => (int) ($settlementSummary['pending_total'] ?? 0),
                     'request_approved_total' => (int) ($settlementSummary['approved_total'] ?? 0),
                     'request_balance_total' => (int) ($settlementSummary['balance_total'] ?? 0),
+                    'tenant_rights_total' => 0,
+                    'tenant_paid_total' => 0,
+                    'tenant_outstanding_total' => 0,
+                    'expense_total' => 0,
+                    'expense_paid_total' => 0,
+                    'expense_unpaid_total' => 0,
+                    'expense_paid_cumulative_total' => 0,
+                    'actual_cash_remaining_total' => 0,
+                    'actual_cash_after_rights_total' => 0,
                     'outstanding_total' => (int) ($settlementSummary['outstanding_total'] ?? 0),
                 ],
                 'top_tenants' => $topTenants,
@@ -1026,6 +1142,78 @@ class SalesReportController extends Controller
                 'end_date' => $filters['end_date'],
                 'settlement_status' => $filters['settlement_status'],
             ],
+        ]);
+    }
+
+    public function exportSettlementClosing(Request $request)
+    {
+        $activeOutlet = $this->outletResolver->resolve($request, $request->user());
+        $outletId = $activeOutlet?->id;
+        $filters = [
+            'start_date' => $request->input('start_date'),
+            'end_date' => $request->input('end_date'),
+            'invoice' => $request->input('invoice'),
+            'cashier_id' => $request->input('cashier_id'),
+            'customer_id' => $request->input('customer_id'),
+            'tenant_outlet_id' => ((string) ($activeOutlet?->outlet_type ?? '') === 'tenant') ? $outletId : $request->input('tenant_outlet_id'),
+            'settlement_status' => $request->input('settlement_status'),
+            'mutation_q' => $request->input('mutation_q'),
+            'outlet_id' => ((string) ($activeOutlet?->outlet_type ?? '') === 'tenant') ? null : $outletId,
+        ];
+
+        $settlementMutationRows = $this->buildSettlementMutationRows($filters, false)
+            ->sortByDesc('activity_ts')
+            ->values();
+
+        $balanceFilters = [...$filters, 'start_date' => null];
+        $balanceTransactionQuery = $this->applyFilters(
+            Transaction::query()->select('transactions.id'),
+            $balanceFilters
+        );
+        if ($filters['tenant_outlet_id'] ?? null) {
+            $balanceTransactionQuery->whereHas('details', fn ($query) => $query->where('tenant_outlet_id', $filters['tenant_outlet_id']));
+        }
+
+        $ownerCashHistory = $this->buildOwnerCashDailyHistory(
+            $filters,
+            $outletId,
+            $balanceTransactionQuery->select('transactions.id'),
+            $settlementMutationRows
+        );
+        $closingReport = $this->buildSettlementClosingReport($ownerCashHistory, $settlementMutationRows);
+        $rows = collect($closingReport['months']->items());
+
+        $filename = 'closing-bulanan-'.now()->format('Ymd-His').'.csv';
+
+        return response()->streamDownload(function () use ($rows) {
+            $handle = fopen('php://output', 'w');
+            fputcsv($handle, [
+                'bulan',
+                'penjualan_total',
+                'hak_tenant_total',
+                'markup_owner_total',
+                'expense_paid_total',
+                'sisa_kas_total',
+                'sisa_markup_owner_total',
+                'jumlah_hari',
+            ]);
+
+            foreach ($rows as $row) {
+                fputcsv($handle, [
+                    $row['month_label'] ?? $row['month_key'] ?? '',
+                    (int) ($row['revenue_total'] ?? 0),
+                    (int) ($row['tenant_rights_total'] ?? 0),
+                    (int) ($row['owner_markup_total'] ?? 0),
+                    (int) ($row['expense_paid_total'] ?? 0),
+                    (int) ($row['remaining_cash_total'] ?? 0),
+                    (int) ($row['owner_markup_remaining_total'] ?? 0),
+                    (int) ($row['days_count'] ?? 0),
+                ]);
+            }
+
+            fclose($handle);
+        }, $filename, [
+            'Content-Type' => 'text/csv; charset=UTF-8',
         ]);
     }
 
@@ -1603,12 +1791,8 @@ class SalesReportController extends Controller
         ];
     }
 
-    protected function buildSettlementMutationReport(array $filters, bool $tenantWorkspace): array
+    protected function buildSettlementMutationReport(Collection $rows): array
     {
-        $rows = $this->buildSettlementMutationRows($filters, $tenantWorkspace)
-            ->sortByDesc('activity_ts')
-            ->values();
-
         $groupedRows = $rows
             ->groupBy(fn ($row) => $row['date_key'])
             ->map(function (Collection $items, string $dateKey) {
@@ -1675,11 +1859,126 @@ class SalesReportController extends Controller
         ];
     }
 
+    protected function buildOwnerMarkupMutationReport(Collection $rows): array
+    {
+        $groupedMonths = $rows
+            ->groupBy(fn ($row) => substr((string) ($row['date_key'] ?? ''), 0, 7))
+            ->map(function (Collection $items, string $monthKey) {
+                return [
+                    'month_key' => $monthKey,
+                    'month_label' => Carbon::createFromFormat('Y-m', $monthKey)->translatedFormat('F Y'),
+                    'owner_markup_total' => (int) $items->sum('owner_markup_total'),
+                    'tenant_total' => (int) $items->sum('mutation_total'),
+                    'gross_total' => (int) $items->sum('gross_total'),
+                    'discount_total' => (int) $items->sum('discount_total'),
+                    'transactions_count' => (int) $items->where('entry_type', 'allocation')->count(),
+                    'returns_count' => (int) $items->where('entry_type', 'return')->count(),
+                    'entries_count' => (int) $items->count(),
+                ];
+            })
+            ->sortByDesc('month_key')
+            ->values();
+
+        $monthCurrentPage = max(1, (int) request()->integer('owner_markup_month_page', 1));
+        $monthPerPage = 6;
+        $monthPageRows = $groupedMonths->slice(($monthCurrentPage - 1) * $monthPerPage, $monthPerPage)->values();
+        $monthPaginator = new LengthAwarePaginator(
+            $monthPageRows,
+            $groupedMonths->count(),
+            $monthPerPage,
+            $monthCurrentPage,
+            [
+                'path' => request()->url(),
+                'pageName' => 'owner_markup_month_page',
+                'query' => request()->query(),
+            ]
+        );
+
+        $selectedMonth = (string) request()->query('owner_markup_month', '');
+        $selectedMonth = $groupedMonths->firstWhere('month_key', $selectedMonth)['month_key']
+            ?? ($monthPageRows->first()['month_key'] ?? ($groupedMonths->first()['month_key'] ?? ''));
+
+        $selectedMonthRows = $selectedMonth !== ''
+            ? $rows->filter(fn ($row) => str_starts_with((string) ($row['date_key'] ?? ''), $selectedMonth))->values()
+            : collect();
+
+        $groupedDays = $selectedMonthRows
+            ->groupBy(fn ($row) => $row['date_key'])
+            ->map(function (Collection $items, string $dateKey) {
+                return [
+                    'date_key' => $dateKey,
+                    'date_label' => ReportTimezone::formatSourceDateLabel($dateKey, 'd M Y') ?? $dateKey,
+                    'owner_markup_total' => (int) $items->sum('owner_markup_total'),
+                    'tenant_total' => (int) $items->sum('mutation_total'),
+                    'gross_total' => (int) $items->sum('gross_total'),
+                    'discount_total' => (int) $items->sum('discount_total'),
+                    'transactions_count' => (int) $items->where('entry_type', 'allocation')->count(),
+                    'returns_count' => (int) $items->where('entry_type', 'return')->count(),
+                    'entries_count' => (int) $items->count(),
+                ];
+            })
+            ->sortByDesc('date_key')
+            ->values();
+
+        $dayCurrentPage = max(1, (int) request()->integer('owner_markup_day_page', 1));
+        $dayPerPage = 7;
+        $dayPageRows = $groupedDays->slice(($dayCurrentPage - 1) * $dayPerPage, $dayPerPage)->values();
+        $dayPaginator = new LengthAwarePaginator(
+            $dayPageRows,
+            $groupedDays->count(),
+            $dayPerPage,
+            $dayCurrentPage,
+            [
+                'path' => request()->url(),
+                'pageName' => 'owner_markup_day_page',
+                'query' => request()->query(),
+            ]
+        );
+
+        $selectedDay = (string) request()->query('owner_markup_day', '');
+        $selectedDay = $groupedDays->firstWhere('date_key', $selectedDay)['date_key']
+            ?? ($dayPageRows->first()['date_key'] ?? ($groupedDays->first()['date_key'] ?? ''));
+
+        $selectedDayRows = $selectedDay !== ''
+            ? $selectedMonthRows->filter(fn ($row) => $row['date_key'] === $selectedDay)->values()
+            : collect();
+        $selectedDaySummary = $groupedDays->firstWhere('date_key', $selectedDay) ?? null;
+        $selectedMonthSummary = $groupedMonths->firstWhere('month_key', $selectedMonth) ?? null;
+
+        $detailCurrentPage = max(1, (int) request()->integer('owner_markup_detail_page', 1));
+        $detailPerPage = 10;
+        $detailPageRows = $selectedDayRows->slice(($detailCurrentPage - 1) * $detailPerPage, $detailPerPage)->values();
+        $detailPaginator = new LengthAwarePaginator(
+            $detailPageRows,
+            $selectedDayRows->count(),
+            $detailPerPage,
+            $detailCurrentPage,
+            [
+                'path' => request()->url(),
+                'pageName' => 'owner_markup_detail_page',
+                'query' => request()->query(),
+            ]
+        );
+
+        return [
+            'months' => $monthPaginator,
+            'selected_month' => $selectedMonth,
+            'selected_month_label' => $selectedMonth !== '' ? Carbon::createFromFormat('Y-m', $selectedMonth)->translatedFormat('F Y') : null,
+            'selected_month_summary' => $selectedMonthSummary,
+            'days' => $dayPaginator,
+            'selected_day' => $selectedDay,
+            'selected_day_label' => $selectedDay !== '' ? (ReportTimezone::formatSourceDateLabel($selectedDay, 'd M Y') ?? $selectedDay) : null,
+            'selected_day_summary' => $selectedDaySummary,
+            'details' => $detailPaginator,
+        ];
+    }
+
     protected function resolveSettlementView(Request $request): string
     {
-        return $request->input('settlement_view') === 'mutations'
-            ? 'mutations'
-            : 'withdraw';
+        $allowedViews = ['closing', 'withdraw', 'tenant_mutations', 'owner_markup', 'cash'];
+        $view = (string) $request->input('settlement_view', 'closing');
+
+        return in_array($view, $allowedViews, true) ? $view : 'closing';
     }
 
     protected function buildSettlementMutationRows(array $filters, bool $tenantWorkspace): Collection
@@ -1740,7 +2039,11 @@ class SalesReportController extends Controller
             });
 
         $returnQuery = SalesReturn::query()
-            ->with(['transaction.customer:id,name', 'transaction.cashier:id,name'])
+            ->with([
+                'transaction.customer:id,name',
+                'transaction.cashier:id,name',
+                'items.transactionDetail:id,tenant_outlet_id,qty,customer_base_unit_price,unit_price,tenant_base_unit_price,owner_markup_unit_price,discount_total,tenant_net_total,owner_net_total',
+            ])
             ->where('status', 'completed')
             ->when($filters['outlet_id'] ?? null, fn ($query, $outletId) => $query->where('outlet_id', $outletId))
             ->when($filters['cashier_id'] ?? null, fn ($query, $cashierId) => $query->where('cashier_id', $cashierId))
@@ -1852,6 +2155,244 @@ class SalesReportController extends Controller
                 'id' => $request->rejectedBy->id,
                 'name' => $request->rejectedBy->name,
             ] : null,
+        ];
+    }
+
+    protected function buildSettlementExpensePaginator(array $filters, ?int $outletId): LengthAwarePaginator
+    {
+        if (! Schema::hasTable('expenses')) {
+            return new LengthAwarePaginator([], 0, 10, 1, [
+                'path' => request()->url(),
+                'pageName' => 'settlement_expenses_page',
+                'query' => request()->query(),
+            ]);
+        }
+
+        return Expense::query()
+            ->with('creator:id,name')
+            ->when($outletId, fn ($query) => $query->where('outlet_id', $outletId))
+            ->when($filters['start_date'] ?? null, fn ($query, $date) => $query->whereDate('expense_date', '>=', $date))
+            ->when($filters['end_date'] ?? null, fn ($query, $date) => $query->whereDate('expense_date', '<=', $date))
+            ->orderByDesc('expense_date')
+            ->orderByDesc('id')
+            ->paginate(10, ['*'], 'settlement_expenses_page')
+            ->withQueryString()
+            ->through(fn (Expense $expense) => [
+                'id' => $expense->id,
+                'expense_date' => optional($expense->expense_date)?->toDateString(),
+                'category' => $expense->category,
+                'description' => $expense->description,
+                'amount' => (int) $expense->amount,
+                'payment_method' => $expense->payment_method,
+                'status' => $expense->status,
+                'notes' => $expense->notes,
+                'created_by_name' => $expense->creator?->name,
+            ]);
+    }
+
+    protected function buildOwnerCashDailyHistory(array $filters, ?int $outletId, $balanceTransactionQuery, Collection $settlementMutationRows): Collection
+    {
+        if (blank($filters['end_date'] ?? null)) {
+            return collect();
+        }
+
+        $startDate = $filters['start_date'] ?: $filters['end_date'];
+        $days = ReportTimezone::displayDateRangeDays($startDate, $filters['end_date']);
+        if ($days > 62) {
+            return collect();
+        }
+
+        $ownerMarkupByDate = $settlementMutationRows
+            ->groupBy('date_key')
+            ->map(fn (Collection $items) => (int) $items->sum('owner_markup_total'));
+        $tenantRightsByDate = $settlementMutationRows
+            ->groupBy('date_key')
+            ->map(fn (Collection $items) => (int) $items->sum('mutation_total'));
+        $tenantOutletIds = $this->resolveSettlementTenantOutletIds($filters);
+
+        $periodFilters = [...$filters, 'start_date' => $startDate, 'end_date' => $filters['end_date']];
+        $revenueRows = $this->applyFilters(
+            Transaction::query()->select('created_at', 'grand_total'),
+            $periodFilters
+        )
+            ->when($outletId, fn ($query) => $query->where('outlet_id', $outletId))
+            ->when($filters['tenant_outlet_id'] ?? null, fn ($query) => $query->whereHas('details', fn ($detailQuery) => $detailQuery->where('tenant_outlet_id', $filters['tenant_outlet_id'])))
+            ->get();
+        $revenueByDate = $revenueRows
+            ->groupBy(fn ($row) => ReportTimezone::sourceDateKey($row->getRawOriginal('created_at')))
+            ->map(fn (Collection $items) => (int) $items->sum('grand_total'));
+
+        $expensePaidByDate = Schema::hasTable('expenses')
+            ? Expense::query()
+                ->when($outletId, fn ($query) => $query->where('outlet_id', $outletId))
+                ->where('status', Expense::STATUS_PAID)
+                ->whereDate('expense_date', '>=', $startDate)
+                ->whereDate('expense_date', '<=', $filters['end_date'])
+                ->get(['expense_date', 'amount'])
+                ->groupBy(fn ($row) => optional($row->expense_date)->toDateString())
+                ->map(fn (Collection $items) => (int) $items->sum('amount'))
+            : collect();
+
+        $tenantPaidByDate = Schema::hasTable('cashier_settlement_requests')
+            ? CashierSettlementRequest::query()
+                ->whereNull('cashier_shift_id')
+                ->where('status', CashierSettlementRequest::STATUS_APPROVED)
+                ->whereIn('outlet_id', $tenantOutletIds->all())
+                ->whereNotNull('paid_at')
+                ->whereDate('paid_at', '>=', $startDate)
+                ->whereDate('paid_at', '<=', $filters['end_date'])
+                ->get(['paid_at', 'approved_amount'])
+                ->groupBy(fn ($row) => ReportTimezone::sourceDateKey($row->getRawOriginal('paid_at')))
+                ->map(fn (Collection $items) => (int) $items->sum('approved_amount'))
+            : collect();
+
+        $revenueRunning = 0;
+        $expensePaidRunning = 0;
+        $tenantPaidRunning = 0;
+        $ownerMarkupRunning = 0;
+        $tenantRightsRunning = 0;
+
+        return collect(range(0, $days - 1))->map(function (int $offset) use (
+            $startDate,
+            &$revenueRunning,
+            &$expensePaidRunning,
+            &$tenantPaidRunning,
+            &$ownerMarkupRunning,
+            &$tenantRightsRunning,
+            $revenueByDate,
+            $expensePaidByDate,
+            $tenantPaidByDate,
+            $ownerMarkupByDate,
+            $tenantRightsByDate
+        ) {
+            $day = Carbon::createFromFormat('Y-m-d', $startDate, ReportTimezone::timezone())->addDays($offset)->format('Y-m-d');
+            $dayRevenueTotal = (int) ($revenueByDate->get($day, 0) ?? 0);
+            $expensePaidTotal = (int) ($expensePaidByDate->get($day, 0) ?? 0);
+            $tenantPaidTotal = (int) ($tenantPaidByDate->get($day, 0) ?? 0);
+            $ownerMarkupTotal = (int) ($ownerMarkupByDate->get($day, 0) ?? 0);
+            $tenantRightsTotal = (int) ($tenantRightsByDate->get($day, 0) ?? 0);
+
+            $revenueRunning += $dayRevenueTotal;
+            $expensePaidRunning += $expensePaidTotal;
+            $tenantPaidRunning += $tenantPaidTotal;
+            $ownerMarkupRunning += $ownerMarkupTotal;
+            $tenantRightsRunning += $tenantRightsTotal;
+
+            return [
+                'date' => $day,
+                'label' => Carbon::createFromFormat('Y-m-d', $day, ReportTimezone::timezone())->translatedFormat('d M Y'),
+                'revenue_total' => $dayRevenueTotal,
+                'expense_paid_total' => $expensePaidTotal,
+                'expense_paid_cumulative_total' => $expensePaidRunning,
+                'tenant_rights_total' => $tenantRightsTotal,
+                'tenant_paid_cumulative_total' => $tenantPaidRunning,
+                'tenant_rights_cumulative_total' => $tenantRightsRunning,
+                'owner_markup_total' => $ownerMarkupTotal,
+                'owner_markup_cumulative_total' => $ownerMarkupRunning,
+                'owner_markup_remaining_total' => $ownerMarkupRunning - $expensePaidRunning,
+                'remaining_cash_total' => $revenueRunning - $tenantPaidRunning - $expensePaidRunning,
+            ];
+        });
+    }
+
+    protected function buildSettlementClosingReport(Collection $cashHistoryRows, Collection $settlementMutationRows): array
+    {
+        $monthRows = $cashHistoryRows
+            ->groupBy(fn (array $row) => substr((string) ($row['date'] ?? ''), 0, 7))
+            ->map(function (Collection $items, string $monthKey) {
+                $last = $items->sortBy('date')->last();
+
+                return [
+                    'month_key' => $monthKey,
+                    'month_label' => Carbon::createFromFormat('Y-m', $monthKey)->translatedFormat('F Y'),
+                    'revenue_total' => (int) $items->sum('revenue_total'),
+                    'tenant_rights_total' => (int) $items->sum('tenant_rights_total'),
+                    'owner_markup_total' => (int) $items->sum('owner_markup_total'),
+                    'expense_paid_total' => (int) $items->sum('expense_paid_total'),
+                    'remaining_cash_total' => (int) ($last['remaining_cash_total'] ?? 0),
+                    'owner_markup_remaining_total' => (int) ($last['owner_markup_remaining_total'] ?? 0),
+                    'days_count' => (int) $items->count(),
+                ];
+            })
+            ->sortByDesc('month_key')
+            ->values();
+
+        $monthCurrentPage = max(1, (int) request()->integer('closing_month_page', 1));
+        $monthPerPage = 6;
+        $monthPageRows = $monthRows->slice(($monthCurrentPage - 1) * $monthPerPage, $monthPerPage)->values();
+        $monthPaginator = new LengthAwarePaginator(
+            $monthPageRows,
+            $monthRows->count(),
+            $monthPerPage,
+            $monthCurrentPage,
+            [
+                'path' => request()->url(),
+                'pageName' => 'closing_month_page',
+                'query' => request()->query(),
+            ]
+        );
+
+        $selectedMonth = (string) request()->query('closing_month', '');
+        $selectedMonth = $monthRows->firstWhere('month_key', $selectedMonth)['month_key']
+            ?? ($monthPageRows->first()['month_key'] ?? ($monthRows->first()['month_key'] ?? ''));
+
+        $dayRows = $selectedMonth !== ''
+            ? $cashHistoryRows
+                ->filter(fn (array $row) => str_starts_with((string) ($row['date'] ?? ''), $selectedMonth))
+                ->sortByDesc('date')
+                ->values()
+            : collect();
+
+        $dayCurrentPage = max(1, (int) request()->integer('closing_day_page', 1));
+        $dayPerPage = 10;
+        $dayPageRows = $dayRows->slice(($dayCurrentPage - 1) * $dayPerPage, $dayPerPage)->values();
+        $dayPaginator = new LengthAwarePaginator(
+            $dayPageRows,
+            $dayRows->count(),
+            $dayPerPage,
+            $dayCurrentPage,
+            [
+                'path' => request()->url(),
+                'pageName' => 'closing_day_page',
+                'query' => request()->query(),
+            ]
+        );
+
+        $selectedDay = (string) request()->query('closing_day', '');
+        $selectedDay = $dayRows->firstWhere('date', $selectedDay)['date']
+            ?? ($dayPageRows->first()['date'] ?? ($dayRows->first()['date'] ?? ''));
+
+        $selectedDayRows = $selectedDay !== ''
+            ? $settlementMutationRows
+                ->filter(fn (array $row) => (string) ($row['date_key'] ?? '') === $selectedDay)
+                ->values()
+            : collect();
+
+        $detailCurrentPage = max(1, (int) request()->integer('closing_detail_page', 1));
+        $detailPerPage = 10;
+        $detailPageRows = $selectedDayRows->slice(($detailCurrentPage - 1) * $detailPerPage, $detailPerPage)->values();
+        $detailPaginator = new LengthAwarePaginator(
+            $detailPageRows,
+            $selectedDayRows->count(),
+            $detailPerPage,
+            $detailCurrentPage,
+            [
+                'path' => request()->url(),
+                'pageName' => 'closing_detail_page',
+                'query' => request()->query(),
+            ]
+        );
+
+        return [
+            'months' => $monthPaginator,
+            'selected_month' => $selectedMonth,
+            'selected_month_label' => $selectedMonth !== '' ? Carbon::createFromFormat('Y-m', $selectedMonth)->translatedFormat('F Y') : null,
+            'selected_month_summary' => $monthRows->firstWhere('month_key', $selectedMonth) ?? null,
+            'days' => $dayPaginator,
+            'selected_day' => $selectedDay,
+            'selected_day_label' => $selectedDay !== '' ? (ReportTimezone::formatSourceDateLabel($selectedDay, 'd M Y') ?? $selectedDay) : null,
+            'selected_day_summary' => $dayRows->firstWhere('date', $selectedDay) ?? null,
+            'details' => $detailPaginator,
         ];
     }
 

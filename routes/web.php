@@ -482,6 +482,7 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
 
     // reports
     Route::get('/reports/sales', [SalesReportController::class, 'index'])->middleware('permission:reports-access')->name('reports.sales.index');
+    Route::get('/reports/sales/closing/export', [SalesReportController::class, 'exportSettlementClosing'])->middleware('permission:reports-access')->name('reports.sales.closing.export');
     Route::get('/reports/sales/tenant-statement/{tenantOutlet}', [SalesReportController::class, 'tenantStatement'])->middleware(['permission:reports-access', 'outlet_access'])->name('reports.sales.tenant-statement');
     Route::get('/reports/sales/tenant-settlement/export', [SalesReportController::class, 'exportTenantSettlement'])->middleware('permission:reports-access')->name('reports.sales.tenant-settlement.export');
     Route::get('/reports/sales/tenant-settlement/print', [SalesReportController::class, 'printTenantSettlementBatch'])->middleware('permission:reports-access')->name('reports.sales.tenant-settlement.print');

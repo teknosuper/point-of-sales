@@ -58,6 +58,52 @@ const SummaryCard = ({ icon, title, value, description }) => (
     </div>
 );
 
+const ClosingStatementTable = ({ title, description, rows = [] }) => (
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+        <h3 className="text-sm font-semibold text-slate-900 dark:text-white">{title}</h3>
+        {description ? (
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{description}</p>
+        ) : null}
+        <div className="mt-4 overflow-x-auto">
+            <table className="w-full min-w-[720px]">
+                <thead>
+                    <tr className="border-b border-slate-100 dark:border-slate-800">
+                        <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-slate-500">Pos Akuntansi</th>
+                        <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-slate-500">Penjelasan</th>
+                        <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Nominal</th>
+                    </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {rows.map((row) => (
+                        <tr key={row.label}>
+                            <td className={`px-3 py-3 text-sm ${row.emphasis ? "font-semibold text-slate-900 dark:text-white" : "text-slate-700 dark:text-slate-300"}`}>
+                                {row.label}
+                            </td>
+                            <td className="px-3 py-3 text-sm text-slate-500 dark:text-slate-400">
+                                {row.note}
+                            </td>
+                            <td className={`px-3 py-3 text-right text-sm ${
+                                row.tone === "negative"
+                                    ? "font-semibold text-rose-600 dark:text-rose-300"
+                                    : row.tone === "positive"
+                                      ? "font-semibold text-emerald-600 dark:text-emerald-300"
+                                      : row.tone === "info"
+                                        ? "font-semibold text-blue-700 dark:text-blue-300"
+                                        : row.emphasis
+                                          ? "font-semibold text-slate-900 dark:text-white"
+                                          : "text-slate-700 dark:text-slate-300"
+                            }`}>
+                                {row.prefix === "-" ? "- " : ""}
+                                {formatCurrency(Math.abs(Number(row.value ?? 0)))}
+                            </td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </div>
+    </div>
+);
+
 const defaultFilterState = {
     start_date: "",
     end_date: "",
@@ -212,6 +258,16 @@ const Sales = ({
             mutations_page: 1,
             mutation_detail_page: 1,
             mutation_day: "",
+            owner_markup_month_page: 1,
+            owner_markup_day_page: 1,
+            owner_markup_detail_page: 1,
+            owner_markup_month: "",
+            owner_markup_day: "",
+            closing_month_page: 1,
+            closing_day_page: 1,
+            closing_month: "",
+            closing_day: "",
+            closing_detail_page: 1,
         }), {
             preserveScroll: true,
             preserveState: true,
@@ -234,6 +290,16 @@ const Sales = ({
                 mutations_page: 1,
                 mutation_detail_page: 1,
                 mutation_day: "",
+                owner_markup_month_page: 1,
+                owner_markup_day_page: 1,
+                owner_markup_detail_page: 1,
+                owner_markup_month: "",
+                owner_markup_day: "",
+                closing_month_page: 1,
+                closing_day_page: 1,
+                closing_month: "",
+                closing_day: "",
+                closing_detail_page: 1,
             },
             {
             preserveScroll: true,
@@ -252,6 +318,16 @@ const Sales = ({
             mutations_page: 1,
             mutation_detail_page: 1,
             mutation_day: "",
+            owner_markup_month_page: 1,
+            owner_markup_day_page: 1,
+            owner_markup_detail_page: 1,
+            owner_markup_month: "",
+            owner_markup_day: "",
+            closing_month_page: 1,
+            closing_day_page: 1,
+            closing_month: "",
+            closing_day: "",
+            closing_detail_page: 1,
         }), {
             preserveScroll: true,
             preserveState: true,
@@ -266,6 +342,16 @@ const Sales = ({
             mutations_page: 1,
             mutation_detail_page: 1,
             mutation_day: "",
+            owner_markup_month_page: 1,
+            owner_markup_day_page: 1,
+            owner_markup_detail_page: 1,
+            owner_markup_month: "",
+            owner_markup_day: "",
+            closing_month_page: 1,
+            closing_day_page: 1,
+            closing_month: "",
+            closing_day: "",
+            closing_detail_page: 1,
         }), {
             preserveScroll: true,
             preserveState: true,
@@ -278,6 +364,34 @@ const Sales = ({
             mutations_page: mutationDayCurrentPage,
             mutation_day: dateKey,
             mutation_detail_page: 1,
+        }), {
+            preserveScroll: true,
+            preserveState: true,
+            replace: true,
+        });
+    };
+
+    const handleSelectOwnerMarkupMonth = (monthKey) => {
+        router.get(route("reports.sales.index"), buildQueryPayload({
+            owner_markup_month_page: ownerMarkupMonthCurrentPage,
+            owner_markup_month: monthKey,
+            owner_markup_day_page: 1,
+            owner_markup_detail_page: 1,
+            owner_markup_day: "",
+        }), {
+            preserveScroll: true,
+            preserveState: true,
+            replace: true,
+        });
+    };
+
+    const handleSelectOwnerMarkupDay = (dateKey) => {
+        router.get(route("reports.sales.index"), buildQueryPayload({
+            owner_markup_month_page: ownerMarkupMonthCurrentPage,
+            owner_markup_month: ownerMarkupSelectedMonth,
+            owner_markup_day_page: ownerMarkupDayCurrentPage,
+            owner_markup_day: dateKey,
+            owner_markup_detail_page: 1,
         }), {
             preserveScroll: true,
             preserveState: true,
@@ -333,6 +447,187 @@ const Sales = ({
     const mutationPerPage = tenantSettlement?.mutations?.details?.per_page
         ? Number(tenantSettlement?.mutations?.details?.per_page)
         : mutationRows.length || 1;
+    const ownerMarkupMonthRows = tenantSettlement?.owner_markup_mutations?.months?.data ?? [];
+    const ownerMarkupMonthLinks = tenantSettlement?.owner_markup_mutations?.months?.links ?? [];
+    const ownerMarkupMonthCurrentPage = tenantSettlement?.owner_markup_mutations?.months?.current_page ?? 1;
+    const ownerMarkupMonthPerPage = tenantSettlement?.owner_markup_mutations?.months?.per_page
+        ? Number(tenantSettlement?.owner_markup_mutations?.months?.per_page)
+        : ownerMarkupMonthRows.length || 1;
+    const ownerMarkupSelectedMonth = tenantSettlement?.owner_markup_mutations?.selected_month ?? "";
+    const ownerMarkupSelectedMonthLabel = tenantSettlement?.owner_markup_mutations?.selected_month_label ?? null;
+    const ownerMarkupSelectedMonthSummary = tenantSettlement?.owner_markup_mutations?.selected_month_summary ?? null;
+    const ownerMarkupDayRows = tenantSettlement?.owner_markup_mutations?.days?.data ?? [];
+    const ownerMarkupDayLinks = tenantSettlement?.owner_markup_mutations?.days?.links ?? [];
+    const ownerMarkupDayCurrentPage = tenantSettlement?.owner_markup_mutations?.days?.current_page ?? 1;
+    const ownerMarkupDayPerPage = tenantSettlement?.owner_markup_mutations?.days?.per_page
+        ? Number(tenantSettlement?.owner_markup_mutations?.days?.per_page)
+        : ownerMarkupDayRows.length || 1;
+    const ownerMarkupSelectedDay = tenantSettlement?.owner_markup_mutations?.selected_day ?? "";
+    const ownerMarkupSelectedDayLabel = tenantSettlement?.owner_markup_mutations?.selected_day_label ?? null;
+    const ownerMarkupSelectedDaySummary = tenantSettlement?.owner_markup_mutations?.selected_day_summary ?? null;
+    const ownerMarkupRows = tenantSettlement?.owner_markup_mutations?.details?.data ?? [];
+    const ownerMarkupLinks = tenantSettlement?.owner_markup_mutations?.details?.links ?? [];
+    const ownerMarkupCurrentPage = tenantSettlement?.owner_markup_mutations?.details?.current_page ?? 1;
+    const ownerMarkupPerPage = tenantSettlement?.owner_markup_mutations?.details?.per_page
+        ? Number(tenantSettlement?.owner_markup_mutations?.details?.per_page)
+        : ownerMarkupRows.length || 1;
+    const settlementExpenseRows = tenantSettlement?.expenses?.data ?? [];
+    const settlementExpenseLinks = tenantSettlement?.expenses?.links ?? [];
+    const cashHistoryRows = tenantSettlement?.cash_history ?? [];
+    const closingMonthRows = tenantSettlement?.closing?.months?.data ?? [];
+    const closingMonthLinks = tenantSettlement?.closing?.months?.links ?? [];
+    const closingMonthCurrentPage = tenantSettlement?.closing?.months?.current_page ?? 1;
+    const closingMonthPerPage = tenantSettlement?.closing?.months?.per_page
+        ? Number(tenantSettlement?.closing?.months?.per_page)
+        : closingMonthRows.length || 1;
+    const closingSelectedMonth = tenantSettlement?.closing?.selected_month ?? "";
+    const closingSelectedMonthLabel = tenantSettlement?.closing?.selected_month_label ?? null;
+    const closingSelectedMonthSummary = tenantSettlement?.closing?.selected_month_summary ?? null;
+    const closingDayRows = tenantSettlement?.closing?.days?.data ?? [];
+    const closingDayLinks = tenantSettlement?.closing?.days?.links ?? [];
+    const closingDayCurrentPage = tenantSettlement?.closing?.days?.current_page ?? 1;
+    const closingDayPerPage = tenantSettlement?.closing?.days?.per_page
+        ? Number(tenantSettlement?.closing?.days?.per_page)
+        : closingDayRows.length || 1;
+    const closingSelectedDay = tenantSettlement?.closing?.selected_day ?? "";
+    const closingSelectedDayLabel = tenantSettlement?.closing?.selected_day_label ?? null;
+    const closingSelectedDaySummary = tenantSettlement?.closing?.selected_day_summary ?? null;
+    const closingDetailRows = tenantSettlement?.closing?.details?.data ?? [];
+    const closingDetailLinks = tenantSettlement?.closing?.details?.links ?? [];
+    const closingDetailCurrentPage = tenantSettlement?.closing?.details?.current_page ?? 1;
+    const closingDetailPerPage = tenantSettlement?.closing?.details?.per_page
+        ? Number(tenantSettlement?.closing?.details?.per_page)
+        : closingDetailRows.length || 1;
+
+    const closingPeriodRows = useMemo(() => ([
+        {
+            label: "Pendapatan Omzet",
+            note: "Total penjualan kotor pada periode aktif.",
+            value: summary?.revenue_total ?? 0,
+            tone: "positive",
+        },
+        {
+            label: "Dikurangi Hak Tenant",
+            note: "Kewajiban owner kepada tenant dari transaksi yang masuk saldo.",
+            value: settlementSummary.tenant_rights_total ?? 0,
+            tone: "negative",
+            prefix: "-",
+        },
+        {
+            label: "Dikurangi Expense Paid",
+            note: "Pengeluaran operasional yang sudah dibayar pada periode yang sama.",
+            value: settlementSummary.expense_paid_total ?? 0,
+            tone: "negative",
+            prefix: "-",
+        },
+        {
+            label: "Dikurangi Payout Tenant Dibayar",
+            note: "Arus kas keluar ke tenant yang benar-benar sudah dibayar.",
+            value: settlementSummary.tenant_paid_total ?? 0,
+            tone: "negative",
+            prefix: "-",
+        },
+        {
+            label: "Markup Owner",
+            note: "Pendapatan owner dari markup produk dan topping tenant.",
+            value: settlementSummary.owner_markup_total ?? 0,
+            tone: "info",
+        },
+        {
+            label: "Sisa Markup Owner",
+            note: "Markup owner setelah dipotong expense paid.",
+            value: settlementSummary.owner_markup_remaining_total ?? 0,
+            emphasis: true,
+        },
+        {
+            label: "Sisa Kas Aktual",
+            note: "Kas setelah payout tenant dibayar dan expense paid.",
+            value: settlementSummary.actual_cash_remaining_total ?? 0,
+            emphasis: true,
+        },
+    ]), [summary?.revenue_total, settlementSummary]);
+
+    const closingMonthStatementRows = useMemo(() => closingSelectedMonthSummary ? ([
+        {
+            label: "Pendapatan Omzet Bulanan",
+            note: "Akumulasi omzet kotor pada bulan aktif.",
+            value: closingSelectedMonthSummary.revenue_total ?? 0,
+            tone: "positive",
+        },
+        {
+            label: "Dikurangi Hak Tenant Bulanan",
+            note: "Akumulasi kewajiban tenant pada bulan aktif.",
+            value: closingSelectedMonthSummary.tenant_rights_total ?? 0,
+            tone: "negative",
+            prefix: "-",
+        },
+        {
+            label: "Dikurangi Expense Paid Bulanan",
+            note: "Pengeluaran operasional yang sudah dibayar pada bulan aktif.",
+            value: closingSelectedMonthSummary.expense_paid_total ?? 0,
+            tone: "negative",
+            prefix: "-",
+        },
+        {
+            label: "Markup Owner Bulanan",
+            note: "Pendapatan owner dari transaksi tenant pada bulan aktif.",
+            value: closingSelectedMonthSummary.owner_markup_total ?? 0,
+            tone: "info",
+        },
+        {
+            label: "Sisa Markup Owner Bulanan",
+            note: "Markup owner yang masih tersisa di akhir bulan aktif.",
+            value: closingSelectedMonthSummary.owner_markup_remaining_total ?? 0,
+            emphasis: true,
+        },
+        {
+            label: "Sisa Kas Bulanan",
+            note: "Posisi kas aktual di akhir bulan aktif.",
+            value: closingSelectedMonthSummary.remaining_cash_total ?? 0,
+            emphasis: true,
+        },
+    ]) : [], [closingSelectedMonthSummary]);
+
+    const closingDayStatementRows = useMemo(() => closingSelectedDaySummary ? ([
+        {
+            label: "Pendapatan Omzet Harian",
+            note: "Total omzet pada hari aktif.",
+            value: closingSelectedDaySummary.revenue_total ?? 0,
+            tone: "positive",
+        },
+        {
+            label: "Dikurangi Hak Tenant Harian",
+            note: "Hak tenant yang terbentuk pada hari aktif.",
+            value: closingSelectedDaySummary.tenant_rights_total ?? 0,
+            tone: "negative",
+            prefix: "-",
+        },
+        {
+            label: "Dikurangi Expense Paid Harian",
+            note: "Expense paid pada hari aktif.",
+            value: closingSelectedDaySummary.expense_paid_total ?? 0,
+            tone: "negative",
+            prefix: "-",
+        },
+        {
+            label: "Markup Owner Harian",
+            note: "Pendapatan owner pada hari aktif.",
+            value: closingSelectedDaySummary.owner_markup_total ?? 0,
+            tone: "info",
+        },
+        {
+            label: "Sisa Markup Owner Harian",
+            note: "Markup owner yang tersisa sampai hari aktif.",
+            value: closingSelectedDaySummary.owner_markup_remaining_total ?? 0,
+            emphasis: true,
+        },
+        {
+            label: "Sisa Kas Harian",
+            note: "Posisi kas aktual sampai hari aktif.",
+            value: closingSelectedDaySummary.remaining_cash_total ?? 0,
+            emphasis: true,
+        },
+    ]) : [], [closingSelectedDaySummary]);
 
     const hasActiveFilters =
         filterData.invoice ||
@@ -383,6 +678,36 @@ const Sales = ({
             start_date: startDate,
             end_date: endDate,
         }));
+    };
+
+    const handleSelectClosingMonth = (monthKey) => {
+        router.get(route("reports.sales.index"), buildQueryPayload({
+            settlement_view: "closing",
+            closing_month_page: closingMonthCurrentPage,
+            closing_month: monthKey,
+            closing_day_page: 1,
+            closing_day: "",
+            closing_detail_page: 1,
+        }), {
+            preserveScroll: true,
+            preserveState: true,
+            replace: true,
+        });
+    };
+
+    const handleSelectClosingDay = (dateKey) => {
+        router.get(route("reports.sales.index"), buildQueryPayload({
+            settlement_view: "closing",
+            closing_month_page: closingMonthCurrentPage,
+            closing_month: closingSelectedMonth,
+            closing_day_page: closingDayCurrentPage,
+            closing_day: dateKey,
+            closing_detail_page: 1,
+        }), {
+            preserveScroll: true,
+            preserveState: true,
+            replace: true,
+        });
     };
 
     const safeSummary = {
@@ -752,11 +1077,17 @@ const Sales = ({
                             )}
                         </button>
                         <a
-                            href={`${route("reports.sales.tenant-settlement.export")}${exportQuery ? `?${exportQuery}` : ""}`}
+                            href={`${
+                                activeTab === "settlement" && settlementView === "closing"
+                                    ? route("reports.sales.closing.export")
+                                    : route("reports.sales.tenant-settlement.export")
+                            }${exportQuery ? `?${exportQuery}` : ""}`}
                             className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200"
                         >
                             <IconFileDownload size={18} />
-                            Export Settlement CSV
+                            {activeTab === "settlement" && settlementView === "closing"
+                                ? "Export Closing CSV"
+                                : "Export Settlement CSV"}
                         </a>
                         <a
                             href={`${route("reports.sales.tenant-settlement.print")}${exportQuery ? `?${exportQuery}&autoprint=1` : "?autoprint=1"}`}
@@ -1679,35 +2010,26 @@ const Sales = ({
                                     ? `Tenant aktif ${activeOutletName}`.trim()
                                     : settlementScopeLabel}
                             </span>
+                            <span className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                                isTenantWorkspace
+                                    ? "bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
+                                    : "bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300"
+                            }`}>
+                                {isTenantWorkspace ? "Mode Tenant Workspace" : "Mode Owner Global"}
+                            </span>
                         </div>
-                        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                            <SummaryCard
-                                icon={<IconWallet />}
-                                title="Outstanding Tenant"
-                                value={formatCurrency(settlementSummary.outstanding_total ?? 0)}
-                                description={`Saldo masuk tenant ${formatCurrency(settlementSummary.request_balance_total ?? 0)}`}
-                            />
-                            <SummaryCard
-                                icon={<IconCoin />}
-                                title="Pending Request"
-                                value={formatCurrency(settlementSummary.request_pending_total ?? 0)}
-                                description={`${Number(settlementSummary.request_pending_count ?? 0).toLocaleString("id-ID")} request menunggu approval`}
-                            />
-                            <SummaryCard
-                                icon={<IconTrendingUp />}
-                                title="Sudah Dibayar"
-                                value={formatCurrency(settlementSummary.request_approved_total ?? 0)}
-                                description={`${Number(settlementSummary.request_approved_count ?? 0).toLocaleString("id-ID")} request disetujui`}
-                            />
-                            <SummaryCard
-                                icon={<IconReceipt2 />}
-                                title="Request Ditolak"
-                                value={Number(settlementSummary.request_rejected_count ?? 0).toLocaleString("id-ID")}
-                                description="Riwayat request yang ditolak"
-                            />
-                        </div>
-
                         <div className="flex flex-wrap items-center gap-2">
+                            <button
+                                type="button"
+                                onClick={() => handleSettlementViewChange("closing")}
+                                className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+                                    settlementView === "closing"
+                                        ? "bg-primary-600 text-white"
+                                        : "bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 dark:bg-slate-900 dark:text-slate-200 dark:border-slate-800 dark:hover:bg-slate-800"
+                                }`}
+                            >
+                                Tutup Buku
+                            </button>
                             <button
                                 type="button"
                                 onClick={() => handleSettlementViewChange("withdraw")}
@@ -1717,20 +2039,756 @@ const Sales = ({
                                         : "bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 dark:bg-slate-900 dark:text-slate-200 dark:border-slate-800 dark:hover:bg-slate-800"
                                 }`}
                             >
-                                Riwayat Withdraw Tenant
+                                Withdraw Tenant
                             </button>
                             <button
                                 type="button"
-                                onClick={() => handleSettlementViewChange("mutations")}
+                                onClick={() => handleSettlementViewChange("tenant_mutations")}
                                 className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
-                                    settlementView === "mutations"
+                                    settlementView === "tenant_mutations"
                                         ? "bg-primary-600 text-white"
                                         : "bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 dark:bg-slate-900 dark:text-slate-200 dark:border-slate-800 dark:hover:bg-slate-800"
                                 }`}
                             >
-                                Mutasi Saldo Tenant
+                                Mutasi Tenant
                             </button>
+                            {!isTenantWorkspace ? (
+                                <>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleSettlementViewChange("owner_markup")}
+                                        className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+                                            settlementView === "owner_markup"
+                                                ? "bg-primary-600 text-white"
+                                                : "bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 dark:bg-slate-900 dark:text-slate-200 dark:border-slate-800 dark:hover:bg-slate-800"
+                                        }`}
+                                    >
+                                        Mutasi Markup Owner
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleSettlementViewChange("cash")}
+                                        className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+                                            settlementView === "cash"
+                                                ? "bg-primary-600 text-white"
+                                                : "bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 dark:bg-slate-900 dark:text-slate-200 dark:border-slate-800 dark:hover:bg-slate-800"
+                                        }`}
+                                    >
+                                        Kas & Expense
+                                    </button>
+                                </>
+                            ) : null}
                         </div>
+                        <div className={`rounded-2xl border p-4 ${
+                            isTenantWorkspace
+                                ? "border-amber-200 bg-amber-50/70 dark:border-amber-900/40 dark:bg-amber-950/10"
+                                : "border-sky-200 bg-sky-50/70 dark:border-sky-900/40 dark:bg-sky-950/10"
+                        }`}>
+                            <p className={`text-sm ${
+                                isTenantWorkspace
+                                    ? "text-amber-800 dark:text-amber-200"
+                                    : "text-sky-800 dark:text-sky-200"
+                            }`}>
+                                {isTenantWorkspace
+                                    ? "Workspace tenant hanya menampilkan data tenant aktif. Tab owner seperti markup owner dan kas outlet tidak ditampilkan di sini."
+                                    : "Workspace owner global menampilkan ringkasan outlet aktif dan bisa difilter ke tenant tertentu. Tab markup owner dan kas outlet hanya tersedia untuk owner global."}
+                            </p>
+                        </div>
+                        {settlementView === "closing" && !isTenantWorkspace ? (
+                            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+                                <SummaryCard
+                                    icon={<IconTrendingUp />}
+                                    title="Total Penjualan"
+                                    value={formatCurrency(summary?.revenue_total ?? 0)}
+                                    description="Omzet kotor pada interval yang dipilih"
+                                />
+                                <SummaryCard
+                                    icon={<IconReceipt2 />}
+                                    title="Hak Tenant"
+                                    value={formatCurrency(settlementSummary.tenant_rights_total ?? 0)}
+                                    description={`Sudah dibayar ${formatCurrency(settlementSummary.tenant_paid_total ?? 0)} • outstanding ${formatCurrency(settlementSummary.tenant_outstanding_total ?? 0)}`}
+                                />
+                                <SummaryCard
+                                    icon={<IconCoin />}
+                                    title="Expense Outlet"
+                                    value={formatCurrency(settlementSummary.expense_total ?? 0)}
+                                    description={`Paid ${formatCurrency(settlementSummary.expense_paid_total ?? 0)} • unpaid ${formatCurrency(settlementSummary.expense_unpaid_total ?? 0)}`}
+                                />
+                                <SummaryCard
+                                    icon={<IconTrendingUp />}
+                                    title="Sisa Kas Aktual"
+                                    value={formatCurrency(settlementSummary.actual_cash_remaining_total ?? 0)}
+                                    description={`Setelah payout dibayar & expense paid. Sisa konservatif ${formatCurrency(settlementSummary.actual_cash_after_rights_total ?? 0)}`}
+                                />
+                                <SummaryCard
+                                    icon={<IconShoppingBag />}
+                                    title="Markup Owner"
+                                    value={formatCurrency(settlementSummary.owner_markup_total ?? 0)}
+                                    description="Akumulasi markup owner dari transaksi tenant pada scope report"
+                                />
+                                <SummaryCard
+                                    icon={<IconWallet />}
+                                    title="Sisa Markup Owner"
+                                    value={formatCurrency(settlementSummary.owner_markup_remaining_total ?? 0)}
+                                    description={`Setelah expense paid. Sisa konservatif ${formatCurrency(settlementSummary.owner_markup_after_expense_total ?? 0)}`}
+                                />
+                            </div>
+                        ) : null}
+                        {settlementView === "closing" ? (
+                            <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+                                <h2 className="text-base font-semibold text-slate-900 dark:text-white">
+                                    Laporan Tutup Buku
+                                </h2>
+                                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                    Baca dari atas ke bawah: hasil akhir periode, status withdraw tenant, tutup buku bulanan, lalu breakdown harian dan detail transaksi.
+                                </p>
+                                <div className="mt-4 grid gap-3 xl:grid-cols-3">
+                                    <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4 dark:border-emerald-900/40 dark:bg-emerald-950/10">
+                                        <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">Hak Tenant Periode</div>
+                                        <div className="mt-2 text-2xl font-bold text-emerald-800 dark:text-emerald-200">{formatCurrency(settlementSummary.tenant_rights_total ?? 0)}</div>
+                                        <div className="mt-1 text-xs text-emerald-700/80 dark:text-emerald-300/80">
+                                            Kewajiban owner ke tenant pada scope dan periode aktif.
+                                        </div>
+                                    </div>
+                                    <div className="rounded-2xl border border-blue-200 bg-blue-50/70 p-4 dark:border-blue-900/40 dark:bg-blue-950/10">
+                                        <div className="text-xs font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">Markup Owner Periode</div>
+                                        <div className="mt-2 text-2xl font-bold text-blue-800 dark:text-blue-200">{formatCurrency(settlementSummary.owner_markup_total ?? 0)}</div>
+                                        <div className="mt-1 text-xs text-blue-700/80 dark:text-blue-300/80">
+                                            Akumulasi pendapatan owner dari transaksi tenant.
+                                        </div>
+                                    </div>
+                                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950">
+                                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">Posisi Kas Aktual</div>
+                                        <div className="mt-2 text-2xl font-bold text-slate-900 dark:text-white">{formatCurrency(settlementSummary.actual_cash_remaining_total ?? 0)}</div>
+                                        <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                            Setelah payout tenant dibayar dan expense paid. Sisa markup owner {formatCurrency(settlementSummary.owner_markup_remaining_total ?? 0)}.
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50/70 p-4 dark:border-amber-900/40 dark:bg-amber-950/10">
+                                    <div className="text-sm font-semibold text-amber-800 dark:text-amber-200">
+                                        Status Withdraw Tenant
+                                    </div>
+                                    <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                                        <div className="rounded-xl border border-amber-200 bg-white/80 p-3 dark:border-amber-900/30 dark:bg-slate-900/40">
+                                            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Outstanding Tenant</div>
+                                            <div className="mt-2 text-lg font-bold text-slate-900 dark:text-white">{formatCurrency(settlementSummary.outstanding_total ?? 0)}</div>
+                                            <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">Saldo dasar {formatCurrency(settlementSummary.request_balance_total ?? 0)}</div>
+                                        </div>
+                                        <div className="rounded-xl border border-amber-200 bg-white/80 p-3 dark:border-amber-900/30 dark:bg-slate-900/40">
+                                            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Pending Request</div>
+                                            <div className="mt-2 text-lg font-bold text-slate-900 dark:text-white">{formatCurrency(settlementSummary.request_pending_total ?? 0)}</div>
+                                            <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{Number(settlementSummary.request_pending_count ?? 0).toLocaleString("id-ID")} request menunggu approval</div>
+                                        </div>
+                                        <div className="rounded-xl border border-amber-200 bg-white/80 p-3 dark:border-amber-900/30 dark:bg-slate-900/40">
+                                            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Sudah Dibayar</div>
+                                            <div className="mt-2 text-lg font-bold text-slate-900 dark:text-white">{formatCurrency(settlementSummary.request_approved_total ?? 0)}</div>
+                                            <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{Number(settlementSummary.request_approved_count ?? 0).toLocaleString("id-ID")} request disetujui</div>
+                                        </div>
+                                        <div className="rounded-xl border border-amber-200 bg-white/80 p-3 dark:border-amber-900/30 dark:bg-slate-900/40">
+                                            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Request Ditolak</div>
+                                            <div className="mt-2 text-lg font-bold text-slate-900 dark:text-white">{Number(settlementSummary.request_rejected_count ?? 0).toLocaleString("id-ID")}</div>
+                                            <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">Riwayat request yang ditolak</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="mt-5">
+                                    <ClosingStatementTable
+                                        title="Lembar Akuntansi Periode"
+                                        description="Urutan pembacaan tutup buku untuk periode aktif: omzet, kewajiban tenant, expense, payout yang sudah dibayar, lalu posisi sisa kas dan sisa markup owner."
+                                        rows={closingPeriodRows}
+                                    />
+                                </div>
+
+                                {!isTenantWorkspace && closingMonthRows.length > 0 ? (
+                                    <>
+                                        <div className="mt-6 border-t border-slate-100 pt-5 dark:border-slate-800">
+                                            <div className="flex flex-wrap items-center justify-between gap-3">
+                                                <div>
+                                                    <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
+                                                        Tutup Buku Bulanan
+                                                    </h3>
+                                                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                        Pilih bulan untuk melihat breakdown harian dan posisi sisa uang aktual.
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className="mt-4 overflow-x-auto">
+                                            <table className="w-full min-w-[980px]">
+                                                <thead>
+                                                    <tr className="border-b border-slate-100 dark:border-slate-800">
+                                                        <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-slate-500">No</th>
+                                                        <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-slate-500">Bulan</th>
+                                                        <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Penjualan</th>
+                                                        <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Hak Tenant</th>
+                                                        <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Markup Owner</th>
+                                                        <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Expense Paid</th>
+                                                        <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Sisa Kas</th>
+                                                        <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Sisa Markup</th>
+                                                        <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-slate-500">Aksi</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                                    {closingMonthRows.map((row, index) => {
+                                                        const isSelected = row.month_key === closingSelectedMonth;
+
+                                                        return (
+                                                            <tr key={row.month_key} className={isSelected ? "bg-primary-50/60 dark:bg-primary-950/10" : ""}>
+                                                                <td className="px-3 py-3 text-sm text-slate-600 dark:text-slate-300">
+                                                                    {index + 1 + (closingMonthCurrentPage - 1) * closingMonthPerPage}
+                                                                </td>
+                                                                <td className="px-3 py-3">
+                                                                    <div className="text-sm font-semibold text-slate-900 dark:text-white">{row.month_label}</div>
+                                                                    <div className="text-xs text-slate-500 dark:text-slate-400">
+                                                                        {Number(row.days_count ?? 0).toLocaleString("id-ID")} hari
+                                                                    </div>
+                                                                </td>
+                                                                <td className="px-3 py-3 text-right text-sm text-slate-700 dark:text-slate-300">{formatCurrency(row.revenue_total ?? 0)}</td>
+                                                                <td className="px-3 py-3 text-right text-sm text-emerald-700 dark:text-emerald-300">{formatCurrency(row.tenant_rights_total ?? 0)}</td>
+                                                                <td className="px-3 py-3 text-right text-sm text-blue-700 dark:text-blue-300">{formatCurrency(row.owner_markup_total ?? 0)}</td>
+                                                                <td className="px-3 py-3 text-right text-sm text-slate-700 dark:text-slate-300">{formatCurrency(row.expense_paid_total ?? 0)}</td>
+                                                                <td className="px-3 py-3 text-right text-sm font-semibold text-slate-900 dark:text-white">{formatCurrency(row.remaining_cash_total ?? 0)}</td>
+                                                                <td className="px-3 py-3 text-right text-sm font-semibold text-slate-900 dark:text-white">{formatCurrency(row.owner_markup_remaining_total ?? 0)}</td>
+                                                                <td className="px-3 py-3 text-sm">
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => handleSelectClosingMonth(row.month_key)}
+                                                                        className={`inline-flex items-center rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                                                                            isSelected
+                                                                                ? "bg-primary-600 text-white"
+                                                                                : "bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                                                                        }`}
+                                                                    >
+                                                                        {isSelected ? "Bulan aktif" : "Lihat harian"}
+                                                                    </button>
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    })}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                        {closingMonthLinks.length > 3 ? <Pagination links={closingMonthLinks} /> : null}
+
+                                        {closingSelectedMonthSummary ? (
+                                            <div className="mt-4">
+                                                <ClosingStatementTable
+                                                    title={`Lembar Akuntansi ${closingSelectedMonthLabel || "Bulan Aktif"}`}
+                                                    description="Ringkasan akuntansi untuk bulan aktif agar owner bisa melihat kaitan omzet, hak tenant, markup owner, expense, dan sisa kas."
+                                                    rows={closingMonthStatementRows}
+                                                />
+                                            </div>
+                                        ) : null}
+
+                                        <div className="mt-6 border-t border-slate-100 pt-5 dark:border-slate-800">
+                                            <div className="flex flex-wrap items-center justify-between gap-3">
+                                                <div>
+                                                    <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
+                                                        Breakdown Harian {closingSelectedMonthLabel || "Bulan Terpilih"}
+                                                    </h3>
+                                                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                        Lihat posisi omzet, hak tenant, markup owner, expense, dan sisa kas per hari.
+                                                    </p>
+                                                </div>
+                                                {closingSelectedMonthSummary ? (
+                                                    <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                                                        <span className="rounded-full bg-slate-100 px-3 py-1 font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                                                            Penjualan {formatCurrency(closingSelectedMonthSummary.revenue_total ?? 0)}
+                                                        </span>
+                                                        <span className="rounded-full bg-emerald-50 px-3 py-1 font-semibold text-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-300">
+                                                            Hak tenant {formatCurrency(closingSelectedMonthSummary.tenant_rights_total ?? 0)}
+                                                        </span>
+                                                        <span className="rounded-full bg-blue-50 px-3 py-1 font-semibold text-blue-700 dark:bg-blue-950/20 dark:text-blue-300">
+                                                            Markup owner {formatCurrency(closingSelectedMonthSummary.owner_markup_total ?? 0)}
+                                                        </span>
+                                                    </div>
+                                                ) : null}
+                                            </div>
+                                        </div>
+                                        <div className="mt-4 overflow-x-auto">
+                                            <table className="w-full min-w-[1160px]">
+                                                <thead>
+                                                    <tr className="border-b border-slate-100 dark:border-slate-800">
+                                                        <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-slate-500">No</th>
+                                                        <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-slate-500">Hari</th>
+                                                        <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Penjualan</th>
+                                                        <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Hak Tenant</th>
+                                                        <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Markup Owner</th>
+                                                        <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Expense Paid</th>
+                                                        <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Payout Tenant Paid</th>
+                                                        <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Sisa Markup</th>
+                                                        <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Sisa Kas</th>
+                                                        <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-slate-500">Aksi</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                                    {closingDayRows.length > 0 ? closingDayRows.map((row, index) => {
+                                                        const isSelected = row.date === closingSelectedDay;
+
+                                                        return (
+                                                        <tr key={row.date} className={isSelected ? "bg-primary-50/60 dark:bg-primary-950/10" : ""}>
+                                                            <td className="px-3 py-3 text-sm text-slate-600 dark:text-slate-300">
+                                                                {index + 1 + (closingDayCurrentPage - 1) * closingDayPerPage}
+                                                            </td>
+                                                            <td className="px-3 py-3 text-sm font-semibold text-slate-900 dark:text-white">{row.label}</td>
+                                                            <td className="px-3 py-3 text-right text-sm text-slate-700 dark:text-slate-300">{formatCurrency(row.revenue_total ?? 0)}</td>
+                                                            <td className="px-3 py-3 text-right text-sm text-emerald-700 dark:text-emerald-300">{formatCurrency(row.tenant_rights_total ?? 0)}</td>
+                                                            <td className="px-3 py-3 text-right text-sm text-blue-700 dark:text-blue-300">{formatCurrency(row.owner_markup_total ?? 0)}</td>
+                                                            <td className="px-3 py-3 text-right text-sm text-slate-700 dark:text-slate-300">{formatCurrency(row.expense_paid_total ?? 0)}</td>
+                                                            <td className="px-3 py-3 text-right text-sm text-slate-700 dark:text-slate-300">{formatCurrency(row.tenant_paid_cumulative_total ?? 0)}</td>
+                                                            <td className="px-3 py-3 text-right text-sm font-semibold text-slate-900 dark:text-white">{formatCurrency(row.owner_markup_remaining_total ?? 0)}</td>
+                                                            <td className="px-3 py-3 text-right text-sm font-semibold text-slate-900 dark:text-white">{formatCurrency(row.remaining_cash_total ?? 0)}</td>
+                                                            <td className="px-3 py-3 text-sm">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handleSelectClosingDay(row.date)}
+                                                                    className={`inline-flex items-center rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                                                                        isSelected
+                                                                            ? "bg-primary-600 text-white"
+                                                                            : "bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                                                                    }`}
+                                                                >
+                                                                    {isSelected ? "Hari aktif" : "Lihat detail"}
+                                                                </button>
+                                                            </td>
+                                                        </tr>
+                                                    )}) : (
+                                                        <tr>
+                                                            <td colSpan={10} className="px-3 py-8 text-center text-sm text-slate-500 dark:text-slate-400">
+                                                                Tidak ada breakdown harian untuk bulan yang dipilih.
+                                                            </td>
+                                                        </tr>
+                                                    )}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                        {closingDayLinks.length > 3 ? <Pagination links={closingDayLinks} /> : null}
+
+                                        {closingSelectedDaySummary ? (
+                                            <div className="mt-4">
+                                                <ClosingStatementTable
+                                                    title={`Lembar Akuntansi ${closingSelectedDayLabel || "Hari Aktif"}`}
+                                                    description="Ringkasan akuntansi untuk hari aktif sebelum turun ke daftar transaksi pembentuknya."
+                                                    rows={closingDayStatementRows}
+                                                />
+                                            </div>
+                                        ) : null}
+
+                                        <div className="mt-6 border-t border-slate-100 pt-5 dark:border-slate-800">
+                                            <div className="flex flex-wrap items-center justify-between gap-3">
+                                                <div>
+                                                    <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
+                                                        Detail Transaksi {closingSelectedDayLabel || "Hari Terpilih"}
+                                                    </h3>
+                                                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                        Breakdown transaksi sumber tutup buku untuk hari yang dipilih.
+                                                    </p>
+                                                </div>
+                                                {closingSelectedDaySummary ? (
+                                                    <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                                                        <span className="rounded-full bg-slate-100 px-3 py-1 font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                                                            Penjualan {formatCurrency(closingSelectedDaySummary.revenue_total ?? 0)}
+                                                        </span>
+                                                        <span className="rounded-full bg-emerald-50 px-3 py-1 font-semibold text-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-300">
+                                                            Hak tenant {formatCurrency(closingSelectedDaySummary.tenant_rights_total ?? 0)}
+                                                        </span>
+                                                        <span className="rounded-full bg-blue-50 px-3 py-1 font-semibold text-blue-700 dark:bg-blue-950/20 dark:text-blue-300">
+                                                            Markup owner {formatCurrency(closingSelectedDaySummary.owner_markup_total ?? 0)}
+                                                        </span>
+                                                    </div>
+                                                ) : null}
+                                            </div>
+                                        </div>
+                                        <div className="mt-4 overflow-x-auto">
+                                            <table className="w-full min-w-[900px]">
+                                                <thead>
+                                                    <tr className="border-b border-slate-100 dark:border-slate-800">
+                                                        <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-slate-500">No</th>
+                                                        <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-slate-500">Aktivitas</th>
+                                                        <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-slate-500">Kasir</th>
+                                                        <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Penjualan</th>
+                                                        <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Hak Tenant</th>
+                                                        <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Markup Owner</th>
+                                                        <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-slate-500">Waktu</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                                    {closingDetailRows.length > 0 ? closingDetailRows.map((row, index) => (
+                                                        <tr key={row.id}>
+                                                            <td className="px-3 py-3 text-sm text-slate-600 dark:text-slate-300">
+                                                                {index + 1 + (closingDetailCurrentPage - 1) * closingDetailPerPage}
+                                                            </td>
+                                                            <td className="px-3 py-3">
+                                                                <div className="text-sm font-semibold text-slate-900 dark:text-white break-words">{row.invoice}</div>
+                                                                <div className="text-xs text-slate-500 dark:text-slate-400">
+                                                                    {row.reference} • {row.customer_name}
+                                                                </div>
+                                                                <div className={`mt-1 inline-flex rounded-full px-2 py-1 text-[11px] font-semibold ${
+                                                                    row.status === "Retur"
+                                                                        ? "bg-rose-100 text-rose-700 dark:bg-rose-950/20 dark:text-rose-300"
+                                                                        : "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-300"
+                                                                }`}>
+                                                                    {row.status}
+                                                                </div>
+                                                            </td>
+                                                            <td className="px-3 py-3 text-sm text-slate-600 dark:text-slate-300">
+                                                                <div>{row.cashier_name}</div>
+                                                                <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">{row.activity_at}</div>
+                                                            </td>
+                                                            <td className="px-3 py-3 text-right text-sm text-slate-700 dark:text-slate-300">
+                                                                {formatCurrency(row.gross_total ?? 0)}
+                                                                <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                                                                    Promo {formatCurrency(row.discount_total ?? 0)}
+                                                                </div>
+                                                            </td>
+                                                            <td className={`px-3 py-3 text-right text-sm ${
+                                                                Number(row.mutation_total ?? 0) < 0
+                                                                    ? "text-rose-600 dark:text-rose-300"
+                                                                    : "text-emerald-600 dark:text-emerald-300"
+                                                            }`}>
+                                                                {formatCurrency(row.mutation_total ?? 0)}
+                                                            </td>
+                                                            <td className="px-3 py-3 text-right text-sm font-semibold text-blue-700 dark:text-blue-300">
+                                                                {formatCurrency(row.owner_markup_total ?? 0)}
+                                                            </td>
+                                                            <td className="px-3 py-3 text-sm text-slate-600 dark:text-slate-300 hidden md:table-cell">{row.activity_at}</td>
+                                                        </tr>
+                                                    )) : (
+                                                        <tr>
+                                                            <td colSpan={7} className="px-3 py-8 text-center text-sm text-slate-500 dark:text-slate-400">
+                                                                Tidak ada detail transaksi untuk hari yang dipilih.
+                                                            </td>
+                                                        </tr>
+                                                    )}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                        {closingDetailLinks.length > 3 ? <Pagination links={closingDetailLinks} /> : null}
+                                    </>
+                                ) : null}
+                            </div>
+                        ) : null}
+                        {!isTenantWorkspace && settlementView === "cash" && settlementExpenseRows.length > 0 ? (
+                            <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+                                <h2 className="text-base font-semibold text-slate-900 dark:text-white">
+                                    Detail Expense Outlet
+                                </h2>
+                                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                    Pengeluaran operasional pada scope outlet aktif dan periode report.
+                                </p>
+                                <div className="mt-4 overflow-x-auto">
+                                    <table className="w-full min-w-[760px]">
+                                        <thead>
+                                            <tr className="border-b border-slate-100 dark:border-slate-800">
+                                                <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500">Tanggal</th>
+                                                <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500">Kategori</th>
+                                                <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500">Deskripsi</th>
+                                                <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500">Status</th>
+                                                <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500">Nominal</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                            {settlementExpenseRows.map((row) => (
+                                                <tr key={row.id}>
+                                                    <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-300">{row.expense_date || "-"}</td>
+                                                    <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-300">{row.category || "-"}</td>
+                                                    <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-300">
+                                                        <div>{row.description || "-"}</div>
+                                                        {row.created_by_name ? (
+                                                            <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                                Oleh {row.created_by_name}
+                                                            </div>
+                                                        ) : null}
+                                                    </td>
+                                                    <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-300">{row.status || "-"}</td>
+                                                    <td className="px-4 py-3 text-right text-sm font-semibold text-slate-900 dark:text-white">{formatCurrency(row.amount ?? 0)}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                                {settlementExpenseLinks.length > 3 ? <Pagination links={settlementExpenseLinks} /> : null}
+                            </div>
+                        ) : null}
+                        {!isTenantWorkspace && settlementView === "cash" && cashHistoryRows.length > 0 ? (
+                            <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+                                <h2 className="text-base font-semibold text-slate-900 dark:text-white">
+                                    Riwayat Sisa Kas Harian
+                                </h2>
+                                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                    Posisi kas harian setelah payout tenant yang sudah dibayar dan expense paid kumulatif.
+                                </p>
+                                <div className="mt-4 overflow-x-auto">
+                                    <table className="w-full min-w-[980px]">
+                                        <thead>
+                                            <tr className="border-b border-slate-100 dark:border-slate-800">
+                                                <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500">Tanggal</th>
+                                                <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500">Markup Owner Harian</th>
+                                                <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500">Markup Owner Kumulatif</th>
+                                                <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500">Expense Paid</th>
+                                                <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500">Payout Tenant Paid</th>
+                                                <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500">Hak Tenant Kumulatif</th>
+                                                <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500">Sisa Markup Owner</th>
+                                                <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500">Sisa Kas</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                            {cashHistoryRows.map((row) => (
+                                                <tr key={row.date}>
+                                                    <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-300">{row.label}</td>
+                                                    <td className="px-4 py-3 text-right text-sm text-slate-700 dark:text-slate-300">{formatCurrency(row.owner_markup_total ?? 0)}</td>
+                                                    <td className="px-4 py-3 text-right text-sm text-slate-700 dark:text-slate-300">{formatCurrency(row.owner_markup_cumulative_total ?? 0)}</td>
+                                                    <td className="px-4 py-3 text-right text-sm text-slate-700 dark:text-slate-300">{formatCurrency(row.expense_paid_total ?? 0)}</td>
+                                                    <td className="px-4 py-3 text-right text-sm text-slate-700 dark:text-slate-300">{formatCurrency(row.tenant_paid_cumulative_total ?? 0)}</td>
+                                                    <td className="px-4 py-3 text-right text-sm text-slate-700 dark:text-slate-300">{formatCurrency(row.tenant_rights_cumulative_total ?? 0)}</td>
+                                                    <td className="px-4 py-3 text-right text-sm text-slate-700 dark:text-slate-300">{formatCurrency(row.owner_markup_remaining_total ?? 0)}</td>
+                                                    <td className="px-4 py-3 text-right text-sm font-semibold text-slate-900 dark:text-white">{formatCurrency(row.remaining_cash_total ?? 0)}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        ) : null}
+                        {!isTenantWorkspace && settlementView === "owner_markup" && ownerMarkupMonthRows.length > 0 ? (
+                            <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+                                <div className="flex flex-wrap items-start justify-between gap-3">
+                                    <div>
+                                        <h2 className="text-base font-semibold text-slate-900 dark:text-white">
+                                            Mutasi Markup Owner
+                                        </h2>
+                                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                            Breakdown markup owner per bulan, per hari, lalu detail transaksi pada hari yang dipilih.
+                                        </p>
+                                    </div>
+                                    <div className="inline-flex rounded-full bg-primary-100 px-3 py-1 text-[11px] font-semibold text-primary-700 dark:bg-primary-950/40 dark:text-primary-300">
+                                        Scope: {settlementScopeLabel}
+                                    </div>
+                                </div>
+
+                                <div className="mt-5 overflow-x-auto">
+                                    <table className="w-full min-w-[820px]">
+                                        <thead>
+                                            <tr className="border-b border-slate-100 dark:border-slate-800">
+                                                <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-slate-500">No</th>
+                                                <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-slate-500">Bulan</th>
+                                                <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Markup Owner</th>
+                                                <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Hak Tenant</th>
+                                                <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Jumlah Mutasi</th>
+                                                <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-slate-500">Aksi</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                            {ownerMarkupMonthRows.map((row, index) => {
+                                                const isSelected = row.month_key === ownerMarkupSelectedMonth;
+
+                                                return (
+                                                    <tr key={row.month_key} className={isSelected ? "bg-primary-50/60 dark:bg-primary-950/10" : ""}>
+                                                        <td className="px-3 py-3 text-sm text-slate-600 dark:text-slate-300">
+                                                            {index + 1 + (ownerMarkupMonthCurrentPage - 1) * ownerMarkupMonthPerPage}
+                                                        </td>
+                                                        <td className="px-3 py-3">
+                                                            <div className="text-sm font-semibold text-slate-900 dark:text-white">{row.month_label}</div>
+                                                            <div className="text-xs text-slate-500 dark:text-slate-400">
+                                                                {Number(row.transactions_count ?? 0).toLocaleString("id-ID")} masuk saldo • {Number(row.returns_count ?? 0).toLocaleString("id-ID")} retur
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-3 py-3 text-right text-sm font-semibold text-blue-700 dark:text-blue-300">
+                                                            {formatCurrency(row.owner_markup_total ?? 0)}
+                                                        </td>
+                                                        <td className="px-3 py-3 text-right text-sm text-slate-700 dark:text-slate-300">
+                                                            {formatCurrency(row.tenant_total ?? 0)}
+                                                        </td>
+                                                        <td className="px-3 py-3 text-right text-sm text-slate-700 dark:text-slate-300">
+                                                            {Number(row.entries_count ?? 0).toLocaleString("id-ID")}
+                                                        </td>
+                                                        <td className="px-3 py-3 text-sm">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleSelectOwnerMarkupMonth(row.month_key)}
+                                                                className={`inline-flex items-center rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                                                                    isSelected
+                                                                        ? "bg-primary-600 text-white"
+                                                                        : "bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                                                                }`}
+                                                            >
+                                                                {isSelected ? "Bulan aktif" : "Lihat hari"}
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
+                                </div>
+                                {ownerMarkupMonthLinks.length > 3 ? <Pagination links={ownerMarkupMonthLinks} /> : null}
+
+                                <div className="mt-6 border-t border-slate-100 pt-5 dark:border-slate-800">
+                                    <div className="flex flex-wrap items-center justify-between gap-3">
+                                        <div>
+                                            <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
+                                                Breakdown Harian {ownerMarkupSelectedMonthLabel || "Bulan Terpilih"}
+                                            </h3>
+                                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                Pilih hari untuk melihat detail transaksi markup owner.
+                                            </p>
+                                        </div>
+                                        {ownerMarkupSelectedMonthSummary ? (
+                                            <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                                                <span className="rounded-full bg-blue-50 px-3 py-1 font-semibold text-blue-700 dark:bg-blue-950/20 dark:text-blue-300">
+                                                    Markup owner {formatCurrency(ownerMarkupSelectedMonthSummary.owner_markup_total ?? 0)}
+                                                </span>
+                                                <span className="rounded-full bg-emerald-50 px-3 py-1 font-semibold text-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-300">
+                                                    Hak tenant {formatCurrency(ownerMarkupSelectedMonthSummary.tenant_total ?? 0)}
+                                                </span>
+                                            </div>
+                                        ) : null}
+                                    </div>
+                                </div>
+
+                                <div className="mt-4 overflow-x-auto">
+                                    <table className="w-full min-w-[820px]">
+                                        <thead>
+                                            <tr className="border-b border-slate-100 dark:border-slate-800">
+                                                <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-slate-500">No</th>
+                                                <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-slate-500">Hari</th>
+                                                <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Markup Owner</th>
+                                                <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Hak Tenant</th>
+                                                <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Jumlah Mutasi</th>
+                                                <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-slate-500">Aksi</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                            {ownerMarkupDayRows.map((row, index) => {
+                                                const isSelected = row.date_key === ownerMarkupSelectedDay;
+
+                                                return (
+                                                    <tr key={row.date_key} className={isSelected ? "bg-primary-50/60 dark:bg-primary-950/10" : ""}>
+                                                        <td className="px-3 py-3 text-sm text-slate-600 dark:text-slate-300">
+                                                            {index + 1 + (ownerMarkupDayCurrentPage - 1) * ownerMarkupDayPerPage}
+                                                        </td>
+                                                        <td className="px-3 py-3">
+                                                            <div className="text-sm font-semibold text-slate-900 dark:text-white">{row.date_label}</div>
+                                                            <div className="text-xs text-slate-500 dark:text-slate-400">
+                                                                {Number(row.transactions_count ?? 0).toLocaleString("id-ID")} masuk saldo • {Number(row.returns_count ?? 0).toLocaleString("id-ID")} retur
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-3 py-3 text-right text-sm font-semibold text-blue-700 dark:text-blue-300">
+                                                            {formatCurrency(row.owner_markup_total ?? 0)}
+                                                        </td>
+                                                        <td className="px-3 py-3 text-right text-sm text-slate-700 dark:text-slate-300">
+                                                            {formatCurrency(row.tenant_total ?? 0)}
+                                                        </td>
+                                                        <td className="px-3 py-3 text-right text-sm text-slate-700 dark:text-slate-300">
+                                                            {Number(row.entries_count ?? 0).toLocaleString("id-ID")}
+                                                        </td>
+                                                        <td className="px-3 py-3 text-sm">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleSelectOwnerMarkupDay(row.date_key)}
+                                                                className={`inline-flex items-center rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                                                                    isSelected
+                                                                        ? "bg-primary-600 text-white"
+                                                                        : "bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                                                                }`}
+                                                            >
+                                                                {isSelected ? "Hari aktif" : "Lihat detail"}
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
+                                </div>
+                                {ownerMarkupDayLinks.length > 3 ? <Pagination links={ownerMarkupDayLinks} /> : null}
+
+                                <div className="mt-6 border-t border-slate-100 pt-5 dark:border-slate-800">
+                                    <div className="flex flex-wrap items-center justify-between gap-3">
+                                        <div>
+                                            <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
+                                                Breakdown Detail {ownerMarkupSelectedDayLabel || "Hari Terpilih"}
+                                            </h3>
+                                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                Daftar transaksi markup owner pada hari yang dipilih.
+                                            </p>
+                                        </div>
+                                        {ownerMarkupSelectedDaySummary ? (
+                                            <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                                                <span className="rounded-full bg-blue-50 px-3 py-1 font-semibold text-blue-700 dark:bg-blue-950/20 dark:text-blue-300">
+                                                    Markup owner {formatCurrency(ownerMarkupSelectedDaySummary.owner_markup_total ?? 0)}
+                                                </span>
+                                                <span className="rounded-full bg-emerald-50 px-3 py-1 font-semibold text-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-300">
+                                                    Hak tenant {formatCurrency(ownerMarkupSelectedDaySummary.tenant_total ?? 0)}
+                                                </span>
+                                            </div>
+                                        ) : null}
+                                    </div>
+                                </div>
+
+                                <div className="mt-4 overflow-x-auto">
+                                    <table className="w-full min-w-[840px]">
+                                        <thead>
+                                            <tr className="border-b border-slate-100 dark:border-slate-800">
+                                                <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-slate-500">No</th>
+                                                <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-slate-500">Aktivitas</th>
+                                                <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-slate-500">Kasir</th>
+                                                <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Referensi</th>
+                                                <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Markup Owner</th>
+                                                <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Hak Tenant</th>
+                                                <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-slate-500">Waktu</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                            {ownerMarkupRows.length > 0 ? ownerMarkupRows.map((row, index) => (
+                                                <tr key={row.id}>
+                                                    <td className="px-3 py-3 text-sm text-slate-600 dark:text-slate-300">
+                                                        {index + 1 + (ownerMarkupCurrentPage - 1) * ownerMarkupPerPage}
+                                                    </td>
+                                                    <td className="px-3 py-3">
+                                                        <div className="text-sm font-semibold text-slate-900 dark:text-white">{row.invoice}</div>
+                                                        <div className="text-xs text-slate-500 dark:text-slate-400">
+                                                            {row.reference} • {row.customer_name}
+                                                        </div>
+                                                        <div className="mt-1 inline-flex rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                                                            {row.status}
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-3 py-3 text-sm text-slate-600 dark:text-slate-300">{row.cashier_name}</td>
+                                                    <td className="px-3 py-3 text-right text-sm text-slate-600 dark:text-slate-300">
+                                                        {formatCurrency(row.gross_total ?? 0)}
+                                                        <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                                                            Promo {formatCurrency(row.discount_total ?? 0)}
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-3 py-3 text-right text-sm font-semibold text-blue-700 dark:text-blue-300">
+                                                        {formatCurrency(row.owner_markup_total ?? 0)}
+                                                    </td>
+                                                    <td className={`px-3 py-3 text-right text-sm ${
+                                                        Number(row.mutation_total ?? 0) < 0
+                                                            ? "text-rose-600 dark:text-rose-300"
+                                                            : "text-emerald-600 dark:text-emerald-300"
+                                                    }`}>
+                                                        {formatCurrency(row.mutation_total ?? 0)}
+                                                    </td>
+                                                    <td className="px-3 py-3 text-sm text-slate-600 dark:text-slate-300">{row.activity_at}</td>
+                                                </tr>
+                                            )) : (
+                                                <tr>
+                                                    <td colSpan={7} className="px-3 py-8 text-center text-sm text-slate-500 dark:text-slate-400">
+                                                        Tidak ada detail markup owner pada hari yang dipilih.
+                                                    </td>
+                                                </tr>
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+                                {ownerMarkupLinks.length > 3 ? <Pagination links={ownerMarkupLinks} /> : null}
+                            </div>
+                        ) : null}
 
                         {settlementView === "withdraw" && settlementRequestRows.length > 0 ? (
                             <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
@@ -1823,7 +2881,7 @@ const Sales = ({
                             <Pagination links={settlementRequestPaginationLinks} />
                         ) : null}
 
-                        {settlementView === "mutations" && mutationDayRows.length > 0 ? (
+                        {settlementView === "tenant_mutations" && mutationDayRows.length > 0 ? (
                             <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
                                 <h2 className="text-base font-semibold text-slate-900 dark:text-white">
                                     Mutasi Saldo Tenant
@@ -1847,7 +2905,7 @@ const Sales = ({
                                     <button
                                         type="button"
                                         onClick={() => router.get(route("reports.sales.index"), buildQueryPayload({
-                                            settlement_view: "mutations",
+                                            settlement_view: "tenant_mutations",
                                             mutations_page: 1,
                                             mutation_detail_page: 1,
                                             mutation_day: "",
@@ -2043,7 +3101,7 @@ const Sales = ({
                                     <Pagination links={mutationLinks} />
                                 ) : null}
                             </div>
-                        ) : settlementView === "mutations" ? (
+                        ) : settlementView === "tenant_mutations" ? (
                             <div className="flex flex-col items-center justify-center py-16 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
                                 <div className="w-16 h-16 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center mb-4">
                                     <IconDatabaseOff size={32} className="text-slate-400" />
@@ -2053,6 +3111,30 @@ const Sales = ({
                                 </h3>
                                 <p className="text-sm text-slate-500 dark:text-slate-400">
                                     Tidak ada mutasi saldo tenant sesuai scope dan pencarian yang dipilih.
+                                </p>
+                            </div>
+                        ) : settlementView === "owner_markup" && !isTenantWorkspace && ownerMarkupMonthRows.length === 0 ? (
+                            <div className="flex flex-col items-center justify-center py-16 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
+                                <div className="w-16 h-16 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center mb-4">
+                                    <IconDatabaseOff size={32} className="text-slate-400" />
+                                </div>
+                                <h3 className="text-lg font-medium text-slate-800 dark:text-slate-200 mb-1">
+                                    Tidak Ada Mutasi Markup Owner
+                                </h3>
+                                <p className="text-sm text-slate-500 dark:text-slate-400">
+                                    Tidak ada mutasi markup owner pada scope dan periode yang dipilih.
+                                </p>
+                            </div>
+                        ) : settlementView === "cash" && !isTenantWorkspace && settlementExpenseRows.length === 0 && cashHistoryRows.length === 0 ? (
+                            <div className="flex flex-col items-center justify-center py-16 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
+                                <div className="w-16 h-16 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center mb-4">
+                                    <IconDatabaseOff size={32} className="text-slate-400" />
+                                </div>
+                                <h3 className="text-lg font-medium text-slate-800 dark:text-slate-200 mb-1">
+                                    Tidak Ada Data Kas & Expense
+                                </h3>
+                                <p className="text-sm text-slate-500 dark:text-slate-400">
+                                    Belum ada expense atau riwayat sisa kas pada scope dan periode yang dipilih.
                                 </p>
                             </div>
                         ) : null}
