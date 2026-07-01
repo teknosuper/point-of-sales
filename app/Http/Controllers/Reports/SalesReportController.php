@@ -164,6 +164,8 @@ class SalesReportController extends Controller
         $closingReport = null;
         $ownerCashSummary = [
             'tenant_rights_total' => 0,
+            'tenant_approved_total' => 0,
+            'tenant_approved_pending_payment_total' => 0,
             'tenant_paid_total' => 0,
             'tenant_outstanding_total' => 0,
             'expense_total' => 0,
@@ -229,15 +231,19 @@ class SalesReportController extends Controller
                 }
 
                 if ($settlementView === 'closing') {
+                    $tenantOutletIds = $this->resolveSettlementTenantOutletIds($filters);
                     $expenseSummary = ReportCashSummary::expenseSummary($filters, $outletId);
                     $tenantPayoutSummary = ReportCashSummary::tenantPayoutSummary(
                         $filters,
                         $outletId,
-                        $balanceTransactionQuery->select('transactions.id')
+                        $balanceTransactionQuery->select('transactions.id'),
+                        $tenantOutletIds
                     );
 
                     $ownerCashSummary = [
-                        'tenant_rights_total' => (int) ($tenantPayoutSummary['balance_total'] ?? 0),
+                        'tenant_rights_total' => (int) $settlementMutationRows->sum('mutation_total'),
+                        'tenant_approved_total' => (int) ($tenantPayoutSummary['approved_cumulative_total'] ?? 0),
+                        'tenant_approved_pending_payment_total' => (int) ($tenantPayoutSummary['approved_pending_payment_total'] ?? 0),
                         'tenant_paid_total' => (int) ($tenantPayoutSummary['paid_cumulative_total'] ?? 0),
                         'tenant_outstanding_total' => (int) ($tenantPayoutSummary['outstanding_total'] ?? 0),
                         'expense_total' => (int) ($expenseSummary['expense_total'] ?? 0),
@@ -245,7 +251,7 @@ class SalesReportController extends Controller
                         'expense_unpaid_total' => (int) ($expenseSummary['expense_unpaid_total'] ?? 0),
                         'expense_paid_cumulative_total' => (int) ($expenseSummary['expense_paid_cumulative_total'] ?? 0),
                         'actual_cash_remaining_total' => (int) ($metricSummary['revenue_total'] ?? 0)
-                            - (int) ($tenantPayoutSummary['paid_cumulative_total'] ?? 0)
+                            - (int) ($tenantPayoutSummary['approved_cumulative_total'] ?? 0)
                             - (int) ($expenseSummary['expense_paid_cumulative_total'] ?? 0),
                         'actual_cash_after_rights_total' => (int) ($metricSummary['revenue_total'] ?? 0)
                             - (int) ($tenantPayoutSummary['balance_total'] ?? 0)
@@ -414,8 +420,12 @@ class SalesReportController extends Controller
                     'request_rejected_count' => (int) ($settlementSummary['rejected_count'] ?? 0),
                     'request_pending_total' => (int) ($settlementSummary['pending_total'] ?? 0),
                     'request_approved_total' => (int) ($settlementSummary['approved_total'] ?? 0),
+                    'request_approved_pending_payment_total' => (int) ($settlementSummary['approved_pending_payment_total'] ?? 0),
+                    'request_paid_total' => (int) ($settlementSummary['paid_total'] ?? 0),
                     'request_balance_total' => (int) ($settlementSummary['balance_total'] ?? 0),
                     'tenant_rights_total' => (int) ($ownerCashSummary['tenant_rights_total'] ?? 0),
+                    'tenant_approved_total' => (int) ($ownerCashSummary['tenant_approved_total'] ?? 0),
+                    'tenant_approved_pending_payment_total' => (int) ($ownerCashSummary['tenant_approved_pending_payment_total'] ?? 0),
                     'tenant_paid_total' => (int) ($ownerCashSummary['tenant_paid_total'] ?? 0),
                     'tenant_outstanding_total' => (int) ($ownerCashSummary['tenant_outstanding_total'] ?? 0),
                     'expense_total' => (int) ($ownerCashSummary['expense_total'] ?? 0),
@@ -1724,7 +1734,7 @@ class SalesReportController extends Controller
 
     protected function buildSettlementRequestPaginator(array $filters, bool $tenantWorkspace)
     {
-        $rangeFilters = ['start_date' => null, 'end_date' => $filters['end_date'] ?? null];
+        $rangeFilters = ['start_date' => $filters['start_date'] ?? null, 'end_date' => $filters['end_date'] ?? null];
         $tenantOutletIds = $this->resolveSettlementTenantOutletIds($filters);
         $query = CashierSettlementRequest::query()
             ->with(['cashier:id,name', 'approvedBy:id,name', 'rejectedBy:id,name'])
@@ -1774,6 +1784,13 @@ class SalesReportController extends Controller
         $approvedTotal = (int) round(
             ReportTimezone::applySourceDateRange(
                 (clone $query)->where('status', CashierSettlementRequest::STATUS_APPROVED),
+                'approved_at',
+                ['start_date' => null, 'end_date' => $filters['end_date'] ?? null]
+            )->sum('approved_amount')
+        );
+        $paidTotal = (int) round(
+            ReportTimezone::applySourceDateRange(
+                (clone $query)->where('status', CashierSettlementRequest::STATUS_APPROVED),
                 'paid_at',
                 ['start_date' => null, 'end_date' => $filters['end_date'] ?? null]
             )->sum('approved_amount')
@@ -1785,6 +1802,8 @@ class SalesReportController extends Controller
             'rejected_count' => (int) ((clone $filteredQuery)->where('status', CashierSettlementRequest::STATUS_REJECTED)->count()),
             'requested_total' => (int) round((clone $filteredQuery)->sum('requested_amount')),
             'approved_total' => $approvedTotal,
+            'approved_pending_payment_total' => max(0, $approvedTotal - $paidTotal),
+            'paid_total' => $paidTotal,
             'pending_total' => $pendingTotal,
             'balance_total' => $balanceTotal,
             'outstanding_total' => max(0, $balanceTotal - $approvedTotal),
@@ -1983,7 +2002,7 @@ class SalesReportController extends Controller
 
     protected function buildSettlementMutationRows(array $filters, bool $tenantWorkspace): Collection
     {
-        $rangeFilters = ['start_date' => null, 'end_date' => $filters['end_date'] ?? null];
+        $rangeFilters = ['start_date' => $filters['start_date'] ?? null, 'end_date' => $filters['end_date'] ?? null];
         $tenantOutletIds = $this->resolveSettlementTenantOutletIds($filters);
         $mutationQuery = trim((string) ($filters['mutation_q'] ?? ''));
 
@@ -2233,22 +2252,20 @@ class SalesReportController extends Controller
                 ->map(fn (Collection $items) => (int) $items->sum('amount'))
             : collect();
 
-        $tenantPaidByDate = Schema::hasTable('cashier_settlement_requests')
-            ? CashierSettlementRequest::query()
-                ->whereNull('cashier_shift_id')
-                ->where('status', CashierSettlementRequest::STATUS_APPROVED)
-                ->whereIn('outlet_id', $tenantOutletIds->all())
-                ->whereNotNull('paid_at')
-                ->whereDate('paid_at', '>=', $startDate)
-                ->whereDate('paid_at', '<=', $filters['end_date'])
-                ->get(['paid_at', 'approved_amount'])
-                ->groupBy(fn ($row) => ReportTimezone::sourceDateKey($row->getRawOriginal('paid_at')))
-                ->map(fn (Collection $items) => (int) $items->sum('approved_amount'))
-            : collect();
+        $settlementSeries = ReportCashSummary::tenantSettlementSeries(
+            ['start_date' => $startDate, 'end_date' => $filters['end_date']],
+            $outletId,
+            $tenantOutletIds
+        );
+        $tenantApprovedByDate = $settlementSeries['approved_by_date'] ?? collect();
+        $tenantPaidByDate = $settlementSeries['paid_by_date'] ?? collect();
+        $tenantPendingByDate = $settlementSeries['pending_by_date'] ?? collect();
 
         $revenueRunning = 0;
         $expensePaidRunning = 0;
+        $tenantApprovedRunning = 0;
         $tenantPaidRunning = 0;
+        $tenantPendingRunning = 0;
         $ownerMarkupRunning = 0;
         $tenantRightsRunning = 0;
 
@@ -2256,25 +2273,33 @@ class SalesReportController extends Controller
             $startDate,
             &$revenueRunning,
             &$expensePaidRunning,
+            &$tenantApprovedRunning,
             &$tenantPaidRunning,
+            &$tenantPendingRunning,
             &$ownerMarkupRunning,
             &$tenantRightsRunning,
             $revenueByDate,
             $expensePaidByDate,
+            $tenantApprovedByDate,
             $tenantPaidByDate,
+            $tenantPendingByDate,
             $ownerMarkupByDate,
             $tenantRightsByDate
         ) {
             $day = Carbon::createFromFormat('Y-m-d', $startDate, ReportTimezone::timezone())->addDays($offset)->format('Y-m-d');
             $dayRevenueTotal = (int) ($revenueByDate->get($day, 0) ?? 0);
             $expensePaidTotal = (int) ($expensePaidByDate->get($day, 0) ?? 0);
+            $tenantApprovedTotal = (int) ($tenantApprovedByDate->get($day, 0) ?? 0);
             $tenantPaidTotal = (int) ($tenantPaidByDate->get($day, 0) ?? 0);
+            $tenantPendingTotal = (int) ($tenantPendingByDate->get($day, 0) ?? 0);
             $ownerMarkupTotal = (int) ($ownerMarkupByDate->get($day, 0) ?? 0);
             $tenantRightsTotal = (int) ($tenantRightsByDate->get($day, 0) ?? 0);
 
             $revenueRunning += $dayRevenueTotal;
             $expensePaidRunning += $expensePaidTotal;
+            $tenantApprovedRunning += $tenantApprovedTotal;
             $tenantPaidRunning += $tenantPaidTotal;
+            $tenantPendingRunning += $tenantPendingTotal;
             $ownerMarkupRunning += $ownerMarkupTotal;
             $tenantRightsRunning += $tenantRightsTotal;
 
@@ -2285,12 +2310,18 @@ class SalesReportController extends Controller
                 'expense_paid_total' => $expensePaidTotal,
                 'expense_paid_cumulative_total' => $expensePaidRunning,
                 'tenant_rights_total' => $tenantRightsTotal,
+                'tenant_approved_total' => $tenantApprovedTotal,
+                'tenant_approved_cumulative_total' => $tenantApprovedRunning,
+                'tenant_approved_pending_payment_total' => max(0, $tenantApprovedRunning - $tenantPaidRunning),
+                'tenant_pending_request_total' => $tenantPendingTotal,
+                'tenant_pending_request_cumulative_total' => $tenantPendingRunning,
                 'tenant_paid_cumulative_total' => $tenantPaidRunning,
                 'tenant_rights_cumulative_total' => $tenantRightsRunning,
+                'tenant_outstanding_total' => max(0, $tenantRightsRunning - $tenantApprovedRunning),
                 'owner_markup_total' => $ownerMarkupTotal,
                 'owner_markup_cumulative_total' => $ownerMarkupRunning,
                 'owner_markup_remaining_total' => $ownerMarkupRunning - $expensePaidRunning,
-                'remaining_cash_total' => $revenueRunning - $tenantPaidRunning - $expensePaidRunning,
+                'remaining_cash_total' => $revenueRunning - $tenantApprovedRunning - $expensePaidRunning,
             ];
         });
     }
@@ -2307,6 +2338,10 @@ class SalesReportController extends Controller
                     'month_label' => Carbon::createFromFormat('Y-m', $monthKey)->translatedFormat('F Y'),
                     'revenue_total' => (int) $items->sum('revenue_total'),
                     'tenant_rights_total' => (int) $items->sum('tenant_rights_total'),
+                    'tenant_approved_cumulative_total' => (int) ($last['tenant_approved_cumulative_total'] ?? 0),
+                    'tenant_paid_cumulative_total' => (int) ($last['tenant_paid_cumulative_total'] ?? 0),
+                    'tenant_outstanding_total' => (int) ($last['tenant_outstanding_total'] ?? 0),
+                    'tenant_pending_request_cumulative_total' => (int) ($last['tenant_pending_request_cumulative_total'] ?? 0),
                     'owner_markup_total' => (int) $items->sum('owner_markup_total'),
                     'expense_paid_total' => (int) $items->sum('expense_paid_total'),
                     'remaining_cash_total' => (int) ($last['remaining_cash_total'] ?? 0),

@@ -8,6 +8,7 @@ use App\Models\TransactionTenantAllocation;
 use App\Models\TransactionTenantAllocationItem;
 use Illuminate\Database\Eloquent\Builder as EloquentBuilder;
 use Illuminate\Database\Query\Builder as QueryBuilder;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Schema;
 
 class ReportCashSummary
@@ -44,12 +45,20 @@ class ReportCashSummary
         ];
     }
 
-    public static function tenantPayoutSummary(array $filters, ?int $outletId, EloquentBuilder|QueryBuilder $balanceTransactionQuery): array
+    public static function tenantPayoutSummary(
+        array $filters,
+        ?int $outletId,
+        EloquentBuilder|QueryBuilder $balanceTransactionQuery,
+        ?Collection $tenantOutletIds = null
+    ): array
     {
         if (! Schema::hasTable('cashier_settlement_requests')) {
             return [
                 'balance_total' => 0,
                 'approved_total' => 0,
+                'approved_period_total' => 0,
+                'approved_cumulative_total' => 0,
+                'approved_pending_payment_total' => 0,
                 'paid_total' => 0,
                 'paid_period_total' => 0,
                 'paid_cumulative_total' => 0,
@@ -87,8 +96,13 @@ class ReportCashSummary
         }
 
         $baseQuery = CashierSettlementRequest::query()
-            ->when($outletId, fn ($query) => $query->where('outlet_id', $outletId))
             ->whereNull('cashier_shift_id');
+
+        if ($tenantOutletIds instanceof Collection && $tenantOutletIds->isNotEmpty()) {
+            $baseQuery->whereIn('outlet_id', $tenantOutletIds->all());
+        } elseif ($outletId) {
+            $baseQuery->where('outlet_id', $outletId);
+        }
 
         $settlementFilters = [
             'start_date' => $filters['start_date'] ?? null,
@@ -100,6 +114,16 @@ class ReportCashSummary
         ];
         $approvedQuery = (clone $baseQuery)
             ->where('status', CashierSettlementRequest::STATUS_APPROVED);
+        $approvedPeriodQuery = ReportTimezone::applySourceDateRange(
+            (clone $approvedQuery),
+            'approved_at',
+            $settlementFilters
+        );
+        $approvedCumulativeQuery = ReportTimezone::applySourceDateRange(
+            (clone $approvedQuery),
+            'approved_at',
+            $cumulativeSettlementFilters
+        );
 
         $paidPeriodQuery = ReportTimezone::applySourceDateRange(
             (clone $approvedQuery),
@@ -112,10 +136,11 @@ class ReportCashSummary
             $cumulativeSettlementFilters
         );
 
-        $approvedTotal = (int) round($paidCumulativeQuery->sum('approved_amount'));
+        $approvedPeriodTotal = (int) round($approvedPeriodQuery->sum('approved_amount'));
+        $approvedCumulativeTotal = (int) round($approvedCumulativeQuery->sum('approved_amount'));
         $paidPeriodTotal = (int) round($paidPeriodQuery->sum('approved_amount'));
-        $paidCumulativeTotal = $approvedTotal;
-        $paidTotal = $approvedTotal;
+        $paidCumulativeTotal = (int) round($paidCumulativeQuery->sum('approved_amount'));
+        $paidTotal = $paidCumulativeTotal;
         $pendingApprovalTotal = (int) round(
             ReportTimezone::applySourceDateRange(
                 (clone $baseQuery)->where('status', CashierSettlementRequest::STATUS_PENDING),
@@ -123,15 +148,83 @@ class ReportCashSummary
                 $settlementFilters
             )->sum('requested_amount')
         );
+        $approvedPendingPaymentTotal = max(0, $approvedCumulativeTotal - $paidCumulativeTotal);
 
         return [
             'balance_total' => $balanceTotal,
-            'approved_total' => $approvedTotal,
+            'approved_total' => $approvedCumulativeTotal,
+            'approved_period_total' => $approvedPeriodTotal,
+            'approved_cumulative_total' => $approvedCumulativeTotal,
+            'approved_pending_payment_total' => $approvedPendingPaymentTotal,
             'paid_total' => $paidTotal,
             'paid_period_total' => $paidPeriodTotal,
             'paid_cumulative_total' => $paidCumulativeTotal,
             'pending_approval_total' => $pendingApprovalTotal,
-            'outstanding_total' => max(0, $balanceTotal - $paidTotal),
+            'outstanding_total' => max(0, $balanceTotal - $approvedCumulativeTotal),
+        ];
+    }
+
+    public static function tenantSettlementSeries(
+        array $filters,
+        ?int $outletId,
+        Collection $tenantOutletIds
+    ): array {
+        if (! Schema::hasTable('cashier_settlement_requests')) {
+            return [
+                'approved_by_date' => collect(),
+                'paid_by_date' => collect(),
+                'pending_by_date' => collect(),
+            ];
+        }
+
+        $baseQuery = CashierSettlementRequest::query()
+            ->whereNull('cashier_shift_id');
+
+        if ($tenantOutletIds->isNotEmpty()) {
+            $baseQuery->whereIn('outlet_id', $tenantOutletIds->all());
+        } elseif ($outletId) {
+            $baseQuery->where('outlet_id', $outletId);
+        }
+
+        $startDate = $filters['start_date'] ?? null;
+        $endDate = $filters['end_date'] ?? null;
+
+        $approvedByDate = ReportTimezone::applySourceDateRange(
+            (clone $baseQuery)
+                ->where('status', CashierSettlementRequest::STATUS_APPROVED)
+                ->whereNotNull('approved_at'),
+            'approved_at',
+            ['start_date' => $startDate, 'end_date' => $endDate]
+        )
+            ->get(['approved_at', 'approved_amount'])
+            ->groupBy(fn ($row) => ReportTimezone::sourceDateKey($row->getRawOriginal('approved_at')))
+            ->map(fn (Collection $items) => (int) $items->sum('approved_amount'));
+
+        $paidByDate = ReportTimezone::applySourceDateRange(
+            (clone $baseQuery)
+                ->where('status', CashierSettlementRequest::STATUS_APPROVED)
+                ->whereNotNull('paid_at'),
+            'paid_at',
+            ['start_date' => $startDate, 'end_date' => $endDate]
+        )
+            ->get(['paid_at', 'approved_amount'])
+            ->groupBy(fn ($row) => ReportTimezone::sourceDateKey($row->getRawOriginal('paid_at')))
+            ->map(fn (Collection $items) => (int) $items->sum('approved_amount'));
+
+        $pendingByDate = ReportTimezone::applySourceDateRange(
+            (clone $baseQuery)
+                ->where('status', CashierSettlementRequest::STATUS_PENDING),
+            'created_at',
+            ['start_date' => $startDate, 'end_date' => $endDate]
+        )
+            ->get(['created_at', 'requested_amount'])
+            ->groupBy(fn ($row) => ReportTimezone::sourceDateKey($row->getRawOriginal('created_at')))
+            ->map(fn (Collection $items) => (int) $items->sum('requested_amount'));
+
+        return [
+            'approved_by_date' => $approvedByDate,
+            'paid_by_date' => $paidByDate,
+            'pending_by_date' => $pendingByDate,
         ];
     }
 }

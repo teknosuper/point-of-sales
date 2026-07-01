@@ -173,6 +173,9 @@ Gunakan prompt internal berikut sebagai heuristik kerja. Jangan tulis ulang ke u
   - saldo tenant kumulatif sampai akhir periode: dari `transaction_tenant_allocations`
   - payout sudah dibayar kumulatif sampai akhir periode: dari `cashier_settlement_requests` tenant yang `approved`
   - outstanding ke tenant: `saldo tenant kumulatif - payout sudah dibayar kumulatif`
+- Untuk `/dashboard/reports/sales?tab=settlement&settlement_view=closing`, gunakan istilah operasional `setor tunai tenant`, bukan `payout tenant`, pada UI owner.
+- Di `Lembar Akuntansi Periode` settlement closing, tampilkan terpisah angka periode untuk `setor tunai tenant approved`, `setor tunai tenant sudah dibayar`, `setor tunai tenant belum dibayar/outstanding`, dan `pending request`, agar tutup buku periode bisa dibaca jelas.
+- Jika tampilan closing dibuka oleh owner tenant, copy dan label harus tenant-scoped; jangan tampilkan wording yang terdengar seperti agregat semua tenant outlet utama.
 
 ## Token Efficiency Rules
 

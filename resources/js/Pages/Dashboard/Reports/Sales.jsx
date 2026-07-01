@@ -74,7 +74,13 @@ const ClosingStatementTable = ({ title, description, rows = [] }) => (
                     </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                    {rows.map((row) => (
+                    {rows.map((row) => row.section ? (
+                        <tr key={row.label} className="bg-slate-50 dark:bg-slate-950/60">
+                            <td colSpan={3} className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                {row.label}
+                            </td>
+                        </tr>
+                    ) : (
                         <tr key={row.label}>
                             <td className={`px-3 py-3 text-sm ${row.emphasis ? "font-semibold text-slate-900 dark:text-white" : "text-slate-700 dark:text-slate-300"}`}>
                                 {row.label}
@@ -162,6 +168,8 @@ const Sales = ({
     const page = usePage();
     const auth = page.props?.auth ?? {};
     const isTenantWorkspace = Boolean(workspace?.is_tenant_workspace);
+    const activeOutletType = workspace?.active_outlet?.outlet_type ?? "main";
+    const isOwnerTenantView = !isTenantWorkspace && activeOutletType === "tenant";
     const { timezone: reportTimezone, timezoneLabel: reportTimezoneLabel } =
         resolveReportTimezone(reportMeta);
     const [productDetailModal, setProductDetailModal] = useState(null);
@@ -498,136 +506,112 @@ const Sales = ({
     const closingDetailPerPage = tenantSettlement?.closing?.details?.per_page
         ? Number(tenantSettlement?.closing?.details?.per_page)
         : closingDetailRows.length || 1;
+    const unresolvedTenantObligationTotal =
+        Number(settlementSummary.tenant_outstanding_total ?? 0)
+        + Number(settlementSummary.request_pending_total ?? 0);
 
     const closingPeriodRows = useMemo(() => ([
         {
-            label: "Pendapatan Omzet",
-            note: "Total penjualan kotor pada periode aktif.",
+            label: "Mutasi Periode",
+            section: true,
+        },
+        {
+            label: "A. Pendapatan Omzet Periode",
+            note: isOwnerTenantView
+                ? "Total penjualan kotor tenant aktif pada periode ini."
+                : "Total penjualan kotor pada periode aktif.",
             value: summary?.revenue_total ?? 0,
             tone: "positive",
         },
         {
-            label: "Dikurangi Hak Tenant",
-            note: "Kewajiban owner kepada tenant dari transaksi yang masuk saldo.",
+            label: "B. Hak Tenant Terbentuk Periode",
+            note: isOwnerTenantView
+                ? "Hak tenant yang terbentuk dari transaksi tenant aktif pada periode ini."
+                : "Hak tenant yang terbentuk pada periode aktif sebelum melihat status penyelesaiannya.",
             value: settlementSummary.tenant_rights_total ?? 0,
             tone: "negative",
             prefix: "-",
         },
         {
-            label: "Dikurangi Expense Paid",
-            note: "Pengeluaran operasional yang sudah dibayar pada periode yang sama.",
+            label: "Penyelesaian Kewajiban Tenant",
+            section: true,
+        },
+        {
+            label: "C. Setor Tunai Tenant Approved",
+            note: isOwnerTenantView
+                ? "Setor tunai tenant ini yang sudah disetujui sampai akhir periode, termasuk yang belum cair."
+                : "Dana setor tunai tenant yang sudah di-approve sampai akhir periode, termasuk yang belum cair.",
+            value: settlementSummary.tenant_approved_total ?? 0,
+            tone: "info",
+        },
+        {
+            label: "D. Setor Tunai Tenant Sudah Dibayar",
+            note: isOwnerTenantView
+                ? "Bagian setor tunai tenant ini yang benar-benar sudah dibayar."
+                : "Subset dari setor tunai approved yang benar-benar sudah cair ke tenant.",
+            value: settlementSummary.tenant_paid_total ?? 0,
+            tone: "info",
+        },
+        {
+            label: "E. Kewajiban Owner yang Belum Dibayar",
+            note: "Kewajiban owner yang sudah menjadi hak tenant tetapi belum selesai dibayar sampai akhir periode.",
+            value: settlementSummary.tenant_outstanding_total ?? 0,
+            tone: "negative",
+        },
+        {
+            label: "F. Request Setor Tunai Pending Approval",
+            note: "Pengajuan setor tunai tenant yang masih menunggu approval pada periode aktif.",
+            value: settlementSummary.request_pending_total ?? 0,
+            tone: "info",
+        },
+        {
+            label: "G. Total Kewajiban Owner Belum Diselesaikan",
+            note: "Gabungan hak tenant yang masih outstanding dan pengajuan setor tunai yang masih pending approval.",
+            value: unresolvedTenantObligationTotal,
+            tone: "negative",
+        },
+        {
+            label: "Hak Owner",
+            section: true,
+        },
+        {
+            label: isOwnerTenantView ? "H. Hak Owner Bruto dari Tenant Ini" : "H. Hak Owner Bruto",
+            note: isOwnerTenantView
+                ? "Pendapatan owner yang berasal dari markup produk dan topping tenant aktif sebelum dipotong beban owner."
+                : "Pendapatan owner dari markup produk dan topping tenant sebelum dipotong beban owner.",
+            value: settlementSummary.owner_markup_total ?? 0,
+            tone: "info",
+        },
+        {
+            label: isOwnerTenantView ? "I. Sisa Hak Owner Tenant Ini" : "I. Sisa Hak Owner",
+            note: isOwnerTenantView
+                ? "Hak owner dari tenant aktif setelah expense paid pada periode aktif."
+                : "Hak owner setelah expense paid pada periode aktif.",
+            value: settlementSummary.owner_markup_remaining_total ?? 0,
+            emphasis: true,
+        },
+        {
+            label: "Kas dan Expense",
+            section: true,
+        },
+        {
+            label: isOwnerTenantView ? "J. Expense Outlet Dibayar" : "J. Expense Outlet Dibayar",
+            note: isOwnerTenantView
+                ? "Pengeluaran outlet induk yang sudah dibayar dan ikut memotong posisi kas tenant ini."
+                : "Pengeluaran operasional yang sudah dibayar pada periode yang sama.",
             value: settlementSummary.expense_paid_total ?? 0,
             tone: "negative",
             prefix: "-",
         },
         {
-            label: "Dikurangi Payout Tenant Dibayar",
-            note: "Arus kas keluar ke tenant yang benar-benar sudah dibayar.",
-            value: settlementSummary.tenant_paid_total ?? 0,
-            tone: "negative",
-            prefix: "-",
-        },
-        {
-            label: "Markup Owner",
-            note: "Pendapatan owner dari markup produk dan topping tenant.",
-            value: settlementSummary.owner_markup_total ?? 0,
-            tone: "info",
-        },
-        {
-            label: "Sisa Markup Owner",
-            note: "Markup owner setelah dipotong expense paid.",
-            value: settlementSummary.owner_markup_remaining_total ?? 0,
-            emphasis: true,
-        },
-        {
-            label: "Sisa Kas Aktual",
-            note: "Kas setelah payout tenant dibayar dan expense paid.",
+            label: isOwnerTenantView ? "K. Sisa Kas Outlet untuk Tenant Ini" : "K. Sisa Kas Aktual",
+            note: isOwnerTenantView
+                ? "Posisi kas outlet setelah hak tenant ini yang sudah approved dan expense paid."
+                : "Posisi kas akhir setelah expense paid dan penyelesaian setor tunai tenant yang sudah approved.",
             value: settlementSummary.actual_cash_remaining_total ?? 0,
             emphasis: true,
         },
-    ]), [summary?.revenue_total, settlementSummary]);
-
-    const closingMonthStatementRows = useMemo(() => closingSelectedMonthSummary ? ([
-        {
-            label: "Pendapatan Omzet Bulanan",
-            note: "Akumulasi omzet kotor pada bulan aktif.",
-            value: closingSelectedMonthSummary.revenue_total ?? 0,
-            tone: "positive",
-        },
-        {
-            label: "Dikurangi Hak Tenant Bulanan",
-            note: "Akumulasi kewajiban tenant pada bulan aktif.",
-            value: closingSelectedMonthSummary.tenant_rights_total ?? 0,
-            tone: "negative",
-            prefix: "-",
-        },
-        {
-            label: "Dikurangi Expense Paid Bulanan",
-            note: "Pengeluaran operasional yang sudah dibayar pada bulan aktif.",
-            value: closingSelectedMonthSummary.expense_paid_total ?? 0,
-            tone: "negative",
-            prefix: "-",
-        },
-        {
-            label: "Markup Owner Bulanan",
-            note: "Pendapatan owner dari transaksi tenant pada bulan aktif.",
-            value: closingSelectedMonthSummary.owner_markup_total ?? 0,
-            tone: "info",
-        },
-        {
-            label: "Sisa Markup Owner Bulanan",
-            note: "Markup owner yang masih tersisa di akhir bulan aktif.",
-            value: closingSelectedMonthSummary.owner_markup_remaining_total ?? 0,
-            emphasis: true,
-        },
-        {
-            label: "Sisa Kas Bulanan",
-            note: "Posisi kas aktual di akhir bulan aktif.",
-            value: closingSelectedMonthSummary.remaining_cash_total ?? 0,
-            emphasis: true,
-        },
-    ]) : [], [closingSelectedMonthSummary]);
-
-    const closingDayStatementRows = useMemo(() => closingSelectedDaySummary ? ([
-        {
-            label: "Pendapatan Omzet Harian",
-            note: "Total omzet pada hari aktif.",
-            value: closingSelectedDaySummary.revenue_total ?? 0,
-            tone: "positive",
-        },
-        {
-            label: "Dikurangi Hak Tenant Harian",
-            note: "Hak tenant yang terbentuk pada hari aktif.",
-            value: closingSelectedDaySummary.tenant_rights_total ?? 0,
-            tone: "negative",
-            prefix: "-",
-        },
-        {
-            label: "Dikurangi Expense Paid Harian",
-            note: "Expense paid pada hari aktif.",
-            value: closingSelectedDaySummary.expense_paid_total ?? 0,
-            tone: "negative",
-            prefix: "-",
-        },
-        {
-            label: "Markup Owner Harian",
-            note: "Pendapatan owner pada hari aktif.",
-            value: closingSelectedDaySummary.owner_markup_total ?? 0,
-            tone: "info",
-        },
-        {
-            label: "Sisa Markup Owner Harian",
-            note: "Markup owner yang tersisa sampai hari aktif.",
-            value: closingSelectedDaySummary.owner_markup_remaining_total ?? 0,
-            emphasis: true,
-        },
-        {
-            label: "Sisa Kas Harian",
-            note: "Posisi kas aktual sampai hari aktif.",
-            value: closingSelectedDaySummary.remaining_cash_total ?? 0,
-            emphasis: true,
-        },
-    ]) : [], [closingSelectedDaySummary]);
+    ]), [isOwnerTenantView, unresolvedTenantObligationTotal, summary?.revenue_total, settlementSummary]);
 
     const hasActiveFilters =
         filterData.invoice ||
@@ -1039,6 +1023,8 @@ const Sales = ({
     const activeOutletName = workspace?.active_outlet?.name || "-";
     const settlementScopeLabel = isTenantWorkspace
         ? `Tenant aktif ${activeOutletName}`
+        : isOwnerTenantView
+          ? `Owner tenant ${activeOutletName}`
         : selectedTenant
           ? `Outlet ${activeOutletName} • Tenant ${selectedTenant.name}`
           : `Semua tenant di ${activeOutletName}`;
@@ -2013,9 +1999,15 @@ const Sales = ({
                             <span className={`rounded-full px-3 py-1 text-xs font-semibold ${
                                 isTenantWorkspace
                                     ? "bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
+                                    : isOwnerTenantView
+                                      ? "bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300"
                                     : "bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300"
                             }`}>
-                                {isTenantWorkspace ? "Mode Tenant Workspace" : "Mode Owner Global"}
+                                {isTenantWorkspace
+                                    ? "Mode Tenant Workspace"
+                                    : isOwnerTenantView
+                                      ? "Mode Owner Tenant"
+                                      : "Mode Owner Global"}
                             </span>
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
@@ -2082,16 +2074,22 @@ const Sales = ({
                         <div className={`rounded-2xl border p-4 ${
                             isTenantWorkspace
                                 ? "border-amber-200 bg-amber-50/70 dark:border-amber-900/40 dark:bg-amber-950/10"
+                                : isOwnerTenantView
+                                  ? "border-blue-200 bg-blue-50/70 dark:border-blue-900/40 dark:bg-blue-950/10"
                                 : "border-sky-200 bg-sky-50/70 dark:border-sky-900/40 dark:bg-sky-950/10"
                         }`}>
                             <p className={`text-sm ${
                                 isTenantWorkspace
                                     ? "text-amber-800 dark:text-amber-200"
+                                    : isOwnerTenantView
+                                      ? "text-blue-800 dark:text-blue-200"
                                     : "text-sky-800 dark:text-sky-200"
                             }`}>
                                 {isTenantWorkspace
                                     ? "Workspace tenant hanya menampilkan data tenant aktif. Tab owner seperti markup owner dan kas outlet tidak ditampilkan di sini."
-                                    : "Workspace owner global menampilkan ringkasan outlet aktif dan bisa difilter ke tenant tertentu. Tab markup owner dan kas outlet hanya tersedia untuk owner global."}
+                                    : isOwnerTenantView
+                                      ? "Mode owner tenant membaca tutup buku khusus tenant aktif. Angka owner tetap ditampilkan, tetapi konteksnya hanya tenant ini, bukan agregat semua tenant outlet utama."
+                                      : "Workspace owner global menampilkan ringkasan outlet aktif dan bisa difilter ke tenant tertentu. Tab markup owner dan kas outlet hanya tersedia untuk owner global."}
                             </p>
                         </div>
                         {settlementView === "closing" && !isTenantWorkspace ? (
@@ -2106,7 +2104,7 @@ const Sales = ({
                                     icon={<IconReceipt2 />}
                                     title="Hak Tenant"
                                     value={formatCurrency(settlementSummary.tenant_rights_total ?? 0)}
-                                    description={`Sudah dibayar ${formatCurrency(settlementSummary.tenant_paid_total ?? 0)} • outstanding ${formatCurrency(settlementSummary.tenant_outstanding_total ?? 0)}`}
+                                    description={`Approved ${formatCurrency(settlementSummary.tenant_approved_total ?? 0)} • paid ${formatCurrency(settlementSummary.tenant_paid_total ?? 0)} • outstanding ${formatCurrency(settlementSummary.tenant_outstanding_total ?? 0)}`}
                                 />
                                 <SummaryCard
                                     icon={<IconCoin />}
@@ -2118,7 +2116,7 @@ const Sales = ({
                                     icon={<IconTrendingUp />}
                                     title="Sisa Kas Aktual"
                                     value={formatCurrency(settlementSummary.actual_cash_remaining_total ?? 0)}
-                                    description={`Setelah payout dibayar & expense paid. Sisa konservatif ${formatCurrency(settlementSummary.actual_cash_after_rights_total ?? 0)}`}
+                                    description={`Setelah payout approved & expense paid. Sisa konservatif ${formatCurrency(settlementSummary.actual_cash_after_rights_total ?? 0)}`}
                                 />
                                 <SummaryCard
                                     icon={<IconShoppingBag />}
@@ -2140,28 +2138,38 @@ const Sales = ({
                                     Laporan Tutup Buku
                                 </h2>
                                 <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                                    Baca dari atas ke bawah: hasil akhir periode, status withdraw tenant, tutup buku bulanan, lalu breakdown harian dan detail transaksi.
+                                    {isOwnerTenantView
+                                        ? "Tampilan ini khusus owner tenant. Gunakan lembar akuntansi periode sebagai laporan utama, lalu gunakan tabel bulan, hari, dan detail transaksi untuk audit penyusunnya."
+                                        : "Gunakan lembar akuntansi periode sebagai laporan utama. Tabel bulan, hari, dan detail transaksi di bawah hanya breakdown audit penyusunnya, bukan laporan akuntansi baru."}
                                 </p>
                                 <div className="mt-4 grid gap-3 xl:grid-cols-3">
                                     <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4 dark:border-emerald-900/40 dark:bg-emerald-950/10">
                                         <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">Hak Tenant Periode</div>
                                         <div className="mt-2 text-2xl font-bold text-emerald-800 dark:text-emerald-200">{formatCurrency(settlementSummary.tenant_rights_total ?? 0)}</div>
                                         <div className="mt-1 text-xs text-emerald-700/80 dark:text-emerald-300/80">
-                                            Kewajiban owner ke tenant pada scope dan periode aktif.
+                                            {Number(settlementSummary.tenant_rights_total ?? 0) < 0
+                                                ? "Hasil mutasi saldo tenant pada periode aktif: total transaksi delivered tenant dikurangi retur selesai. Nilai minus berarti koreksi/retur periode ini lebih besar dari hak tenant baru."
+                                                : isOwnerTenantView
+                                                  ? "Hasil mutasi saldo tenant aktif pada periode ini: transaksi delivered tenant dikurangi retur selesai."
+                                                  : "Hasil mutasi saldo tenant pada scope dan periode aktif: transaksi delivered tenant dikurangi retur selesai."}
                                         </div>
                                     </div>
                                     <div className="rounded-2xl border border-blue-200 bg-blue-50/70 p-4 dark:border-blue-900/40 dark:bg-blue-950/10">
-                                        <div className="text-xs font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">Markup Owner Periode</div>
+                                        <div className="text-xs font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">{isOwnerTenantView ? "Markup Owner dari Tenant Ini" : "Markup Owner Periode"}</div>
                                         <div className="mt-2 text-2xl font-bold text-blue-800 dark:text-blue-200">{formatCurrency(settlementSummary.owner_markup_total ?? 0)}</div>
                                         <div className="mt-1 text-xs text-blue-700/80 dark:text-blue-300/80">
-                                            Akumulasi pendapatan owner dari transaksi tenant.
+                                            {isOwnerTenantView
+                                                ? "Akumulasi markup owner yang berasal dari tenant aktif."
+                                                : "Akumulasi pendapatan owner dari transaksi tenant."}
                                         </div>
                                     </div>
                                     <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950">
-                                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">Posisi Kas Aktual</div>
+                                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">{isOwnerTenantView ? "Posisi Kas untuk Tenant Ini" : "Posisi Kas Aktual"}</div>
                                         <div className="mt-2 text-2xl font-bold text-slate-900 dark:text-white">{formatCurrency(settlementSummary.actual_cash_remaining_total ?? 0)}</div>
                                         <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                            Setelah payout tenant dibayar dan expense paid. Sisa markup owner {formatCurrency(settlementSummary.owner_markup_remaining_total ?? 0)}.
+                                            {isOwnerTenantView
+                                                ? `Setelah payout tenant ini di-approve dan expense paid. Sisa markup owner ${formatCurrency(settlementSummary.owner_markup_remaining_total ?? 0)}.`
+                                                : `Setelah payout tenant approved dan expense paid. Sisa markup owner ${formatCurrency(settlementSummary.owner_markup_remaining_total ?? 0)}.`}
                                         </div>
                                     </div>
                                 </div>
@@ -2170,7 +2178,7 @@ const Sales = ({
                                     <div className="text-sm font-semibold text-amber-800 dark:text-amber-200">
                                         Status Withdraw Tenant
                                     </div>
-                                    <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                                    <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
                                         <div className="rounded-xl border border-amber-200 bg-white/80 p-3 dark:border-amber-900/30 dark:bg-slate-900/40">
                                             <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Outstanding Tenant</div>
                                             <div className="mt-2 text-lg font-bold text-slate-900 dark:text-white">{formatCurrency(settlementSummary.outstanding_total ?? 0)}</div>
@@ -2182,9 +2190,14 @@ const Sales = ({
                                             <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{Number(settlementSummary.request_pending_count ?? 0).toLocaleString("id-ID")} request menunggu approval</div>
                                         </div>
                                         <div className="rounded-xl border border-amber-200 bg-white/80 p-3 dark:border-amber-900/30 dark:bg-slate-900/40">
+                                            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Approved Belum Cair</div>
+                                            <div className="mt-2 text-lg font-bold text-slate-900 dark:text-white">{formatCurrency(settlementSummary.request_approved_pending_payment_total ?? 0)}</div>
+                                            <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">Approved {formatCurrency(settlementSummary.request_approved_total ?? 0)} • paid {formatCurrency(settlementSummary.request_paid_total ?? 0)}</div>
+                                        </div>
+                                        <div className="rounded-xl border border-amber-200 bg-white/80 p-3 dark:border-amber-900/30 dark:bg-slate-900/40">
                                             <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Sudah Dibayar</div>
-                                            <div className="mt-2 text-lg font-bold text-slate-900 dark:text-white">{formatCurrency(settlementSummary.request_approved_total ?? 0)}</div>
-                                            <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{Number(settlementSummary.request_approved_count ?? 0).toLocaleString("id-ID")} request disetujui</div>
+                                            <div className="mt-2 text-lg font-bold text-slate-900 dark:text-white">{formatCurrency(settlementSummary.request_paid_total ?? 0)}</div>
+                                            <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">Dana tenant yang sudah benar-benar keluar</div>
                                         </div>
                                         <div className="rounded-xl border border-amber-200 bg-white/80 p-3 dark:border-amber-900/30 dark:bg-slate-900/40">
                                             <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Request Ditolak</div>
@@ -2196,8 +2209,10 @@ const Sales = ({
 
                                 <div className="mt-5">
                                     <ClosingStatementTable
-                                        title="Lembar Akuntansi Periode"
-                                        description="Urutan pembacaan tutup buku untuk periode aktif: omzet, kewajiban tenant, expense, payout yang sudah dibayar, lalu posisi sisa kas dan sisa markup owner."
+                                        title={isOwnerTenantView ? "Lembar Akuntansi Tenant Aktif" : "Lembar Akuntansi Periode"}
+                                        description={isOwnerTenantView
+                                            ? "Baca berurutan: omzet periode, hak tenant yang terbentuk, penyelesaian setor tunai tenant, kewajiban owner yang masih tersisa, hak owner, expense outlet dibayar, lalu posisi kas akhir tenant aktif."
+                                            : "Baca berurutan: omzet periode, hak tenant yang terbentuk, penyelesaian setor tunai tenant, kewajiban owner yang masih tersisa, hak owner, expense outlet dibayar, lalu posisi kas akhir periode."}
                                         rows={closingPeriodRows}
                                     />
                                 </div>
@@ -2211,7 +2226,7 @@ const Sales = ({
                                                         Tutup Buku Bulanan
                                                     </h3>
                                                     <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                                        Pilih bulan untuk melihat breakdown harian dan posisi sisa uang aktual.
+                                                        Ini hanya ringkasan audit bulanan untuk membantu telusur penyusun lembar akuntansi periode.
                                                     </p>
                                                 </div>
                                             </div>
@@ -2273,16 +2288,6 @@ const Sales = ({
                                         </div>
                                         {closingMonthLinks.length > 3 ? <Pagination links={closingMonthLinks} /> : null}
 
-                                        {closingSelectedMonthSummary ? (
-                                            <div className="mt-4">
-                                                <ClosingStatementTable
-                                                    title={`Lembar Akuntansi ${closingSelectedMonthLabel || "Bulan Aktif"}`}
-                                                    description="Ringkasan akuntansi untuk bulan aktif agar owner bisa melihat kaitan omzet, hak tenant, markup owner, expense, dan sisa kas."
-                                                    rows={closingMonthStatementRows}
-                                                />
-                                            </div>
-                                        ) : null}
-
                                         <div className="mt-6 border-t border-slate-100 pt-5 dark:border-slate-800">
                                             <div className="flex flex-wrap items-center justify-between gap-3">
                                                 <div>
@@ -2290,7 +2295,7 @@ const Sales = ({
                                                         Breakdown Harian {closingSelectedMonthLabel || "Bulan Terpilih"}
                                                     </h3>
                                                     <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                                        Lihat posisi omzet, hak tenant, markup owner, expense, dan sisa kas per hari.
+                                                        Ini breakdown audit per hari. Kolom bertanda `Hari Ini` menunjukkan mutasi hari itu, sedangkan kolom `Akum.` menunjukkan posisi sampai tanggal tersebut.
                                                     </p>
                                                 </div>
                                                 {closingSelectedMonthSummary ? (
@@ -2314,13 +2319,13 @@ const Sales = ({
                                                     <tr className="border-b border-slate-100 dark:border-slate-800">
                                                         <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-slate-500">No</th>
                                                         <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-slate-500">Hari</th>
-                                                        <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Penjualan</th>
-                                                        <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Hak Tenant</th>
-                                                        <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Markup Owner</th>
-                                                        <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Expense Paid</th>
-                                                        <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Payout Tenant Paid</th>
-                                                        <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Sisa Markup</th>
-                                                        <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Sisa Kas</th>
+                                                        <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Penjualan Hari Ini</th>
+                                                        <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Hak Tenant Hari Ini</th>
+                                                        <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Markup Owner Hari Ini</th>
+                                                        <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Expense Paid Hari Ini</th>
+                                                        <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Setor Tunai Dibayar Akum.</th>
+                                                        <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Sisa Hak Owner Akum.</th>
+                                                        <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Sisa Kas Akum.</th>
                                                         <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-slate-500">Aksi</th>
                                                     </tr>
                                                 </thead>
@@ -2367,16 +2372,6 @@ const Sales = ({
                                         </div>
                                         {closingDayLinks.length > 3 ? <Pagination links={closingDayLinks} /> : null}
 
-                                        {closingSelectedDaySummary ? (
-                                            <div className="mt-4">
-                                                <ClosingStatementTable
-                                                    title={`Lembar Akuntansi ${closingSelectedDayLabel || "Hari Aktif"}`}
-                                                    description="Ringkasan akuntansi untuk hari aktif sebelum turun ke daftar transaksi pembentuknya."
-                                                    rows={closingDayStatementRows}
-                                                />
-                                            </div>
-                                        ) : null}
-
                                         <div className="mt-6 border-t border-slate-100 pt-5 dark:border-slate-800">
                                             <div className="flex flex-wrap items-center justify-between gap-3">
                                                 <div>
@@ -2384,7 +2379,7 @@ const Sales = ({
                                                         Detail Transaksi {closingSelectedDayLabel || "Hari Terpilih"}
                                                     </h3>
                                                     <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                                        Breakdown transaksi sumber tutup buku untuk hari yang dipilih.
+                                                        Daftar transaksi sumber yang membentuk angka hari terpilih.
                                                     </p>
                                                 </div>
                                                 {closingSelectedDaySummary ? (
