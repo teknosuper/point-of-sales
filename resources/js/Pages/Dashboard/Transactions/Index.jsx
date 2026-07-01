@@ -304,6 +304,8 @@ export default function Index({
     const [payLater, setPayLater] = useState(false);
     const [dueDate, setDueDate] = useState("");
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [isPreparingCheckoutPreview, setIsPreparingCheckoutPreview] =
+        useState(false);
     const [checkoutModalStep, setCheckoutModalStep] = useState(null);
     const [completedTransaction, setCompletedTransaction] = useState(null);
     const [checkoutWarning, setCheckoutWarning] = useState("");
@@ -4349,13 +4351,88 @@ export default function Index({
     }, []);
 
     const openCheckoutPreview = useCallback(async () => {
+        if (isPreparingCheckoutPreview) {
+            return;
+        }
+
         if (!validateTransactionSubmission()) {
             return;
         }
 
         try {
+            setIsPreparingCheckoutPreview(true);
+
+            if (!isOfflineMode) {
+                const activeCartResponse = await axios.get(
+                    route("transactions.active-cart"),
+                    {
+                        headers: {
+                            Accept: "application/json",
+                        },
+                        timeout: 10000,
+                    }
+                );
+                const serverCarts = Array.isArray(
+                    activeCartResponse.data?.data?.carts
+                )
+                    ? activeCartResponse.data.data.carts
+                    : [];
+                const localSignature =
+                    buildCartConsistencySignature(localCarts);
+                const serverSignature =
+                    buildCartConsistencySignature(serverCarts);
+
+                if (serverCarts.length === 0) {
+                    setLocalCarts([]);
+                    setCartSyncVersion((version) => version + 1);
+                    toast.error(
+                        "Keranjang di server sudah kosong. Tambahkan item lagi sebelum checkout."
+                    );
+                    return;
+                }
+
+                if (localSignature !== serverSignature) {
+                    setLocalCarts(serverCarts);
+                    setCartSyncVersion((version) => version + 1);
+                    toast.error(
+                        "Keranjang berubah di server. Data keranjang disinkronkan dulu, periksa lagi sebelum checkout."
+                    );
+                    return;
+                }
+            }
+
             await axios.post(route("transactions.checkout-reserve"));
         } catch (error) {
+            if (!isOfflineMode && error?.response?.status === 422) {
+                try {
+                    const activeCartResponse = await axios.get(
+                        route("transactions.active-cart"),
+                        {
+                            headers: {
+                                Accept: "application/json",
+                            },
+                            timeout: 10000,
+                        }
+                    );
+                    const serverCarts = Array.isArray(
+                        activeCartResponse.data?.data?.carts
+                    )
+                        ? activeCartResponse.data.data.carts
+                        : [];
+                    const localSignature =
+                        buildCartConsistencySignature(localCarts);
+                    const serverSignature =
+                        buildCartConsistencySignature(serverCarts);
+
+                    if (localSignature !== serverSignature) {
+                        setLocalCarts(serverCarts);
+                        setCartSyncVersion((version) => version + 1);
+                    }
+                } catch {
+                    // Keep the original checkout error message if resync fails.
+                }
+            }
+
             toast.error(
                 formatApiErrorMessage(
                     error,
@@ -4363,6 +4440,8 @@ export default function Index({
                 )
             );
             return;
+        } finally {
+            setIsPreparingCheckoutPreview(false);
         }
 
         if (unmetRewardWarnings.length > 0) {
@@ -4380,7 +4459,14 @@ export default function Index({
         setCompletedTransaction(null);
         setIsReceiptFrameReady(false);
         setCheckoutModalStep("preview");
-    }, [router, unmetRewardWarnings, validateTransactionSubmission]);
+    }, [
+        isOfflineMode,
+        isPreparingCheckoutPreview,
+        localCarts,
+        router,
+        unmetRewardWarnings,
+        validateTransactionSubmission,
+    ]);
 
     const closeCheckoutModal = useCallback(() => {
         if (isSubmitting) {
@@ -5083,7 +5169,9 @@ export default function Index({
                     break;
                 case "F2":
                     e.preventDefault();
-                    if (localCarts.length > 0) openCheckoutPreview();
+                    if (localCarts.length > 0 && !isPreparingCheckoutPreview) {
+                        openCheckoutPreview();
+                    }
                     break;
                 case "F3":
                     e.preventDefault();
@@ -6542,7 +6630,8 @@ export default function Index({
                                             if (
                                                 !localCarts.length ||
                                                 isLoadingPricing ||
-                                                isSubmitting
+                                                isSubmitting ||
+                                                isPreparingCheckoutPreview
                                             ) {
                                                 return;
                                             }
@@ -6557,19 +6646,23 @@ export default function Index({
                                         disabled={
                                             !localCarts.length ||
                                             isLoadingPricing ||
-                                            isSubmitting
+                                            isSubmitting ||
+                                            isPreparingCheckoutPreview
                                         }
                                         className={`flex h-10 w-full items-center justify-center gap-2 rounded-xl text-sm font-semibold transition-all ${
                                             !localCarts.length ||
                                             isLoadingPricing ||
-                                            isSubmitting
+                                            isSubmitting ||
+                                            isPreparingCheckoutPreview
                                                 ? "cursor-not-allowed bg-slate-200 text-slate-400 dark:bg-slate-800"
                                                 : needsCashAdjustment
                                                 ? "bg-amber-500 text-white shadow-lg shadow-amber-500/25 hover:bg-amber-600"
                                                 : "bg-gradient-to-r from-primary-500 to-primary-600 text-white shadow-lg shadow-primary-500/30 hover:from-primary-600 hover:to-primary-700"
                                         }`}
                                     >
-                                        {isSubmitting || isLoadingPricing ? (
+                                        {isSubmitting ||
+                                        isLoadingPricing ||
+                                        isPreparingCheckoutPreview ? (
                                             <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                                         ) : (
                                             <>
