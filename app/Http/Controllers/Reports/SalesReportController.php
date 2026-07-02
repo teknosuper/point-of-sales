@@ -345,8 +345,10 @@ class SalesReportController extends Controller
             : collect();
 
         // Build analytics - filter by tenant_outlet_id if owner selected a specific tenant
-        $analytics = [];
-        if ($activeTab === 'analytics') {
+        $analytics = [
+            'payment_method_breakdown' => [],
+        ];
+        if (in_array($activeTab, ['overview', 'analytics'], true)) {
             if (! $isTenantOutlet && ($filters['tenant_outlet_id'] ?? null)) {
                 $tenantDetailIds = TransactionDetail::query()
                     ->where('tenant_outlet_id', $filters['tenant_outlet_id'])
@@ -358,24 +360,34 @@ class SalesReportController extends Controller
                 $tenantFilteredQuery = Transaction::query()->whereIn('id', $tenantFilteredIds);
 
                 $analytics = [
-                    'hourly_breakdown' => $this->analyticsService->buildHourlyBreakdown((clone $tenantFilteredQuery)),
-                    'daily_breakdown' => $this->analyticsService->buildDailyBreakdown((clone $tenantFilteredQuery)),
-                    'top_products' => $this->analyticsService->buildTopProducts($tenantFilteredIds, 10, $filters['tenant_outlet_id']),
-                    'full_products' => $this->analyticsService->buildProductPerformance($tenantFilteredIds, null, $filters['tenant_outlet_id']),
-                    'slow_moving_products' => $this->analyticsService->buildSlowMovingProducts($tenantFilteredIds, 10, $filters['tenant_outlet_id']),
-                    'category_breakdown' => $this->analyticsService->buildCategoryBreakdown($tenantFilteredIds, $filters['tenant_outlet_id']),
                     'payment_method_breakdown' => $this->analyticsService->buildPaymentMethodBreakdown((clone $tenantFilteredQuery)),
                 ];
+
+                if ($activeTab === 'analytics') {
+                    $analytics += [
+                        'hourly_breakdown' => $this->analyticsService->buildHourlyBreakdown((clone $tenantFilteredQuery)),
+                        'daily_breakdown' => $this->analyticsService->buildDailyBreakdown((clone $tenantFilteredQuery)),
+                        'top_products' => $this->analyticsService->buildTopProducts($tenantFilteredIds, 10, $filters['tenant_outlet_id']),
+                        'full_products' => $this->analyticsService->buildProductPerformance($tenantFilteredIds, null, $filters['tenant_outlet_id']),
+                        'slow_moving_products' => $this->analyticsService->buildSlowMovingProducts($tenantFilteredIds, 10, $filters['tenant_outlet_id']),
+                        'category_breakdown' => $this->analyticsService->buildCategoryBreakdown($tenantFilteredIds, $filters['tenant_outlet_id']),
+                    ];
+                }
             } else {
                 $analytics = [
-                    'hourly_breakdown' => $this->analyticsService->buildHourlyBreakdown($aggregateQuery),
-                    'daily_breakdown' => $this->analyticsService->buildDailyBreakdown($aggregateQuery),
-                    'top_products' => $this->analyticsService->buildTopProducts($transactionIds, 10),
-                    'full_products' => $this->analyticsService->buildProductPerformance($transactionIds),
-                    'slow_moving_products' => $this->analyticsService->buildSlowMovingProducts($transactionIds, 10),
-                    'category_breakdown' => $this->analyticsService->buildCategoryBreakdown($transactionIds),
                     'payment_method_breakdown' => $this->analyticsService->buildPaymentMethodBreakdown($aggregateQuery),
                 ];
+
+                if ($activeTab === 'analytics') {
+                    $analytics += [
+                        'hourly_breakdown' => $this->analyticsService->buildHourlyBreakdown($aggregateQuery),
+                        'daily_breakdown' => $this->analyticsService->buildDailyBreakdown($aggregateQuery),
+                        'top_products' => $this->analyticsService->buildTopProducts($transactionIds, 10),
+                        'full_products' => $this->analyticsService->buildProductPerformance($transactionIds),
+                        'slow_moving_products' => $this->analyticsService->buildSlowMovingProducts($transactionIds, 10),
+                        'category_breakdown' => $this->analyticsService->buildCategoryBreakdown($transactionIds),
+                    ];
+                }
             }
         }
         $targets = $this->targetSummary(
@@ -586,10 +598,13 @@ class SalesReportController extends Controller
             $categoryBreakdown = $this->analyticsService->buildCategoryBreakdown($tenantTransactionIds, $tenantOutletId);
         }
 
+        if (in_array($activeTab, ['overview', 'analytics'], true)) {
+            $paymentMethodBreakdown = ReportTenantSalesMetrics::paymentMethodBreakdown($activeTenantMetricAllocations);
+        }
+
         if ($activeTab === 'analytics') {
             $hourlyBreakdown = ReportTenantSalesMetrics::hourlyBreakdown($activeTenantMetricAllocations);
             $dailyBreakdown = ReportTenantSalesMetrics::dailyBreakdown($activeTenantMetricAllocations);
-            $paymentMethodBreakdown = ReportTenantSalesMetrics::paymentMethodBreakdown($activeTenantMetricAllocations);
         }
 
         $analytics = [

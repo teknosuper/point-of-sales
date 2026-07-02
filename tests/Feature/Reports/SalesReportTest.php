@@ -166,6 +166,63 @@ class SalesReportTest extends TestCase
         $this->assertSameCanonicalizing([$tenantA->id, $tenantB->id], $tenantIds);
     }
 
+    public function test_sales_report_overview_includes_payment_method_breakdown(): void
+    {
+        $user = User::factory()->create();
+        $user->givePermissionTo('reports-access');
+
+        $outlet = $this->createOutlet('OUTLET-REPORT', 'Outlet Report', true);
+        $user->outlets()->attach([
+            $outlet->id => ['is_primary' => true],
+        ]);
+
+        Transaction::create([
+            'cashier_id' => $user->id,
+            'outlet_id' => $outlet->id,
+            'invoice' => 'TRX-OVERVIEW-CASH',
+            'cash' => 30000,
+            'change' => 0,
+            'discount' => 0,
+            'grand_total' => 30000,
+            'payment_method' => 'cash',
+            'payment_status' => 'paid',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        Transaction::create([
+            'cashier_id' => $user->id,
+            'outlet_id' => $outlet->id,
+            'invoice' => 'TRX-OVERVIEW-QRIS',
+            'cash' => 0,
+            'change' => 0,
+            'discount' => 0,
+            'grand_total' => 54000,
+            'payment_method' => 'qris',
+            'payment_status' => 'paid',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $response = $this
+            ->withSession(['active_outlet_id' => $outlet->id])
+            ->actingAs($user)
+            ->get(route('reports.sales.index', ['tab' => 'overview']));
+
+        $response->assertOk()->assertInertia(fn (Assert $page) => $page
+            ->component('Dashboard/Reports/Sales')
+            ->where('summary.orders_count', 2)
+            ->where('summary.revenue_total', 84000)
+            ->has('analytics.payment_method_breakdown', 2)
+            ->where('analytics.payment_method_breakdown.0.payment_method', 'qris')
+            ->where('analytics.payment_method_breakdown.0.orders_count', 1)
+            ->where('analytics.payment_method_breakdown.0.revenue_total', 54000)
+            ->where('analytics.payment_method_breakdown.1.payment_method', 'cash')
+            ->where('analytics.payment_method_breakdown.1.orders_count', 1)
+            ->where('analytics.payment_method_breakdown.1.revenue_total', 30000)
+        );
+    }
+
     public function test_tenant_statement_page_uses_active_outlet_allocations(): void
     {
         $user = User::factory()->create();
