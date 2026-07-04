@@ -1817,7 +1817,7 @@ export default function Edit({
                                                     className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
                                                 >
                                                     <option value="single">1 opsi</option>
-                                                    <option value="multiple">Bisa >1</option>
+                                                    <option value="multiple">Bisa &gt;1</option>
                                                     <option value="optional">Opsional</option>
                                                 </select>
                                             </div>
