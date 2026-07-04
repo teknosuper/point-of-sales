@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Head, Link, router, useForm, usePage } from "@inertiajs/react";
+import Swal from "sweetalert2";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import Pagination from "@/Components/Dashboard/Pagination";
 import {
@@ -70,6 +71,8 @@ export default function Index({ outlets, filters = {}, summary = {}, setupStatus
     const canUpdateOutlets = can("outlets-update");
     const canToggleOutlets = can("outlets-toggle");
     const canAccessDataRepair = can("business-settings-access");
+    // Tenant-only: can update outlet but not create, and not an admin/owner role
+    const isTenantOnlyUser = canUpdateOutlets && !canCreateOutlets;
 
     useEffect(() => {
         if (flash?.success) toast.success(flash.success);
@@ -178,17 +181,61 @@ export default function Index({ outlets, filters = {}, summary = {}, setupStatus
     const submit = (event) => {
         event.preventDefault();
 
+        const outletName = form.data.name || "outlet ini";
+
         if (editing) {
-            form.put(route("outlets.update", editing), {
-                preserveScroll: true,
-                onSuccess: () => resetForm(),
+            Swal.fire({
+                title: "Simpan perubahan?",
+                text: `Perubahan data ${outletName} akan disimpan.`,
+                icon: "warning",
+                showCancelButton: true,
+                confirmButtonText: "Ya, Simpan",
+                cancelButtonText: "Batal",
+                confirmButtonColor: "#4f46e5",
+                reverseButtons: true,
+            }).then((result) => {
+                if (!result.isConfirmed) return;
+                form.put(route("outlets.update", editing), {
+                    preserveScroll: true,
+                    onSuccess: () => {
+                        resetForm();
+                        Swal.fire({
+                            icon: "success",
+                            title: "Tersimpan",
+                            text: `${outletName} berhasil diperbarui.`,
+                            timer: 1500,
+                            showConfirmButton: false,
+                        });
+                    },
+                });
             });
             return;
         }
 
-        form.post(route("outlets.store"), {
-            preserveScroll: true,
-            onSuccess: () => resetForm(),
+        Swal.fire({
+            title: "Tambah outlet baru?",
+            text: `Outlet ${outletName} akan ditambahkan ke sistem.`,
+            icon: "question",
+            showCancelButton: true,
+            confirmButtonText: "Ya, Tambahkan",
+            cancelButtonText: "Batal",
+            confirmButtonColor: "#4f46e5",
+            reverseButtons: true,
+        }).then((result) => {
+            if (!result.isConfirmed) return;
+            form.post(route("outlets.store"), {
+                preserveScroll: true,
+                onSuccess: () => {
+                    resetForm();
+                    Swal.fire({
+                        icon: "success",
+                        title: "Berhasil",
+                        text: `${outletName} berhasil ditambahkan.`,
+                        timer: 1500,
+                        showConfirmButton: false,
+                    });
+                },
+            });
         });
     };
 
@@ -250,18 +297,14 @@ export default function Index({ outlets, filters = {}, summary = {}, setupStatus
                             {showSetupGuide ? <IconX size={18} /> : <IconBuildingStore size={18} />}
                             {showSetupGuide ? "Sembunyikan ringkasan" : "Lihat ringkasan setup"}
                         </button>
-                        {canCreateOutlets || canUpdateOutlets ? (
+                        {canCreateOutlets ? (
                             <button
                                 type="button"
                                 onClick={() => (showForm && !editing ? closeForm() : openCreateForm())}
                                 className="inline-flex items-center gap-2 rounded-xl bg-primary-500 px-4 py-2.5 text-sm font-medium text-white"
                             >
                                 {showForm && !editing ? <IconX size={18} /> : <IconPlus size={18} />}
-                                {editing
-                                    ? "Tambah outlet baru"
-                                    : showForm
-                                      ? "Tutup form"
-                                      : "Buka form outlet"}
+                                {editing ? "Tambah outlet baru" : showForm ? "Tutup form" : "Buka form outlet"}
                             </button>
                         ) : null}
                     </div>
@@ -495,186 +538,229 @@ export default function Index({ outlets, filters = {}, summary = {}, setupStatus
                             {editing ? "Batal edit" : "Tutup form"}
                         </button>
                     </div>
-                    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                        {[
-                            ["code", "Kode"],
-                            ["name", "Nama Outlet"],
-                            ["legal_name", "Nama Legal"],
-                            ["city", "Kota"],
-                            ["phone", "Telepon"],
-                            ["email", "Email"],
-                            ["website", "Website"],
-                        ].map(([key, label]) => (
-                            <div key={key}>
-                                <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                    {label}
-                                </label>
-                                <input
-                                    value={form.data[key]}
-                                    onChange={(event) => form.setData(key, event.target.value)}
-                                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
-                                />
+                    {isTenantOnlyUser ? (
+                        // Tenant: only show profile fields
+                        <div className="space-y-4">
+                            <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-200">
+                                Anda hanya dapat mengubah informasi profil outlet tenant ini. Struktur outlet dikelola oleh admin.
                             </div>
-                        ))}
-                        <div>
-                            <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                Tipe Outlet
-                            </label>
-                            <select
-                                value={form.data.outlet_type}
-                                onChange={(event) => form.setData("outlet_type", event.target.value)}
-                                className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
-                            >
-                                {outletTypes.map((type) => (
-                                    <option key={type.value} value={type.value}>
-                                        {type.label}
-                                    </option>
+                            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                                {[
+                                    ["name", "Nama Outlet"],
+                                    ["legal_name", "Nama Legal"],
+                                    ["city", "Kota"],
+                                    ["phone", "Telepon"],
+                                    ["email", "Email"],
+                                    ["website", "Website"],
+                                ].map(([key, label]) => (
+                                    <div key={key}>
+                                        <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                            {label}
+                                        </label>
+                                        <input
+                                            value={form.data[key]}
+                                            onChange={(event) => form.setData(key, event.target.value)}
+                                            className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
+                                        />
+                                    </div>
                                 ))}
-                            </select>
+                                <div className="md:col-span-2 xl:col-span-3">
+                                    <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                        Alamat
+                                    </label>
+                                    <textarea
+                                        rows={3}
+                                        value={form.data.address}
+                                        onChange={(event) => form.setData("address", event.target.value)}
+                                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm dark:border-slate-700 dark:bg-slate-800"
+                                    />
+                                </div>
+                            </div>
                         </div>
-                        {form.data.outlet_type === "tenant" ? (
+                    ) : (
+                        // Admin/owner: full form
+                        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                            {[
+                                ["code", "Kode"],
+                                ["name", "Nama Outlet"],
+                                ["legal_name", "Nama Legal"],
+                                ["city", "Kota"],
+                                ["phone", "Telepon"],
+                                ["email", "Email"],
+                                ["website", "Website"],
+                            ].map(([key, label]) => (
+                                <div key={key}>
+                                    <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                        {label}
+                                    </label>
+                                    <input
+                                        value={form.data[key]}
+                                        onChange={(event) => form.setData(key, event.target.value)}
+                                        className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
+                                    />
+                                </div>
+                            ))}
                             <div>
                                 <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                    Outlet Utama Induk
+                                    Tipe Outlet
                                 </label>
                                 <select
-                                    value={form.data.parent_outlet_id}
-                                    onChange={(event) => form.setData("parent_outlet_id", event.target.value)}
+                                    value={form.data.outlet_type}
+                                    onChange={(event) => form.setData("outlet_type", event.target.value)}
                                     className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
                                 >
-                                    <option value="">Pilih outlet utama</option>
-                                    {parentMainOutlets.map((outlet) => (
-                                        <option key={outlet.id} value={String(outlet.id)}>
-                                            {outlet.code} - {outlet.name}
+                                    {outletTypes.map((type) => (
+                                        <option key={type.value} value={type.value}>
+                                            {type.label}
                                         </option>
                                     ))}
                                 </select>
-                                {form.errors.parent_outlet_id ? (
-                                    <p className="mt-1 text-xs text-red-500">{form.errors.parent_outlet_id}</p>
-                                ) : null}
-                                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                    Tenant dipetakan ke outlet utama ini agar laporan dan approval owner membaca tenant anak dengan jelas.
-                                </p>
                             </div>
-                        ) : null}
-                        <div>
-                            <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                Komisi Tenant %
-                            </label>
-                            <input
-                                type="number"
-                                step="0.01"
-                                value={form.data.commission_rate_percent}
-                                onChange={(event) => form.setData("commission_rate_percent", event.target.value)}
-                                className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
-                            />
-                        </div>
-                        <div>
-                            <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                Urutan
-                            </label>
-                            <input
-                                type="number"
-                                value={form.data.sort_order}
-                                onChange={(event) => form.setData("sort_order", event.target.value)}
-                                className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
-                            />
-                        </div>
-                        <div className="md:col-span-2 xl:col-span-2">
-                            <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                Alamat
-                            </label>
-                            <textarea
-                                rows={3}
-                                value={form.data.address}
-                                onChange={(event) => form.setData("address", event.target.value)}
-                                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm dark:border-slate-700 dark:bg-slate-800"
-                            />
-                        </div>
-                        <div className="md:col-span-2 xl:col-span-2">
-                            <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                User Outlet
-                            </label>
-                            <div className="max-h-40 space-y-2 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800">
-                                {users.map((user) => (
-                                    <label key={user.id} className="flex items-center justify-between gap-3 text-sm text-slate-600 dark:text-slate-300">
-                                        <span>
-                                            {user.name}
-                                            <span className="ml-2 text-xs text-slate-400">
-                                                {user.email}
-                                            </span>
-                                        </span>
-                                        <input
-                                            type="checkbox"
-                                            checked={form.data.user_ids.includes(user.id)}
-                                            onChange={(event) => {
-                                                const next = event.target.checked
-                                                    ? [...form.data.user_ids, user.id]
-                                                    : form.data.user_ids.filter((id) => id !== user.id);
-
-                                                form.setData("user_ids", next);
-                                                if (!next.includes(Number(form.data.primary_user_id))) {
-                                                    form.setData("primary_user_id", "");
-                                                }
-                                            }}
-                                        />
+                            {form.data.outlet_type === "tenant" ? (
+                                <div>
+                                    <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                        Outlet Utama Induk
                                     </label>
-                                ))}
+                                    <select
+                                        value={form.data.parent_outlet_id}
+                                        onChange={(event) => form.setData("parent_outlet_id", event.target.value)}
+                                        className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
+                                    >
+                                        <option value="">Pilih outlet utama</option>
+                                        {parentMainOutlets.map((outlet) => (
+                                            <option key={outlet.id} value={String(outlet.id)}>
+                                                {outlet.code} - {outlet.name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    {form.errors.parent_outlet_id ? (
+                                        <p className="mt-1 text-xs text-red-500">{form.errors.parent_outlet_id}</p>
+                                    ) : null}
+                                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                        Tenant dipetakan ke outlet utama ini agar laporan dan approval owner membaca tenant anak dengan jelas.
+                                    </p>
+                                </div>
+                            ) : null}
+                            <div>
+                                <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                    Komisi Tenant %
+                                </label>
+                                <input
+                                    type="number"
+                                    step="0.01"
+                                    value={form.data.commission_rate_percent}
+                                    onChange={(event) => form.setData("commission_rate_percent", event.target.value)}
+                                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
+                                />
+                            </div>
+                            <div>
+                                <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                    Urutan
+                                </label>
+                                <input
+                                    type="number"
+                                    value={form.data.sort_order}
+                                    onChange={(event) => form.setData("sort_order", event.target.value)}
+                                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
+                                />
+                            </div>
+                            <div className="md:col-span-2 xl:col-span-2">
+                                <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                    Alamat
+                                </label>
+                                <textarea
+                                    rows={3}
+                                    value={form.data.address}
+                                    onChange={(event) => form.setData("address", event.target.value)}
+                                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm dark:border-slate-700 dark:bg-slate-800"
+                                />
+                            </div>
+                            <div className="md:col-span-2 xl:col-span-2">
+                                <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                    User Outlet
+                                </label>
+                                <div className="max-h-40 space-y-2 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800">
+                                    {users.map((user) => (
+                                        <label key={user.id} className="flex items-center justify-between gap-3 text-sm text-slate-600 dark:text-slate-300">
+                                            <span>
+                                                {user.name}
+                                                <span className="ml-2 text-xs text-slate-400">
+                                                    {user.email}
+                                                </span>
+                                            </span>
+                                            <input
+                                                type="checkbox"
+                                                checked={form.data.user_ids.includes(user.id)}
+                                                onChange={(event) => {
+                                                    const next = event.target.checked
+                                                        ? [...form.data.user_ids, user.id]
+                                                        : form.data.user_ids.filter((id) => id !== user.id);
+                                                    form.setData("user_ids", next);
+                                                    if (!next.includes(Number(form.data.primary_user_id))) {
+                                                        form.setData("primary_user_id", "");
+                                                    }
+                                                }}
+                                            />
+                                        </label>
+                                    ))}
+                                </div>
+                            </div>
+                            <div>
+                                <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                    Primary User
+                                </label>
+                                <select
+                                    value={form.data.primary_user_id}
+                                    onChange={(event) => form.setData("primary_user_id", event.target.value)}
+                                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
+                                >
+                                    <option value="">Tanpa primary</option>
+                                    {users
+                                        .filter((user) => form.data.user_ids.includes(user.id))
+                                        .map((user) => (
+                                            <option key={user.id} value={String(user.id)}>
+                                                {user.name}
+                                            </option>
+                                        ))}
+                                </select>
                             </div>
                         </div>
-                        <div>
-                            <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                Primary User
+                    )}
+                    {!isTenantOnlyUser ? (
+                        <div className="mt-4 flex flex-wrap gap-4">
+                            <label className="inline-flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+                                <input
+                                    type="checkbox"
+                                    checked={Boolean(form.data.is_active)}
+                                    onChange={(event) => form.setData("is_active", event.target.checked)}
+                                />
+                                Aktif
                             </label>
-                            <select
-                                value={form.data.primary_user_id}
-                                onChange={(event) => form.setData("primary_user_id", event.target.value)}
-                                className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
-                            >
-                                <option value="">Tanpa primary</option>
-                                {users
-                                    .filter((user) => form.data.user_ids.includes(user.id))
-                                    .map((user) => (
-                                        <option key={user.id} value={String(user.id)}>
-                                            {user.name}
-                                        </option>
-                                    ))}
-                            </select>
+                            <label className="inline-flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+                                <input
+                                    type="checkbox"
+                                    checked={Boolean(form.data.is_default)}
+                                    onChange={(event) => form.setData("is_default", event.target.checked)}
+                                />
+                                Jadikan default
+                            </label>
                         </div>
-                    </div>
-                    <div className="mt-4 flex flex-wrap gap-4">
-                        <label className="inline-flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
-                            <input
-                                type="checkbox"
-                                checked={Boolean(form.data.is_active)}
-                                onChange={(event) => form.setData("is_active", event.target.checked)}
-                            />
-                            Aktif
-                        </label>
-                        <label className="inline-flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
-                            <input
-                                type="checkbox"
-                                checked={Boolean(form.data.is_default)}
-                                onChange={(event) => form.setData("is_default", event.target.checked)}
-                            />
-                            Jadikan default
-                        </label>
-                    </div>
+                    ) : null}
                     <div className="mt-4">
                         <button
                             type="submit"
                             disabled={form.processing}
                             className="rounded-xl bg-primary-500 px-4 py-2.5 text-sm font-medium text-white"
                         >
-                            {editing ? "Update Outlet" : "Simpan Outlet"}
+                            {editing ? "Simpan Perubahan" : "Simpan Outlet"}
                         </button>
                     </div>
                     </form>
-                ) : (
+                ) : canCreateOutlets ? (
                     <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-5 text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
                         Form outlet sedang disembunyikan. Klik <span className="font-semibold text-slate-700 dark:text-slate-200">Buka form outlet</span> saat ingin menambah data baru.
                     </div>
-                )}
+                ) : null}
 
                 <div className="rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
                     <div className="border-b border-slate-100 px-4 py-3 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
@@ -717,19 +803,24 @@ export default function Index({ outlets, filters = {}, summary = {}, setupStatus
                                             <IconMapPin size={14} />
                                             {outlet.city || "Tanpa kota"}
                                         </span>
-                                        <span>User: {outlet.users_count}</span>
-                                        <span>Transaksi: {outlet.transactions_count}</span>
-                                        <span>Station: {outlet.kitchen_stations_count}</span>
-                                        <span>Komisi: {outlet.commission_rate_percent}%</span>
-                                        {outlet.parent_outlet ? (
-                                            <span>
-                                                Induk: {outlet.parent_outlet.code} - {outlet.parent_outlet.name}
-                                            </span>
+                                        {outlet.phone ? <span>{outlet.phone}</span> : null}
+                                        {!isTenantOnlyUser ? (
+                                            <>
+                                                <span>User: {outlet.users_count}</span>
+                                                <span>Transaksi: {outlet.transactions_count}</span>
+                                                <span>Station: {outlet.kitchen_stations_count}</span>
+                                                <span>Komisi: {outlet.commission_rate_percent}%</span>
+                                                {outlet.parent_outlet ? (
+                                                    <span>
+                                                        Induk: {outlet.parent_outlet.code} - {outlet.parent_outlet.name}
+                                                    </span>
+                                                ) : null}
+                                                <span>
+                                                    PIC:{" "}
+                                                    {outlet.users?.map((user) => user.name).join(", ") || "-"}
+                                                </span>
+                                            </>
                                         ) : null}
-                                        <span>
-                                            PIC:{" "}
-                                            {outlet.users?.map((user) => user.name).join(", ") || "-"}
-                                        </span>
                                     </div>
                                 </div>
                                 <div className="flex flex-wrap items-center gap-2">

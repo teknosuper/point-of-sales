@@ -188,7 +188,6 @@ class RoleSeeder extends Seeder
             'tenant-owner' => [
                 'dashboard-access',
                 'products-access',
-                'products-create',
                 'products-edit',
                 'products-stock-update',
                 'products-pricing-update',
@@ -196,8 +195,14 @@ class RoleSeeder extends Seeder
                 'pricing-rules-create',
                 'pricing-rules-update',
                 'pricing-rules-delete',
+                'outlets-access',
+                'outlets-update',
+                'kitchen-access',
+                'kitchen-manage',
+                'waiter-board-access',
                 'reports-access',
                 'profits-access',
+                'cashier-settlements-access',
             ],
             'owner-pricing' => [
                 'products-access',

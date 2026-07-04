@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Head, Link, router, useForm, usePage } from "@inertiajs/react";
+import Swal from "sweetalert2";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import Modal from "@/Components/Dashboard/Modal";
 import toast from "react-hot-toast";
@@ -150,17 +151,49 @@ export default function Index({ stations = [], filters = {}, outlets = [], outle
 
     const submitStation = (event) => {
         event.preventDefault();
+        const stationName = stationForm.data.name || "station ini";
+
         if (editingStation) {
-            stationForm.put(route("settings.kitchen-stations.update", editingStation), {
-                preserveScroll: true,
-                onSuccess: () => resetStation(),
+            Swal.fire({
+                title: "Simpan perubahan station?",
+                text: `Data ${stationName} akan diperbarui.`,
+                icon: "warning",
+                showCancelButton: true,
+                confirmButtonText: "Ya, Simpan",
+                cancelButtonText: "Batal",
+                confirmButtonColor: "#4f46e5",
+                reverseButtons: true,
+            }).then((result) => {
+                if (!result.isConfirmed) return;
+                stationForm.put(route("settings.kitchen-stations.update", editingStation), {
+                    preserveScroll: true,
+                    onSuccess: () => {
+                        resetStation();
+                        Swal.fire({ icon: "success", title: "Tersimpan", text: `${stationName} berhasil diperbarui.`, timer: 1500, showConfirmButton: false });
+                    },
+                });
             });
             return;
         }
 
-        stationForm.post(route("settings.kitchen-stations.store"), {
-            preserveScroll: true,
-            onSuccess: () => resetStation(),
+        Swal.fire({
+            title: "Tambah station baru?",
+            text: `Station ${stationName} akan ditambahkan.`,
+            icon: "question",
+            showCancelButton: true,
+            confirmButtonText: "Ya, Tambahkan",
+            cancelButtonText: "Batal",
+            confirmButtonColor: "#4f46e5",
+            reverseButtons: true,
+        }).then((result) => {
+            if (!result.isConfirmed) return;
+            stationForm.post(route("settings.kitchen-stations.store"), {
+                preserveScroll: true,
+                onSuccess: () => {
+                    resetStation();
+                    Swal.fire({ icon: "success", title: "Berhasil", text: `${stationName} berhasil ditambahkan.`, timer: 1500, showConfirmButton: false });
+                },
+            });
         });
     };
 
@@ -195,29 +228,75 @@ export default function Index({ stations = [], filters = {}, outlets = [], outle
 
     const submitDevice = (event, stationId) => {
         event.preventDefault();
+        const deviceName = deviceForm.data.name || "device ini";
 
         if (editingDevice?.deviceId) {
-            deviceForm.put(route("settings.kitchen-devices.update", editingDevice.deviceId), {
-                preserveScroll: true,
-                onSuccess: () => resetDevice(),
+            Swal.fire({
+                title: "Simpan perubahan device?",
+                text: `Data ${deviceName} akan diperbarui.`,
+                icon: "warning",
+                showCancelButton: true,
+                confirmButtonText: "Ya, Simpan",
+                cancelButtonText: "Batal",
+                confirmButtonColor: "#4f46e5",
+                reverseButtons: true,
+            }).then((result) => {
+                if (!result.isConfirmed) return;
+                deviceForm.put(route("settings.kitchen-devices.update", editingDevice.deviceId), {
+                    preserveScroll: true,
+                    onSuccess: () => {
+                        resetDevice();
+                        Swal.fire({ icon: "success", title: "Tersimpan", text: `${deviceName} berhasil diperbarui.`, timer: 1500, showConfirmButton: false });
+                    },
+                });
             });
             return;
         }
 
-        deviceForm.post(route("settings.kitchen-devices.store", stationId), {
-            preserveScroll: true,
-            onSuccess: () => resetDevice(),
+        Swal.fire({
+            title: "Tambah device baru?",
+            text: `Device ${deviceName} akan ditambahkan ke station.`,
+            icon: "question",
+            showCancelButton: true,
+            confirmButtonText: "Ya, Tambahkan",
+            cancelButtonText: "Batal",
+            confirmButtonColor: "#4f46e5",
+            reverseButtons: true,
+        }).then((result) => {
+            if (!result.isConfirmed) return;
+            deviceForm.post(route("settings.kitchen-devices.store", stationId), {
+                preserveScroll: true,
+                onSuccess: () => {
+                    resetDevice();
+                    Swal.fire({ icon: "success", title: "Berhasil", text: `${deviceName} berhasil ditambahkan.`, timer: 1500, showConfirmButton: false });
+                },
+            });
         });
     };
 
-    const runDeviceAction = (routeName, deviceId) => {
-        router.post(
-            route(routeName, deviceId),
-            {},
-            {
-                preserveScroll: true,
-            }
-        );
+    const runDeviceAction = (routeName, deviceId, deviceName = "device") => {
+        const isTest = routeName.includes("test");
+        const isHealthCheck = routeName.includes("health-check");
+        const title = isTest ? "Kirim test print?" : isHealthCheck ? "Jalankan health check?" : "Konfirmasi aksi?";
+        const text = isTest
+            ? `Test print akan dikirim ke ${deviceName}.`
+            : isHealthCheck
+              ? `Health check akan dijalankan pada ${deviceName}.`
+              : `Aksi akan dijalankan pada ${deviceName}.`;
+
+        Swal.fire({
+            title,
+            text,
+            icon: "question",
+            showCancelButton: true,
+            confirmButtonText: "Ya, Lanjutkan",
+            cancelButtonText: "Batal",
+            confirmButtonColor: "#4f46e5",
+            reverseButtons: true,
+        }).then((result) => {
+            if (!result.isConfirmed) return;
+            router.post(route(routeName, deviceId), {}, { preserveScroll: true });
+        });
     };
 
     const copyShortcut = async (value, label) => {
@@ -229,20 +308,43 @@ export default function Index({ stations = [], filters = {}, outlets = [], outle
         }
     };
 
-    const toggleDevice = (deviceId) => {
-        router.patch(
-            route("settings.kitchen-devices.toggle", deviceId),
-            {},
-            {
-                preserveScroll: true,
-            }
-        );
+    const toggleDevice = (deviceId, deviceName = "device ini", isActive = true) => {
+        Swal.fire({
+            title: isActive ? "Matikan device?" : "Aktifkan device?",
+            text: isActive
+                ? `${deviceName} akan dinonaktifkan.`
+                : `${deviceName} akan diaktifkan kembali.`,
+            icon: "warning",
+            showCancelButton: true,
+            confirmButtonText: isActive ? "Ya, Matikan" : "Ya, Aktifkan",
+            cancelButtonText: "Batal",
+            confirmButtonColor: isActive ? "#f59e0b" : "#10b981",
+            reverseButtons: true,
+        }).then((result) => {
+            if (!result.isConfirmed) return;
+            router.patch(route("settings.kitchen-devices.toggle", deviceId), {}, { preserveScroll: true });
+        });
     };
 
     const submitOperations = (event) => {
         event.preventDefault();
-        operationsForm.post(route("settings.kitchen-operations.update"), {
-            preserveScroll: true,
+        Swal.fire({
+            title: "Simpan operasional?",
+            text: "Setting operasional outlet akan diperbarui.",
+            icon: "question",
+            showCancelButton: true,
+            confirmButtonText: "Ya, Simpan",
+            cancelButtonText: "Batal",
+            confirmButtonColor: "#4f46e5",
+            reverseButtons: true,
+        }).then((result) => {
+            if (!result.isConfirmed) return;
+            operationsForm.post(route("settings.kitchen-operations.update"), {
+                preserveScroll: true,
+                onSuccess: () => {
+                    Swal.fire({ icon: "success", title: "Tersimpan", text: "Operasional outlet berhasil diperbarui.", timer: 1500, showConfirmButton: false });
+                },
+            });
         });
     };
 
@@ -997,7 +1099,7 @@ export default function Index({ stations = [], filters = {}, outlets = [], outle
                                             </button>
                                             <button
                                                 type="button"
-                                                onClick={() => toggleDevice(device.id)}
+                                                onClick={() => toggleDevice(device.id, device.name, device.is_active)}
                                                 className={`rounded-xl px-3 py-2 text-sm font-medium ${
                                                     device.is_active
                                                         ? "border border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300"
@@ -1009,7 +1111,7 @@ export default function Index({ stations = [], filters = {}, outlets = [], outle
                                             <button
                                                 type="button"
                                                 onClick={() =>
-                                                    runDeviceAction("settings.kitchen-devices.health-check", device.id)
+                                                    runDeviceAction("settings.kitchen-devices.health-check", device.id, device.name)
                                                 }
                                                 className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300"
                                             >
@@ -1018,7 +1120,7 @@ export default function Index({ stations = [], filters = {}, outlets = [], outle
                                             <button
                                                 type="button"
                                                 onClick={() =>
-                                                    runDeviceAction("settings.kitchen-devices.test", device.id)
+                                                    runDeviceAction("settings.kitchen-devices.test", device.id, device.name)
                                                 }
                                                 className="rounded-xl bg-primary-500 px-3 py-2 text-sm font-medium text-white"
                                             >

@@ -339,25 +339,57 @@ class OutletManagementController extends Controller
 
     public function update(Request $request, Outlet $outlet)
     {
-        $data = $request->validate([
-            'code' => ['required', 'string', 'max:20', 'unique:outlets,code,'.$outlet->id],
+        $user = $request->user();
+        $isSuperAdmin = $user?->isSuperAdmin();
+
+        // Determine if this is a restricted (tenant) user who can only update profile fields
+        $isTenantOnlyUser = ! $isSuperAdmin
+            && ! $user?->hasAnyRole(['super-admin', 'admin-owner-outlet', 'outlet-owner', 'admin-sistem'])
+            && $user?->can('outlets-update');
+
+        $rules = [
             'name' => ['required', 'string', 'max:150'],
-            'outlet_type' => ['required', 'string', 'in:main,tenant,warehouse'],
             'legal_name' => ['nullable', 'string', 'max:150'],
             'city' => ['nullable', 'string', 'max:100'],
             'phone' => ['nullable', 'string', 'max:50'],
             'email' => ['nullable', 'email', 'max:150'],
             'website' => ['nullable', 'string', 'max:150'],
             'address' => ['nullable', 'string'],
-            'commission_rate_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
-            'parent_outlet_id' => ['nullable', 'integer', 'exists:outlets,id'],
-            'is_active' => ['nullable', 'boolean'],
-            'is_default' => ['nullable', 'boolean'],
-            'sort_order' => ['nullable', 'integer', 'min:0'],
-            'user_ids' => ['nullable', 'array'],
-            'user_ids.*' => ['integer', 'exists:users,id'],
-            'primary_user_id' => ['nullable', 'integer', 'exists:users,id'],
-        ]);
+        ];
+
+        if (! $isTenantOnlyUser) {
+            // Full update allowed for owners/admins
+            $rules = array_merge($rules, [
+                'code' => ['required', 'string', 'max:20', 'unique:outlets,code,'.$outlet->id],
+                'outlet_type' => ['required', 'string', 'in:main,tenant,warehouse'],
+                'commission_rate_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
+                'parent_outlet_id' => ['nullable', 'integer', 'exists:outlets,id'],
+                'is_active' => ['nullable', 'boolean'],
+                'is_default' => ['nullable', 'boolean'],
+                'sort_order' => ['nullable', 'integer', 'min:0'],
+                'user_ids' => ['nullable', 'array'],
+                'user_ids.*' => ['integer', 'exists:users,id'],
+                'primary_user_id' => ['nullable', 'integer', 'exists:users,id'],
+            ]);
+        }
+
+        $data = $request->validate($rules);
+
+        if ($isTenantOnlyUser) {
+            // Tenant only updates profile fields — preserve all structural fields
+            $outlet->update([
+                'name' => $data['name'],
+                'legal_name' => $data['legal_name'] ?? $outlet->legal_name,
+                'city' => $data['city'] ?? $outlet->city,
+                'phone' => $data['phone'] ?? $outlet->phone,
+                'email' => $data['email'] ?? $outlet->email,
+                'website' => $data['website'] ?? $outlet->website,
+                'address' => $data['address'] ?? $outlet->address,
+                'slug' => Str::slug($data['name'].'-'.$outlet->code),
+            ]);
+
+            return back()->with('success', 'Profil outlet berhasil diperbarui.');
+        }
 
         if (($data['is_default'] ?? false) === true) {
             Outlet::query()
