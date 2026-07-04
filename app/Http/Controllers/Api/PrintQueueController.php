@@ -219,22 +219,6 @@ class PrintQueueController extends Controller
             )
             : null;
 
-        // Add order reference data and notes to layout for encoding
-        if ($layout && $transaction) {
-            $layout['order_reference_name'] = $transaction->order_reference_name;
-            $layout['order_reference_notes'] = $transaction->order_reference_notes;
-            // Collect notes from cart items or transaction-level notes
-            $transactionNotes = $transaction->details
-                ->pluck('notes')
-                ->filter()
-                ->map(fn ($n) => trim((string) $n))
-                ->filter()
-                ->unique()
-                ->values()
-                ->all();
-            $layout['notes'] = ! empty($transactionNotes) ? implode(', ', $transactionNotes) : null;
-        }
-
         return [
             'id' => $job->id,
             'type' => 'receipt',
@@ -242,7 +226,7 @@ class PrintQueueController extends Controller
             'paper_width' => $paperWidth,
             'payload' => array_filter([
                 'paper_width' => $paperWidth,
-                'raw_base64' => $layout ? $this->encodeReceiptPayload($layout) : null,
+                'raw_base64' => $layout ? $this->receiptLayoutService->encodeEscPosPayload($layout) : null,
             ]),
             'store' => [
                 'name' => $storeProfile['name'] ?? '',
@@ -250,6 +234,7 @@ class PrintQueueController extends Controller
                 'phone' => $storeProfile['phone'] ?? '',
             ],
             'layout' => $layout,
+            'preview' => $layout ? $this->receiptLayoutService->buildEscPosPreview($layout) : null,
             'transaction' => $transaction ? [
                 'invoice' => $transaction->invoice,
                 'date' => $transaction->created_at ? \Carbon\Carbon::parse($transaction->created_at)->format('d/m/Y H:i') : null,

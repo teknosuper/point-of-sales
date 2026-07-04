@@ -67,6 +67,38 @@ class ProductTenantScopeTest extends TestCase
             ->assertSessionHas('error');
     }
 
+    public function test_non_tenant_user_with_products_edit_can_open_product_edit_form(): void
+    {
+        $user = User::factory()->create();
+        $user->givePermissionTo(['products-access', 'products-edit']);
+
+        $category = Category::create([
+            'name' => 'Kategori Global',
+            'description' => 'Kategori global',
+            'image' => 'global-category.png',
+        ]);
+
+        $product = Product::create([
+            'category_id' => $category->id,
+            'image' => 'global-product.png',
+            'barcode' => 'BRCD-'.Str::upper(Str::random(8)),
+            'sku' => 'SKU-'.Str::upper(Str::random(8)),
+            'title' => 'Produk Global',
+            'description' => 'Produk global untuk pengujian',
+            'tenant_hpp_price' => 12000,
+            'buy_price' => 12000,
+            'sell_price' => 18000,
+            'stock' => 5,
+        ]);
+
+        $this->actingAs($user)
+            ->get(route('products.edit', $product))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Dashboard/Products/Edit')
+                ->where('capabilities.can_manage_catalog', true));
+    }
+
     public function test_tenant_outlet_can_only_update_daily_stock(): void
     {
         [$user, $tenantOutlet, $product] = $this->createTenantWorkspaceContext();

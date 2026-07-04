@@ -10,6 +10,7 @@ use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
+use Inertia\Testing\AssertableInertia as Assert;
 use Tests\TestCase;
 
 class RbacRoleAccessTest extends TestCase
@@ -129,6 +130,51 @@ class RbacRoleAccessTest extends TestCase
             'approved_by' => $owner->id,
             'approved_amount' => 100000,
         ]);
+    }
+
+    public function test_tenant_users_in_same_outlet_share_settlement_request_history(): void
+    {
+        $tenantOutlet = Outlet::create([
+            'code' => 'TEN-RBAC',
+            'slug' => 'ten-rbac',
+            'name' => 'Tenant RBAC',
+            'outlet_type' => 'tenant',
+            'commission_rate_percent' => 0,
+            'is_active' => true,
+            'is_default' => false,
+            'sort_order' => 0,
+        ]);
+
+        $firstUser = User::factory()->create();
+        $firstUser->assignRole('tenant-owner');
+        $firstUser->outlets()->attach($tenantOutlet->id, ['is_primary' => true]);
+
+        $secondUser = User::factory()->create();
+        $secondUser->assignRole('tenant-owner');
+        $secondUser->outlets()->attach($tenantOutlet->id, ['is_primary' => true]);
+
+        CashierSettlementRequest::create([
+            'outlet_id' => $tenantOutlet->id,
+            'cashier_id' => $firstUser->id,
+            'request_number' => 'TWR-TEST-001',
+            'business_date' => now()->toDateString(),
+            'gross_sales_total' => 150000,
+            'base_sales_total' => 100000,
+            'markup_total' => 50000,
+            'requested_amount' => 100000,
+            'status' => CashierSettlementRequest::STATUS_PENDING,
+        ]);
+
+        $this->withSession(['active_outlet_id' => $tenantOutlet->id])
+            ->actingAs($secondUser)
+            ->get(route('cashier-settlements.index', ['tab' => 'request']))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Dashboard/CashierSettlements/Index')
+                ->where('canCreateRequest', true)
+                ->where('requests.data', fn (array $rows) => count($rows) === 1
+                    && $rows[0]['request_number'] === 'TWR-TEST-001'
+                    && (int) $rows[0]['cashier']['id'] === (int) $firstUser->id));
     }
 
     private function createOutlet(string $code, string $name): Outlet

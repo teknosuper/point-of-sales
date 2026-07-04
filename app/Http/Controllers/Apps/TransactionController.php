@@ -2921,6 +2921,7 @@ class TransactionController extends Controller
             'product_id',
             'qty',
             'price',
+            'notes',
         ];
 
         foreach (['discount_total', 'base_unit_price', 'unit_price', 'pricing_rule_name', 'pricing_rule_kind', 'pricing_group_label', 'is_promo_reward', 'promo_reward_rule_name', 'promo_reward_label'] as $optionalColumn) {
@@ -2959,6 +2960,7 @@ class TransactionController extends Controller
     {
         $storePayload = $this->resolveActiveOutlet()?->profilePayload() ?? [];
         $salesReturnSummary = $this->buildTransactionSalesReturnSummary($transaction);
+        $receiptLayout = $this->receiptLayoutService->build($transaction, $storePayload, '58mm');
 
         return [
             'id' => $transaction->id,
@@ -3023,7 +3025,8 @@ class TransactionController extends Controller
                     'promo_reward_label' => $detail->promo_reward_label,
                 ])->values()
                 : [],
-            'receiptLayout' => $this->receiptLayoutService->build($transaction, $storePayload, '58mm'),
+            'receiptLayout' => $receiptLayout,
+            'receiptPreview' => $this->receiptLayoutService->buildEscPosPreview($receiptLayout),
         ];
     }
 

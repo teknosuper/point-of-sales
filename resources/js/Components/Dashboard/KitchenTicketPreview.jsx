@@ -119,7 +119,10 @@ const buildThermalLines = (ticket, station) => {
 export default function KitchenTicketPreview({ ticket, station, onClose }) {
     if (!ticket) return null;
 
-    const thermal = buildThermalLines(ticket, station);
+    const thermal = ticket?.print?.preview || buildThermalLines(ticket, station);
+    const previewLines = (thermal?.lines || []).map((line) =>
+        typeof line === "string" ? { text: line, align: "left", bold: false } : line
+    );
 
     return (
         <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/60 p-4">
@@ -156,7 +159,7 @@ export default function KitchenTicketPreview({ ticket, station, onClose }) {
                                 maxWidth: "100%",
                             }}
                         >
-                            {thermal.lines.map((line, index) => (
+                            {previewLines.map((line, index) => (
                                 <div
                                     key={`${index}-${line.text}`}
                                     className={[
@@ -177,7 +180,7 @@ export default function KitchenTicketPreview({ ticket, station, onClose }) {
                 {/* Footer */}
                 <div className="border-t border-slate-200 px-4 py-3 dark:border-slate-700">
                     <p className="text-center text-xs text-slate-500">
-                        Preview mengikuti format thermal dapur yang dipakai `print-client`.
+                        Preview mengikuti payload thermal backend yang dipakai print dapur.
                     </p>
                 </div>
             </div>

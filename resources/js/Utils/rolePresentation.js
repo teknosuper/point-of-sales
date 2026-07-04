@@ -1,40 +1,26 @@
-const roleLabels = {
-    "super-admin": "Super Admin",
-    cashier: "Kasir",
-    waiter: "Petugas Antar",
-    "kitchen-operator": "Operator Dapur Tenant",
-    "kasir-operasional": "Kasir Operasional",
-    "petugas-antar": "Petugas Antar",
-    "operator-dapur": "Operator Dapur",
-    "tenant-operasional": "Tenant Operasional",
-    "tenant-petugas-antar": "Tenant Delivery",
-    "tenant-promo": "Tenant Promo",
-    "tenant-owner": "Tenant Owner",
-    "owner-pricing": "Admin Harga Owner",
-    "admin-stok": "Admin Stok",
-    "admin-laporan": "Admin Laporan",
-    "admin-owner-outlet": "Admin Owner Outlet",
-    "admin-sistem": "Admin Sistem",
-};
+function roleNameOf(roleOrName = "") {
+    if (typeof roleOrName === "string") {
+        return roleOrName;
+    }
 
-const roleDescriptions = {
-    "super-admin": "Akses penuh ke seluruh sistem.",
-    cashier: "Fokus pada transaksi kasir dan operasional checkout.",
-    waiter: "Fokus pada pengantaran pesanan dari dapur ke pelanggan.",
-    "kitchen-operator": "Fokus pada layar dapur dan update stok operasional tenant.",
-    "kasir-operasional": "Preset siap pakai untuk kasir harian.",
-    "petugas-antar": "Preset siap pakai untuk pengantaran pesanan.",
-    "operator-dapur": "Preset siap pakai untuk layar dapur dan operasional tenant.",
-    "tenant-operasional": "Preset siap pakai untuk PIC tenant harian yang mengelola produk dan stok tanpa pricing.",
-    "tenant-petugas-antar": "Preset siap pakai untuk petugas antar pesanan tenant.",
-    "tenant-promo": "Preset siap pakai untuk pengelola promo tenant.",
-    "tenant-owner": "Preset siap pakai untuk owner tenant yang mengelola seluruh aktivitas tenant.",
-    "owner-pricing": "Preset siap pakai untuk admin owner yang mengelola harga utama dan promo owner.",
-    "admin-stok": "Preset siap pakai untuk pembelian, stok, dan supplier.",
-    "admin-laporan": "Preset siap pakai untuk pemantauan laporan dan analitik.",
-    "admin-owner-outlet": "Preset siap pakai untuk admin owner outlet yang fokus pada operasional, laporan, dan settlement tanpa akses RBAC sistem.",
-    "admin-sistem": "Preset siap pakai untuk admin internal yang mengelola user, role, permission, audit, dan pengaturan penting tanpa akses POS operasional.",
-};
+    return roleOrName?.name || "";
+}
+
+function roleDisplayNameOf(roleOrName = "") {
+    if (typeof roleOrName === "string") {
+        return "";
+    }
+
+    return roleOrName?.display_name || "";
+}
+
+function roleDescriptionOf(roleOrName = "") {
+    if (typeof roleOrName === "string") {
+        return "";
+    }
+
+    return roleOrName?.description || "";
+}
 
 function humanizeRoleName(name = "") {
     if (!name) return "";
@@ -66,10 +52,10 @@ function humanizeRoleName(name = "") {
         .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
-export function roleLabel(name = "") {
-    return roleLabels[name] || humanizeRoleName(name);
+export function roleLabel(roleOrName = "") {
+    return roleDisplayNameOf(roleOrName) || humanizeRoleName(roleNameOf(roleOrName));
 }
 
-export function roleDescription(name = "") {
-    return roleDescriptions[name] || "";
+export function roleDescription(roleOrName = "") {
+    return roleDescriptionOf(roleOrName) || "";
 }

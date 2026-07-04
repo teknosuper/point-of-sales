@@ -2,7 +2,7 @@
 
 namespace Database\Seeders;
 
-use App\Support\RbacPresetCatalog;
+use App\Support\RoleMetadata;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 use Spatie\Permission\Models\Permission;
@@ -23,10 +23,12 @@ class RoleSeeder extends Seeder
         $this->deleteLegacyGeneratedAccessRoles();
 
         $superAdminRole = Role::firstOrCreate(['name' => 'super-admin']);
+        $superAdminRole->update(RoleMetadata::forName('super-admin'));
         $superAdminRole->syncPermissions(Permission::all());
 
         // Create cashier role with basic permissions for public registration
         $cashierRole = Role::firstOrCreate(['name' => 'cashier']);
+        $cashierRole->update(RoleMetadata::forName('cashier'));
         $cashierPermissions = Permission::whereIn('name', [
             'dashboard-access',
             'transactions-access',
@@ -43,6 +45,7 @@ class RoleSeeder extends Seeder
         $cashierRole->syncPermissions($cashierPermissions);
 
         $waiterRole = Role::firstOrCreate(['name' => 'waiter']);
+        $waiterRole->update(RoleMetadata::forName('waiter'));
         $waiterPermissions = Permission::whereIn('name', [
             'dashboard-access',
             'waiter-board-access',
@@ -50,6 +53,7 @@ class RoleSeeder extends Seeder
         $waiterRole->syncPermissions($waiterPermissions);
 
         $kitchenRole = Role::firstOrCreate(['name' => 'kitchen-operator']);
+        $kitchenRole->update(RoleMetadata::forName('kitchen-operator'));
         $kitchenPermissions = Permission::whereIn('name', [
             'dashboard-access',
             'kitchen-access',
@@ -142,21 +146,138 @@ class RoleSeeder extends Seeder
 
     private function syncPresetRoles(): void
     {
-        foreach (RbacPresetCatalog::all() as $preset) {
-            if (($preset['use_all_permissions'] ?? false) === true) {
-                continue;
-            }
+        $rolePermissions = [
+            'kasir-operasional' => [
+                'dashboard-access',
+                'transactions-access',
+                'transactions-history-access',
+                'table-orders-access',
+                'table-orders-approve',
+                'cashier-shifts-access',
+                'cashier-shifts-open',
+                'cashier-shifts-close',
+                'dining-tables-access',
+                'customers-access',
+                'customers-create',
+            ],
+            'petugas-antar' => [
+                'dashboard-access',
+                'waiter-board-access',
+            ],
+            'operator-dapur' => [
+                'dashboard-access',
+                'kitchen-access',
+                'products-access',
+                'products-stock-update',
+            ],
+            'tenant-operasional' => [
+                'dashboard-access',
+                'products-access',
+                'products-stock-update',
+                'stock-mutations-access',
+            ],
+            'tenant-petugas-antar' => [
+                'dashboard-access',
+                'waiter-board-access',
+            ],
+            'tenant-promo' => [
+                'pricing-rules-access',
+                'pricing-rules-create',
+                'pricing-rules-update',
+            ],
+            'tenant-owner' => [
+                'dashboard-access',
+                'products-access',
+                'products-create',
+                'products-edit',
+                'products-stock-update',
+                'products-pricing-update',
+                'pricing-rules-access',
+                'pricing-rules-create',
+                'pricing-rules-update',
+                'pricing-rules-delete',
+                'reports-access',
+                'profits-access',
+            ],
+            'owner-pricing' => [
+                'products-access',
+                'products-pricing-update',
+                'pricing-rules-access',
+                'pricing-rules-create',
+                'pricing-rules-update',
+                'pricing-rules-delete',
+            ],
+            'admin-stok' => [
+                'products-access',
+                'products-stock-update',
+                'stock-opnames-access',
+                'stock-opnames-create',
+                'stock-opnames-finalize',
+                'stock-mutations-access',
+                'purchase-orders-access',
+                'purchase-orders-create',
+                'purchase-orders-update',
+                'goods-receivings-access',
+                'goods-receivings-create',
+                'supplier-returns-access',
+                'supplier-returns-create',
+                'supplier-returns-update',
+                'suppliers-access',
+            ],
+            'admin-laporan' => [
+                'dashboard-access',
+                'reports-access',
+                'profits-access',
+                'cashier-shifts-access',
+            ],
+            'admin-owner-outlet' => [
+                'dashboard-access',
+                'customers-access',
+                'customers-create',
+                'kitchen-access',
+                'kitchen-manage',
+                'cashier-settlements-access',
+                'cashier-settlements-approve',
+                'products-access',
+                'products-edit',
+                'products-stock-update',
+                'outlets-access',
+                'outlets-update',
+                'business-settings-access',
+                'business-settings-update',
+                'reports-access',
+                'cashier-shifts-access',
+            ],
+            'admin-sistem' => [
+                'dashboard-access',
+                'users-access',
+                'users-create',
+                'users-update',
+                'users-delete',
+                'roles-access',
+                'roles-create',
+                'roles-update',
+                'roles-delete',
+                'permissions-access',
+                'permissions-create',
+                'permissions-update',
+                'permissions-delete',
+                'audit-logs-access',
+                'payment-settings-access',
+                'payment-settings-update',
+                'business-settings-access',
+                'business-settings-update',
+                'reports-access',
+            ],
+        ];
 
-            $roleName = (string) ($preset['suggested_role_name'] ?? '');
-            if ($roleName === '') {
-                continue;
-            }
-
+        foreach ($rolePermissions as $roleName => $permissionNames) {
             $permissions = Permission::query()
-                ->whereIn('name', $preset['permissions'] ?? [])
+                ->whereIn('name', $permissionNames)
                 ->get();
 
             $role = Role::firstOrCreate(['name' => $roleName]);
+            $role->update(RoleMetadata::forName($roleName));
             $role->syncPermissions($permissions);
         }
     }
@@ -218,6 +339,7 @@ class RoleSeeder extends Seeder
             ->get();
 
         $role = Role::firstOrCreate(['name' => 'outlet-owner']);
+        $role->update(RoleMetadata::forName('outlet-owner'));
         $role->syncPermissions($permissions);
     }
 }

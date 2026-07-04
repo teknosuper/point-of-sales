@@ -395,7 +395,7 @@ export default function Index({
         workspace?.is_tenant === true || activeOutlet?.outlet_type === "tenant";
     const canOpenCreateProduct = canCreateProducts && !isKitchenWorkspace;
     const canManageCatalog = canCreateProducts && !isTenantWorkspace && !isKitchenWorkspace;
-    const canEditCatalog = canEditProducts && !isTenantWorkspace && !isKitchenWorkspace;
+    const canEditCatalog = canEditProducts && !isTenantWorkspace;
     const canOpenTenantProductEdit = canEditProducts && isTenantWorkspace;
     const canDeleteCatalog =
         canDeleteProducts &&

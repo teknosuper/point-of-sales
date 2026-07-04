@@ -59,6 +59,13 @@ class CashierSettlementController extends Controller
 
         $canApprove = $this->canApprove($user);
 
+        $tenantSettlementOutletIds = $isTenantRequestWorkspace
+            ? $this->resolveTenantSettlementOutletIds($user, $outlet)
+            : collect();
+        $requestOutletIds = $isTenantRequestWorkspace
+            ? $tenantSettlementOutletIds
+            : $visibleOutletIds;
+
         $query = CashierSettlementRequest::query()
             ->with([
                 'cashier:id,name',
@@ -67,8 +74,8 @@ class CashierSettlementController extends Controller
                 'approvedBy:id,name',
                 'rejectedBy:id,name',
             ])
-            ->whereIn('outlet_id', $visibleOutletIds->all())
-            ->when(! $canApprove, fn (Builder $builder) => $builder->where('cashier_id', $user->id))
+            ->whereIn('outlet_id', $requestOutletIds->all())
+            ->when($this->shouldScopeSettlementRequestsToUser($user, $isTenantRequestWorkspace), fn (Builder $builder) => $builder->where('cashier_id', $user->id))
             ->latest('created_at');
 
         $requests = (clone $query)
@@ -166,13 +173,16 @@ class CashierSettlementController extends Controller
         abort_if($requestedAmount <= 0, 422, 'Nominal penarikan harus lebih dari nol.');
         abort_if($requestedAmount > (int) ($wallet['available_balance'] ?? 0), 422, 'Nominal penarikan melebihi saldo tersedia tenant.');
 
+        $settlementOutletIds = $this->resolveTenantSettlementOutletIds($user, $outlet);
+        abort_if($settlementOutletIds->count() !== 1, 422, 'Workspace tenant ini harus terhubung ke tepat satu tenant untuk mengajukan pencairan.');
+
         $settlement = null;
         $prefixCode = $isKitchenWorkspace ? 'TWR' : 'CSR';
 
         for ($attempt = 0; $attempt < 3; $attempt++) {
             try {
                 $settlement = CashierSettlementRequest::create([
-                    'outlet_id' => $outlet->id,
+                    'outlet_id' => (int) $settlementOutletIds->first(),
                     'cashier_id' => $user->id,
                     'request_number' => $this->nextRequestNumber($outlet->id, $prefixCode),
                     'recipient_user_id' => $recipientUser?->id,
@@ -361,14 +371,24 @@ class CashierSettlementController extends Controller
     {
         $user = $request->user();
         $outlet = $this->outletResolver->resolve($request, $user);
-        $visibleOutletIds = $this->resolveVisibleOutletIds($request, $outlet);
+        $visibleOutletIds = $this->isTenantRequestWorkspace($request)
+            ? $this->resolveTenantSettlementOutletIds($user, $outlet)
+            : $this->resolveVisibleOutletIds($request, $outlet);
 
         return CashierSettlementRequest::query()
             ->with(['cashier:id,name', 'cashierShift:id,opened_at,closed_at,status', 'recipientUser:id,name', 'approvedBy:id,name', 'rejectedBy:id,name'])
             ->whereKey($cashierSettlement->id)
             ->whereIn('outlet_id', $visibleOutletIds->all())
-            ->when(! $this->canApprove($user), fn (Builder $builder) => $builder->where('cashier_id', $user?->id))
+            ->when(
+                $this->shouldScopeSettlementRequestsToUser($user, $this->isTenantRequestWorkspace($request)),
+                fn (Builder $builder) => $builder->where('cashier_id', $user?->id)
+            )
             ->firstOrFail();
+    }
+
+    private function shouldScopeSettlementRequestsToUser(?User $user, bool $isTenantRequestWorkspace): bool
+    {
+        return ! $isTenantRequestWorkspace && ! $this->canApprove($user);
     }
 
     private function resolveVisibleOutletIds(Request $request, ?Outlet $activeOutlet): \Illuminate\Support\Collection
@@ -573,6 +593,7 @@ class CashierSettlementController extends Controller
     private function buildKitchenWalletSummary(User $user, Outlet $activeOutlet): array
     {
         $allocationQuery = $this->buildTenantWalletAllocationQuery($user, $activeOutlet);
+        $settlementOutletIds = $this->resolveTenantSettlementOutletIds($user, $activeOutlet);
 
         $allocationIds = (clone $allocationQuery)->pluck('id');
         $grossSalesTotal = $allocationIds->isNotEmpty()
@@ -585,15 +606,13 @@ class CashierSettlementController extends Controller
             : 0;
 
         $approvedTotal = (int) CashierSettlementRequest::query()
-            ->where('outlet_id', $activeOutlet->id)
-            ->where('cashier_id', $user->id)
+            ->whereIn('outlet_id', $settlementOutletIds->all())
             ->whereNull('cashier_shift_id')
             ->where('status', CashierSettlementRequest::STATUS_APPROVED)
             ->sum('approved_amount');
 
         $pendingTotal = (int) CashierSettlementRequest::query()
-            ->where('outlet_id', $activeOutlet->id)
-            ->where('cashier_id', $user->id)
+            ->whereIn('outlet_id', $settlementOutletIds->all())
             ->whereNull('cashier_shift_id')
             ->where('status', CashierSettlementRequest::STATUS_PENDING)
             ->sum('requested_amount');
@@ -1083,5 +1102,22 @@ class CashierSettlementController extends Controller
         $activeOutlet = $this->outletResolver->resolve($request, $user);
 
         return (bool) ($user?->isKitchenWorkspace() || (string) ($activeOutlet?->outlet_type ?? '') === 'tenant');
+    }
+
+    private function resolveTenantSettlementOutletIds(?User $user, ?Outlet $activeOutlet): \Illuminate\Support\Collection
+    {
+        if (! $user || ! $activeOutlet) {
+            return collect();
+        }
+
+        if ((string) ($activeOutlet->outlet_type ?? '') === 'tenant') {
+            return collect([(int) $activeOutlet->id]);
+        }
+
+        if ($user->isKitchenWorkspace()) {
+            return $this->resolveKitchenTenantOutletIds($user, (int) $activeOutlet->id);
+        }
+
+        return collect([(int) $activeOutlet->id]);
     }
 }

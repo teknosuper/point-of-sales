@@ -8,17 +8,18 @@ use App\Models\Outlet;
 use App\Models\User;
 use App\Services\AuditLogService;
 use App\Services\ImageUploadService;
-use App\Support\RbacPresetCatalog;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Spatie\Permission\Models\Role;
+use Spatie\Permission\PermissionRegistrar;
 
 class UserController extends Controller
 {
     public function __construct(
         private readonly AuditLogService $auditLogService,
-        private readonly ImageUploadService $imageUploadService
+        private readonly ImageUploadService $imageUploadService,
+        private readonly PermissionRegistrar $permissionRegistrar
     ) {}
 
     /**
@@ -65,10 +66,10 @@ class UserController extends Controller
 
         $roleOptions = Role::query()
             ->orderBy('name')
-            ->get(['name'])
+            ->get(['name', 'display_name'])
             ->map(fn (Role $role) => [
                 'value' => $role->name,
-                'label' => $role->name,
+                'label' => $role->display_name ?: $role->name,
             ])
             ->values();
         $outletOptions = Outlet::query()
@@ -89,7 +90,6 @@ class UserController extends Controller
             'perPageOptions' => $allowedPerPage,
             'roleOptions' => $roleOptions,
             'outletOptions' => $outletOptions,
-            'wizardTemplates' => collect(RbacPresetCatalog::all())->values()->all(),
         ]);
     }
 
@@ -103,7 +103,7 @@ class UserController extends Controller
         // get all role data
         $roles = Role::query()
             ->with(['permissions:id,name'])
-            ->select('id', 'name')
+            ->select('id', 'name', 'display_name', 'description')
             ->orderBy('name')
             ->get();
 
@@ -129,7 +129,6 @@ class UserController extends Controller
             'tenantOutlets' => $tenantOutlets,
             'kitchenStations' => $kitchenStations,
             'prefillRole' => $roles->contains('name', $prefillRole) ? $prefillRole : null,
-            'wizardTemplates' => collect(RbacPresetCatalog::all())->values()->all(),
         ]);
     }
 
@@ -138,6 +137,7 @@ class UserController extends Controller
      */
     public function store(UserRequest $request)
     {
+        $selectedRoles = $this->normalizeSelectedRoles($request->input('selectedRoles', []));
         $avatarPath = null;
 
         if ($request->file('avatar')) {
@@ -169,17 +169,18 @@ class UserController extends Controller
             'preferred_kitchen_station_id' => $request->input('preferred_workspace') === 'kitchen'
                 ? ($request->input('preferred_kitchen_station_id') ?: null)
                 : null,
-            'waiter_service_scope' => $this->selectedRolesGrantPermission($request->input('selectedRoles', []), 'waiter-board-access')
+            'waiter_service_scope' => $this->selectedRolesGrantPermission($selectedRoles, 'waiter-board-access')
                 ? $request->input('waiter_service_scope', 'outlet_all')
                 : 'outlet_all',
         ]);
 
         // assign role to user
-        $user->assignRole($request->selectedRoles);
+        $user->syncRoles($selectedRoles);
+        $this->permissionRegistrar->forgetCachedPermissions();
         $this->syncUserOutlets($user, $request->input('selectedOutlets', []), $request->input('primary_outlet_id'));
         $this->syncWaiterTenantOutlets(
             $user,
-            $request->input('selectedRoles', []),
+            $selectedRoles,
             $request->input('waiter_service_scope', 'outlet_all'),
             $request->input('waiter_tenant_outlet_ids', [])
         );
@@ -191,7 +192,7 @@ class UserController extends Controller
             description: 'Pengguna baru dibuat.',
             after: $this->userPayload(
                 $user->fresh(['outlets:id,name,code', 'waiterTenantOutlets:id,name,code']),
-                $this->auditLogService->roleNames($request->selectedRoles),
+                $this->auditLogService->roleNames($selectedRoles),
                 $avatarPath !== null
             ),
         );
@@ -208,7 +209,7 @@ class UserController extends Controller
         // get all role data
         $roles = Role::query()
             ->with(['permissions:id,name'])
-            ->select('id', 'name')
+            ->select('id', 'name', 'display_name', 'description')
             ->orderBy('name')
             ->get();
         $outlets = Outlet::query()
@@ -241,7 +242,6 @@ class UserController extends Controller
             'outlets' => $outlets,
             'tenantOutlets' => $tenantOutlets,
             'kitchenStations' => $kitchenStations,
-            'wizardTemplates' => collect(RbacPresetCatalog::all())->values()->all(),
         ]);
     }
 
@@ -250,6 +250,7 @@ class UserController extends Controller
      */
     public function update(UserRequest $request, User $user)
     {
+        $selectedRoles = $this->normalizeSelectedRoles($request->input('selectedRoles', []));
         $beforeRoles = $user->roles()->pluck('name')->all();
         $before = $this->userPayload($user, $beforeRoles, false);
         $avatarPath = $user->getRawOriginal('avatar');
@@ -296,22 +297,23 @@ class UserController extends Controller
             'preferred_kitchen_station_id' => $request->input('preferred_workspace') === 'kitchen'
                 ? ($request->input('preferred_kitchen_station_id') ?: null)
                 : null,
-            'waiter_service_scope' => $this->selectedRolesGrantPermission($request->input('selectedRoles', []), 'waiter-board-access')
+            'waiter_service_scope' => $this->selectedRolesGrantPermission($selectedRoles, 'waiter-board-access')
                 ? $request->input('waiter_service_scope', 'outlet_all')
                 : 'outlet_all',
         ]);
 
         // assign role to user
-        $user->syncRoles($request->selectedRoles);
+        $user->syncRoles($selectedRoles);
+        $this->permissionRegistrar->forgetCachedPermissions();
         $this->syncUserOutlets($user, $request->input('selectedOutlets', []), $request->input('primary_outlet_id'));
         $this->syncWaiterTenantOutlets(
             $user,
-            $request->input('selectedRoles', []),
+            $selectedRoles,
             $request->input('waiter_service_scope', 'outlet_all'),
             $request->input('waiter_tenant_outlet_ids', [])
         );
 
-        $afterRoles = $this->auditLogService->roleNames($request->selectedRoles);
+        $afterRoles = $this->auditLogService->roleNames($selectedRoles);
         $after = $this->userPayload(
             $user->fresh(['outlets:id,name,code', 'waiterTenantOutlets:id,name,code']),
             $afterRoles,
@@ -484,5 +486,16 @@ class UserController extends Controller
             ->whereIn('name', $roleNames->all())
             ->whereHas('permissions', fn ($query) => $query->where('name', $permissionName))
             ->exists();
+    }
+
+    private function normalizeSelectedRoles(array $selectedRoles): array
+    {
+        return collect($selectedRoles)
+            ->filter()
+            ->map(fn ($role) => (string) $role)
+            ->unique()
+            ->take(1)
+            ->values()
+            ->all();
     }
 }

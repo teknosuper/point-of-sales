@@ -17,7 +17,6 @@ import CartPanel from "@/Components/POS/CartPanel";
 import PaymentPanel from "@/Components/POS/PaymentPanel";
 import CustomerSelect from "@/Components/POS/CustomerSelect";
 import NumpadModal from "@/Components/POS/NumpadModal";
-import { ThermalReceipt58mm } from "@/Components/Receipt/ThermalReceipt";
 import HeldTransactions, {
     HoldButton,
 } from "@/Components/POS/HeldTransactions";
@@ -9357,15 +9356,12 @@ export default function Index({
                             </button>
                         </div>
                         <div className="flex-1 overflow-y-auto px-4 py-4">
-                            <div className="mx-auto flex max-w-[280px] justify-center rounded-lg bg-white px-2 py-4 shadow-inner ring-1 ring-slate-200">
-                                <ThermalReceipt58mm
-                                    transaction={selectedHistoryTransaction}
-                                    layout={selectedHistoryTransaction.receiptLayout}
-                                    storeName={storeProfile?.name || "GTC KASIR"}
-                                    storePhone={storeProfile?.phone || ""}
-                                    storeEmail={storeProfile?.email || ""}
-                                    storeWebsite={storeProfile?.website || ""}
-                                />
+                            <div className="mx-auto max-w-[280px] rounded-lg bg-white px-3 py-4 shadow-inner ring-1 ring-slate-200">
+                                <pre className="overflow-x-auto whitespace-pre-wrap break-words font-mono text-[10px] leading-tight text-black">
+                                    {(selectedHistoryTransaction.receiptPreview?.lines ||
+                                        []
+                                    ).join("\n")}
+                                </pre>
                             </div>
                         </div>
                         <div className="border-t border-slate-200 bg-slate-50 px-5 py-4 dark:border-slate-800 dark:bg-slate-900/80">

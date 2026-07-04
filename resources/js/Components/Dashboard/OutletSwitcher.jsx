@@ -4,6 +4,7 @@ import { router } from "@inertiajs/react";
 export default function OutletSwitcher({
     activeOutlet,
     availableOutlets = [],
+    workspaceContext = null,
     compact = false,
     className = "",
 }) {
@@ -21,7 +22,12 @@ export default function OutletSwitcher({
         return () => window.removeEventListener("resize", syncViewport);
     }, []);
 
-    if (!Array.isArray(availableOutlets) || availableOutlets.length <= 1) {
+    const canSwitchOutlet =
+        Boolean(workspaceContext?.can_switch_outlet) &&
+        Array.isArray(availableOutlets) &&
+        availableOutlets.length > 1;
+
+    if (!workspaceContext && !canSwitchOutlet) {
         return null;
     }
 
@@ -42,14 +48,40 @@ export default function OutletSwitcher({
         switchOutlet(event.target.value || null);
     };
 
+    const runtimeLabel = activeOutlet?.name
+        ? `${activeOutlet.code ? `${activeOutlet.code} - ` : ""}${activeOutlet.name}`
+        : "";
+    const scopeLabel = workspaceContext?.data_scope_label || "";
+    const showResolvedOutlet =
+        runtimeLabel &&
+        runtimeLabel !== scopeLabel &&
+        workspaceContext?.data_scope_type === "tenant";
+
     return (
         <div className={className}>
             {!compact && (
-                <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">
-                    Outlet aktif
-                </p>
+                <div className="mb-2 space-y-1">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">
+                        Konteks kerja
+                    </p>
+                    {workspaceContext ? (
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-600 dark:border-slate-800 dark:bg-slate-950/60 dark:text-slate-300">
+                            <div>
+                                Workspace: <span className="font-semibold">{workspaceContext.mode_label || "-"}</span>
+                            </div>
+                            <div>
+                                Scope data: <span className="font-semibold">{workspaceContext.data_scope_label || "-"}</span>
+                            </div>
+                            {showResolvedOutlet ? (
+                                <div>
+                                    Outlet induk: <span className="font-semibold">{runtimeLabel}</span>
+                                </div>
+                            ) : null}
+                        </div>
+                    ) : null}
+                </div>
             )}
-            {isMobile && !compact ? (
+            {canSwitchOutlet && isMobile && !compact ? (
                 <div className="space-y-2">
                     {availableOutlets.map((outlet) => {
                         const isActive = String(activeOutlet?.id ?? "") === String(outlet.id);
@@ -75,7 +107,7 @@ export default function OutletSwitcher({
                         );
                     })}
                 </div>
-            ) : (
+            ) : canSwitchOutlet ? (
                 <select
                     value={activeOutlet?.id ?? ""}
                     onChange={handleChange}
@@ -90,7 +122,7 @@ export default function OutletSwitcher({
                         </option>
                     ))}
                 </select>
-            )}
+            ) : null}
         </div>
     );
 }

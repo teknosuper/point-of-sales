@@ -9,6 +9,7 @@ use App\Models\Payable;
 use App\Models\Product;
 use App\Models\ProductOutletStock;
 use App\Models\Receivable;
+use App\Models\User;
 use App\Services\CashierShiftService;
 use App\Services\OutletResolver;
 use App\Services\PayableAgingService;
@@ -257,6 +258,9 @@ class HandleInertiaRequests extends Middleware
             ->unique()
             ->values()
             ->all();
+        $workspaceContext = $request->user()
+            ? $this->buildWorkspaceContext($request->user(), $activeOutlet, $availableOutletCollection)
+            : null;
 
         if ($request->user()) {
             $user = $request->user();
@@ -293,6 +297,19 @@ class HandleInertiaRequests extends Middleware
                         ->all()
                     : [],
                 'roleNames' => $request->user() ? $request->user()->getRoleNames()->values()->all() : [],
+                'roleSummaries' => $request->user()
+                    ? $request->user()
+                        ->roles()
+                        ->orderBy('name')
+                        ->get(['name', 'display_name', 'description'])
+                        ->map(fn ($role) => [
+                            'name' => $role->name,
+                            'display_name' => $role->display_name,
+                            'description' => $role->description,
+                        ])
+                        ->values()
+                        ->all()
+                    : [],
                 'accessProfile' => [
                     'tenantScoped' => $isTenantScopedAccount,
                     'accessibleOutletTypes' => $accessibleOutletTypes,
@@ -325,6 +342,7 @@ class HandleInertiaRequests extends Middleware
                 'city' => $activeOutlet->city,
             ] : null,
             'availableOutlets' => $availableOutlets,
+            'workspaceContext' => $workspaceContext,
             'storeProfile' => $storeProfile,
             'notificationAccess' => $notificationAccess,
             'security' => [
@@ -336,6 +354,60 @@ class HandleInertiaRequests extends Middleware
                 'buildVersion' => $buildVersion,
                 'buildGeneratedAt' => $buildGeneratedAt,
             ],
+        ];
+    }
+
+    private function buildWorkspaceContext(?User $user, ?Outlet $activeOutlet, \Illuminate\Support\Collection $availableOutletCollection): ?array
+    {
+        if (! $user) {
+            return null;
+        }
+
+        $tenantOutlets = $user->outlets()
+            ->active()
+            ->where('outlets.outlet_type', 'tenant')
+            ->ordered()
+            ->get(['outlets.id', 'outlets.code', 'outlets.name', 'outlets.parent_outlet_id'])
+            ->map(fn (Outlet $outlet) => [
+                'id' => (int) $outlet->id,
+                'code' => $outlet->code,
+                'name' => $outlet->name,
+                'parent_outlet_id' => $outlet->parent_outlet_id ? (int) $outlet->parent_outlet_id : null,
+            ])
+            ->values();
+
+        $mode = $user->isKitchenWorkspace() ? 'kitchen' : 'standard';
+        $modeLabel = $mode === 'kitchen' ? 'Layar Dapur' : 'Dashboard Umum';
+        $activeOutletPayload = $activeOutlet ? [
+            'id' => (int) $activeOutlet->id,
+            'code' => $activeOutlet->code,
+            'name' => $activeOutlet->name,
+            'outlet_type' => $activeOutlet->outlet_type ?? 'main',
+        ] : null;
+
+        $dataScopeType = 'outlet';
+        $dataScopeLabel = $activeOutlet
+            ? (($activeOutlet->code ? $activeOutlet->code.' - ' : '').$activeOutlet->name)
+            : 'Belum ada outlet aktif';
+
+        if ($tenantOutlets->count() === 1) {
+            $tenant = $tenantOutlets->first();
+            $dataScopeType = 'tenant';
+            $dataScopeLabel = trim(($tenant['code'] ? $tenant['code'].' - ' : '').$tenant['name']);
+        } elseif ($tenantOutlets->count() > 1) {
+            $dataScopeType = 'multi_tenant';
+            $dataScopeLabel = $tenantOutlets->count().' tenant terhubung';
+        }
+
+        return [
+            'mode' => $mode,
+            'mode_label' => $modeLabel,
+            'active_outlet' => $activeOutletPayload,
+            'data_scope_type' => $dataScopeType,
+            'data_scope_label' => $dataScopeLabel,
+            'tenant_outlets' => $tenantOutlets->all(),
+            'available_outlet_count' => $availableOutletCollection->count(),
+            'can_switch_outlet' => $availableOutletCollection->count() > 1 && ! $user->isKitchenWorkspace(),
         ];
     }
 }

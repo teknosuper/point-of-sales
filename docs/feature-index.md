@@ -10,6 +10,12 @@ Modul kasir untuk membangun cart, hold/resume transaksi, checkout multi-metode p
 
 Dokumen: `docs/features/pos-transactions.md`
 
+### Parking Flow Design
+
+Desain modul parkir yang menyatu dengan transaksi POS, mendukung banyak kendaraan dalam satu nota, tetap terpisah dalam laporan, dan fleksibel untuk kasir maupun self order.
+
+Dokumen: `docs/features/parking-flow-design.md`
+
 ### Manajemen Meja
 
 Modul master meja dine in per outlet untuk dipakai pada transaksi makan di tempat.

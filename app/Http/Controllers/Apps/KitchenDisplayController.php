@@ -765,6 +765,7 @@ class KitchenDisplayController extends Controller
             ] : null,
             'print' => [
                 'status' => $printStatus,
+                'paper_width' => $this->resolveKitchenPreviewPaperWidth($ticket),
                 'total_jobs' => $printJobs->count(),
                 'success_jobs' => $successfulPrintJobs->count(),
                 'failed_jobs' => $failedPrintJobs->count(),
@@ -775,9 +776,147 @@ class KitchenDisplayController extends Controller
                 'printed_at_list' => $successfulPrintTimes->all(),
                 'last_failed_at' => ReportTimezone::formatSourceIso8601($failedPrintJobs->sortByDesc('failed_at')->first()?->getRawOriginal('failed_at')),
                 'last_queued_at' => ReportTimezone::formatSourceIso8601($queuedPrintJobs->sortByDesc('queued_at')->first()?->getRawOriginal('queued_at')),
+                'preview' => $this->buildKitchenTicketPrintPreview($ticket),
             ],
             'items' => $displayItems->values()->all(),
         ];
+    }
+
+    private function resolveKitchenPreviewPaperWidth(KitchenTicket $ticket): string
+    {
+        $paperWidth = (string) ($ticket->printJobs
+            ->sortByDesc('id')
+            ->pluck('payload.paper_width')
+            ->filter()
+            ->first() ?? '80mm');
+
+        return strtolower($paperWidth) === '58mm' ? '58mm' : '80mm';
+    }
+
+    private function buildKitchenTicketPrintPreview(KitchenTicket $ticket): array
+    {
+        $paperWidth = $this->resolveKitchenPreviewPaperWidth($ticket);
+        $cols = $paperWidth === '58mm' ? 32 : 48;
+        $separator = str_repeat('=', $cols);
+        $stationName = $ticket->kitchenStation?->name ?: 'KITCHEN ORDER';
+        $lines = [$stationName];
+
+        if ($ticket->ticket_number) {
+            $lines[] = '#'.$ticket->ticket_number;
+        }
+
+        $lines[] = $separator;
+
+        if ($ticket->transaction?->invoice) {
+            $lines = array_merge($lines, $this->wrapKitchenPreviewText('Invoice: '.$ticket->transaction->invoice, $cols));
+        }
+
+        $customerName = $ticket->transaction?->customer?->name ?: 'Pelanggan Umum';
+        $lines = array_merge($lines, $this->wrapKitchenPreviewText('Customer: '.$customerName, $cols));
+
+        if ($ticket->transaction?->order_reference_name) {
+            $lines = array_merge($lines, $this->wrapKitchenPreviewText('Nama / Ket: '.$ticket->transaction->order_reference_name, $cols));
+        }
+
+        if ($ticket->transaction?->order_reference_notes) {
+            $lines = array_merge($lines, $this->wrapKitchenPreviewText('Nama / Ket: '.$ticket->transaction->order_reference_notes, $cols));
+        }
+
+        if ($ticket->transaction?->created_at) {
+            $lines = array_merge($lines, $this->wrapKitchenPreviewText(
+                'Waktu: '.\Carbon\Carbon::parse($ticket->transaction->created_at)->format('d/m/Y H:i'),
+                $cols
+            ));
+        }
+
+        if ($ticket->transaction?->order_type) {
+            $lines = array_merge($lines, $this->wrapKitchenPreviewText(
+                'Tipe: '.$this->humanizeOrderType($ticket->transaction->order_type),
+                $cols
+            ));
+        }
+
+        $tableLabel = $this->tableLabel(
+            $ticket->transaction?->diningTable?->code,
+            $ticket->transaction?->diningTable?->name
+        );
+
+        if ($tableLabel) {
+            $lines = array_merge($lines, $this->wrapKitchenPreviewText('Meja: '.$tableLabel, $cols));
+        }
+
+        if ($ticket->notes) {
+            $lines = array_merge($lines, $this->wrapKitchenPreviewText('Catatan: '.$ticket->notes, $cols));
+        }
+
+        $lines[] = $separator;
+
+        foreach (($ticket->items ?? collect()) as $item) {
+            $lines = array_merge($lines, $this->wrapKitchenPreviewText(
+                sprintf('%sx %s', (int) ($item->qty ?? 0), (string) ($item->product_title ?? 'Item')),
+                $cols
+            ));
+
+            if (! empty($item->notes)) {
+                foreach ($this->wrapKitchenPreviewText('>> '.(string) $item->notes, max(1, $cols - 3)) as $line) {
+                    $lines[] = '   '.$line;
+                }
+            }
+        }
+
+        return [
+            'paper_width' => $paperWidth,
+            'cols' => $cols,
+            'lines' => $lines,
+        ];
+    }
+
+    private function wrapKitchenPreviewText(string $text, int $width): array
+    {
+        $value = trim(preg_replace('/\s+/u', ' ', $text) ?? $text);
+
+        if ($value === '') {
+            return [];
+        }
+
+        $words = preg_split('/\s+/', $value) ?: [];
+        $lines = [];
+        $current = '';
+
+        foreach ($words as $word) {
+            if ($word === '') {
+                continue;
+            }
+
+            if (strlen($word) > $width) {
+                if ($current !== '') {
+                    $lines[] = $current;
+                    $current = '';
+                }
+
+                foreach (str_split($word, $width) as $segment) {
+                    $lines[] = $segment;
+                }
+
+                continue;
+            }
+
+            $candidate = $current === '' ? $word : $current.' '.$word;
+
+            if (strlen($candidate) <= $width) {
+                $current = $candidate;
+                continue;
+            }
+
+            $lines[] = $current;
+            $current = $word;
+        }
+
+        if ($current !== '') {
+            $lines[] = $current;
+        }
+
+        return $lines;
     }
 
     private function stationTicketStatusCounts(KitchenStation $station): array

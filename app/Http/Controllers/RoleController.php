@@ -4,31 +4,40 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\RoleRequest;
 use App\Services\AuditLogService;
-use App\Support\RbacPresetCatalog;
+use App\Support\RoleMetadata;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
+use Spatie\Permission\PermissionRegistrar;
 
 class RoleController extends Controller
 {
-    private const SYSTEM_ROLE_NAMES = [
-        'super-admin',
-        'cashier',
-        'waiter',
-        'kitchen-operator',
-        'kasir-operasional',
-        'petugas-antar',
-        'operator-dapur',
+    private const SYSTEM_PERMISSION_NAMES = [
+        'users-access',
+        'roles-access',
+        'permissions-access',
     ];
 
-    private const TENANT_ROLE_NAMES = [
-        'kitchen-operator',
-        'operator-dapur',
-        'tenant-operasional',
-        'tenant-promo',
-        'tenant-owner',
-        'tenant-petugas-antar',
+    private const TENANT_PERMISSION_NAMES = [
+        'products-access',
+        'products-create',
+        'products-edit',
+        'products-delete',
+        'products-pricing-update',
+        'pricing-rules-access',
+        'waiter-board-access',
+        'kitchen-access',
+        'kitchen-manage',
+        'cashier-settlements-request',
+    ];
+
+    private const PRICING_PERMISSION_NAMES = [
+        'pricing-rules-access',
+        'pricing-rules-create',
+        'pricing-rules-update',
+        'pricing-rules-delete',
+        'products-pricing-update',
     ];
 
     public function __construct(
@@ -45,8 +54,6 @@ class RoleController extends Controller
             'kind' => (string) $request->input('kind', ''),
             'per_page' => (int) $request->input('per_page', 12),
         ];
-        $wizardTemplateKey = (string) $request->input('template', '');
-
         $allowedPerPage = [8, 12, 20, 30, 50];
         if (! in_array($filters['per_page'], $allowedPerPage, true)) {
             $filters['per_page'] = 12;
@@ -58,37 +65,23 @@ class RoleController extends Controller
             ->when($filters['search'] !== '', fn ($query) => $query->where('name', 'like', '%'.$filters['search'].'%'))
             ->when($filters['kind'] !== '', function ($query) use ($filters) {
                 match ($filters['kind']) {
-                    'system' => $query->whereIn('name', self::SYSTEM_ROLE_NAMES),
-                    'tenant' => $query->where(function ($builder) {
+                    'system' => $query->where(function ($builder) {
                         $builder
-                            ->whereIn('name', self::TENANT_ROLE_NAMES)
-                            ->orWhereHas('permissions', fn ($permissionQuery) => $permissionQuery->whereIn('name', [
-                                'products-access',
-                                'pricing-rules-access',
-                                'outlets-access',
-                                'waiter-board-access',
-                            ]));
+                            ->where('name', 'super-admin')
+                            ->orWhereHas('permissions', fn ($permissionQuery) => $permissionQuery->whereIn('name', self::SYSTEM_PERMISSION_NAMES));
                     }),
-                    'pricing' => $query->where(function ($builder) {
-                        $builder
-                            ->whereIn('name', ['tenant-promo', 'tenant-owner', 'owner-pricing'])
-                            ->orWhereHas('permissions', fn ($permissionQuery) => $permissionQuery->whereIn('name', [
-                                'pricing-rules-access',
-                                'products-pricing-update',
-                            ]));
-                    }),
+                    'tenant' => $query->whereHas('permissions', fn ($permissionQuery) => $permissionQuery->whereIn('name', self::TENANT_PERMISSION_NAMES)),
+                    'pricing' => $query->whereHas('permissions', fn ($permissionQuery) => $permissionQuery->whereIn('name', self::PRICING_PERMISSION_NAMES)),
                     'admin' => $query
-                        ->whereNotIn('name', array_merge(self::SYSTEM_ROLE_NAMES, self::TENANT_ROLE_NAMES))
-                        ->whereDoesntHave('permissions', fn ($permissionQuery) => $permissionQuery->whereIn('name', [
-                            'products-access',
-                            'pricing-rules-access',
-                            'outlets-access',
-                            'waiter-board-access',
-                        ])),
+                        ->where('name', '!=', 'super-admin')
+                        ->whereDoesntHave('permissions', fn ($permissionQuery) => $permissionQuery->whereIn('name', array_merge(
+                            self::SYSTEM_PERMISSION_NAMES,
+                            self::TENANT_PERMISSION_NAMES
+                        ))),
                     default => null,
                 };
             })
-            ->select('id', 'name')
+            ->select('id', 'name', 'display_name', 'description')
             ->orderBy('name')
             ->paginate($filters['per_page'])
             ->withQueryString();
@@ -99,17 +92,11 @@ class RoleController extends Controller
             ->orderBy('name')
             ->get();
 
-        $wizardTemplates = collect(RbacPresetCatalog::all());
-        $wizardTemplate = $wizardTemplates->firstWhere('key', $wizardTemplateKey);
-
-        // render view
         return Inertia::render('Dashboard/Roles/Index', [
             'roles' => $roles,
             'permissions' => $permissions,
             'filters' => $filters,
             'perPageOptions' => $allowedPerPage,
-            'wizardTemplate' => $wizardTemplate,
-            'wizardTemplates' => $wizardTemplates->values()->all(),
         ]);
     }
 
@@ -119,10 +106,14 @@ class RoleController extends Controller
     public function store(RoleRequest $request)
     {
         // create new role data
-        $role = Role::create(['name' => $request->name]);
+        $role = Role::create([
+            'name' => $request->name,
+            ...RoleMetadata::forName($request->name),
+        ]);
 
         // give permissions to role
         $role->givePermissionTo($request->selectedPermission);
+        app(PermissionRegistrar::class)->forgetCachedPermissions();
 
         $this->auditLogService->log(
             event: 'role.created',
@@ -151,10 +142,14 @@ class RoleController extends Controller
         ];
 
         // update role data
-        $role->update(['name' => $request->name]);
+        $role->update([
+            'name' => $request->name,
+            ...RoleMetadata::forName($request->name),
+        ]);
 
         // sync role permissions
         $role->syncPermissions($request->selectedPermission);
+        app(PermissionRegistrar::class)->forgetCachedPermissions();
 
         $afterPermissions = $this->auditLogService->permissionNames($request->selectedPermission);
 
@@ -197,6 +192,7 @@ class RoleController extends Controller
 
         // delete role data
         $role->delete();
+        app(PermissionRegistrar::class)->forgetCachedPermissions();
 
         $this->auditLogService->log(
             event: 'role.deleted',

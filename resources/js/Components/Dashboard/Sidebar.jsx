@@ -9,16 +9,15 @@ import {
     brandPlaceholderDataUri,
     setFallbackImage,
 } from "@/Utils/imagePlaceholder";
+import { roleLabel } from "@/Utils/rolePresentation";
 
 export default function Sidebar({ sidebarOpen, hideWhenCollapsed = false }) {
-    const { auth, storeProfile, activeOutlet, availableOutlets } = usePage().props;
+    const { auth, storeProfile, activeOutlet, availableOutlets, workspaceContext } = usePage().props;
     const menuNavigation = Menu();
     const user = auth?.user ?? null;
     const primaryRole = auth?.super
         ? "Super Admin"
-        : auth?.roleNames?.[0]
-              ?.replace(/-/g, " ")
-              ?.replace(/\b\w/g, (char) => char.toUpperCase()) || "User";
+        : roleLabel(auth?.roleSummaries?.[0] || auth?.roleNames?.[0] || "") || "User";
 
     const storeName = storeProfile?.name || "KASIR";
     const storeLogo = storeProfile?.logo || null;
@@ -128,6 +127,7 @@ export default function Sidebar({ sidebarOpen, hideWhenCollapsed = false }) {
                             <OutletSwitcher
                                 activeOutlet={activeOutlet}
                                 availableOutlets={availableOutlets}
+                                workspaceContext={workspaceContext}
                             />
                         </div>
                         

@@ -596,7 +596,7 @@ class ProductController extends Controller
         $activeOutletId = $this->outletResolver->resolve($request)?->id;
         $tenantWorkspaceCatalogManager = $this->canManageTenantCatalog($request, $product, $activeOutletId);
         $canManageCatalog = $tenantWorkspaceCatalogManager
-            || ((request()->user()?->can('products-create') ?? false)
+            || ((request()->user()?->can('products-edit') ?? false)
                 && ! $this->isTenantOutletWorkspace($request));
         $canManageTenantDiscount = $this->canManageTenantDiscount($request, $product, $activeOutletId);
         $canManageTenantBasicFields = $this->canManageTenantBasicFields($request, $product, $activeOutletId);
@@ -861,7 +861,7 @@ class ProductController extends Controller
         $activeOutletId = $this->outletResolver->resolve($request)?->id;
         $tenantWorkspaceCatalogManager = $this->canManageTenantCatalog($request, $product, $activeOutletId);
         $canManageCatalog = $tenantWorkspaceCatalogManager
-            || (($request->user()?->can('products-create') ?? false)
+            || (($request->user()?->can('products-edit') ?? false)
                 && ! $this->isTenantOutletWorkspace($request));
         $canManagePricing = $request->user()?->can('products-pricing-update') ?? false;
         $canManageTenantDiscount = $this->canManageTenantDiscount($request, $product, $activeOutletId);

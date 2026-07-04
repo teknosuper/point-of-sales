@@ -20,7 +20,7 @@ import {
 import OrderNotificationBell from "@/Components/OrderNotificationBell";
 
 export default function KitchenLayout({ children }) {
-    const { auth, activeOutlet, storeProfile, flash, kioskMode } = usePage().props;
+    const { auth, activeOutlet, storeProfile, flash, kioskMode, workspaceContext } = usePage().props;
     const lastFlashSignatureRef = useRef(null);
     const mobileActionsRef = useRef(null);
     const [showMobileActions, setShowMobileActions] = useState(false);
@@ -200,7 +200,10 @@ export default function KitchenLayout({ children }) {
                                 {brandName}
                             </p>
                             <p className="text-xs uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
-                                {activeOutlet?.name || "Outlet belum dipilih"}
+                                {workspaceContext?.mode_label || "Workspace"}
+                            </p>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                                Data: {workspaceContext?.data_scope_label || activeOutlet?.name || "Belum dipilih"}
                             </p>
                         </div>
                     </div>
