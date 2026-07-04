@@ -544,20 +544,31 @@ export default function ModifierOptionsModal({
                                                 selectedOptionIdSet.has(
                                                     Number(option.id || 0)
                                                 );
+                                            const isOutOfStock =
+                                                option.stock !== null &&
+                                                option.stock !== undefined &&
+                                                Number(option.stock) <= 0;
 
                                             return (
                                                 <button
                                                     key={option.id}
                                                     type="button"
-                                                    onClick={() =>
+                                                    onClick={() => {
+                                                        if (isOutOfStock) {
+                                                            return;
+                                                        }
+
                                                         onToggleModifierOption?.(
                                                             option.id
-                                                        )
-                                                    }
+                                                        );
+                                                    }}
+                                                    disabled={isOutOfStock}
                                                     className={`flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left transition ${
-                                                        active
-                                                            ? "border-primary-500 bg-primary-50 dark:border-primary-400 dark:bg-primary-950/30"
-                                                            : "border-slate-200 bg-white hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-slate-600"
+                                                        isOutOfStock
+                                                            ? "cursor-not-allowed border-slate-200 bg-slate-100 opacity-60 dark:border-slate-800 dark:bg-slate-800/60"
+                                                        : active
+                                                          ? "border-primary-500 bg-primary-50 dark:border-primary-400 dark:bg-primary-950/30"
+                                                          : "border-slate-200 bg-white hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-slate-600"
                                                     }`}
                                                 >
                                                     <div>
@@ -570,6 +581,16 @@ export default function ModifierOptionsModal({
                                                                 option.price
                                                             )}
                                                         </p>
+                                                        {isOutOfStock ? (
+                                                            <p className="mt-1 text-xs font-semibold text-rose-500">
+                                                                Topping habis
+                                                            </p>
+                                                        ) : option.stock !== null &&
+                                                          option.stock !== undefined ? (
+                                                            <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
+                                                                Sisa {Number(option.stock)}
+                                                            </p>
+                                                        ) : null}
                                                     </div>
                                                     <div
                                                         className={`h-5 w-5 rounded-md border ${

@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import axios from "axios";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import { Head, Link, router, usePage } from "@inertiajs/react";
 import Swal from "sweetalert2";
@@ -337,7 +338,7 @@ export default function Index({
     workspace = {},
 }) {
     const { can, isSuperAdmin } = useAuthorization();
-    const { activeOutlet, auth } = usePage().props;
+    const { activeOutlet, auth, flash } = usePage().props;
     const [viewMode, setViewMode] = useState("grid");
     const [showFilters, setShowFilters] = useState(false);
     const [showSetupGuide, setShowSetupGuide] = useState(false);
@@ -395,6 +396,8 @@ export default function Index({
         workspace?.is_tenant === true || activeOutlet?.outlet_type === "tenant";
     const canOpenCreateProduct = canCreateProducts && !isKitchenWorkspace;
     const canManageCatalog = canCreateProducts && !isTenantWorkspace && !isKitchenWorkspace;
+    const canManageModifierStocks =
+        canEditProducts && !isTenantWorkspace;
     const canEditCatalog = canEditProducts && !isTenantWorkspace;
     const canOpenTenantProductEdit = canEditProducts && isTenantWorkspace;
     const canDeleteCatalog =
@@ -721,6 +724,16 @@ export default function Index({
     const [bulkStockApplyAllValue, setBulkStockApplyAllValue] = useState("");
     const [showBulkModifierModal, setShowBulkModifierModal] = useState(false);
     const [bulkModifierSourceId, setBulkModifierSourceId] = useState("");
+    const [showBulkModifierStockModal, setShowBulkModifierStockModal] = useState(false);
+    const [bulkModifierStockEntries, setBulkModifierStockEntries] = useState([]);
+    const [bulkModifierStockApplyAllValue, setBulkModifierStockApplyAllValue] =
+        useState("");
+    const [bulkModifierStockTargetCount, setBulkModifierStockTargetCount] =
+        useState(0);
+    const [isLoadingBulkModifierStockPreview, setIsLoadingBulkModifierStockPreview] =
+        useState(false);
+    const [bulkModifierStockNormalizeNames, setBulkModifierStockNormalizeNames] =
+        useState(true);
 
     const openBulkStockModal = () => {
         const allRows = products?.data ?? [];
@@ -780,6 +793,53 @@ export default function Index({
         setBulkModifierSourceId("");
     };
 
+    const openBulkModifierStockModal = async () => {
+        const targetProducts =
+            selectedProducts.length > 0 ? selectedProducts : rows;
+        const applyFilteredScope = selectedProducts.length === 0;
+
+        if (targetProducts.length === 0) return;
+
+        setIsLoadingBulkModifierStockPreview(true);
+
+        try {
+            const response = await axios.post(
+                route("products.bulk-modifier-stocks.preview"),
+                {
+                    target_product_ids: applyFilteredScope
+                        ? []
+                        : targetProducts.map((product) => product.id),
+                    apply_filtered_scope: applyFilteredScope,
+                    filters: filterData,
+                }
+            );
+
+            const payload = response.data;
+
+            setBulkModifierStockEntries(payload.entries || []);
+            setBulkModifierStockTargetCount(
+                Number(payload.target_count || targetProducts.length)
+            );
+            setBulkModifierStockApplyAllValue("");
+            setShowBulkModifierStockModal(true);
+        } catch (error) {
+            Swal.fire({
+                icon: "error",
+                title: "Gagal membuka data topping",
+                text: "Preview stok topping tidak berhasil dimuat.",
+            });
+        } finally {
+            setIsLoadingBulkModifierStockPreview(false);
+        }
+    };
+
+    const closeBulkModifierStockModal = () => {
+        setShowBulkModifierStockModal(false);
+        setBulkModifierStockEntries([]);
+        setBulkModifierStockApplyAllValue("");
+        setBulkModifierStockTargetCount(0);
+    };
+
     const submitBulkModifierCopy = (event) => {
         event.preventDefault();
 
@@ -800,6 +860,112 @@ export default function Index({
                     setSelectedProducts([]);
                 },
             }
+        );
+    };
+
+    const submitBulkModifierStockUpdate = (event) => {
+        event.preventDefault();
+
+        const targetProducts =
+            selectedProducts.length > 0 ? selectedProducts : rows;
+        const applyFilteredScope = selectedProducts.length === 0;
+
+        const modifierStocks = bulkModifierStockEntries
+            .filter((entry) => entry.name && entry.group_name)
+            .map((entry) => ({
+                group_name: entry.group_name,
+                name: entry.name,
+                stock:
+                    entry.stock === "" || entry.stock === null
+                        ? null
+                        : Number(entry.stock),
+            }));
+
+        if (modifierStocks.length === 0 || targetProducts.length === 0) {
+            return;
+        }
+
+        Swal.fire({
+            title: "Simpan stok topping?",
+            text: applyFilteredScope
+                ? `Perubahan akan diterapkan ke semua produk sesuai filter aktif (${new Intl.NumberFormat("id-ID").format(total)} produk).`
+                : `Perubahan akan diterapkan ke ${new Intl.NumberFormat("id-ID").format(targetProducts.length)} produk terpilih.`,
+            icon: "warning",
+            showCancelButton: true,
+            confirmButtonText: "Ya, Simpan",
+            cancelButtonText: "Batal",
+            confirmButtonColor: "#16a34a",
+            reverseButtons: true,
+        }).then((result) => {
+            if (!result.isConfirmed) {
+                return;
+            }
+
+            router.post(
+                route("products.bulk-modifier-stocks.update"),
+                {
+                    target_product_ids: applyFilteredScope
+                        ? []
+                        : targetProducts.map((product) => product.id),
+                    apply_filtered_scope: applyFilteredScope,
+                    normalize_names: bulkModifierStockNormalizeNames,
+                    filters: filterData,
+                    modifier_stocks: modifierStocks,
+                },
+                {
+                    preserveScroll: true,
+                    onSuccess: (page) => {
+                        const successMessage =
+                            page?.props?.flash?.success ||
+                            flash?.success ||
+                            null;
+                        const errorMessage =
+                            page?.props?.flash?.error || flash?.error || null;
+
+                        if (errorMessage) {
+                            Swal.fire({
+                                icon: "error",
+                                title: "Gagal menyimpan",
+                                text: errorMessage,
+                            });
+
+                            return;
+                        }
+
+                        closeBulkModifierStockModal();
+                        setSelectedProducts([]);
+                        Swal.fire({
+                            icon: "success",
+                            title: "Berhasil",
+                            text:
+                                successMessage ||
+                                "Stok topping berhasil disimpan.",
+                            timer: 1800,
+                            showConfirmButton: false,
+                        });
+                    },
+                    onError: () => {
+                        Swal.fire({
+                            icon: "error",
+                            title: "Gagal menyimpan",
+                            text: "Perubahan stok topping tidak berhasil disimpan.",
+                        });
+                    },
+                }
+            );
+        });
+    };
+
+    const applyBulkModifierStockToAll = () => {
+        const normalizedValue = String(
+            Math.max(0, Number(bulkModifierStockApplyAllValue || 0))
+        );
+
+        setBulkModifierStockEntries((prev) =>
+            prev.map((entry) => ({
+                ...entry,
+                stock: normalizedValue,
+            }))
         );
     };
 
@@ -1420,7 +1586,7 @@ export default function Index({
                         <span>
                             Halaman {currentPage} • {rows.length} row tampil • total {total} data
                         </span>
-                        {canManageCatalog ? (
+                        {canManageCatalog || canManageModifierStocks ? (
                             <label className="flex items-center gap-2">
                                 <input
                                     type="checkbox"
@@ -1447,6 +1613,17 @@ export default function Index({
                                 Salin Topping
                             </button>
                         ) : null}
+                        {canManageModifierStocks ? (
+                            <button
+                                onClick={openBulkModifierStockModal}
+                                className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-600 disabled:cursor-not-allowed disabled:bg-emerald-300"
+                                type="button"
+                                disabled={rows.length === 0}
+                            >
+                                <IconPackage size={18} />
+                                Stok Topping
+                            </button>
+                        ) : null}
                         {canManageCatalog && selectedProducts.length > 0 ? (
                             <button
                                 onClick={handlePrintSelected}
@@ -1459,6 +1636,12 @@ export default function Index({
                         ) : null}
                     </div>
                 </div>
+
+                {canManageModifierStocks ? (
+                    <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-100">
+                        <span className="font-semibold">Manajemen topping terpusat:</span> klik <span className="font-semibold">Stok Topping</span> untuk mengubah topping di semua produk yang sedang tampil. Jika Anda mencentang produk tertentu, update hanya berlaku ke produk terpilih.
+                    </div>
+                ) : null}
 
                 {products.last_page !== 1 ? (
                     <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-900">
@@ -1590,6 +1773,24 @@ export default function Index({
                                     Salin Topping Massal
                                 </button>
                             </div>
+                            <div className="mt-4 flex flex-col gap-3 border-t border-slate-200 pt-4 dark:border-slate-800 sm:flex-row sm:items-center sm:justify-between">
+                                <div>
+                                    <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                                        Kelola stok topping terpusat
+                                    </p>
+                                    <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                        Ubah stok topping yang sama ke semua produk terpilih tanpa perlu membuka edit tiap produk.
+                                    </p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={openBulkModifierStockModal}
+                                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-600"
+                                >
+                                    <IconPackage size={18} />
+                                    Stok Topping Terpusat
+                                </button>
+                            </div>
                         </div>
                     </div>
                 ) : null}
@@ -1603,7 +1804,7 @@ export default function Index({
                                     product={product}
                                     isSelected={isProductSelected(product.id)}
                                     onToggle={toggleProductSelection}
-                                    canSelect={canManageCatalog}
+                                    canSelect={canManageCatalog || canManageModifierStocks}
                                     canUpdate={canEditCatalog || canOpenTenantProductEdit}
                                     canDelete={canDeleteCatalog}
                                     canUpdateDailyStock={canUpdateDailyStock}
@@ -2174,6 +2375,168 @@ export default function Index({
                                     >
                                         Terapkan Topping
                                     </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                ) : null}
+
+                {showBulkModifierStockModal ? (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 px-4 py-6">
+                        <div className="flex max-h-[85vh] w-full max-w-3xl flex-col rounded-3xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-900">
+                            <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-5 dark:border-slate-800">
+                                <div>
+                                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-500">
+                                        Stok Topping Terpusat
+                                    </p>
+                                    <h3 className="mt-1 text-lg font-semibold text-slate-900 dark:text-white">
+                                        Kelola stok topping di{" "}
+                                        {selectedProducts.length > 0
+                                            ? selectedProducts.length
+                                            : bulkModifierStockTargetCount || total}{" "}
+                                        produk
+                                    </h3>
+                                    <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                        {selectedProducts.length > 0
+                                            ? "Setiap baris di bawah akan memperbarui topping dengan nama yang sama ke semua produk terpilih yang memilikinya."
+                                            : "Tidak ada produk yang dipilih. Update akan diterapkan ke semua produk dalam workspace aktif yang sesuai filter, tidak dibatasi pagination halaman ini."}
+                                    </p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={closeBulkModifierStockModal}
+                                    className="rounded-xl border border-slate-200 p-2 text-slate-500 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                                >
+                                    <IconX size={18} />
+                                </button>
+                            </div>
+
+                            <form
+                                onSubmit={submitBulkModifierStockUpdate}
+                                className="flex min-h-0 flex-1 flex-col"
+                            >
+                                <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-4">
+                                    <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4 dark:border-emerald-900/40 dark:bg-emerald-950/20">
+                                        <p className="text-sm font-medium text-emerald-800 dark:text-emerald-200">
+                                            Apply ke Semua Topping
+                                        </p>
+                                        <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                value={bulkModifierStockApplyAllValue}
+                                                onChange={(event) =>
+                                                    setBulkModifierStockApplyAllValue(
+                                                        event.target.value
+                                                    )
+                                                }
+                                                className="h-11 flex-1 rounded-xl border border-emerald-200 bg-white px-4 text-sm text-slate-700 outline-none transition focus:border-emerald-400 dark:border-emerald-900/40 dark:bg-slate-900 dark:text-slate-200"
+                                                placeholder="Masukkan stok yang sama untuk semua topping"
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={applyBulkModifierStockToAll}
+                                                className="inline-flex h-11 items-center justify-center rounded-xl bg-emerald-500 px-4 text-sm font-semibold text-white transition hover:bg-emerald-600"
+                                            >
+                                                Terapkan ke Semua
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+                                        <input
+                                            type="checkbox"
+                                            checked={bulkModifierStockNormalizeNames}
+                                            onChange={(e) => setBulkModifierStockNormalizeNames(e.target.checked)}
+                                            className="h-4 w-4 rounded border-slate-300 text-emerald-500 focus:ring-emerald-400"
+                                        />
+                                        <span>
+                                            Normalisasi nama topping
+                                        </span>
+                                        <span className="text-xs text-slate-400 dark:text-slate-500">
+                                            — cocokkan meski ada perbedaan spasi, tanda hubung, atau kapitalisasi
+                                        </span>
+                                    </label>
+
+                                    <div className="space-y-2 rounded-2xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/40">
+                                        {isLoadingBulkModifierStockPreview ? (
+                                            <div className="rounded-2xl border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                                                Memuat data topping...
+                                            </div>
+                                        ) : null}
+                                        {bulkModifierStockEntries.length > 0 ? (
+                                            bulkModifierStockEntries.map((entry) => (
+                                                <div
+                                                    key={entry.key}
+                                                    className="grid grid-cols-12 items-center gap-3 rounded-2xl bg-white px-4 py-3 dark:bg-slate-900"
+                                                >
+                                                    <div className="col-span-7 min-w-0">
+                                                        <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                                                            {entry.name}
+                                                        </p>
+                                                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                            Grup: {entry.group_name} • Dipakai di {entry.product_count} produk • {entry.option_count} baris topping
+                                                        </p>
+                                                        {entry.variant_count > 1 ? (
+                                                            <p className="mt-1 text-xs text-blue-600 dark:text-blue-300">
+                                                                Nama mirip tergabung: {entry.variant_names.join(", ")}
+                                                            </p>
+                                                        ) : null}
+                                                        {entry.has_mixed_stock ? (
+                                                            <p className="mt-1 text-xs text-amber-600 dark:text-amber-300">
+                                                                Stok saat ini berbeda antar produk: {entry.min_stock} - {entry.max_stock}
+                                                            </p>
+                                                        ) : entry.min_stock !== null ? (
+                                                            <p className="mt-1 text-xs text-emerald-600 dark:text-emerald-300">
+                                                                Stok saat ini: {entry.min_stock}
+                                                            </p>
+                                                        ) : null}
+                                                    </div>
+                                                    <div className="col-span-5">
+                                                        <input
+                                                            type="number"
+                                                            min="0"
+                                                            value={entry.stock}
+                                                            onChange={(event) =>
+                                                                setBulkModifierStockEntries((prev) =>
+                                                                    prev.map((item) =>
+                                                                        item.key === entry.key
+                                                                            ? { ...item, stock: event.target.value }
+                                                                            : item
+                                                                    )
+                                                                )
+                                                            }
+                                                            className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-center text-sm text-slate-700 outline-none transition focus:border-emerald-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                                            placeholder="Stok topping"
+                                                        />
+                                                    </div>
+                                                </div>
+                                            ))
+                                        ) : (
+                                            <div className="rounded-2xl border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                                                Produk terpilih belum memiliki topping yang bisa dikelola terpusat.
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div className="border-t border-slate-200 px-6 py-4 dark:border-slate-800">
+                                    <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                                        <button
+                                            type="button"
+                                            onClick={closeBulkModifierStockModal}
+                                            className="inline-flex items-center justify-center rounded-2xl border border-slate-200 px-4 py-3 text-sm font-medium text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                                        >
+                                            Batal
+                                        </button>
+                                        <button
+                                            type="submit"
+                                            disabled={bulkModifierStockEntries.length === 0}
+                                            className="inline-flex items-center justify-center rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-600 disabled:opacity-50"
+                                        >
+                                            Simpan Stok Topping
+                                        </button>
+                                    </div>
                                 </div>
                             </form>
                         </div>

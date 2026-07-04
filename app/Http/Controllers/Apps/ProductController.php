@@ -18,6 +18,8 @@ use App\Services\StockMutationService;
 use Illuminate\Http\Request;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -27,6 +29,10 @@ use Inertia\Inertia;
 class ProductController extends Controller
 {
     private const TENANT_OWNER_DEFAULT_MARKUP = 3000;
+
+    private const NORMALIZED_MODIFIER_GROUP_SQL = "LOWER(COALESCE(NULLIF(TRIM(group_name), ''), 'topping'))";
+
+    private const NORMALIZED_MODIFIER_NAME_SQL = "LOWER(REPLACE(REPLACE(REPLACE(TRIM(name), ' ', ''), '-', ''), '_', ''))";
 
     public function __construct(
         private readonly StockMutationService $stockMutationService,
@@ -68,9 +74,7 @@ class ProductController extends Controller
 
         $resolvedStockExpression = 'products.stock';
 
-        $products = $this->applyWorkspaceProductScope(Product::query(), $request)
-            ->select('products.*')
-            ->selectRaw("{$resolvedStockExpression} as resolved_stock")
+        $products = $this->buildProductIndexQuery($request, $filters, $resolvedStockExpression)
             ->with([
                 'category:id,name',
                 'tenantOutlet:id,name,code',
@@ -81,55 +85,9 @@ class ProductController extends Controller
             ])
             ->withCount([
                 'kitchenStationMappings as active_kitchen_station_mappings_count' => fn ($query) => $query->where('is_active', true),
-            ])
-            ->when($filters['search'] !== '', function ($query) use ($filters) {
-                $search = $filters['search'];
+            ]);
 
-                $query->where(function ($innerQuery) use ($search) {
-                    $innerQuery
-                        ->where('title', 'like', '%'.$search.'%')
-                        ->orWhere('barcode', 'like', '%'.$search.'%')
-                        ->orWhere('sku', 'like', '%'.$search.'%')
-                        ->orWhere('description', 'like', '%'.$search.'%');
-                });
-            })
-            ->when($filters['category_id'] !== '', fn ($query) => $query->where('category_id', $filters['category_id']))
-            ->when($filters['tenant_outlet_id'] !== '', function ($query) use ($filters) {
-                if ($filters['tenant_outlet_id'] === 'unassigned') {
-                    return $query->whereNull('tenant_outlet_id');
-                }
-
-                return $query->where('tenant_outlet_id', $filters['tenant_outlet_id']);
-            })
-            ->when($filters['mapping_status'] !== '', function ($query) use ($filters) {
-                return match ($filters['mapping_status']) {
-                    'tenant_missing' => $query->whereNull('tenant_outlet_id'),
-                    'kitchen_missing' => $query->whereDoesntHave('kitchenStationMappings', fn ($mappingQuery) => $mappingQuery->where('is_active', true)),
-                    'ready' => $query
-                        ->whereNotNull('tenant_outlet_id')
-                        ->whereHas('kitchenStationMappings', fn ($mappingQuery) => $mappingQuery->where('is_active', true)),
-                    default => $query,
-                };
-            })
-            ->when($filters['stock_status'] !== '', function ($query) use ($filters, $resolvedStockExpression) {
-                return match ($filters['stock_status']) {
-                    'out' => $query->whereRaw("{$resolvedStockExpression} <= 0"),
-                    'low' => $query->whereRaw("{$resolvedStockExpression} > 0 AND {$resolvedStockExpression} <= 5"),
-                    'ready' => $query->whereRaw("{$resolvedStockExpression} > 5"),
-                    default => $query,
-                };
-            });
-
-        $products = match ($filters['sort']) {
-            'title_asc' => $products->orderBy('title'),
-            'title_desc' => $products->orderByDesc('title'),
-            'price_low' => $products->orderBy('sell_price'),
-            'price_high' => $products->orderByDesc('sell_price'),
-            'stock_low' => $products->orderByRaw("{$resolvedStockExpression} asc"),
-            'stock_high' => $products->orderByRaw("{$resolvedStockExpression} desc"),
-            'oldest' => $products->oldest(),
-            default => $products->latest(),
-        };
+        $products = $this->applyProductIndexSort($products, $filters['sort'] ?? 'latest', $resolvedStockExpression);
 
         $paginatedProducts = $products
             ->paginate($filters['per_page'])
@@ -218,6 +176,64 @@ class ProductController extends Controller
                     : $this->accessibleKitchenStations($request),
             ],
         ]);
+    }
+
+    private function buildProductIndexQuery(Request $request, array $filters, string $resolvedStockExpression): Builder
+    {
+        return $this->applyWorkspaceProductScope(Product::query(), $request)
+            ->select('products.*')
+            ->selectRaw("{$resolvedStockExpression} as resolved_stock")
+            ->when($filters['search'] !== '', function ($query) use ($filters) {
+                $search = $filters['search'];
+
+                $query->where(function ($innerQuery) use ($search) {
+                    $innerQuery
+                        ->where('title', 'like', '%'.$search.'%')
+                        ->orWhere('barcode', 'like', '%'.$search.'%')
+                        ->orWhere('sku', 'like', '%'.$search.'%')
+                        ->orWhere('description', 'like', '%'.$search.'%');
+                });
+            })
+            ->when($filters['category_id'] !== '', fn ($query) => $query->where('category_id', $filters['category_id']))
+            ->when($filters['tenant_outlet_id'] !== '', function ($query) use ($filters) {
+                if ($filters['tenant_outlet_id'] === 'unassigned') {
+                    return $query->whereNull('tenant_outlet_id');
+                }
+
+                return $query->where('tenant_outlet_id', $filters['tenant_outlet_id']);
+            })
+            ->when($filters['mapping_status'] !== '', function ($query) use ($filters) {
+                return match ($filters['mapping_status']) {
+                    'tenant_missing' => $query->whereNull('tenant_outlet_id'),
+                    'kitchen_missing' => $query->whereDoesntHave('kitchenStationMappings', fn ($mappingQuery) => $mappingQuery->where('is_active', true)),
+                    'ready' => $query
+                        ->whereNotNull('tenant_outlet_id')
+                        ->whereHas('kitchenStationMappings', fn ($mappingQuery) => $mappingQuery->where('is_active', true)),
+                    default => $query,
+                };
+            })
+            ->when($filters['stock_status'] !== '', function ($query) use ($filters, $resolvedStockExpression) {
+                return match ($filters['stock_status']) {
+                    'out' => $query->whereRaw("{$resolvedStockExpression} <= 0"),
+                    'low' => $query->whereRaw("{$resolvedStockExpression} > 0 AND {$resolvedStockExpression} <= 5"),
+                    'ready' => $query->whereRaw("{$resolvedStockExpression} > 5"),
+                    default => $query,
+                };
+            });
+    }
+
+    private function applyProductIndexSort(Builder $query, string $sort, string $resolvedStockExpression): Builder
+    {
+        return match ($sort) {
+            'title_asc' => $query->orderBy('title'),
+            'title_desc' => $query->orderByDesc('title'),
+            'price_low' => $query->orderBy('sell_price'),
+            'price_high' => $query->orderByDesc('sell_price'),
+            'stock_low' => $query->orderByRaw("{$resolvedStockExpression} asc"),
+            'stock_high' => $query->orderByRaw("{$resolvedStockExpression} desc"),
+            'oldest' => $query->oldest(),
+            default => $query->latest(),
+        };
     }
 
     public function menuBook(Request $request)
@@ -419,6 +435,284 @@ class ProductController extends Controller
         );
 
         return back()->with('success', "Topping dari {$sourceProduct->title} berhasil diterapkan ke {$targetProducts->count()} produk.");
+    }
+
+    public function bulkUpdateModifierStocks(Request $request): RedirectResponse
+    {
+        if ($this->isTenantOutletWorkspace($request)) {
+            return $this->rejectStockOnlyUpdate();
+        }
+
+        $data = $request->validate([
+            'target_product_ids' => ['nullable', 'array'],
+            'target_product_ids.*' => ['integer', 'exists:products,id'],
+            'apply_filtered_scope' => ['nullable', 'boolean'],
+            'normalize_names' => ['nullable', 'boolean'],
+            'filters' => ['nullable', 'array'],
+            'filters.search' => ['nullable', 'string'],
+            'filters.category_id' => ['nullable'],
+            'filters.tenant_outlet_id' => ['nullable'],
+            'filters.mapping_status' => ['nullable', 'string'],
+            'filters.stock_status' => ['nullable', 'string'],
+            'filters.sort' => ['nullable', 'string'],
+            'filters.per_page' => ['nullable'],
+            'modifier_stocks' => ['required', 'array', 'min:1'],
+            'modifier_stocks.*.group_name' => ['required', 'string', 'max:120'],
+            'modifier_stocks.*.name' => ['required', 'string', 'max:120'],
+            'modifier_stocks.*.stock' => ['nullable', 'integer', 'min:0'],
+        ]);
+
+        $normalizeNames = (bool) ($data['normalize_names'] ?? false);
+        $targetProductIds = $this->resolveBulkModifierTargetProductIds($request, $data);
+
+        if (empty($targetProductIds)) {
+            return back()->with('error', 'Pilih minimal satu produk target.');
+        }
+
+        $modifierRows = collect($data['modifier_stocks'])
+            ->map(fn (array $row) => [
+                'group_name' => trim((string) $row['group_name']),
+                'name' => trim((string) $row['name']),
+                'stock' => filled($row['stock']) ? max(0, (int) $row['stock']) : null,
+            ])
+            ->filter(fn (array $row) => $row['group_name'] !== '' && $row['name'] !== '')
+            ->values();
+
+        // Optimized: one UPDATE per modifier row across all target products (no N×M loop)
+        $updatedCount = 0;
+        foreach ($modifierRows as $row) {
+            $isDefaultGroup = $row['group_name'] === 'Topping';
+            $normalizedName = $this->normalizeModifierName($row['name']);
+
+            $query = DB::table('product_modifier_options')
+                ->whereIn('product_id', $targetProductIds)
+                ->where(function ($q) use ($isDefaultGroup, $row) {
+                    if ($isDefaultGroup) {
+                        $q->whereNull('group_name')
+                            ->orWhere('group_name', '')
+                            ->orWhere('group_name', 'Topping');
+                    } else {
+                        $q->where('group_name', $row['group_name']);
+                    }
+                });
+
+            if ($normalizeNames) {
+                // Match by normalized name (ignores spaces, dashes, underscores, case)
+                $query->whereRaw(self::NORMALIZED_MODIFIER_NAME_SQL.' = ?', [$normalizedName]);
+            } else {
+                // Exact match (case-insensitive via MySQL collation, but no symbol stripping)
+                $query->whereRaw('LOWER(TRIM(name)) = ?', [strtolower(trim($row['name']))]);
+            }
+
+            $updatedCount += $query->update(['stock' => $row['stock']]);
+        }
+
+        if ($updatedCount === 0) {
+            return back()->with('error', 'Tidak ada stok topping yang berubah. Pastikan nama topping dan grupnya memang cocok dengan data produk.');
+        }
+
+        $this->auditLogService->log(
+            event: 'product.bulk_modifier_stocks_updated',
+            module: 'products',
+            auditable: Product::query()->whereKey($targetProductIds[0])->first(),
+            description: "Stok topping massal diperbarui untuk ".count($targetProductIds)." produk.",
+            after: [
+                'target_product_ids' => $targetProductIds,
+                'modifier_count' => $modifierRows->count(),
+                'updated_rows' => $updatedCount,
+                'normalize_names' => $normalizeNames,
+            ],
+        );
+
+        return back()->with('success', "Stok topping berhasil diperbarui untuk {$updatedCount} baris topping di ".count($targetProductIds)." produk.");
+    }
+
+    public function previewBulkModifierStocks(Request $request): JsonResponse
+    {
+        if ($this->isTenantOutletWorkspace($request)) {
+            return response()->json([
+                'message' => 'Perubahan katalog produk tidak diizinkan untuk workspace ini.',
+            ], 403);
+        }
+
+        $data = $request->validate([
+            'target_product_ids' => ['nullable', 'array'],
+            'target_product_ids.*' => ['integer', 'exists:products,id'],
+            'apply_filtered_scope' => ['nullable', 'boolean'],
+            'filters' => ['nullable', 'array'],
+            'filters.search' => ['nullable', 'string'],
+            'filters.category_id' => ['nullable'],
+            'filters.tenant_outlet_id' => ['nullable'],
+            'filters.mapping_status' => ['nullable', 'string'],
+            'filters.stock_status' => ['nullable', 'string'],
+            'filters.sort' => ['nullable', 'string'],
+            'filters.per_page' => ['nullable'],
+        ]);
+
+        $targetProducts = $this->resolveBulkModifierTargetProducts($request, $data);
+
+        if ($targetProducts->isEmpty()) {
+            return response()->json([
+                'entries' => [],
+                'target_count' => 0,
+            ]);
+        }
+
+        $targetProductIds = $targetProducts->pluck('id')->values();
+
+        $entries = DB::table('product_modifier_options')
+            ->selectRaw("
+                COALESCE(NULLIF(TRIM(group_name), ''), 'Topping') as normalized_group_name,
+                MIN(name) as display_name,
+                GROUP_CONCAT(DISTINCT name ORDER BY name SEPARATOR '||') as variant_names,
+                COUNT(DISTINCT product_id) as product_count,
+                COUNT(*) as option_count,
+                COUNT(DISTINCT ".self::NORMALIZED_MODIFIER_NAME_SQL.") as variant_count,
+                MIN(stock) as min_stock,
+                MAX(stock) as max_stock
+            ")
+            ->whereIn('product_id', $targetProductIds)
+            ->where('is_active', true)
+            ->whereNotNull('name')
+            ->whereRaw("TRIM(name) <> ''")
+            ->groupByRaw("group_name, ".self::NORMALIZED_MODIFIER_NAME_SQL)
+            ->orderByRaw("normalized_group_name asc")
+            ->orderBy('display_name', 'asc')
+            ->get()
+            ->map(fn ($row) => [
+                // use normalized values as the merge key
+                '_merge_key' => $row->normalized_group_name.'::'.$this->normalizeModifierName($row->display_name),
+                'group_name' => $row->normalized_group_name,
+                'name' => $row->display_name,
+                'product_count' => (int) $row->product_count,
+                'option_count' => (int) $row->option_count,
+                'variant_count' => (int) $row->variant_count,
+                'variant_names' => collect(explode('||', (string) ($row->variant_names ?? '')))
+                    ->filter()
+                    ->values()
+                    ->all(),
+                'min_stock' => $row->min_stock !== null ? (int) $row->min_stock : null,
+                'max_stock' => $row->max_stock !== null ? (int) $row->max_stock : null,
+            ])
+            // Merge rows that share the same normalized group+name (e.g. NULL vs 'Topping' group_name)
+            ->groupBy('_merge_key')
+            ->map(function ($group) {
+                $first = $group->first();
+                $allMin = $group->pluck('min_stock')->filter(fn ($v) => $v !== null);
+                $allMax = $group->pluck('max_stock')->filter(fn ($v) => $v !== null);
+                $minStock = $allMin->isNotEmpty() ? (int) $allMin->min() : null;
+                $maxStock = $allMax->isNotEmpty() ? (int) $allMax->max() : null;
+                $variantNames = $group->flatMap(fn ($r) => $r['variant_names'])->unique()->sort()->values()->all();
+
+                return [
+                    'key' => $first['_merge_key'],
+                    'group_name' => $first['group_name'],
+                    'name' => $first['name'],
+                    'product_count' => (int) $group->sum('product_count'),
+                    'option_count' => (int) $group->sum('option_count'),
+                    'variant_count' => (int) $group->sum('variant_count'),
+                    'variant_names' => $variantNames,
+                    'stock' => $minStock !== null && $minStock === $maxStock ? $minStock : '',
+                    'min_stock' => $minStock,
+                    'max_stock' => $maxStock,
+                    'has_mixed_stock' => $minStock !== null && $minStock !== $maxStock,
+                ];
+            })
+            ->sortBy([
+                fn ($a, $b) => strcmp(strtolower($a['group_name']), strtolower($b['group_name'])),
+                fn ($a, $b) => strcmp(strtolower($a['name']), strtolower($b['name'])),
+            ])
+            ->values();
+
+        return response()->json([
+            'entries' => $entries,
+            'target_count' => $targetProducts->count(),
+        ]);
+    }
+
+    /**
+     * Resolve target product IDs for bulk modifier stock operations.
+     * Returns a plain array of int IDs (no Eloquent loading needed for bulk UPDATE).
+     */
+    private function resolveBulkModifierTargetProductIds(Request $request, array $data): array
+    {
+        $useFilteredScope = (bool) ($data['apply_filtered_scope'] ?? false);
+
+        if ($useFilteredScope) {
+            $rawFilters = is_array($data['filters'] ?? null) ? $data['filters'] : [];
+            $filters = [
+                'search' => trim((string) ($rawFilters['search'] ?? '')),
+                'category_id' => (string) ($rawFilters['category_id'] ?? ''),
+                'tenant_outlet_id' => (string) ($rawFilters['tenant_outlet_id'] ?? ''),
+                'mapping_status' => (string) ($rawFilters['mapping_status'] ?? ''),
+                'stock_status' => (string) ($rawFilters['stock_status'] ?? ''),
+                'sort' => (string) ($rawFilters['sort'] ?? 'latest'),
+                'per_page' => 10,
+            ];
+
+            $ids = $this->buildProductIndexQuery($request, $filters, 'products.stock')
+                ->pluck('products.id')
+                ->map(fn ($id) => (int) $id)
+                ->filter()
+                ->unique()
+                ->values()
+                ->all();
+        } else {
+            $ids = array_values(array_unique(array_map('intval', $data['target_product_ids'] ?? [])));
+        }
+
+        // Verify workspace access — filter to only IDs visible in current workspace
+        if (! empty($ids)) {
+            $ids = $this->applyWorkspaceProductScope(Product::query(), $request)
+                ->whereIn('id', $ids)
+                ->pluck('id')
+                ->map(fn ($id) => (int) $id)
+                ->values()
+                ->all();
+        }
+
+        return $ids;
+    }
+
+    private function resolveBulkModifierTargetProducts(Request $request, array $data)
+    {
+        $useFilteredScope = (bool) ($data['apply_filtered_scope'] ?? false);
+        $targetProductQuery = Product::query()->with('modifierOptions');
+
+        if ($useFilteredScope) {
+            $rawFilters = is_array($data['filters'] ?? null) ? $data['filters'] : [];
+            $filters = [
+                'search' => trim((string) ($rawFilters['search'] ?? '')),
+                'category_id' => (string) ($rawFilters['category_id'] ?? ''),
+                'tenant_outlet_id' => (string) ($rawFilters['tenant_outlet_id'] ?? ''),
+                'mapping_status' => (string) ($rawFilters['mapping_status'] ?? ''),
+                'stock_status' => (string) ($rawFilters['stock_status'] ?? ''),
+                'sort' => (string) ($rawFilters['sort'] ?? 'latest'),
+                'per_page' => 10,
+            ];
+
+            $targetProductQuery = $this->buildProductIndexQuery($request, $filters, 'products.stock');
+        } else {
+            $targetIds = array_values(array_unique(array_map('intval', $data['target_product_ids'] ?? [])));
+            $targetProductQuery->whereIn('id', $targetIds);
+        }
+
+        $targetProducts = $targetProductQuery->get();
+
+        foreach ($targetProducts as $product) {
+            $this->resolveWorkspaceProduct($product, $request);
+        }
+
+        return $targetProducts->values();
+    }
+
+    private function normalizeModifierName(string $value): string
+    {
+        return Str::of($value)
+            ->trim()
+            ->lower()
+            ->replaceMatches('/[\s\-_]+/', '')
+            ->value();
     }
 
     /**
@@ -1645,6 +1939,21 @@ class ProductController extends Controller
                     'stock' => $displayStock,
                 ])
                 ->all(),
+            'modifier_options' => $product->supports_modifiers
+                ? $product->modifierOptions()
+                    ->where('is_active', true)
+                    ->orderBy('group_sort_order')
+                    ->orderBy('sort_order')
+                    ->get(['id', 'group_name', 'name', 'stock'])
+                    ->map(fn ($option) => [
+                        'id' => $option->id,
+                        'group_name' => $option->group_name,
+                        'name' => $option->name,
+                        'stock' => $option->stock !== null ? (int) $option->stock : null,
+                    ])
+                    ->values()
+                    ->all()
+                : [],
         ];
 
         if (! $canViewOwnerSellPrice) {

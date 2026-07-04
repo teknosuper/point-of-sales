@@ -1975,6 +1975,15 @@ class TransactionController extends Controller
                         'markup_price' => (int) ($modifier->markup_price ?? 0),
                         'total_price' => (int) $modifier->total_price,
                     ]);
+
+                    // Decrement modifier stock if tracked (stock > 0 only; NULL = unlimited)
+                    $modifierOptionId = (int) ($modifier->product_modifier_option_id ?? 0);
+                    if ($modifierOptionId > 0) {
+                        \DB::table('product_modifier_options')
+                            ->where('id', $modifierOptionId)
+                            ->where('stock', '>', 0)
+                            ->update(['stock' => \DB::raw('GREATEST(0, stock - '.(int) $modifier->qty.')')]);
+                    }
                 }
 
                 $total_buy_price = $cart->product->buy_price * $cart->qty;
