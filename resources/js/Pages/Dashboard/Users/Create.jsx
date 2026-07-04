@@ -957,65 +957,65 @@ export default function Create() {
                             {showWorkMode ? <IconChevronUp size={18} /> : <IconChevronDown size={18} />}
                         </button>
                         {showWorkMode ? (
-                        <div className="mt-4 space-y-4">
-                            <div>
-                                <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                    Workspace Default
-                                </label>
-                                <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">
-                                    Workspace hanya mengatur tampilan awal setelah login, bukan menentukan data bisnis yang boleh diakses user.
-                                </p>
-                                <select
-                                    value={data.preferred_workspace}
-                                    onChange={(e) =>
-                                        setData(
-                                            "preferred_workspace",
-                                            e.target.value
-                                        )
-                                    }
-                                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-                                >
-                                    <option value="standard">Dashboard Umum</option>
-                                    <option value="kitchen">Layar Dapur</option>
-                                </select>
-                                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                                    Pilih `Layar Dapur` bila pengguna ini harus langsung masuk ke antrean dapur setelah login. Scope data tetap mengikuti outlet atau tenant default di atas.
-                                </p>
-                            </div>
-
-                            {data.preferred_workspace === "kitchen" && (
+                            <div className="mt-4 space-y-4">
                                 <div>
-                                        <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                        Stasiun Dapur Default
-                                        </label>
+                                    <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                        Workspace Default
+                                    </label>
+                                    <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">
+                                        Workspace hanya mengatur tampilan awal setelah login, bukan menentukan data bisnis yang boleh diakses user.
+                                    </p>
                                     <select
-                                        value={data.preferred_kitchen_station_id}
+                                        value={data.preferred_workspace}
                                         onChange={(e) =>
                                             setData(
-                                                "preferred_kitchen_station_id",
+                                                "preferred_workspace",
                                                 e.target.value
                                             )
                                         }
                                         className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
                                     >
-                                        <option value="">Pilih stasiun default</option>
-                                        {availableKitchenStations.map((station) => (
-                                            <option key={station.id} value={station.id}>
-                                                {station.outlet?.code || "OUT"} - {station.name}
-                                            </option>
-                                        ))}
+                                        <option value="standard">Dashboard Umum</option>
+                                        <option value="kitchen">Layar Dapur</option>
                                     </select>
                                     <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                                        Setelah login, pengguna dapur akan langsung diarahkan ke antrean dapur stasiun ini.
+                                        Pilih `Layar Dapur` bila pengguna ini harus langsung masuk ke antrean dapur setelah login. Scope data tetap mengikuti outlet atau tenant default di atas.
                                     </p>
-                                    {errors.preferred_kitchen_station_id && (
-                                        <p className="mt-2 text-xs text-danger-500">
-                                            {errors.preferred_kitchen_station_id}
-                                        </p>
-                                    )}
                                 </div>
-                            )}
-                        </div>
+
+                                {data.preferred_workspace === "kitchen" && (
+                                    <div>
+                                        <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                            Stasiun Dapur Default
+                                        </label>
+                                        <select
+                                            value={data.preferred_kitchen_station_id}
+                                            onChange={(e) =>
+                                                setData(
+                                                    "preferred_kitchen_station_id",
+                                                    e.target.value
+                                                )
+                                            }
+                                            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                        >
+                                            <option value="">Pilih stasiun default</option>
+                                            {availableKitchenStations.map((station) => (
+                                                <option key={station.id} value={station.id}>
+                                                    {station.outlet?.code || "OUT"} - {station.name}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                                            Setelah login, pengguna dapur akan langsung diarahkan ke antrean stasiun ini.
+                                        </p>
+                                        {errors.preferred_kitchen_station_id && (
+                                            <p className="mt-2 text-xs text-danger-500">
+                                                {errors.preferred_kitchen_station_id}
+                                            </p>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
                         ) : null}
                     </div>
 
@@ -1036,57 +1036,58 @@ export default function Create() {
                                 </div>
                                 {showWaiterScope ? <IconChevronUp size={18} /> : <IconChevronDown size={18} />}
                             </button>
+                            <p className="mt-4 text-sm text-slate-500 dark:text-slate-400">
+                                Atur apakah petugas antar boleh melayani semua dapur di outlet atau hanya tenant tertentu saja.
+                            </p>
                             {showWaiterScope ? (
-                            <div className="mt-4 space-y-4">
-                                <div className="grid gap-3 md:grid-cols-2">
-                                    {[
-                                        {
-                                            value: "outlet_all",
-                                            label: "Semua Dapur di Outlet",
-                                            description:
-                                                "Petugas antar bisa melayani semua tenant atau dapur di outlet ini.",
-                                        },
-                                        {
-                                            value: "tenant_only",
-                                            label: "Dapur Tertentu",
-                                            description:
-                                                "Petugas antar hanya bisa melayani tenant yang dipilih di bawah.",
-                                        },
-                                    ].map((option) => (
-                                        <button
-                                            key={option.value}
-                                            type="button"
-                                            onClick={() =>
-                                                setData(
-                                                    "waiter_service_scope",
+                                <div className="mt-4 space-y-4">
+                                    <div className="grid gap-3 md:grid-cols-2">
+                                        {[
+                                            {
+                                                value: "outlet_all",
+                                                label: "Semua Dapur di Outlet",
+                                                description:
+                                                    "Petugas antar bisa melayani semua tenant atau dapur di outlet ini.",
+                                            },
+                                            {
+                                                value: "tenant_only",
+                                                label: "Dapur Tertentu",
+                                                description:
+                                                    "Petugas antar hanya bisa melayani tenant yang dipilih di bawah.",
+                                            },
+                                        ].map((option) => (
+                                            <button
+                                                key={option.value}
+                                                type="button"
+                                                onClick={() =>
+                                                    setData(
+                                                        "waiter_service_scope",
+                                                        option.value
+                                                    )
+                                                }
+                                                className={`rounded-xl border px-4 py-3 text-left transition-colors ${
+                                                    data.waiter_service_scope ===
                                                     option.value
-                                                )
-                                            }
-                                            className={`rounded-xl border px-4 py-3 text-left transition-colors ${
-                                                data.waiter_service_scope ===
-                                                option.value
-                                                    ? "border-primary-500 bg-primary-50 dark:bg-primary-950/30"
-                                                    : "border-slate-200 dark:border-slate-700"
-                                            }`}
-                                        >
-                                            <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-                                                {option.label}
-                                            </p>
-                                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                                {option.description}
-                                            </p>
-                                        </button>
-                                    ))}
-                                </div>
-                                {data.waiter_service_scope ===
-                                    "tenant_only" && (
-                                    <div>
-                                        <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                            Tenant / Dapur yang Dilayani
-                                        </label>
-                                        <div className="grid gap-3 md:grid-cols-2">
-                                            {accessibleTenantOutlets.map(
-                                                (outlet) => (
+                                                        ? "border-primary-500 bg-primary-50 dark:bg-primary-950/30"
+                                                        : "border-slate-200 dark:border-slate-700"
+                                                }`}
+                                            >
+                                                <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                                                    {option.label}
+                                                </p>
+                                                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                    {option.description}
+                                                </p>
+                                            </button>
+                                        ))}
+                                    </div>
+                                    {data.waiter_service_scope === "tenant_only" && (
+                                        <div>
+                                            <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                                Tenant / Dapur yang Dilayani
+                                            </label>
+                                            <div className="grid gap-3 md:grid-cols-2">
+                                                {accessibleTenantOutlets.map((outlet) => (
                                                     <label
                                                         key={outlet.id}
                                                         className={`flex items-start gap-3 rounded-xl border px-4 py-3 transition-all ${
@@ -1115,25 +1116,21 @@ export default function Create() {
                                                             </p>
                                                         </div>
                                                     </label>
-                                                )
+                                                ))}
+                                            </div>
+                                            {accessibleTenantOutlets.length === 0 ? (
+                                                <p className="mt-2 text-xs text-amber-600 dark:text-amber-300">
+                                                    Pilih akses outlet tenant dulu agar petugas antar bisa dibatasi per dapur.
+                                                </p>
+                                            ) : null}
+                                            {errors.waiter_tenant_outlet_ids && (
+                                                <p className="mt-2 text-xs text-danger-500">
+                                                    {errors.waiter_tenant_outlet_ids}
+                                                </p>
                                             )}
                                         </div>
-                                        {accessibleTenantOutlets.length ===
-                                        0 ? (
-                                            <p className="mt-2 text-xs text-amber-600 dark:text-amber-300">
-                                                Pilih akses outlet tenant dulu agar petugas antar bisa dibatasi per dapur.
-                                            </p>
-                                        ) : null}
-                                        {errors.waiter_tenant_outlet_ids && (
-                                            <p className="mt-2 text-xs text-danger-500">
-                                                {
-                                                    errors.waiter_tenant_outlet_ids
-                                                }
-                                            </p>
-                                        )}
-                                    </div>
-                                )}
-                            </div>
+                                    )}
+                                </div>
                             ) : null}
                         </div>
                     )}
@@ -1178,6 +1175,7 @@ export default function Create() {
                         </div>
                     </div>
                 </div>
+            </div>
             </form>
         </>
     );
