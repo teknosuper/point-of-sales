@@ -109,7 +109,7 @@ class KitchenSettingsController extends Controller
             'stations' => $stations->map(fn (KitchenStation $station) => $this->stationPayload($station, $latestDeviceJobs))->values(),
             'filters' => $filters,
             'outlets' => $this->accessibleOutlets($user, $lockedKitchenOutletId)
-                ->get(['id', 'name', 'code']),
+                ->get(['id', 'name', 'code', 'outlet_type']),
             'outletUsers' => $this->outletUserOptions(
                 $lockedKitchenOutletId
                     ? collect([$lockedKitchenOutletId])
@@ -170,6 +170,7 @@ class KitchenSettingsController extends Controller
 
         $data = $request->validate([
             'outlet_id' => ['nullable', 'integer', 'exists:outlets,id'],
+            'outlet_is_active' => ['nullable', 'boolean'],
             'is_open' => ['required', 'boolean'],
             'open_time' => ['nullable', 'date_format:H:i'],
             'close_time' => ['nullable', 'date_format:H:i'],
@@ -182,6 +183,14 @@ class KitchenSettingsController extends Controller
 
         if (! $lockedKitchenOutletId) {
             abort_unless($user?->hasAccessToOutlet($outletId), 403);
+        }
+
+        // Toggle outlet active status (tutup permanen) — applies to all outlet types
+        if (array_key_exists('outlet_is_active', $data)) {
+            $outlet = Outlet::query()->find($outletId);
+            if ($outlet) {
+                $outlet->update(['is_active' => (bool) $data['outlet_is_active']]);
+            }
         }
 
         $recipientUserId = (int) ($data['cashier_base_settlement_recipient_user_id'] ?? 0);
@@ -454,8 +463,12 @@ class KitchenSettingsController extends Controller
             ? User::query()->select('id', 'name')->find($recipientUserId)
             : null;
 
+        $outlet = $outletId ? Outlet::query()->find($outletId) : null;
+
         return [
             'outlet_id' => $outletId,
+            'outlet_is_active' => $outlet ? (bool) $outlet->is_active : true,
+            'outlet_type' => $outlet?->outlet_type ?? 'main',
             'is_open' => Setting::getBool('daily_store_open', true, $outletId),
             'open_time' => (string) Setting::get('daily_store_open_time', '08:00', $outletId),
             'close_time' => (string) Setting::get('daily_store_close_time', '22:00', $outletId),
@@ -490,8 +503,8 @@ class KitchenSettingsController extends Controller
 
     private function accessibleOutlets(?User $user, ?int $lockedKitchenOutletId = null): Builder
     {
+        // Do NOT filter by is_active here — operators need to see inactive outlets to re-activate them
         return Outlet::query()
-            ->active()
             ->when($lockedKitchenOutletId, fn ($query) => $query->where('id', $lockedKitchenOutletId))
             ->when(
                 ! $lockedKitchenOutletId && $user && ! $user->isSuperAdmin(),

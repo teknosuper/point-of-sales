@@ -74,8 +74,13 @@ const ProductCard = memo(function ProductCard({
     interactive = true,
     onProductSelect,
 }) {
-    const hasStock = product.stock > 0;
-    const lowStock = product.stock > 0 && product.stock <= 5;
+    // Store operational check — treat as unavailable if tenant outlet is closed/outside hours
+    const storeClosed = product.store_closed_reason === "store_closed";
+    const outsideHours = product.store_closed_reason === "outside_hours";
+    const isStoreClosed = storeClosed || outsideHours;
+    const storeClosedLabel = storeClosed ? "Toko Tutup" : outsideHours ? "Belum Buka" : null;
+    const hasStock = product.stock > 0 && !isStoreClosed;
+    const lowStock = product.stock > 0 && product.stock <= 5 && !isStoreClosed;
     const promoBadge = product.pricing_badge;
     const basePrice = Number(promoBadge?.base_price || product.sell_price || 0);
     const effectivePrice = Number(
@@ -178,8 +183,10 @@ const ProductCard = memo(function ProductCard({
 
                     {!hasStock && (
                         <div className="absolute inset-0 flex items-center justify-center bg-slate-900/60">
-                            <span className="rounded-full bg-danger-500 px-3 py-1 text-xs font-semibold text-white">
-                                Habis
+                            <span className={`rounded-full px-3 py-1 text-xs font-semibold text-white ${
+                                isStoreClosed ? "bg-amber-600" : "bg-danger-500"
+                            }`}>
+                                {storeClosedLabel ?? "Habis"}
                             </span>
                         </div>
                     )}
@@ -223,9 +230,14 @@ const ProductCard = memo(function ProductCard({
                                 Promo
                             </span>
                         )}
-                        {!hasStock && (
+                        {!hasStock && !isStoreClosed && (
                             <span className="inline-flex rounded-full bg-slate-200 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-800 dark:text-slate-300">
                                 Habis
+                            </span>
+                        )}
+                        {isStoreClosed && (
+                            <span className="inline-flex rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                                {storeClosedLabel}
                             </span>
                         )}
                         {lowStock && hasStock && (
@@ -534,7 +546,7 @@ export default function ProductGrid({
                         "id"
                     );
                 }),
-        [products]
+        [products, tenantOutlets]
     );
 
     const filteredProducts = useMemo(

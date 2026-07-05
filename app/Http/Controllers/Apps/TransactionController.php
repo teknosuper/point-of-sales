@@ -19,6 +19,7 @@ use App\Models\TableOrder;
 use App\Models\Transaction;
 use App\Models\TransactionDetail;
 use App\Models\CartModifier;
+use App\Models\Setting;
 use App\Services\AuditLogService;
 use App\Services\CashierShiftService;
 use App\Services\FoodcourtTenantAllocationService;
@@ -32,6 +33,7 @@ use App\Services\ProductCatalogService;
 use App\Services\PrintJobService;
 use App\Services\ReceiptLayoutService;
 use App\Services\StockMutationService;
+use App\Services\StoreHoursService;
 use App\Services\TransactionInvoiceService;
 use App\Support\ReportTimezone;
 use Illuminate\Contracts\Cache\Lock;
@@ -480,8 +482,10 @@ class TransactionController extends Controller
             'shiftSummary' => $this->cashierShiftService->summarizeForDisplay($activeShift),
             'outletOpenShift' => $this->cashierShiftService->summarizeForDisplay($outletOpenShift),
             'loyaltyTierOptions' => $this->loyaltyService->tierOptions(),
+            'operationalSettings' => $this->resolveOperationalSettings($outlet?->id),
             'tenantOutlets' => Outlet::query()
                 ->active()
+                ->tenant()
                 ->ordered()
                 ->get(['id', 'name', 'code'])
                 ->map(fn (Outlet $tenantOutlet) => [
@@ -553,6 +557,7 @@ class TransactionController extends Controller
                 'loyaltyTierOptions' => $this->loyaltyService->tierOptions(),
                 'tenantOutlets' => Outlet::query()
                     ->active()
+                    ->tenant()
                     ->ordered()
                     ->get(['id', 'name', 'code'])
                     ->map(fn (Outlet $tenantOutlet) => [
@@ -2915,6 +2920,14 @@ class TransactionController extends Controller
         ]);
     }
 
+    private function resolveOperationalSettings(?int $outletId): array
+    {
+        $outlet = $outletId ? \App\Models\Outlet::query()->find($outletId) : null;
+        $storeHoursService = app(StoreHoursService::class);
+
+        return $storeHoursService->resolveForPos($outlet);
+    }
+
     private function resolveActiveOutlet(?Request $request = null)
     {
         $request ??= request();
@@ -3159,6 +3172,15 @@ class TransactionController extends Controller
                 'requires_modifier_selection'
             )
             ->when($categoryId, fn ($query) => $query->where('category_id', $categoryId))
+            ->when(
+                // Sembunyikan produk dari tenant yang tutup permanen (is_active=false)
+                // Pakai helper terpusat Outlet::inactiveTenantIds()
+                count($inactiveTenantIds = Outlet::inactiveTenantIds()) > 0,
+                fn ($query) => $query->where(fn ($q) => $q
+                    ->whereNull('tenant_outlet_id')
+                    ->orWhereNotIn('tenant_outlet_id', $inactiveTenantIds)
+                )
+            )
             ->orderBy('title');
 
         $total = $isRemoteSearch ? null : (clone $baseProductsQuery)->count();

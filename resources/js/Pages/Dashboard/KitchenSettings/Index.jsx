@@ -64,6 +64,7 @@ export default function Index({ stations = [], filters = {}, outlets = [], outle
     const deviceForm = useForm(defaultDevice);
     const operationsForm = useForm({
         outlet_id: operationalSettings?.outlet_id ? String(operationalSettings.outlet_id) : "",
+        outlet_is_active: operationalSettings?.outlet_is_active !== false,
         is_open: Boolean(operationalSettings?.is_open ?? true),
         open_time: operationalSettings?.open_time || "08:00",
         close_time: operationalSettings?.close_time || "22:00",
@@ -88,6 +89,7 @@ export default function Index({ stations = [], filters = {}, outlets = [], outle
     useEffect(() => {
         operationsForm.setData({
             outlet_id: operationalSettings?.outlet_id ? String(operationalSettings.outlet_id) : "",
+            outlet_is_active: operationalSettings?.outlet_is_active !== false,
             is_open: Boolean(operationalSettings?.is_open ?? true),
             open_time: operationalSettings?.open_time || "08:00",
             close_time: operationalSettings?.close_time || "22:00",
@@ -98,6 +100,7 @@ export default function Index({ stations = [], filters = {}, outlets = [], outle
         });
     }, [
         operationalSettings?.outlet_id,
+        operationalSettings?.outlet_is_active,
         operationalSettings?.is_open,
         operationalSettings?.open_time,
         operationalSettings?.close_time,
@@ -129,6 +132,12 @@ export default function Index({ stations = [], filters = {}, outlets = [], outle
         () => outletUsers?.[String(operationTargetOutletId)] || [],
         [operationTargetOutletId, outletUsers]
     );
+    // Determine if the currently targeted outlet is a tenant — hide settlement recipient for tenants
+    const operationTargetOutletRecord = useMemo(
+        () => outlets.find((o) => String(o.id) === String(operationTargetOutletId)) || null,
+        [outlets, operationTargetOutletId]
+    );
+    const isTenantOutlet = (operationTargetOutletRecord?.outlet_type ?? activeOutlet?.outlet_type ?? "main") === "tenant";
 
     const startStationEdit = (station) => {
         setEditingStation(station.id);
@@ -395,7 +404,16 @@ export default function Index({ stations = [], filters = {}, outlets = [], outle
                                 </label>
                                 <select
                                     value={operationsForm.data.outlet_id}
-                                    onChange={(event) => operationsForm.setData("outlet_id", event.target.value)}
+                                    onChange={(event) => {
+                                        const newOutletId = event.target.value;
+                                        operationsForm.setData("outlet_id", newOutletId);
+                                        // Reload page with outlet_id param so server re-fetches operationalSettings
+                                        router.get(
+                                            route("settings.kitchen-devices.index"),
+                                            newOutletId ? { outlet_id: newOutletId } : {},
+                                            { preserveScroll: true, preserveState: false }
+                                        );
+                                    }}
                                     className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
                                 >
                                     <option value="">Pilih outlet</option>
@@ -410,19 +428,39 @@ export default function Index({ stations = [], filters = {}, outlets = [], outle
 
                         <div>
                             <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                Status toko
+                                Status toko hari ini
                             </label>
-                            <div className="flex h-11 items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800">
-                                <input
-                                    id="daily_store_open"
-                                    type="checkbox"
-                                    checked={operationsForm.data.is_open}
-                                    onChange={(event) => operationsForm.setData("is_open", event.target.checked)}
-                                />
-                                <label htmlFor="daily_store_open" className="text-slate-700 dark:text-slate-200">
-                                    {operationsForm.data.is_open ? "Toko buka hari ini" : "Toko ditutup hari ini"}
-                                </label>
+                            <div className="grid grid-cols-2 gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => operationsForm.setData("is_open", true)}
+                                    className={`flex h-11 items-center justify-center gap-2 rounded-xl border text-sm font-semibold transition ${
+                                        operationsForm.data.is_open
+                                            ? "border-emerald-500 bg-emerald-500 text-white shadow-sm"
+                                            : "border-slate-200 bg-slate-50 text-slate-500 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400"
+                                    }`}
+                                >
+                                    <span>✓</span>
+                                    <span>BUKA</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => operationsForm.setData("is_open", false)}
+                                    className={`flex h-11 items-center justify-center gap-2 rounded-xl border text-sm font-semibold transition ${
+                                        !operationsForm.data.is_open
+                                            ? "border-rose-500 bg-rose-500 text-white shadow-sm"
+                                            : "border-slate-200 bg-slate-50 text-slate-500 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400"
+                                    }`}
+                                >
+                                    <span>✕</span>
+                                    <span>TUTUP</span>
+                                </button>
                             </div>
+                            <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">
+                                {operationsForm.data.is_open
+                                    ? "POS dan self-order meja aktif. Transaksi bisa diproses."
+                                    : "POS dan self-order meja diblokir. Kasir dan pelanggan tidak bisa order."}
+                            </p>
                         </div>
 
                         <div>
@@ -461,6 +499,51 @@ export default function Index({ stations = [], filters = {}, outlets = [], outle
                             />
                         </div>
 
+                        <div className="lg:col-span-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/50">
+                            <div className="flex flex-wrap items-start justify-between gap-4">
+                                <div className="min-w-0 flex-1">
+                                    <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                                        Toko tidak beroperasi (tutup permanen)
+                                    </p>
+                                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                        Nonaktifkan outlet agar tidak muncul di POS dan self-order meja pelanggan. Berbeda dengan tutup harian — ini menonaktifkan outlet secara permanen sampai diaktifkan kembali.
+                                    </p>
+                                    {!operationsForm.data.outlet_is_active && (
+                                        <p className="mt-2 text-xs font-semibold text-rose-600 dark:text-rose-400">
+                                            ⚠ Outlet sedang nonaktif. POS dan self-order diblokir sepenuhnya.
+                                        </p>
+                                    )}
+                                </div>
+                                <div className="flex shrink-0 items-center gap-3">
+                                    <span className={`text-xs font-semibold ${operationsForm.data.outlet_is_active ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
+                                        {operationsForm.data.outlet_is_active ? "Aktif Beroperasi" : "Tidak Beroperasi"}
+                                    </span>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            const next = !operationsForm.data.outlet_is_active;
+                                            if (!next) {
+                                                if (!window.confirm("Nonaktifkan outlet ini? POS dan self-order akan diblokir sampai outlet diaktifkan kembali.")) return;
+                                            }
+                                            operationsForm.setData("outlet_is_active", next);
+                                        }}
+                                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                                            operationsForm.data.outlet_is_active
+                                                ? "bg-emerald-500"
+                                                : "bg-rose-500"
+                                        }`}
+                                    >
+                                        <span
+                                            className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                                                operationsForm.data.outlet_is_active ? "translate-x-6" : "translate-x-1"
+                                            }`}
+                                        />
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        {!isTenantOutlet ? (
                         <div>
                             <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
                                 Penerima setoran dasar kasir
@@ -491,6 +574,7 @@ export default function Index({ stations = [], filters = {}, outlets = [], outle
                                 </p>
                             ) : null}
                         </div>
+                        ) : null}
 
                         <div className="flex items-end">
                             <button

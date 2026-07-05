@@ -18,6 +18,7 @@ use App\Exceptions\PaymentGatewayException;
 use App\Services\LoyaltyService;
 use App\Services\Payments\PaymentGatewayManager;
 use App\Services\ProductCatalogService;
+use App\Services\StoreHoursService;
 use App\Services\TableOrderService;
 use App\Support\ReportTimezone;
 use Carbon\Carbon;
@@ -34,13 +35,14 @@ class PublicTableOrderController extends Controller
         private readonly TableOrderService $tableOrderService,
         private readonly LoyaltyService $loyaltyService,
         private readonly CustomerOutletMetricService $customerOutletMetricService,
-        private readonly ProductCatalogService $productCatalogService
+        private readonly ProductCatalogService $productCatalogService,
+        private readonly StoreHoursService $storeHoursService,
     ) {}
 
     public function show(Request $request, string $qrToken)
     {
         $table = DiningTable::query()
-            ->with('outlet:id,name,city')
+            ->with('outlet:id,name,city,is_active,outlet_type,parent_outlet_id')
             ->where('qr_token', $qrToken)
             ->where('status', 'active')
             ->where('self_order_enabled', true)
@@ -132,6 +134,33 @@ class PublicTableOrderController extends Controller
             ->ordered()
             ->get(['id', 'bank_name', 'account_number', 'account_name', 'logo', 'outlet_id', 'is_active', 'sort_order']);
 
+        $outletId = $table->outlet_id;
+        $outletRecord = $table->outlet;
+
+        // is_permanently_closed harus mengecek outlet MAIN, bukan tenant.
+        $mainOutletRecord = ($outletRecord && $outletRecord->outlet_type === 'tenant' && $outletRecord->parent_outlet_id)
+            ? \App\Models\Outlet::find($outletRecord->parent_outlet_id)
+            : $outletRecord;
+
+        // Daftar tenant aktif untuk filter dapur — pakai aturan baku:
+        // closed_reason = null (buka) | 'store_closed' | 'outside_hours'
+        $tenantOutlets = \App\Models\Outlet::activeTenantOutletsWithProducts()
+            ->map(fn ($t) => [
+                'id'            => $t->id,
+                'name'          => $t->name,
+                'sort_order'    => $t->sort_order,
+                'closed_reason' => $this->productCatalogService->resolveOutletClosedReason($t->id),
+            ])
+            ->values();
+
+        // storeHours via service terpusat — konsisten dengan daftar menu dan POS
+        $storeHours = $this->storeHoursService->resolve($mainOutletRecord);
+        // Override outlet_id agar setting dibaca dari outlet yang benar (bukan main jika meja milik tenant)
+        if ($mainOutletRecord && $mainOutletRecord->id !== $outletId) {
+            $storeHours = array_merge($storeHours, $this->storeHoursService->resolve($outletRecord));
+            $storeHours['is_permanently_closed'] = $mainOutletRecord ? ! (bool) $mainOutletRecord->is_active : false;
+        }
+
         return Inertia::render('Public/TableOrder/Menu', [
             'table' => [
                 'id' => $table->id,
@@ -145,6 +174,7 @@ class PublicTableOrderController extends Controller
                 'name' => $table->outlet?->name,
                 'city' => $table->outlet?->city,
             ],
+            'storeHours' => $storeHours,
             'products' => $products,
             'recommendations' => $recommendations,
             'identity' => [
@@ -169,6 +199,7 @@ class PublicTableOrderController extends Controller
                     ])->values(),
                 ])->values(),
             ] : null,
+            'tenantOutlets' => $tenantOutlets,
             'paymentMethods' => $selfOrderPaymentMethods,
             'bankAccounts' => $bankAccounts->map(fn (BankAccount $bankAccount) => [
                 'id' => (int) $bankAccount->id,

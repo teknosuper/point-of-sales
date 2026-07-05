@@ -89,6 +89,42 @@ class Outlet extends Model
         return $query->where('is_active', true);
     }
 
+    public function scopeTenant($query)
+    {
+        return $query->where('outlet_type', 'tenant');
+    }
+
+    /**
+     * Resolve daftar tenant outlet aktif yang punya produk.
+     * Helper terpusat — dipakai di POS, self-order meja, dan daftar menu publik.
+     * Hanya mengembalikan outlet_type=tenant yang is_active=true.
+     */
+    public static function activeTenantOutletsWithProducts(?int $parentOutletId = null): \Illuminate\Support\Collection
+    {
+        return static::query()
+            ->whereIn('id', \App\Models\Product::whereNotNull('tenant_outlet_id')->distinct()->pluck('tenant_outlet_id'))
+            ->active()
+            ->tenant()
+            ->when($parentOutletId, fn ($q) => $q->where('parent_outlet_id', $parentOutletId))
+            ->orderBy('sort_order')
+            ->orderBy('name')
+            ->get(['id', 'name', 'sort_order'])
+            ->values();
+    }
+
+    /**
+     * Kembalikan Set berisi ID tenant outlet yang NONAKTIF (is_active=false).
+     * Dipakai untuk memfilter produk dari tenant tutup permanen di POS dan halaman publik.
+     */
+    public static function inactiveTenantIds(): array
+    {
+        return static::query()
+            ->tenant()
+            ->where('is_active', false)
+            ->pluck('id')
+            ->all();
+    }
+
     public function scopeOrdered($query)
     {
         return $query->orderBy('sort_order')->orderBy('name');

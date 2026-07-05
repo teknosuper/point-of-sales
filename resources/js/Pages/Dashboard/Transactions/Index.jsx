@@ -234,6 +234,7 @@ export default function Index({
     outletOpenShift = null,
     loyaltyTierOptions: loyaltyTierOptionValues = [],
     tenantOutlets: tenantOutletOptions = [],
+    operationalSettings = null,
 }) {
     const {
         auth,
@@ -2830,6 +2831,16 @@ export default function Index({
 
     const addProductToCart = useCallback(async (product, options = {}) => {
         if (!product?.id) return;
+
+        // Block add to cart if tenant outlet is closed or outside operating hours
+        if (product.store_closed_reason) {
+            const label = product.store_closed_reason === "store_closed"
+                ? "Toko Tutup"
+                : "Belum Buka";
+            toast.error(`${product.tenant_outlet?.name || product.title} — ${label}. Tidak bisa ditambahkan saat ini.`);
+            return;
+        }
+
         const modifiers = Array.isArray(options.modifiers)
             ? options.modifiers.filter((item) => item?.name)
             : [];
@@ -5450,6 +5461,88 @@ export default function Index({
         remoteProducts,
         shouldUseRemoteProductSearch,
     ]);
+
+    // Permanently closed gate — outlet.is_active = false
+    const outletIsPermanentlyClosed = operationalSettings !== null && operationalSettings?.outlet_is_active === false;
+    if (outletIsPermanentlyClosed) {
+        return (
+            <>
+                <Head title="Outlet Tidak Beroperasi" />
+                <div className="mx-auto flex min-h-[calc(100vh-8rem)] max-w-3xl items-center justify-center px-4 py-10">
+                    <div className="w-full rounded-3xl border border-slate-200 bg-white p-8 shadow-xl shadow-slate-200/60 dark:border-slate-800 dark:bg-slate-900 dark:shadow-none">
+                        <div className="mb-6 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                            <IconX size={28} />
+                        </div>
+                        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
+                            Outlet tidak beroperasi
+                        </h1>
+                        <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+                            Outlet ini dinonaktifkan secara permanen. POS tidak bisa digunakan. Hubungi pengelola untuk mengaktifkan kembali.
+                        </p>
+                        <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+                            <a
+                                href={route("settings.kitchen-devices.index")}
+                                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 px-5 py-3 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                            >
+                                Aktifkan outlet di pengaturan
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </>
+        );
+    }
+
+    // Store hours gate — block POS when outlet is manually marked closed
+    const storeIsOpen = operationalSettings === null || operationalSettings?.is_open !== false;
+    if (!storeIsOpen) {
+        const openTime = operationalSettings?.open_time || "08:00";
+        const closeTime = operationalSettings?.close_time || "22:00";
+        const notes = operationalSettings?.notes || "";
+        return (
+            <>
+                <Head title="Toko Tutup" />
+                <div className="mx-auto flex min-h-[calc(100vh-8rem)] max-w-3xl items-center justify-center px-4 py-10">
+                    <div className="w-full rounded-3xl border border-slate-200 bg-white p-8 shadow-xl shadow-slate-200/60 dark:border-slate-800 dark:bg-slate-900 dark:shadow-none">
+                        <div className="mb-6 flex h-14 w-14 items-center justify-center rounded-2xl bg-rose-100 text-rose-600 dark:bg-rose-950/40 dark:text-rose-300">
+                            <IconX size={28} />
+                        </div>
+                        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
+                            Toko sedang tutup
+                        </h1>
+                        <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+                            Outlet ini ditandai tutup hari ini oleh pengelola. POS tidak bisa digunakan sampai outlet dibuka kembali.
+                        </p>
+                        <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/50">
+                            <div className="grid gap-2 text-sm">
+                                <div className="flex items-center justify-between gap-4">
+                                    <span className="text-slate-500 dark:text-slate-400">Jam buka</span>
+                                    <span className="font-semibold text-slate-800 dark:text-slate-100">{openTime}</span>
+                                </div>
+                                <div className="flex items-center justify-between gap-4">
+                                    <span className="text-slate-500 dark:text-slate-400">Jam tutup</span>
+                                    <span className="font-semibold text-slate-800 dark:text-slate-100">{closeTime}</span>
+                                </div>
+                                {notes && (
+                                    <div className="mt-2 border-t border-slate-200 pt-2 dark:border-slate-700">
+                                        <p className="text-xs text-slate-500 dark:text-slate-400">{notes}</p>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                        <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+                            <a
+                                href={route("settings.kitchen-devices.index")}
+                                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 px-5 py-3 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                            >
+                                Ubah pengaturan operasional
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </>
+        );
+    }
 
     if (!activeCashierShift) {
         return (

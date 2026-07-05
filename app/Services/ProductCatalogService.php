@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Customer;
 use App\Models\Product;
+use App\Models\Setting;
 use Illuminate\Support\Collection;
 
 class ProductCatalogService
@@ -12,6 +13,48 @@ class ProductCatalogService
         private readonly PricingService $pricingService,
         private readonly ModifierMarkupService $modifierMarkupService
     ) {}
+
+    /**
+     * Resolve the operational status of an outlet.
+     * Returns null if the outlet is open and within operating hours.
+     * Returns a reason string if closed or outside hours.
+     */
+    public function resolveOutletClosedReason(int $outletId): ?string
+    {
+        $isOpen = Setting::getBool('daily_store_open', true, $outletId);
+
+        if (! $isOpen) {
+            return 'store_closed';
+        }
+
+        $openTime  = Setting::get('daily_store_open_time', '', $outletId);
+        $closeTime = Setting::get('daily_store_close_time', '', $outletId);
+
+        if (filled($openTime) && filled($closeTime)) {
+            $now       = now()->format('H:i');
+            $isWithin  = $now >= $openTime && $now <= $closeTime;
+
+            if (! $isWithin) {
+                return 'outside_hours';
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Batch-resolve closed reasons for a list of tenant outlet IDs.
+     * Returns a map of [outlet_id => reason|null].
+     */
+    public function batchResolveClosedReasons(Collection $tenantOutletIds): array
+    {
+        $reasons = [];
+        foreach ($tenantOutletIds->unique()->filter() as $id) {
+            $reasons[(int) $id] = $this->resolveOutletClosedReason((int) $id);
+        }
+
+        return $reasons;
+    }
 
     public function mapProductsForPosGrid(
         Collection $products,
@@ -30,7 +73,11 @@ class ProductCatalogService
         $soldQtyByProduct = collect($options['soldQtyByProduct'] ?? []);
         $includeKitchenStations = (bool) ($options['includeKitchenStations'] ?? false);
 
-        return $products->map(function (Product $product) use ($pricingBadges, $soldQtyByProduct, $includeKitchenStations, $outletId) {
+        // Batch-resolve operational status per tenant outlet (avoid N+1)
+        $tenantOutletIds = $products->pluck('tenant_outlet_id')->filter()->unique();
+        $closedReasonsByTenant = $this->batchResolveClosedReasons($tenantOutletIds);
+
+        return $products->map(function (Product $product) use ($pricingBadges, $soldQtyByProduct, $includeKitchenStations, $outletId, $closedReasonsByTenant) {
             $pricing = $pricingBadges->get($product->id);
             $pricingRule = $pricing['pricing_rule'] ?? null;
 
@@ -84,6 +131,10 @@ class ProductCatalogService
                         ? (int) ($pricing['effective_unit_price'] ?? $product->sell_price)
                         : null,
                 ] : null,
+                // null = open/available, 'store_closed' = tutup hari ini, 'outside_hours' = di luar jam operasional
+                'store_closed_reason' => $product->tenant_outlet_id
+                    ? ($closedReasonsByTenant[(int) $product->tenant_outlet_id] ?? null)
+                    : null,
             ];
 
             if ($includeKitchenStations) {

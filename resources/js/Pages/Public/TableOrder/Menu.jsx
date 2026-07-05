@@ -195,6 +195,8 @@ export default function Menu({
     editableOrder = null,
     paymentMethods = [],
     bankAccounts = [],
+    storeHours = null,
+    tenantOutlets = [],
 }) {
     const { flash, storeProfile } = usePage().props;
     const customer = identity?.customer || null;
@@ -2000,7 +2002,26 @@ export default function Menu({
                         }`}
                     >
                         <ProductGrid
-                            products={products}
+                            products={tenantOutlets.length > 0
+                                ? products
+                                    // Filter produk dari tenant tutup permanen (tidak ada di tenantOutlets)
+                                    .filter((p) => {
+                                        const tid = p.tenant_outlet?.id ?? p.tenant_outlet_id ?? null;
+                                        if (!tid) return true;
+                                        return tenantOutlets.some((t) => Number(t.id) === Number(tid));
+                                    })
+                                    // Inject store_closed_reason dari closed_reason tenant (aturan baku)
+                                    .map((p) => {
+                                        const tid = p.tenant_outlet?.id ?? p.tenant_outlet_id ?? null;
+                                        if (!tid) return p;
+                                        const tenant = tenantOutlets.find((t) => Number(t.id) === Number(tid));
+                                        if (tenant?.closed_reason) {
+                                            return { ...p, store_closed_reason: tenant.closed_reason };
+                                        }
+                                        return p;
+                                    })
+                                : products}
+                            tenantOutlets={tenantOutlets}
                             searchQuery={searchQuery}
                             onSearchChange={setSearchQuery}
                             onSearch={() => setIsSearching(false)}
@@ -2720,6 +2741,50 @@ export default function Menu({
                 identifyPhoneInputRef={identifyPhoneInputRef}
                 registerNameInputRef={registerNameInputRef}
             />
+
+            {storeHours !== null && (storeHours?.is_permanently_closed || storeHours?.is_open === false) && (
+                <div className="fixed inset-0 z-[85] flex items-center justify-center bg-slate-950/80 px-4 py-6 backdrop-blur-sm">
+                    <div className="w-full max-w-sm rounded-[28px] border border-slate-200 bg-white p-8 text-center shadow-2xl">
+                        <div className={`mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl ${storeHours?.is_permanently_closed ? "bg-slate-100 text-slate-500" : "bg-rose-100 text-rose-600"}`}>
+                            <IconX size={32} />
+                        </div>
+                        <h2 className="text-2xl font-bold tracking-tight text-slate-900">
+                            {storeHours?.is_permanently_closed ? "Outlet Tidak Beroperasi" : "Toko Tutup"}
+                        </h2>
+                        <p className="mt-2 text-sm leading-6 text-slate-500">
+                            {storeHours?.is_permanently_closed
+                                ? "Outlet ini tidak aktif dan tidak menerima pesanan. Silakan hubungi pengelola."
+                                : "Maaf, toko ini sedang tutup dan belum menerima pesanan baru."}
+                        </p>
+                        {!storeHours?.is_permanently_closed && (
+                            <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
+                                <div className="flex items-center justify-between gap-4">
+                                    <span className="text-slate-500">Jam buka</span>
+                                    <span className="font-semibold text-slate-800">
+                                        {storeHours?.open_time || "08:00"}
+                                    </span>
+                                </div>
+                                <div className="mt-2 flex items-center justify-between gap-4">
+                                    <span className="text-slate-500">Jam tutup</span>
+                                    <span className="font-semibold text-slate-800">
+                                        {storeHours?.close_time || "22:00"}
+                                    </span>
+                                </div>
+                                {storeHours?.notes && (
+                                    <div className="mt-3 border-t border-slate-200 pt-3">
+                                        <p className="text-xs text-slate-500">{storeHours.notes}</p>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                        <p className="mt-4 text-xs text-slate-400">
+                            {storeHours?.is_permanently_closed
+                                ? "Outlet ini tidak menerima pesanan saat ini."
+                                : "Silakan kembali saat jam operasional berlaku."}
+                        </p>
+                    </div>
+                </div>
+            )}
 
             {cartCount > 0 && mobileView === "products" ? (
                 <button

@@ -60,6 +60,12 @@ Route::get('/', function () {
 Route::get('/daftarmenu', [\App\Http\Controllers\PublicMenuController::class, 'index'])->name('public.menu');
 Route::post('/daftarmenu/products', [\App\Http\Controllers\PublicMenuController::class, 'products'])->name('public.menu.products');
 Route::post('/daftarmenu/promos', [\App\Http\Controllers\PublicMenuController::class, 'promos'])->name('public.menu.promos');
+Route::get('/daftarmenu/store-status', [\App\Http\Controllers\PublicMenuController::class, 'storeStatus'])->name('public.menu.store-status');
+Route::post('/daftarmenu/identify', [\App\Http\Controllers\PublicMenuController::class, 'identify'])->name('public.menu.identify');
+Route::post('/daftarmenu/register-identity', [\App\Http\Controllers\PublicMenuController::class, 'registerIdentity'])->name('public.menu.register-identity');
+Route::post('/daftarmenu/order', [\App\Http\Controllers\PublicMenuController::class, 'placeOrder'])->name('public.menu.order');
+Route::get('/daftarmenu/order/{accessToken}', [\App\Http\Controllers\PublicMenuController::class, 'orderStatus'])->name('public.menu.order.status');
+Route::post('/daftarmenu/logout', [\App\Http\Controllers\PublicMenuController::class, 'logout'])->name('public.menu.logout');
 
 Route::get('/kitchen-entry/{stationSlug}', [KitchenDisplayController::class, 'entry'])
     ->name('kitchen.entry');
