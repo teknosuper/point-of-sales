@@ -975,6 +975,7 @@ class TransactionController extends Controller
     {
         $this->releaseCheckoutReservationState($request, $this->resolveActiveOutlet($request));
         $validated = $request->validate([
+            'product_modifier_option_id' => ['nullable', 'integer'],
             'name' => ['required', 'string', 'max:120'],
             'qty' => ['nullable', 'integer', 'min:1', 'max:99'],
             'unit_price' => ['nullable', 'integer', 'min:0', 'max:100000000'],
@@ -994,8 +995,10 @@ class TransactionController extends Controller
         $unitPrice = max(0, (int) ($validated['unit_price'] ?? 0));
         $basePrice = max(0, (int) ($validated['base_price'] ?? $unitPrice));
         $markupPrice = max(0, (int) ($validated['markup_price'] ?? ($unitPrice - $basePrice)));
+        $modifierOptionId = (int) ($validated['product_modifier_option_id'] ?? 0) ?: null;
 
         $cart->modifiers()->create([
+            'product_modifier_option_id' => $modifierOptionId,
             'name' => trim((string) $validated['name']),
             'qty' => $qty,
             'unit_price' => $unitPrice,
@@ -1058,6 +1061,7 @@ class TransactionController extends Controller
         $this->releaseCheckoutReservationState($request, $this->resolveActiveOutlet($request));
         $validated = $request->validate([
             'modifiers' => ['nullable', 'array'],
+            'modifiers.*.product_modifier_option_id' => ['nullable', 'integer'],
             'modifiers.*.name' => ['required_with:modifiers', 'string', 'max:120'],
             'modifiers.*.qty' => ['nullable', 'integer', 'min:1', 'max:99'],
             'modifiers.*.unit_price' => ['nullable', 'integer', 'min:0', 'max:100000000'],
@@ -1081,8 +1085,10 @@ class TransactionController extends Controller
             $unitPrice = max(0, (int) ($modifier['unit_price'] ?? 0));
             $basePrice = max(0, (int) ($modifier['base_price'] ?? $unitPrice));
             $markupPrice = max(0, (int) ($modifier['markup_price'] ?? ($unitPrice - $basePrice)));
+            $modifierOptionId = (int) ($modifier['product_modifier_option_id'] ?? 0) ?: null;
 
             $cart->modifiers()->create([
+                'product_modifier_option_id' => $modifierOptionId,
                 'name' => trim((string) $modifier['name']),
                 'qty' => $qty,
                 'unit_price' => $unitPrice,

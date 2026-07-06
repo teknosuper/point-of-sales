@@ -11,6 +11,7 @@ class CartModifier extends Model
 
     protected $fillable = [
         'cart_id',
+        'product_modifier_option_id',
         'name',
         'qty',
         'unit_price',
@@ -21,6 +22,7 @@ class CartModifier extends Model
 
     protected $casts = [
         'cart_id' => 'integer',
+        'product_modifier_option_id' => 'integer',
         'qty' => 'integer',
         'unit_price' => 'integer',
         'base_price' => 'integer',
