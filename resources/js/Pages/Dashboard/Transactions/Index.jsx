@@ -2834,9 +2834,14 @@ export default function Index({
 
         // Block add to cart if tenant outlet is closed or outside operating hours
         if (product.store_closed_reason) {
+            const tenantHours = product.tenant_store_hours ?? null;
+            const hoursLabel =
+                tenantHours?.open_time && tenantHours?.close_time
+                    ? ` (${tenantHours.open_time}–${tenantHours.close_time})`
+                    : "";
             const label = product.store_closed_reason === "store_closed"
                 ? "Toko Tutup"
-                : "Belum Buka";
+                : `Belum Buka${hoursLabel}`;
             toast.error(`${product.tenant_outlet?.name || product.title} — ${label}. Tidak bisa ditambahkan saat ini.`);
             return;
         }
@@ -5434,25 +5439,40 @@ export default function Index({
         }
     };
 
+    // Map tenant ID → jam operasional { open_time, close_time } untuk label "Belum Buka"
+    const tenantHoursMap = useMemo(
+        () => Object.fromEntries(
+            tenantOutlets.map((t) => [Number(t.id), { open_time: t.open_time || null, close_time: t.close_time || null }])
+        ),
+        [tenantOutlets]
+    );
+
     // Filter products including out of stock
     const allProducts = useMemo(() => {
-        if (shouldUseRemoteProductSearch) {
-            return remoteProducts;
-        }
+        const base = shouldUseRemoteProductSearch
+            ? remoteProducts
+            : catalogProducts.filter((product) => {
+                  const matchesCategory =
+                      normalizedSelectedCategory === null ||
+                      Number(product.category_id) === normalizedSelectedCategory;
+                  const matchesSearch =
+                      !normalizedSearchQuery ||
+                      product.title
+                          .toLowerCase()
+                          .includes(normalizedSearchQuery.toLowerCase()) ||
+                      product.barcode
+                          ?.toLowerCase()
+                          .includes(normalizedSearchQuery.toLowerCase());
+                  return matchesCategory && matchesSearch;
+              });
 
-        return catalogProducts.filter((product) => {
-            const matchesCategory =
-                normalizedSelectedCategory === null ||
-                Number(product.category_id) === normalizedSelectedCategory;
-            const matchesSearch =
-                !normalizedSearchQuery ||
-                product.title
-                    .toLowerCase()
-                    .includes(normalizedSearchQuery.toLowerCase()) ||
-                product.barcode
-                    ?.toLowerCase()
-                    .includes(normalizedSearchQuery.toLowerCase());
-            return matchesCategory && matchesSearch;
+        // Inject tenant_store_hours so ProductGrid can show hours in "Belum Buka" label
+        return base.map((product) => {
+            const tenantId = product.tenant_outlet?.id ?? product.tenant_outlet_id ?? null;
+            if (!tenantId) return product;
+            const hours = tenantHoursMap[Number(tenantId)] ?? null;
+            if (!hours) return product;
+            return { ...product, tenant_store_hours: hours };
         });
     }, [
         normalizedSearchQuery,
@@ -5460,6 +5480,7 @@ export default function Index({
         catalogProducts,
         remoteProducts,
         shouldUseRemoteProductSearch,
+        tenantHoursMap,
     ]);
 
     // Permanently closed gate — outlet.is_active = false

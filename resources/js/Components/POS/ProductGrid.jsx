@@ -78,7 +78,16 @@ const ProductCard = memo(function ProductCard({
     const storeClosed = product.store_closed_reason === "store_closed";
     const outsideHours = product.store_closed_reason === "outside_hours";
     const isStoreClosed = storeClosed || outsideHours;
-    const storeClosedLabel = storeClosed ? "Toko Tutup" : outsideHours ? "Belum Buka" : null;
+    const tenantHours = product.tenant_store_hours ?? null;
+    const hoursLabel =
+        tenantHours?.open_time && tenantHours?.close_time
+            ? ` (${tenantHours.open_time}–${tenantHours.close_time})`
+            : "";
+    const storeClosedLabel = storeClosed
+        ? "Toko Tutup"
+        : outsideHours
+          ? `Belum Buka${hoursLabel}`
+          : null;
     const hasStock = product.stock > 0 && !isStoreClosed;
     const lowStock = product.stock > 0 && product.stock <= 5 && !isStoreClosed;
     const promoBadge = product.pricing_badge;

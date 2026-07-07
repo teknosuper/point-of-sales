@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Customer;
 use App\Models\Product;
 use App\Models\Setting;
+use App\Support\ReportTimezone;
 use Illuminate\Support\Collection;
 
 class ProductCatalogService
@@ -31,7 +32,8 @@ class ProductCatalogService
         $closeTime = Setting::get('daily_store_close_time', '', $outletId);
 
         if (filled($openTime) && filled($closeTime)) {
-            $now       = now()->format('H:i');
+            // Gunakan display timezone (REPORT_DISPLAY_TIMEZONE) agar konsisten dengan StoreHoursService
+            $now       = now(ReportTimezone::displayTimezone())->format('H:i');
             $isWithin  = $now >= $openTime && $now <= $closeTime;
 
             if (! $isWithin) {

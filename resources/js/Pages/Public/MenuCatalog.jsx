@@ -51,6 +51,11 @@ export default function MenuCatalog({
             .map((t) => [t.id, t.closed_reason])
     );
 
+    // Map tenant ID → jam operasional { open_time, close_time }
+    const tenantHoursMap = Object.fromEntries(
+        tenants.map((t) => [t.id, { open_time: t.open_time || null, close_time: t.close_time || null }])
+    );
+
     // Set tenant yang belum buka (ada closed_reason)
     const closedTenantIds = new Set(
         tenants.filter((t) => t.closed_reason).map((t) => t.id)
@@ -311,15 +316,17 @@ export default function MenuCatalog({
                                                 // Produk tenant hanya tampil jika tenantnya aktif
                                                 return activeTenantIdSet.has(Number(tenantId));
                                             })
-                                            // Inject store_closed_reason dari backend (bukan hardcode)
+                                            // Inject store_closed_reason dan tenant_store_hours dari backend
                                             // null=buka, 'store_closed'=tutup manual, 'outside_hours'=luar jam buka
                                             .map((p) => {
                                                 const tenantId = p.tenant_outlet?.id ?? p.tenant_outlet_id ?? null;
                                                 const reason = tenantId ? (tenantClosedReasonMap[Number(tenantId)] ?? null) : null;
-                                                if (reason) {
-                                                    return { ...p, store_closed_reason: reason };
-                                                }
-                                                return p;
+                                                const hours = tenantId ? (tenantHoursMap[Number(tenantId)] ?? null) : null;
+                                                return {
+                                                    ...p,
+                                                    ...(reason ? { store_closed_reason: reason } : {}),
+                                                    ...(hours ? { tenant_store_hours: hours } : {}),
+                                                };
                                             })}
                                         tenantOutlets={tenantOutlets}
                                         searchQuery={searchQuery}

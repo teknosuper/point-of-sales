@@ -467,24 +467,66 @@ export default function Index({ stations = [], filters = {}, outlets = [], outle
                             <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
                                 Jam buka
                             </label>
-                            <input
-                                type="time"
-                                value={operationsForm.data.open_time}
-                                onChange={(event) => operationsForm.setData("open_time", event.target.value)}
-                                className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
-                            />
+                            <div className="flex h-11 items-center gap-1 rounded-xl border border-slate-200 bg-slate-50 px-3 dark:border-slate-700 dark:bg-slate-800">
+                                <select
+                                    value={operationsForm.data.open_time.split(":")[0] || "08"}
+                                    onChange={(event) => {
+                                        const mins = operationsForm.data.open_time.split(":")[1] || "00";
+                                        operationsForm.setData("open_time", `${event.target.value}:${mins}`);
+                                    }}
+                                    className="h-full flex-1 bg-transparent text-sm font-medium text-slate-800 outline-none dark:text-slate-100"
+                                >
+                                    {Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0")).map((h) => (
+                                        <option key={h} value={h}>{h}</option>
+                                    ))}
+                                </select>
+                                <span className="text-slate-500 font-semibold">:</span>
+                                <select
+                                    value={operationsForm.data.open_time.split(":")[1] || "00"}
+                                    onChange={(event) => {
+                                        const hrs = operationsForm.data.open_time.split(":")[0] || "08";
+                                        operationsForm.setData("open_time", `${hrs}:${event.target.value}`);
+                                    }}
+                                    className="h-full flex-1 bg-transparent text-sm font-medium text-slate-800 outline-none dark:text-slate-100"
+                                >
+                                    {["00", "15", "30", "45"].map((m) => (
+                                        <option key={m} value={m}>{m}</option>
+                                    ))}
+                                </select>
+                            </div>
                         </div>
 
                         <div>
                             <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
                                 Jam tutup
                             </label>
-                            <input
-                                type="time"
-                                value={operationsForm.data.close_time}
-                                onChange={(event) => operationsForm.setData("close_time", event.target.value)}
-                                className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
-                            />
+                            <div className="flex h-11 items-center gap-1 rounded-xl border border-slate-200 bg-slate-50 px-3 dark:border-slate-700 dark:bg-slate-800">
+                                <select
+                                    value={operationsForm.data.close_time.split(":")[0] || "22"}
+                                    onChange={(event) => {
+                                        const mins = operationsForm.data.close_time.split(":")[1] || "00";
+                                        operationsForm.setData("close_time", `${event.target.value}:${mins}`);
+                                    }}
+                                    className="h-full flex-1 bg-transparent text-sm font-medium text-slate-800 outline-none dark:text-slate-100"
+                                >
+                                    {Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0")).map((h) => (
+                                        <option key={h} value={h}>{h}</option>
+                                    ))}
+                                </select>
+                                <span className="text-slate-500 font-semibold">:</span>
+                                <select
+                                    value={operationsForm.data.close_time.split(":")[1] || "00"}
+                                    onChange={(event) => {
+                                        const hrs = operationsForm.data.close_time.split(":")[0] || "22";
+                                        operationsForm.setData("close_time", `${hrs}:${event.target.value}`);
+                                    }}
+                                    className="h-full flex-1 bg-transparent text-sm font-medium text-slate-800 outline-none dark:text-slate-100"
+                                >
+                                    {["00", "15", "30", "45"].map((m) => (
+                                        <option key={m} value={m}>{m}</option>
+                                    ))}
+                                </select>
+                            </div>
                         </div>
 
                         <div className="lg:col-span-3">

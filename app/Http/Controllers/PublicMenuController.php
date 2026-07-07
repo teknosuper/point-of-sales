@@ -98,6 +98,8 @@ class PublicMenuController extends Controller
                     'is_open'      => $closedReason === null,
                     'closed_reason' => $closedReason, // null | 'store_closed' | 'outside_hours'
                     'has_active_shift' => true, // tidak relevan untuk tenant
+                    'open_time'    => (string) Setting::get('daily_store_open_time', '08:00', $tenant->id),
+                    'close_time'   => (string) Setting::get('daily_store_close_time', '22:00', $tenant->id),
                 ];
             })
             ->values();

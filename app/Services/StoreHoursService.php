@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\CashierShift;
 use App\Models\Outlet;
 use App\Models\Setting;
+use App\Support\ReportTimezone;
 use Carbon\Carbon;
 
 /**
@@ -49,7 +50,8 @@ class StoreHoursService
         $closeTime = (string) Setting::get('daily_store_close_time', '22:00', $outletId);
         $notes = (string) Setting::get('daily_store_notes', '', $outletId);
 
-        $now = Carbon::now();
+        // Gunakan display timezone (REPORT_DISPLAY_TIMEZONE) agar jam sesuai tampilan lokal Indonesia
+        $now = Carbon::now(ReportTimezone::displayTimezone());
         $currentTime = $now->format('H:i');
 
         // Hitung countdown ke jam buka jika toko tutup karena flag is_open=false atau shift belum buka
@@ -58,9 +60,10 @@ class StoreHoursService
 
         if (! $isPermanentlyClosed && (! $isManuallyOpen || ! $hasActiveShift) && $openTime) {
             try {
-                $openCarbon = Carbon::createFromFormat('H:i', $openTime);
+                $displayTz = ReportTimezone::displayTimezone();
+                $openCarbon = Carbon::createFromFormat('H:i', $openTime, $displayTz);
                 if ($openCarbon !== false) {
-                    // Set ke hari ini
+                    // Set ke hari ini dalam display timezone
                     $openCarbon->setDate($now->year, $now->month, $now->day);
 
                     // Jika jam buka sudah lewat hari ini, set ke besok

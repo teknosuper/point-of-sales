@@ -150,6 +150,8 @@ class PublicTableOrderController extends Controller
                 'name'          => $t->name,
                 'sort_order'    => $t->sort_order,
                 'closed_reason' => $this->productCatalogService->resolveOutletClosedReason($t->id),
+                'open_time'     => (string) \App\Models\Setting::get('daily_store_open_time', '08:00', $t->id),
+                'close_time'    => (string) \App\Models\Setting::get('daily_store_close_time', '22:00', $t->id),
             ])
             ->values();
 

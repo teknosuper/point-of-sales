@@ -487,11 +487,14 @@ class TransactionController extends Controller
                 ->active()
                 ->tenant()
                 ->ordered()
-                ->get(['id', 'name', 'code'])
+                ->get(['id', 'name', 'code', 'sort_order'])
                 ->map(fn (Outlet $tenantOutlet) => [
                     'id' => $tenantOutlet->id,
                     'name' => $tenantOutlet->name,
                     'code' => $tenantOutlet->code,
+                    'open_time'  => (string) \App\Models\Setting::get('daily_store_open_time', '08:00', $tenantOutlet->id),
+                    'close_time' => (string) \App\Models\Setting::get('daily_store_close_time', '22:00', $tenantOutlet->id),
+                    'closed_reason' => $this->productCatalogService->resolveOutletClosedReason($tenantOutlet->id),
                 ])
                 ->values(),
         ]);
@@ -564,6 +567,9 @@ class TransactionController extends Controller
                         'id' => $tenantOutlet->id,
                         'name' => $tenantOutlet->name,
                         'code' => $tenantOutlet->code,
+                        'open_time'  => (string) \App\Models\Setting::get('daily_store_open_time', '08:00', $tenantOutlet->id),
+                        'close_time' => (string) \App\Models\Setting::get('daily_store_close_time', '22:00', $tenantOutlet->id),
+                        'closed_reason' => $this->productCatalogService->resolveOutletClosedReason($tenantOutlet->id),
                     ])
                     ->values(),
                 'kitchenStations' => KitchenStation::query()

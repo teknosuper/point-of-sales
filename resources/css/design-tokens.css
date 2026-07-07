@@ -164,6 +164,11 @@ html {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Force 24-hour format on all time inputs (format Indonesia HH:MM) */
+input[type="time"]::-webkit-datetime-edit-ampm-field {
+  display: none;
+}
+
 body {
   background-color: rgb(var(--bg-primary));
   color: rgb(var(--text-primary));
