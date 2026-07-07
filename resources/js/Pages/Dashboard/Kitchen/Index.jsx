@@ -384,6 +384,28 @@ const countKitchenItemNotes = (ticket) =>
 const isReturnedKitchenTicket = (ticket) =>
     ticket?.display_status_key === "returned" || Boolean(ticket?.is_fully_returned);
 
+/**
+ * Card border/bg color based on print status — agar kasir/dapur langsung tahu status cetak.
+ * failed   → merah
+ * queued / reprint_queued → biru
+ * printed  → hijau tipis
+ * not_printed → abu default
+ */
+const kitchenCardPrintClass = (ticket) => {
+    const status = ticket?.print?.status || "not_printed";
+    switch (status) {
+        case "failed":
+            return "border-rose-400 bg-rose-50 dark:border-rose-700 dark:bg-rose-950/20";
+        case "queued":
+        case "reprint_queued":
+            return "border-sky-400 bg-sky-50 dark:border-sky-700 dark:bg-sky-950/20";
+        case "printed":
+            return "border-emerald-300 bg-emerald-50/60 dark:border-emerald-700 dark:bg-emerald-950/10";
+        default:
+            return "border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900";
+    }
+};
+
 const kitchenItemQuantityLabel = (item) => {
     const activeQty = Number(item?.remaining_qty ?? item?.qty ?? 0);
     const returnedQty = Number(item?.returned_qty || 0);
@@ -2168,7 +2190,7 @@ const resolveSelectedKitchenActionItemIds = (ticket, allowedStatuses = []) => {
                                     {selectedTickets.map((ticket) => (
                                         <div
                                             key={`mobile-${ticket.id}`}
-                                            className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900"
+                                            className={`rounded-2xl border p-3 shadow-sm ${kitchenCardPrintClass(ticket)}`}
                                         >
                                             {(() => {
                                                 const actionCounts = countKitchenActionableItems(ticket);
@@ -2413,8 +2435,41 @@ const resolveSelectedKitchenActionItemIds = (ticket, allowedStatuses = []) => {
                                                             </span>
                                                         ) : null}
                                                     </div>
-                                                    <div className="rounded-xl border border-dashed border-slate-200 bg-white px-3 py-3 dark:border-slate-700 dark:bg-slate-900">
-                                                        Lihat detail item, catatan, dan checklist aksi di popup agar tampilan tetap ringkas saat order banyak.
+                                                    <div className="space-y-1.5">
+                                                        {(ticket.items || []).map((item) => {
+                                                            const itemBadge = resolveKitchenItemBadge(item);
+                                                            return (
+                                                                <div
+                                                                    key={`m-item-${ticket.id}-${item.id}`}
+                                                                    className="rounded-lg border border-slate-200 bg-white px-2.5 py-2 dark:border-slate-700 dark:bg-slate-900"
+                                                                >
+                                                                    <div className="flex items-start justify-between gap-2">
+                                                                        <div className="min-w-0 flex-1">
+                                                                            <p className="text-[11px] font-semibold text-slate-800 dark:text-slate-200">
+                                                                                <span className="mr-1 text-slate-500">{kitchenItemQuantityLabel(item)}</span>
+                                                                                {item.product_title}
+                                                                            </p>
+                                                                            {item.notes ? (
+                                                                                <p className="mt-0.5 text-[10px] text-amber-600 dark:text-amber-400">
+                                                                                    📝 {item.notes}
+                                                                                </p>
+                                                                            ) : null}
+                                                                            {(item.toppings || item.addons || item.modifiers) ? (
+                                                                                <p className="mt-0.5 text-[10px] text-slate-500 dark:text-slate-400">
+                                                                                    🍽️ {Array.isArray(item.toppings || item.addons || item.modifiers)
+                                                                                        ? (item.toppings || item.addons || item.modifiers).map((t) => typeof t === "string" ? t : t.name || t.label || "").filter(Boolean).join(", ")
+                                                                                        : String(item.toppings || item.addons || item.modifiers)
+                                                                                    }
+                                                                                </p>
+                                                                            ) : null}
+                                                                        </div>
+                                                                        <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${itemBadge.badge}`}>
+                                                                            {itemBadge.label}
+                                                                        </span>
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        })}
                                                     </div>
                                                     <button
                                                         type="button"
@@ -2479,8 +2534,7 @@ const resolveSelectedKitchenActionItemIds = (ticket, allowedStatuses = []) => {
                                                     </>
                                                 ) : null}
 
-                                                {!readOnlyReturnedTicket && printerDevices.length > 0 &&
-                                                ticket.status !== "completed" ? (
+                                                {!readOnlyReturnedTicket && printerDevices.length > 0 ? (
                                                     <button
                                                         type="button"
                                                         onClick={() => handleQueueDispatch(ticket.id)}
@@ -2496,7 +2550,7 @@ const resolveSelectedKitchenActionItemIds = (ticket, allowedStatuses = []) => {
                                                 <button
                                                     type="button"
                                                     onClick={() => handlePreview(ticket)}
-                                                    className={`${!readOnlyReturnedTicket && printerDevices.length > 0 && ticket.status !== "completed" ? "" : "col-span-2"} inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200`}
+                                                    className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
                                                 >
                                                     <IconEye size={14} />
                                                     Preview
@@ -2529,369 +2583,187 @@ const resolveSelectedKitchenActionItemIds = (ticket, allowedStatuses = []) => {
                                     ))}
                                 </div>
 
-                                <div className="hidden overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 md:block">
-                                    <div className="overflow-x-auto">
-                                        <table className="min-w-full divide-y divide-slate-200 text-sm dark:divide-slate-800">
-                                            <thead className="bg-slate-50 dark:bg-slate-950/40">
-                                                <tr className="text-left text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
-                                                    <th className="px-4 py-3">Tiket</th>
-                                                    <th className="px-4 py-3">Waktu</th>
-                                                    <th className="px-4 py-3">Pesanan</th>
-                                                    <th className="px-4 py-3">Detail Order</th>
-                                                    <th className="px-4 py-3">Status</th>
-                                                    <th className="px-4 py-3 text-right">Aksi</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody className="divide-y divide-slate-100 bg-white dark:divide-slate-800 dark:bg-slate-900">
-                                                {selectedTickets.map((ticket) => (
-                                                    <tr key={ticket.id} className="align-top">
-                                                        {(() => {
-                                                            const actionCounts = countKitchenActionableItems(ticket);
-                                                            const selectedIds = (selectedItemIdsByTicket[ticket.id] || []).map(Number);
-                                                            const selectionState = resolveKitchenSelectionState(ticket, selectedIds);
-                                                            const selectionMode = resolveKitchenSelectionMode(ticket, selectedIds);
-                                                            const readOnlyReturnedTicket = isReturnedKitchenTicket(ticket);
-                                                            const readyItemIds = resolveSelectedKitchenActionItemIds(
-                                                                ticket,
-                                                                ["pending", "acknowledged"]
-                                                            );
-                                                            const deliverItemIds =
-                                                                resolveSelectedKitchenDeliveredItemIds(
-                                                                    ticket,
-                                                                    selectedIds
-                                                                );
-                                                            const canMarkReady =
-                                                                !readOnlyReturnedTicket && (selectionState.totalSelected > 0
-                                                                    ? readyItemIds.length > 0 &&
-                                                                      !selectionState.hasMixedAction &&
-                                                                      selectionState.readyToDeliver === 0
-                                                                    : readyItemIds.length > 0);
-                                                            const canDeliver =
-                                                                !readOnlyReturnedTicket && (selectionState.totalSelected > 0
-                                                                    ? deliverItemIds.length > 0
-                                                                    : deliverItemIds.length > 0);
-                                                            const actionBusy = Boolean(
-                                                                submittingActionByTicket[ticket.id]
-                                                            );
-                                                            const readyButtonClass =
-                                                                selectionMode === "ready"
-                                                                    ? "bg-emerald-700 ring-2 ring-emerald-200 dark:ring-emerald-900/40"
-                                                                    : selectionMode === "deliver"
-                                                                      ? "bg-emerald-500/70"
-                                                                      : "bg-emerald-600";
-                                                            const deliverButtonClass =
-                                                                selectionMode === "deliver"
-                                                                    ? "bg-violet-700 ring-2 ring-violet-200 dark:ring-violet-900/40"
-                                                                    : selectionMode === "ready"
-                                                                      ? "bg-violet-500/70"
-                                                                      : "bg-violet-600";
+                                <div className="hidden md:grid md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                                    {selectedTickets.map((ticket) => {
+                                        const actionCounts = countKitchenActionableItems(ticket);
+                                        const selectedIds = (selectedItemIdsByTicket[ticket.id] || []).map(Number);
+                                        const selectionState = resolveKitchenSelectionState(ticket, selectedIds);
+                                        const selectionMode = resolveKitchenSelectionMode(ticket, selectedIds);
+                                        const readOnlyReturnedTicket = isReturnedKitchenTicket(ticket);
+                                        const readyItemIds = resolveSelectedKitchenActionItemIds(ticket, ["pending", "acknowledged"]);
+                                        const deliverItemIds = resolveSelectedKitchenDeliveredItemIds(ticket, selectedIds);
+                                        const canMarkReady = !readOnlyReturnedTicket && (selectionState.totalSelected > 0
+                                            ? readyItemIds.length > 0 && !selectionState.hasMixedAction && selectionState.readyToDeliver === 0
+                                            : readyItemIds.length > 0);
+                                        const canDeliver = !readOnlyReturnedTicket && (selectionState.totalSelected > 0
+                                            ? deliverItemIds.length > 0
+                                            : deliverItemIds.length > 0);
+                                        const actionBusy = Boolean(submittingActionByTicket[ticket.id]);
+                                        const readyButtonClass = selectionMode === "ready"
+                                            ? "bg-emerald-700 ring-2 ring-emerald-200 dark:ring-emerald-900/40"
+                                            : selectionMode === "deliver"
+                                              ? "bg-emerald-500/70"
+                                              : "bg-emerald-600";
+                                        const deliverButtonClass = selectionMode === "deliver"
+                                            ? "bg-violet-700 ring-2 ring-violet-200 dark:ring-violet-900/40"
+                                            : selectionMode === "ready"
+                                              ? "bg-violet-500/70"
+                                              : "bg-violet-600";
+                                        const ticketStatus = resolveKitchenTicketStatusMeta(ticket);
+                                        const printStatus = kitchenPrintStatusMeta(ticket);
+                                        const printTimeMeta = kitchenPrintTimeMeta(ticket);
 
-                                                            return (
-                                                                <>
-                                                        <td className="px-4 py-4">
-                                                            {(() => {
-                                                                const ticketStatus = resolveKitchenTicketStatusMeta(ticket);
+                                        return (
+                                            <div key={`desktop-${ticket.id}`} className={`rounded-2xl border p-4 shadow-sm ${kitchenCardPrintClass(ticket)}`}>
+                                                <div className="space-y-3">
+                                                    <div className="flex items-start justify-between gap-2">
+                                                        <div className="min-w-0">
+                                                            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">{ticket.ticket_number}</p>
+                                                            <p className="mt-1 font-semibold text-slate-900 dark:text-white">{ticket.invoice || "Tanpa nomor nota"}</p>
+                                                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{ticket.customer_name || "Pelanggan umum"}</p>
+                                                        </div>
+                                                        <span className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-semibold ${ticketStatus.badge}`}>{ticketStatus.label}</span>
+                                                    </div>
 
-                                                                return (
-                                                            <>
-                                                            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
-                                                                {ticket.ticket_number}
-                                                            </p>
-                                                            <p className="mt-1 font-semibold text-slate-900 dark:text-white">
-                                                                {ticket.invoice || "Tanpa nomor nota"}
-                                                            </p>
-                                                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                                                {ticket.customer_name || "Pelanggan umum"}
-                                                            </p>
-                                                            {kitchenProgressLabel(ticket) ? (
-                                                                <p className="mt-2 inline-flex rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">
-                                                                    {kitchenProgressLabel(ticket)}
-                                                                </p>
-                                                            ) : null}
-                                                            {ticket.has_return_activity ? (
-                                                                <p className="mt-2 inline-flex rounded-full bg-rose-50 px-2.5 py-1 text-[11px] font-semibold text-rose-700 dark:bg-rose-950/30 dark:text-rose-300">
-                                                                    Retur {ticket.returned_qty_total || 0} item
-                                                                </p>
-                                                            ) : null}
-                                                            <p className="mt-2 inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold text-slate-600 dark:text-slate-300">
-                                                                Status tampilan: {ticketStatus.label}
-                                                            </p>
-                                                            </>
-                                                                );
-                                                            })()}
-                                                        </td>
-                                                        <td className="px-4 py-4 text-xs text-slate-500 dark:text-slate-400">
-                                                                <div className="space-y-2">
-                                                                    <div className="flex items-center gap-2">
-                                                                        <IconClockHour4 size={14} />
-                                                                        <span>Masuk {formatDateTime(ticket.fired_at)}</span>
-                                                                    </div>
-                                                                {ticket.acknowledged_at ? (
-                                                                    <div className="flex items-center gap-2">
-                                                                        <IconChefHat size={14} />
-                                                                        <span>
-                                                                            Proses {formatDateTime(ticket.acknowledged_at)}
-                                                                        </span>
-                                                                    </div>
-                                                                ) : null}
-                                                                {ticket.ready_at ? (
-                                                                    <div className="flex items-center gap-2">
-                                                                        <IconCheck size={14} />
-                                                                        <span>
-                                                                            Siap {formatDateTime(ticket.ready_at)}
-                                                                        </span>
-                                                                    </div>
-                                                                ) : null}
-                                                                {ticket.completed_at ? (
-                                                                    <div className="flex items-center gap-2">
-                                                                        <IconCheck size={14} />
-                                                                        <span>
-                                                                            Diserahkan {formatDateTime(ticket.completed_at)}
-                                                                        </span>
-                                                                    </div>
-                                                                ) : null}
-                                                            </div>
-                                                        </td>
-                                                        <td className="px-4 py-4">
-                                                            <div className="min-w-[260px] space-y-2">
-                                                                <div className="flex flex-wrap items-center gap-2 text-[11px]">
-                                                                    <span className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
-                                                                        {ticket.active_items_count || ticket.items.length} item aktif
-                                                                    </span>
-                                                                    {ticket.has_return_activity ? (
-                                                                        <span className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1.5 text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-300">
-                                                                            Retur {ticket.returned_qty_total || 0}
-                                                                        </span>
-                                                                    ) : null}
-                                                                    {!readOnlyReturnedTicket ? (
-                                                                        <span className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
-                                                                            {(selectedItemIdsByTicket[ticket.id] || []).length} dipilih
-                                                                        </span>
-                                                                    ) : null}
-                                                                    {countKitchenItemNotes(ticket) > 0 ? (
-                                                                        <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300">
-                                                                            {countKitchenItemNotes(ticket)} catatan
-                                                                        </span>
-                                                                    ) : null}
-                                                                    <span className="text-slate-400 dark:text-slate-500">
-                                                                        Detail item dan checklist aksi dibuka di popup
-                                                                    </span>
-                                                                    {!readOnlyReturnedTicket && selectionMode ? (
-                                                                        <span
-                                                                            className={`rounded-full px-2.5 py-1 font-semibold ${
-                                                                                selectionMode === "ready"
-                                                                                    ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
-                                                                                    : "bg-violet-100 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300"
-                                                                            }`}
-                                                                        >
-                                                                            Mode: {selectionMode === "ready" ? "Tandai Siap" : "Antar / Serahkan"}
-                                                                        </span>
-                                                                    ) : null}
-                                                                </div>
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => {
-                                                                        setTicketDetailModal(ticket);
-                                                                        setTicketDetailTab("items");
-                                                                    }}
-                                                                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-                                                                >
-                                                                    <IconEye size={16} />
-                                                                    Detail Pesanan
-                                                                </button>
-                                                            </div>
-                                                        </td>
-                                                        <td className="px-4 py-4 text-xs text-slate-500 dark:text-slate-400">
-                                                            <div className="min-w-[220px] space-y-2">
-                                                                {kitchenProgressLabel(ticket) ? (
-                                                                    <div className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-2 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300">
-                                                                        {kitchenProgressLabel(ticket)}
-                                                                    </div>
-                                                                ) : null}
-                                                                {ticket.has_return_activity ? (
-                                                                    <div className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-2 text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-300">
-                                                                        Retur terdeteksi. Item yang dibatalkan tidak lagi muncul di antrean aktif.
-                                                                    </div>
-                                                                ) : null}
-                                                                <div>
-                                                                    <span className="font-semibold text-slate-700 dark:text-slate-200">
-                                                                        Jenis:
-                                                                    </span>{" "}
-                                                                    {ticket.order_type_label || "Bawa Pulang"}
-                                                                </div>
-                                                                <div>
-                                                                    <span className="font-semibold text-slate-700 dark:text-slate-200">
-                                                                        Lokasi:
-                                                                    </span>{" "}
-                                                                    {formatOrderLocation(ticket)}
-                                                                </div>
-                                                                <div>
-                                                                    <span className="font-semibold text-slate-700 dark:text-slate-200">
-                                                                        Pelanggan:
-                                                                    </span>{" "}
-                                                                    {ticket.customer_name || "Pelanggan umum"}
-                                                                </div>
-                                                                <div>
-                                                                    <span className="font-semibold text-slate-700 dark:text-slate-200">
-                                                                        No. HP:
-                                                                    </span>{" "}
-                                                                    {ticket.customer_phone || "-"}
-                                                                </div>
-                                                                {ticket.notes ? (
-                                                                    <div className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-2 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300">
-                                                                        {ticket.notes}
-                                                                    </div>
-                                                                ) : null}
-                                                            </div>
-                                                        </td>
-                                                        <td className="px-4 py-4">
-                                                            {(() => {
-                                                                const ticketStatus = resolveKitchenTicketStatusMeta(ticket);
+                                                    {kitchenProgressLabel(ticket) ? (
+                                                        <p className="inline-flex rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">{kitchenProgressLabel(ticket)}</p>
+                                                    ) : null}
+                                                    {ticket.has_return_activity ? (
+                                                        <p className="inline-flex rounded-full bg-rose-50 px-2.5 py-1 text-[11px] font-semibold text-rose-700 dark:bg-rose-950/30 dark:text-rose-300">Retur {ticket.returned_qty_total || 0} item</p>
+                                                    ) : null}
 
-                                                                return (
-                                                            <span
-                                                                className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
-                                                                    ticketStatus.badge
-                                                                }`}
-                                                            >
-                                                                {ticketStatus.label}
+                                                    <div className="space-y-1 text-xs text-slate-500 dark:text-slate-400">
+                                                        <div className="flex items-center gap-2"><IconClockHour4 size={14} /><span>Masuk {formatTime(ticket.fired_at)}</span></div>
+                                                        {ticket.acknowledged_at ? <div className="flex items-center gap-2"><IconChefHat size={14} /><span>Proses {formatTime(ticket.acknowledged_at)}</span></div> : null}
+                                                        {ticket.ready_at ? <div className="flex items-center gap-2"><IconCheck size={14} /><span>Siap {formatTime(ticket.ready_at)}</span></div> : null}
+                                                        {ticket.completed_at ? <div className="flex items-center gap-2"><IconCheck size={14} /><span>Serah {formatTime(ticket.completed_at)}</span></div> : null}
+                                                    </div>
+
+                                                    <div className="space-y-1 text-xs text-slate-600 dark:text-slate-300">
+                                                        <div><span className="font-semibold text-slate-700 dark:text-slate-200">Jenis:</span> {ticket.order_type_label || "Bawa Pulang"}</div>
+                                                        <div><span className="font-semibold text-slate-700 dark:text-slate-200">Lokasi:</span> {formatOrderLocation(ticket)}</div>
+                                                        <div><span className="font-semibold text-slate-700 dark:text-slate-200">Pelanggan:</span> {ticket.customer_name || "Pelanggan umum"}</div>
+                                                        {ticket.notes ? <div className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300">Ada catatan pesanan</div> : null}
+                                                    </div>
+
+                                                    <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                                                        <span className="rounded-full border border-slate-200 bg-white px-2 py-1 text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">{ticket.active_items_count || ticket.items.length} item aktif</span>
+                                                        {!readOnlyReturnedTicket ? <span className="rounded-full border border-slate-200 bg-white px-2 py-1 text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">{(selectedItemIdsByTicket[ticket.id] || []).length} dipilih</span> : null}
+                                                        {countKitchenItemNotes(ticket) > 0 ? <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300">{countKitchenItemNotes(ticket)} catatan</span> : null}
+                                                        {!readOnlyReturnedTicket && selectionMode ? (
+                                                            <span className={`rounded-full px-2.5 py-1 font-semibold ${selectionMode === "ready" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300" : "bg-violet-100 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300"}`}>
+                                                                Mode: {selectionMode === "ready" ? "Tandai Siap" : "Antar / Serahkan"}
                                                             </span>
-                                                                );
-                                                            })()}
-                                                        </td>
-                                                        <td className="px-4 py-4">
-                                                            <div className="flex min-w-[260px] flex-col gap-2">
-                                                                {(() => {
-                                                                    const printStatus = kitchenPrintStatusMeta(ticket);
+                                                        ) : null}
+                                                    </div>
 
-                                                                    return (
-                                                                        <div className="flex flex-wrap items-center gap-2 text-xs">
-                                                                            <span
-                                                                                className={`rounded-full px-2.5 py-1 font-semibold ${printStatus.badge}`}
-                                                                            >
-                                                                                {printStatus.label}
-                                                                            </span>
-                                                                            <span className="text-slate-500 dark:text-slate-400">
-                                                                                {kitchenPrintSummaryLabel(ticket)}
-                                                                            </span>
-                                                                            {(() => {
-                                                                                const printTimeMeta = kitchenPrintTimeMeta(ticket);
-
-                                                                                return printTimeMeta ? (
-                                                                                    <div className="flex flex-col gap-1 leading-4">
-                                                                                        <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-1 font-semibold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">
-                                                                                            {printTimeMeta.primary}
-                                                                                        </span>
-                                                                                        {printTimeMeta.secondary ? (
-                                                                                            <span className="inline-flex items-center rounded-full bg-indigo-50 px-2 py-1 font-semibold text-indigo-700 dark:bg-indigo-950/30 dark:text-indigo-300">
-                                                                                                {printTimeMeta.secondary}
-                                                                                            </span>
-                                                                                        ) : null}
-                                                                                    </div>
-                                                                                ) : null;
-                                                                            })()}
-                                                                        </div>
-                                                                    );
-                                                                })()}
-                                                                {!readOnlyReturnedTicket && selectionMode ? (
-                                                                    <div
-                                                                        className={`rounded-xl border px-3 py-2 text-center text-xs font-semibold ${
-                                                                            selectionMode === "ready"
-                                                                                ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-300"
-                                                                                : "border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-900/40 dark:bg-violet-950/30 dark:text-violet-300"
-                                                                        }`}
-                                                                    >
-                                                                        Aksi aktif: {selectionMode === "ready" ? "Tandai Item Siap" : "Antar / Serahkan Item"}
-                                                                    </div>
-                                                                ) : null}
-                                                                {!readOnlyReturnedTicket && ticket.status === "pending" &&
-                                                                (boardState.activeStation?.processing_mode || "auto") === "manual" ? (
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={() => handleAcknowledge(ticket.id)}
-                                                                        disabled={actionBusy}
-                                                                        className="inline-flex items-center justify-center gap-2 rounded-xl bg-sky-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-40"
-                                                                    >
-                                                                        <IconChefHat size={16} />
-                                                                        Mulai Proses
-                                                                    </button>
-                                                                ) : null}
-
-                                                                {!readOnlyReturnedTicket ? (
-                                                                    <>
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() => handleComplete(ticket.id)}
-                                                                            disabled={!canMarkReady || actionBusy}
-                                                                            className={`inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 ${readyButtonClass}`}
-                                                                        >
-                                                                            <IconCheck size={16} />
-                                                                            Tandai Item Siap
-                                                                        </button>
-
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() => handleDeliver(ticket.id)}
-                                                                            disabled={!canDeliver || actionBusy}
-                                                                            className={`inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-40 ${deliverButtonClass}`}
-                                                                        >
-                                                                            <IconCheck size={16} />
-                                                                            Antar / Serahkan Item
-                                                                        </button>
-                                                                    </>
-                                                                ) : null}
-
-                                                                {!readOnlyReturnedTicket && printerDevices.length > 0 &&
-                                                                ticket.status !== "completed" ? (
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={() => handleQueueDispatch(ticket.id)}
-                                                                        className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-primary-700"
-                                                                    >
-                                                                        <IconPrinter size={16} />
-                                                                        {Number(ticket?.print?.success_jobs || 0) > 0
-                                                                            ? "Cetak Ulang"
-                                                                            : "Kirim ke Printer"}
-                                                                    </button>
-                                                                ) : null}
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => handlePreview(ticket)}
-                                                                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                                    <div className="space-y-1.5">
+                                                        {(ticket.items || []).map((item) => {
+                                                            const itemBadge = resolveKitchenItemBadge(item);
+                                                            return (
+                                                                <div
+                                                                    key={`d-item-${ticket.id}-${item.id}`}
+                                                                    className="rounded-lg border border-slate-200 bg-white px-2.5 py-2 dark:border-slate-700 dark:bg-slate-900"
                                                                 >
-                                                                    <IconEye size={16} />
-                                                                    Preview
-                                                                </button>
-                                                            </div>
-                                                            <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-950/40 dark:text-slate-400">
-                                                                {readOnlyReturnedTicket
-                                                                    ? "Ticket retur disimpan sebagai histori dapur. Aksi proses, checklist, dan cetak disembunyikan."
-                                                                    : selectionState.totalSelected > 0
-                                                                    ? selectionState.hasMixedAction
-                                                                        ? "Pilihan bercampur. Pilih hanya item diproses atau hanya item siap antar."
-                                                                        : selectionState.readyToDeliver > 0
-                                                                          ? `${selectionState.readyToDeliver} item terpilih siap diantar atau diserahkan sekarang.`
-                                                                          : selectionState.readyToMark > 0
-                                                                            ? `${selectionState.readyToMark} item terpilih siap ditandai siap antar.`
-                                                                            : "Pilihan saat ini tidak punya aksi yang bisa dijalankan."
-                                                                    : actionCounts.readyToDeliver > 0 &&
-                                                                        actionCounts.readyToMark > 0
-                                                                      ? `${actionCounts.readyToDeliver} item sudah bisa diantar sekarang, sementara ${actionCounts.readyToMark} item lain masih menunggu proses dapur.`
-                                                                      : actionCounts.readyToDeliver > 0
-                                                                        ? `${actionCounts.readyToDeliver} item sudah bisa diantar atau diserahkan sekarang.`
-                                                                        : actionCounts.readyToMark > 0
-                                                                          ? `${actionCounts.readyToMark} item masih menunggu ditandai siap antar.`
-                                                                          : "Semua item pada ticket ini sudah final."}
-                                                            </div>
-                                                        </td>
-                                                                </>
+                                                                    <div className="flex items-start justify-between gap-2">
+                                                                        <div className="min-w-0 flex-1">
+                                                                            <p className="text-[11px] font-semibold text-slate-800 dark:text-slate-200">
+                                                                                <span className="mr-1 text-slate-500">{kitchenItemQuantityLabel(item)}</span>
+                                                                                {item.product_title}
+                                                                            </p>
+                                                                            {item.notes ? (
+                                                                                <p className="mt-0.5 text-[10px] text-amber-600 dark:text-amber-400">
+                                                                                    📝 {item.notes}
+                                                                                </p>
+                                                                            ) : null}
+                                                                            {(item.toppings || item.addons || item.modifiers) ? (
+                                                                                <p className="mt-0.5 text-[10px] text-slate-500 dark:text-slate-400">
+                                                                                    🍽️ {Array.isArray(item.toppings || item.addons || item.modifiers)
+                                                                                        ? (item.toppings || item.addons || item.modifiers).map((t) => typeof t === "string" ? t : t.name || t.label || "").filter(Boolean).join(", ")
+                                                                                        : String(item.toppings || item.addons || item.modifiers)
+                                                                                    }
+                                                                                </p>
+                                                                            ) : null}
+                                                                        </div>
+                                                                        <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${itemBadge.badge}`}>
+                                                                            {itemBadge.label}
+                                                                        </span>
+                                                                    </div>
+                                                                </div>
                                                             );
-                                                        })()}
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                    </div>
+                                                        })}
+                                                    </div>
+
+                                                    <button type="button" onClick={() => { setTicketDetailModal(ticket); setTicketDetailTab("items"); }} className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                                                        <IconEye size={14} /> Detail Pesanan
+                                                    </button>
+
+                                                    <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                                                        <span className={`rounded-full px-2.5 py-1 font-semibold ${printStatus.badge}`}>{printStatus.label}</span>
+                                                        <span className="text-slate-500 dark:text-slate-400">{kitchenPrintSummaryLabel(ticket)}</span>
+                                                        {printTimeMeta ? (
+                                                            <div className="flex flex-col gap-1 leading-4">
+                                                                <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">{printTimeMeta.primary}</span>
+                                                                {printTimeMeta.secondary ? <span className="inline-flex items-center rounded-full bg-indigo-50 px-2 py-1 text-[11px] font-semibold text-indigo-700 dark:bg-indigo-950/30 dark:text-indigo-300">{printTimeMeta.secondary}</span> : null}
+                                                            </div>
+                                                        ) : null}
+                                                    </div>
+
+                                                    {!readOnlyReturnedTicket && selectionMode ? (
+                                                        <div className={`rounded-xl border px-3 py-2 text-center text-xs font-semibold ${selectionMode === "ready" ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-300" : "border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-900/40 dark:bg-violet-950/30 dark:text-violet-300"}`}>
+                                                            Aksi aktif: {selectionMode === "ready" ? "Tandai Item Siap" : "Antar / Serahkan Item"}
+                                                        </div>
+                                                    ) : null}
+
+                                                    <div className="flex flex-col gap-2">
+                                                        {!readOnlyReturnedTicket && ticket.status === "pending" && (boardState.activeStation?.processing_mode || "auto") === "manual" ? (
+                                                            <button type="button" onClick={() => handleAcknowledge(ticket.id)} disabled={actionBusy} className="inline-flex items-center justify-center gap-2 rounded-xl bg-sky-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-40">
+                                                                <IconChefHat size={16} /> Mulai Proses
+                                                            </button>
+                                                        ) : null}
+                                                        {!readOnlyReturnedTicket ? (
+                                                            <>
+                                                                <button type="button" onClick={() => handleComplete(ticket.id)} disabled={!canMarkReady || actionBusy} className={`inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 ${readyButtonClass}`}>
+                                                                    <IconCheck size={16} /> Tandai Item Siap
+                                                                </button>
+                                                                <button type="button" onClick={() => handleDeliver(ticket.id)} disabled={!canDeliver || actionBusy} className={`inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-40 ${deliverButtonClass}`}>
+                                                                    <IconCheck size={16} /> Antar / Serahkan Item
+                                                                </button>
+                                                            </>
+                                                        ) : null}
+                                                        {!readOnlyReturnedTicket && printerDevices.length > 0 ? (
+                                                            <button type="button" onClick={() => handleQueueDispatch(ticket.id)} className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-primary-700">
+                                                                <IconPrinter size={16} /> {Number(ticket?.print?.success_jobs || 0) > 0 ? "Cetak Ulang" : "Kirim ke Printer"}
+                                                            </button>
+                                                        ) : null}
+                                                        <button type="button" onClick={() => handlePreview(ticket)} className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                                                            <IconEye size={16} /> Preview
+                                                        </button>
+                                                    </div>
+
+                                                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-[11px] text-slate-500 dark:border-slate-700 dark:bg-slate-950/40 dark:text-slate-400">
+                                                        {readOnlyReturnedTicket
+                                                            ? "Ticket retur disimpan sebagai histori dapur."
+                                                            : selectionState.totalSelected > 0
+                                                            ? selectionState.hasMixedAction
+                                                                ? "Pilihan bercampur."
+                                                                : selectionState.readyToDeliver > 0
+                                                                  ? `${selectionState.readyToDeliver} item siap diantar.`
+                                                                  : selectionState.readyToMark > 0
+                                                                    ? `${selectionState.readyToMark} item siap ditandai.`
+                                                                    : "Tidak ada aksi."
+                                                            : actionCounts.readyToDeliver > 0 && actionCounts.readyToMark > 0
+                                                              ? `${actionCounts.readyToDeliver} siap antar, ${actionCounts.readyToMark} masih proses.`
+                                                              : actionCounts.readyToDeliver > 0
+                                                                ? `${actionCounts.readyToDeliver} item siap diantar.`
+                                                                : actionCounts.readyToMark > 0
+                                                                  ? `${actionCounts.readyToMark} item masih proses.`
+                                                                  : "Semua item sudah final."}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
                                 </div>
 
                                 <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-300 lg:flex-row lg:items-center lg:justify-between">
