@@ -6,6 +6,7 @@ use App\Models\NotificationRead;
 use App\Models\Payable;
 use App\Models\Product;
 use App\Models\ProductNotificationRead;
+use App\Models\ProductOutletStock;
 use App\Models\Receivable;
 use App\Models\TableOrder;
 use App\Services\OutletResolver;
@@ -56,26 +57,52 @@ class NotificationController extends Controller
         $lowStockNotifications = collect();
 
         if ($canSeeStockNotifications) {
-            $lowStockNotifications = $this->globalLowStockProductsQuery()
-                ->whereNotExists(function ($query) use ($userId) {
-                    $query->selectRaw('1')
-                        ->from('product_notification_reads as pr')
-                        ->whereColumn('pr.product_id', 'products.id')
-                        ->where('pr.user_id', $userId)
-                        ->whereColumn('pr.updated_at', '>=', 'products.updated_at');
-                })
-                ->orderByDesc('products.updated_at')
-                ->limit(10)
-                ->get()
-                ->map(function ($product) {
-                    return [
-                        'id' => $product->id,
-                        'title' => $product->title,
-                        'stock' => (int) ($product->resolved_stock ?? 0),
-                        'time' => optional($product->updated_at)->diffForHumans(),
-                    ];
-                })
-                ->values();
+            if ($activeOutlet && Schema::hasTable('product_outlet_stocks')) {
+                $lowStockNotifications = ProductOutletStock::query()
+                    ->with('product:id,title')
+                    ->where('outlet_id', $activeOutlet->id)
+                    ->where('stock', '<=', 0)
+                    ->whereNotExists(function ($query) use ($userId) {
+                        $query->selectRaw('1')
+                            ->from('product_notification_reads as pr')
+                            ->whereColumn('pr.product_id', 'product_outlet_stocks.product_id')
+                            ->where('pr.user_id', $userId)
+                            ->whereColumn('pr.updated_at', '>=', 'product_outlet_stocks.updated_at');
+                    })
+                    ->orderByDesc('updated_at')
+                    ->limit(10)
+                    ->get()
+                    ->map(function ($stock) {
+                        return [
+                            'id' => $stock->product_id,
+                            'title' => $stock->product?->title ?? 'Produk',
+                            'stock' => (int) $stock->stock,
+                            'time' => optional($stock->updated_at)->diffForHumans(),
+                        ];
+                    })
+                    ->values();
+            } else {
+                $lowStockNotifications = $this->globalLowStockProductsQuery()
+                    ->whereNotExists(function ($query) use ($userId) {
+                        $query->selectRaw('1')
+                            ->from('product_notification_reads as pr')
+                            ->whereColumn('pr.product_id', 'products.id')
+                            ->where('pr.user_id', $userId)
+                            ->whereColumn('pr.updated_at', '>=', 'products.updated_at');
+                    })
+                    ->orderByDesc('products.updated_at')
+                    ->limit(10)
+                    ->get()
+                    ->map(function ($product) {
+                        return [
+                            'id' => $product->id,
+                            'title' => $product->title,
+                            'stock' => (int) ($product->resolved_stock ?? 0),
+                            'time' => optional($product->updated_at)->diffForHumans(),
+                        ];
+                    })
+                    ->values();
+            }
         }
 
         $receivableQuery = Receivable::query()
@@ -209,9 +236,17 @@ class NotificationController extends Controller
      */
     public function markAllLowStockRead(Request $request)
     {
-        $productIds = $this->globalLowStockProductsQuery()
-            ->pluck('products.id')
-            ->all();
+        $activeOutlet = $this->outletResolver->resolve($request);
+
+        $productIds = $activeOutlet && Schema::hasTable('product_outlet_stocks')
+            ? ProductOutletStock::query()
+                ->where('outlet_id', $activeOutlet->id)
+                ->where('stock', '<=', 0)
+                ->pluck('product_id')
+                ->all()
+            : $this->globalLowStockProductsQuery()
+                ->pluck('products.id')
+                ->all();
 
         if (count($productIds) === 0) {
             return back();

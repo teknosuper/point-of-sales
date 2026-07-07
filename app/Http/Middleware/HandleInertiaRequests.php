@@ -117,6 +117,13 @@ class HandleInertiaRequests extends Middleware
                         ->with('product:id,title')
                         ->where('outlet_id', $activeOutlet->id)
                         ->where('stock', '<=', 0)
+                        ->whereNotExists(function ($query) use ($userId) {
+                            $query->selectRaw('1')
+                                ->from('product_notification_reads as pr')
+                                ->whereColumn('pr.product_id', 'product_outlet_stocks.product_id')
+                                ->where('pr.user_id', $userId)
+                                ->whereColumn('pr.updated_at', '>=', 'product_outlet_stocks.updated_at');
+                        })
                         ->orderByDesc('updated_at')
                         ->limit(10)
                         ->get()

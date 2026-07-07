@@ -198,6 +198,18 @@ export default function SalesReturnForm({
         transaction.payment_status,
         transaction.receivable,
     ]);
+    const selectedProgressPercent = useMemo(() => {
+        if (transaction.details.length === 0) {
+            return 0;
+        }
+
+        return Math.min(
+            100,
+            Math.round(
+                (summary.selectedItemsCount / transaction.details.length) * 100
+            )
+        );
+    }, [summary.selectedItemsCount, transaction.details.length]);
 
     const updateItem = (transactionDetailId, key, value) => {
         form.setData(
@@ -445,6 +457,36 @@ export default function SalesReturnForm({
                     />
                 </div>
 
+                <div className="rounded-3xl border border-primary-200 bg-gradient-to-br from-primary-50 via-white to-amber-50 p-5 dark:border-primary-900/40 dark:from-primary-950/20 dark:via-slate-900 dark:to-amber-950/10">
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                        <div className="max-w-3xl">
+                            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary-700 dark:text-primary-300">
+                                Alur Retur
+                            </p>
+                            <h2 className="mt-2 text-lg font-semibold text-slate-900 dark:text-white">
+                                Pilih item, isi qty retur, lalu simpan draft setelah total sudah sesuai.
+                            </h2>
+                            <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+                                Untuk mobile dan tablet, kerjakan item satu per satu. Item yang sudah dipilih akan diberi penanda warna agar mudah dibedakan.
+                            </p>
+                        </div>
+                        <div className="rounded-2xl border border-white/70 bg-white/80 px-4 py-3 shadow-sm dark:border-slate-800 dark:bg-slate-950/60">
+                            <p className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                Progress Pilihan
+                            </p>
+                            <p className="mt-1 text-2xl font-bold text-slate-900 dark:text-white">
+                                {summary.selectedItemsCount}/{transaction.details.length}
+                            </p>
+                            <div className="mt-3 h-2.5 rounded-full bg-slate-200 dark:bg-slate-800">
+                                <div
+                                    className="h-2.5 rounded-full bg-primary-500 transition-all"
+                                    style={{ width: `${selectedProgressPercent}%` }}
+                                />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <form
                     onSubmit={submit}
                     className="grid gap-6 pb-28 xl:grid-cols-[1.7fr_1fr] xl:pb-0"
@@ -472,7 +514,7 @@ export default function SalesReturnForm({
                                     </div>
                                 )}
                             </div>
-                            <div className="flex flex-wrap gap-2 lg:self-start">
+                            <div className="hidden flex-wrap gap-2 lg:self-start xl:flex">
                                 {salesReturn && canEdit && !isEditingDraft ? (
                                     <Button
                                         type="button"
@@ -511,18 +553,31 @@ export default function SalesReturnForm({
                             {itemStates.map((item, index) => (
                                 <div
                                     key={item.id}
-                                    className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 dark:border-slate-800 dark:bg-slate-950/40"
+                                    className={`rounded-3xl border p-4 transition sm:p-5 ${
+                                        item.qty_return > 0
+                                            ? "border-primary-300 bg-primary-50/60 shadow-sm dark:border-primary-800 dark:bg-primary-950/15"
+                                            : "border-slate-200 bg-slate-50/70 dark:border-slate-800 dark:bg-slate-950/40"
+                                    }`}
                                 >
                                     <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                                         <div className="space-y-3">
                                             <div>
-                                                <div className="mb-2 flex items-center gap-2">
+                                                <div className="mb-2 flex flex-wrap items-center gap-2">
                                                     <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-primary-100 px-2 text-xs font-semibold text-primary-700 dark:bg-primary-950/40 dark:text-primary-300">
                                                         {index + 1}
                                                     </span>
                                                     <span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
                                                         Item transaksi
                                                     </span>
+                                                    {item.qty_return > 0 ? (
+                                                        <span className="inline-flex rounded-full bg-primary-600 px-2.5 py-1 text-[11px] font-semibold text-white">
+                                                            Dipilih {item.qty_return}
+                                                        </span>
+                                                    ) : (
+                                                        <span className="inline-flex rounded-full bg-slate-200 px-2.5 py-1 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                                                            Belum dipilih
+                                                        </span>
+                                                    )}
                                                 </div>
                                                 <p className="text-base font-semibold text-slate-900 dark:text-white">
                                                     {item.product?.title || "-"}
@@ -534,7 +589,7 @@ export default function SalesReturnForm({
                                                 </p>
                                             </div>
 
-                                            <div className="grid gap-2 sm:grid-cols-4">
+                                            <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
                                                 <MiniStat
                                                     label="Qty Beli"
                                                     value={item.qty}
@@ -569,7 +624,7 @@ export default function SalesReturnForm({
                                         </div>
                                     </div>
 
-                                    <div className="mt-4 grid gap-4 lg:grid-cols-[220px_1fr]">
+                                    <div className="mt-4 grid gap-4 xl:grid-cols-[240px_1fr]">
                                         <div>
                                             <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
                                                 Qty Retur
@@ -634,7 +689,7 @@ export default function SalesReturnForm({
                                                             event.target.value
                                                         )
                                                     }
-                                                    className="hidden h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm text-slate-800 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 sm:block"
+                                                    className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm text-slate-800 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
                                                 />
                                             </div>
                                             <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
@@ -650,7 +705,7 @@ export default function SalesReturnForm({
                                                 Alasan Retur
                                             </label>
                                             <textarea
-                                                rows={3}
+                                                rows={4}
                                                 value={item.return_reason}
                                                 disabled={!isEditable}
                                                 onChange={(event) =>
@@ -726,7 +781,51 @@ export default function SalesReturnForm({
                     </div>
 
                     <div className="space-y-6">
-                        <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+                        <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900 xl:sticky xl:top-24">
+                            <div className="mb-5 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 dark:border-slate-800 dark:bg-slate-950/40">
+                                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">
+                                    Aksi Utama
+                                </p>
+                                <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+                                    Simpan draft setelah item terisi. Jika draft sudah final, baru lanjut selesaikan retur.
+                                </p>
+                                <div className="mt-4 hidden gap-2 xl:flex xl:flex-col">
+                                    {salesReturn && canEdit && !isEditingDraft ? (
+                                        <Button
+                                            type="button"
+                                            icon={<IconEdit size={18} />}
+                                            className="bg-primary-500 text-white hover:bg-primary-600"
+                                            label="Edit Draft"
+                                            onClick={startEditDraft}
+                                        />
+                                    ) : null}
+                                    {salesReturn && isEditable ? (
+                                        <Button
+                                            type="button"
+                                            className="border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                            label="Batal Edit"
+                                            onClick={cancelEditDraft}
+                                            disabled={form.processing}
+                                        />
+                                    ) : null}
+                                    {isEditable ? (
+                                        <Button
+                                            type="submit"
+                                            icon={<IconDeviceFloppy size={18} />}
+                                            className="bg-primary-500 text-white hover:bg-primary-600"
+                                            label={
+                                                salesReturn
+                                                    ? "Perbarui Draft"
+                                                    : "Buat Draft"
+                                            }
+                                            disabled={
+                                                !summary.hasSelectedItems ||
+                                                form.processing
+                                            }
+                                        />
+                                    ) : null}
+                                </div>
+                            </div>
                             <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">
                                 Penyelesaian Retur
                             </h2>
@@ -865,48 +964,70 @@ export default function SalesReturnForm({
             </div>
 
             <div className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 px-4 py-3 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95 xl:hidden">
-                <div className="mx-auto flex max-w-7xl items-center gap-3">
-                    <div className="min-w-0 flex-1">
-                        <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                            Nominal Retur
-                        </p>
-                        <p className="truncate text-base font-semibold text-slate-900 dark:text-white">
-                            {formatCurrency(summary.totalAmount)}
-                        </p>
+                <div className="mx-auto grid max-w-7xl gap-3">
+                    <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-900/70">
+                        <div className="min-w-0 flex-1">
+                            <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                Progress
+                            </p>
+                            <p className="truncate text-sm font-semibold text-slate-900 dark:text-white">
+                                {summary.selectedItemsCount} produk • {summary.totalItems} item
+                            </p>
+                        </div>
+                        <div className="min-w-0 text-right">
+                            <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                Nominal Retur
+                            </p>
+                            <p className="truncate text-base font-semibold text-slate-900 dark:text-white">
+                                {formatCurrency(summary.totalAmount)}
+                            </p>
+                        </div>
                     </div>
-                    {canComplete ? (
-                        <button
-                            type="button"
-                            onClick={complete}
-                            disabled={
-                                !summary.hasSelectedItems ||
-                                form.processing ||
-                                form.isDirty
-                            }
-                            className="inline-flex h-11 items-center justify-center rounded-xl bg-success-500 px-4 text-sm font-semibold text-white transition hover:bg-success-600 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                            Selesaikan
-                        </button>
-                    ) : null}
-                    {salesReturn && canEdit && !isEditingDraft ? (
-                        <button
-                            type="button"
-                            onClick={startEditDraft}
-                            className="inline-flex h-11 items-center justify-center rounded-xl bg-primary-500 px-4 text-sm font-semibold text-white transition hover:bg-primary-600"
-                        >
-                            Edit Draft
-                        </button>
-                    ) : null}
-                    {isEditable ? (
-                        <button
-                            type="button"
-                            onClick={handleSaveDraftClick}
-                            disabled={!summary.hasSelectedItems || form.processing}
-                            className="inline-flex h-11 items-center justify-center rounded-xl bg-primary-500 px-4 text-sm font-semibold text-white transition hover:bg-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                            Simpan Draft
-                        </button>
-                    ) : null}
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        {isEditable ? (
+                            <button
+                                type="button"
+                                onClick={handleSaveDraftClick}
+                                disabled={!summary.hasSelectedItems || form.processing}
+                                className="inline-flex h-12 items-center justify-center rounded-2xl bg-primary-500 px-4 text-sm font-semibold text-white transition hover:bg-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                                {salesReturn ? "Perbarui Draft" : "Buat Draft"}
+                            </button>
+                        ) : null}
+                        {canComplete ? (
+                            <button
+                                type="button"
+                                onClick={complete}
+                                disabled={
+                                    !summary.hasSelectedItems ||
+                                    form.processing ||
+                                    form.isDirty
+                                }
+                                className="inline-flex h-12 items-center justify-center rounded-2xl bg-success-500 px-4 text-sm font-semibold text-white transition hover:bg-success-600 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                                Selesaikan Retur
+                            </button>
+                        ) : null}
+                        {salesReturn && canEdit && !isEditingDraft ? (
+                            <button
+                                type="button"
+                                onClick={startEditDraft}
+                                className="inline-flex h-11 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 sm:col-span-2 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                            >
+                                Edit Draft
+                            </button>
+                        ) : null}
+                        {salesReturn && isEditable ? (
+                            <button
+                                type="button"
+                                onClick={cancelEditDraft}
+                                disabled={form.processing}
+                                className="inline-flex h-11 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 sm:col-span-2 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                            >
+                                Batal Edit
+                            </button>
+                        ) : null}
+                    </div>
                 </div>
             </div>
 

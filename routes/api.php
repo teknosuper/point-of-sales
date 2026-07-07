@@ -60,17 +60,29 @@ Route::get('/public/docs', PublicApiDocsController::class)
 
     // Kitchen notification endpoint - untuk polling dari hook
 Route::get('/kitchen/pending-count', function (Illuminate\Http\Request $request) {
+        $user = $request->user();
+        $activeOutlet = app(\App\Services\OutletResolver::class)->resolve($request, $user);
         $outletId = (int) $request->query('outlet_id', 0);
         $stationSlug = $request->query('station_slug', '');
-        
+
         $query = \App\Models\KitchenTicket::query();
-            
+
         if ($stationSlug) {
             $station = \App\Models\KitchenStation::where('slug', $stationSlug)->first();
             if ($station) {
+                abort_unless($user->hasAccessToOutlet((int) $station->outlet_id), 403);
                 $query->where('kitchen_station_id', $station->id);
             }
+        }
+
+        if ($activeOutlet && $activeOutlet->outlet_type === 'tenant') {
+            $query->whereRaw('transaction_id IN (
+                SELECT DISTINCT td.transaction_id
+                FROM transaction_details td
+                WHERE td.tenant_outlet_id = ?
+            )', [(int) $activeOutlet->id]);
         } elseif ($outletId > 0) {
+            abort_unless($user->hasAccessToOutlet($outletId), 403);
             // Cek apakah ini outlet tenant
             $outlet = \App\Models\Outlet::find($outletId);
             if ($outlet && $outlet->outlet_type === 'tenant') {
@@ -97,4 +109,4 @@ Route::get('/kitchen/pending-count', function (Illuminate\Http\Request $request)
             'pendingCount' => $pendingCount,
             'activeCount' => $activeCount,
         ]);
-    })->name('kitchen.pending-count');
+    })->middleware(['web', 'auth'])->name('kitchen.pending-count');

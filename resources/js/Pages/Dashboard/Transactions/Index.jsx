@@ -247,6 +247,7 @@ export default function Index({
     const { can } = useAuthorization();
     const canOpenShift = can("cashier-shifts-open");
     const canConfirmPayment = can("transactions-confirm-payment");
+    const canCreateSalesReturn = can("sales-returns-create");
 
     // State
     const [searchQuery, setSearchQuery] = useState("");
@@ -9154,11 +9155,11 @@ export default function Index({
                                                     }
                                                 </p>
                                             </div>
-                                            <div className="flex flex-wrap gap-2">
-                                                <span
-                                                    className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${
-                                                        selectedHistoryTransaction.payment_status ===
-                                                        "paid"
+                                        <div className="flex flex-wrap gap-2">
+                                            <span
+                                                className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${
+                                                    selectedHistoryTransaction.payment_status ===
+                                                    "paid"
                                                             ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300"
                                                             : "bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300"
                                                     }`}
@@ -9172,6 +9173,16 @@ export default function Index({
                                                     {selectedHistoryTransaction.payment_method ||
                                                         "cash"}
                                                 </span>
+                                                {selectedHistoryTransaction.sales_return_summary
+                                                    ?.status !== "none" && (
+                                                    <span className="inline-flex items-center rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">
+                                                        {selectedHistoryTransaction
+                                                            .sales_return_summary
+                                                            ?.status === "full"
+                                                            ? "Retur penuh"
+                                                            : "Retur sebagian"}
+                                                    </span>
+                                                )}
                                             </div>
                                         </div>
 
@@ -9353,7 +9364,7 @@ export default function Index({
                             </div>
                         </div>
 
-                        <div className="grid grid-cols-3 gap-3 border-t border-slate-200 bg-slate-50 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/80 xl:grid-cols-[1fr,1fr,1fr,1.2fr]">
+                        <div className="grid grid-cols-2 gap-3 border-t border-slate-200 bg-slate-50 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/80 md:grid-cols-3 xl:grid-cols-[1fr,1fr,1fr,1fr,1.2fr]">
                             <button
                                 type="button"
                                 onClick={closeHistoryModal}
@@ -9361,6 +9372,22 @@ export default function Index({
                             >
                                 Tutup
                             </button>
+                            {selectedHistoryTransaction &&
+                            canCreateSalesReturn &&
+                            selectedHistoryTransaction.can_create_sales_return ? (
+                                <Link
+                                    href={route(
+                                        "sales-returns.create",
+                                        selectedHistoryTransaction.id
+                                    )}
+                                    className="inline-flex items-center justify-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300"
+                                >
+                                    <IconReceipt size={16} />
+                                    Buat Retur
+                                </Link>
+                            ) : (
+                                <div className="hidden md:block" />
+                            )}
                             {selectedHistoryTransaction ? (
                                 <button
                                     type="button"
