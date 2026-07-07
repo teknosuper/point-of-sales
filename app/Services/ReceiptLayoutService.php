@@ -96,7 +96,7 @@ class ReceiptLayoutService
             'notes' => ! empty($transactionNotes) ? implode(', ', $transactionNotes) : null,
             'feedback' => [
                 'url' => $feedbackUrl,
-                'label' => 'Scan QR untuk kritik & saran',
+                'label' => 'SCAN QR UNTUK KRITIK & SARAN',
                 'qr_url' => $this->feedbackQrUrl($feedbackUrl),
             ],
             'footer_lines' => [
@@ -194,10 +194,6 @@ class ReceiptLayoutService
         if (! empty($layout['feedback']['label'])) {
             $lines[] = '';
             $lines = array_merge($lines, $this->wrapText((string) $layout['feedback']['label'], $cols));
-        }
-
-        if (! empty($layout['feedback']['url'])) {
-            $lines = array_merge($lines, $this->wrapText((string) $layout['feedback']['url'], $cols));
         }
 
         return [
@@ -337,17 +333,11 @@ class ReceiptLayoutService
             }
         }
 
-        if (! empty($layout['feedback']['url'])) {
-            foreach ($this->wrapText((string) $layout['feedback']['url'], $cols) as $line) {
-                $this->appendEncodedLine($chunks, $line);
-            }
-        }
-
         $invoice = ltrim((string) ($layout['footer_lines'][1] ?? ''), '#');
         if ($invoice !== '') {
             $chunks[] = "\x1D\x48\x00";
-            $chunks[] = "\x1D\x77\x02";
-            $chunks[] = "\x1D\x68\x50";
+            $chunks[] = "\x1D\x77\x01";
+            $chunks[] = "\x1D\x68\x40";
             $chunks[] = "\x1D\x6B\x04".$this->sanitizeReceiptContent($invoice)."\x00";
         }
 
@@ -449,7 +439,7 @@ class ReceiptLayoutService
         $pH = intdiv($length, 256);
 
         $chunks[] = "\x1D\x28\x6B\x04\x00\x31\x41\x32\x00";
-        $chunks[] = "\x1D\x28\x6B\x03\x00\x31\x43\x05";
+        $chunks[] = "\x1D\x28\x6B\x03\x00\x31\x43\x03";
         $chunks[] = "\x1D\x28\x6B\x03\x00\x31\x45\x31";
         $chunks[] = "\x1D\x28\x6B".chr($pL).chr($pH)."\x31\x50\x30".$sanitized;
         $chunks[] = "\x1D\x28\x6B\x03\x00\x31\x51\x30";
