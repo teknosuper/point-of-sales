@@ -333,14 +333,6 @@ class ReceiptLayoutService
             }
         }
 
-        $invoice = ltrim((string) ($layout['footer_lines'][1] ?? ''), '#');
-        if ($invoice !== '') {
-            $chunks[] = "\x1D\x48\x00";
-            $chunks[] = "\x1D\x77\x01";
-            $chunks[] = "\x1D\x68\x40";
-            $chunks[] = "\x1D\x6B\x04".$this->sanitizeReceiptContent($invoice)."\x00";
-        }
-
         if (! empty($layout['feedback']['url'])) {
             $chunks[] = "\x1B\x61\x01";
             $this->appendEscPosQrCode($chunks, (string) $layout['feedback']['url']);
