@@ -541,6 +541,7 @@ export default function Index({ stations = [], filters = {}, outlets = [], outle
                             />
                         </div>
 
+                        {!isTenantOutlet ? (
                         <div className="lg:col-span-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/50">
                             <div className="flex flex-wrap items-start justify-between gap-4">
                                 <div className="min-w-0 flex-1">
@@ -584,6 +585,7 @@ export default function Index({ stations = [], filters = {}, outlets = [], outle
                                 </div>
                             </div>
                         </div>
+                        ) : null}
 
                         {!isTenantOutlet ? (
                         <div>
