@@ -9,6 +9,7 @@ use App\Models\Customer;
 use App\Models\CustomerVoucher;
 use App\Models\DiningTable;
 use App\Models\KitchenStation;
+use App\Models\KitchenStationDevice;
 use App\Models\Outlet;
 use App\Models\PaymentSetting;
 use App\Models\PosCheckoutReservation;
@@ -2994,7 +2995,11 @@ class TransactionController extends Controller
     {
         $storePayload = $this->resolveActiveOutlet()?->profilePayload() ?? [];
         $salesReturnSummary = $this->buildTransactionSalesReturnSummary($transaction);
-        $receiptLayout = $this->receiptLayoutService->build($transaction, $storePayload, '58mm');
+        $receiptLayout = $this->receiptLayoutService->build(
+            $transaction,
+            $storePayload,
+            $this->resolveReceiptPaperWidth($transaction->outlet_id)
+        );
 
         return [
             'id' => $transaction->id,
@@ -3062,6 +3067,21 @@ class TransactionController extends Controller
             'receiptLayout' => $receiptLayout,
             'receiptPreview' => $this->receiptLayoutService->buildEscPosPreview($receiptLayout),
         ];
+    }
+
+    private function resolveReceiptPaperWidth(?int $outletId): string
+    {
+        if (! $outletId) {
+            return '58mm';
+        }
+
+        $paperWidth = KitchenStationDevice::query()
+            ->whereHas('kitchenStation', fn ($query) => $query->where('outlet_id', $outletId))
+            ->where('is_active', true)
+            ->where('device_type', 'receipt_printer')
+            ->value('meta->paper_width');
+
+        return $paperWidth === '80mm' ? '80mm' : '58mm';
     }
 
     private function buildTransactionSalesReturnSummary(Transaction $transaction): array

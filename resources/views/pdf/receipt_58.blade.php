@@ -132,6 +132,17 @@
             font-size: 8px;
             word-break: break-all;
         }
+
+        .feedback-qr {
+            margin-top: 6px;
+        }
+
+        .feedback-qr img {
+            display: block;
+            width: 22mm;
+            height: 22mm;
+            margin: 0 auto;
+        }
     </style>
 </head>
 <body>
@@ -329,6 +340,14 @@
             <img src="{{ $barcode }}" alt="barcode">
         </div>
         <div class="invoice-code">{{ $transaction->invoice }}</div>
+        @if(!empty($feedbackQrData))
+            <div class="feedback-qr">
+                <img src="{{ $feedbackQrData }}" alt="QR kritik dan saran">
+            </div>
+            <div class="muted">Scan untuk kritik &amp; saran</div>
+        @elseif(!empty($feedbackUrl))
+            <div class="muted" style="margin-top:4px;">{{ $feedbackUrl }}</div>
+        @endif
         <div>Terima kasih!</div>
     </div>
 </body>

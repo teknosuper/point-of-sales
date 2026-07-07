@@ -112,6 +112,11 @@ class TransactionDetail extends Model
         return $this->hasMany(SalesReturnItem::class);
     }
 
+    public function transactionItemFeedback()
+    {
+        return $this->hasOne(TransactionItemFeedback::class);
+    }
+
     public function modifiers()
     {
         return $this->hasMany(TransactionDetailModifier::class);

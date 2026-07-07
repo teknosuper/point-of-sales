@@ -33,6 +33,7 @@ use App\Http\Controllers\Apps\WaiterBoardController;
 use App\Http\Controllers\Apps\WorkspaceSalesController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\NotificationController;
+use App\Http\Controllers\PublicTransactionFeedbackController;
 use App\Http\Controllers\OutletContextController;
 use App\Http\Controllers\PermissionController;
 use App\Http\Controllers\ProfileController;
@@ -77,6 +78,10 @@ Route::get('/dashboard/access', function () {
 // Public share routes (no login)
 Route::get('/share/transactions/{invoice}', [\App\Http\Controllers\DocumentController::class, 'publicInvoice'])
     ->name('transactions.public');
+Route::get('/feedback/transactions/{invoice}', [PublicTransactionFeedbackController::class, 'show'])
+    ->name('feedback.transactions.show');
+Route::post('/feedback/transactions/{invoice}', [PublicTransactionFeedbackController::class, 'store'])
+    ->name('feedback.transactions.store');
 Route::get('/order/table/{qrToken}', [PublicTableOrderController::class, 'show'])
     ->name('table-order.show');
 Route::post('/order/table/{qrToken}/identify', [PublicTableOrderController::class, 'identify'])

@@ -28,6 +28,7 @@ class ReceiptLayoutService
             ->unique()
             ->values()
             ->all();
+        $feedbackUrl = $this->feedbackUrl($transaction);
 
         return [
             'paper_width' => $paperWidth,
@@ -93,6 +94,11 @@ class ReceiptLayoutService
                 $paymentSummary ? ['label' => 'Info', 'value' => $paymentSummary] : null,
             ])),
             'notes' => ! empty($transactionNotes) ? implode(', ', $transactionNotes) : null,
+            'feedback' => [
+                'url' => $feedbackUrl,
+                'label' => 'Scan QR untuk kritik & saran',
+                'qr_url' => $this->feedbackQrUrl($feedbackUrl),
+            ],
             'footer_lines' => [
                 'Terima kasih!',
                 '#'.($transaction->invoice ?? '-'),
@@ -183,6 +189,15 @@ class ReceiptLayoutService
             if (! empty($footerLine)) {
                 $lines = array_merge($lines, $this->wrapText((string) $footerLine, $cols));
             }
+        }
+
+        if (! empty($layout['feedback']['label'])) {
+            $lines[] = '';
+            $lines = array_merge($lines, $this->wrapText((string) $layout['feedback']['label'], $cols));
+        }
+
+        if (! empty($layout['feedback']['url'])) {
+            $lines = array_merge($lines, $this->wrapText((string) $layout['feedback']['url'], $cols));
         }
 
         return [
@@ -316,12 +331,29 @@ class ReceiptLayoutService
             }
         }
 
+        if (! empty($layout['feedback']['label'])) {
+            foreach ($this->wrapText((string) $layout['feedback']['label'], $cols) as $line) {
+                $this->appendEncodedLine($chunks, $line);
+            }
+        }
+
+        if (! empty($layout['feedback']['url'])) {
+            foreach ($this->wrapText((string) $layout['feedback']['url'], $cols) as $line) {
+                $this->appendEncodedLine($chunks, $line);
+            }
+        }
+
         $invoice = ltrim((string) ($layout['footer_lines'][1] ?? ''), '#');
         if ($invoice !== '') {
             $chunks[] = "\x1D\x48\x00";
             $chunks[] = "\x1D\x77\x02";
             $chunks[] = "\x1D\x68\x50";
             $chunks[] = "\x1D\x6B\x04".$this->sanitizeReceiptContent($invoice)."\x00";
+        }
+
+        if (! empty($layout['feedback']['url'])) {
+            $chunks[] = "\x1B\x61\x01";
+            $this->appendEscPosQrCode($chunks, (string) $layout['feedback']['url']);
         }
 
         $chunks[] = "\n\n\n";
@@ -397,6 +429,30 @@ class ReceiptLayoutService
         ]);
 
         return implode(' - ', $parts);
+    }
+
+    private function feedbackUrl(object $transaction): string
+    {
+        return route('feedback.transactions.show', ['invoice' => $transaction->invoice], true);
+    }
+
+    private function feedbackQrUrl(string $url): string
+    {
+        return 'https://api.qrserver.com/v1/create-qr-code/?size=180x180&margin=0&data='.urlencode($url);
+    }
+
+    private function appendEscPosQrCode(array &$chunks, string $data): void
+    {
+        $sanitized = $this->sanitizeReceiptContent($data);
+        $length = strlen($sanitized) + 3;
+        $pL = $length % 256;
+        $pH = intdiv($length, 256);
+
+        $chunks[] = "\x1D\x28\x6B\x04\x00\x31\x41\x32\x00";
+        $chunks[] = "\x1D\x28\x6B\x03\x00\x31\x43\x05";
+        $chunks[] = "\x1D\x28\x6B\x03\x00\x31\x45\x31";
+        $chunks[] = "\x1D\x28\x6B".chr($pL).chr($pH)."\x31\x50\x30".$sanitized;
+        $chunks[] = "\x1D\x28\x6B\x03\x00\x31\x51\x30";
     }
 
     private function compactMoney(int $value): string

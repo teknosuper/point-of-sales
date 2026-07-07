@@ -66,6 +66,7 @@
         td { padding: 0; vertical-align: top; word-wrap: break-word; }
         .value { width: 34%; text-align: right; white-space: nowrap; }
         .item-name { font-weight: 600; }
+        .feedback-qr img { width: 28mm; height: 28mm; display: block; margin: 6px auto 0; }
     </style>
 </head>
 <body>
@@ -196,6 +197,14 @@
             <img src="{{ $barcode }}" alt="barcode">
         </div>
         <div style="font-size:11px;">{{ $transaction->invoice }}</div>
+        @if(!empty($feedbackQrData))
+            <div class="feedback-qr">
+                <img src="{{ $feedbackQrData }}" alt="QR kritik dan saran">
+            </div>
+            <div class="muted">Scan untuk kritik &amp; saran</div>
+        @elseif(!empty($feedbackUrl))
+            <div class="muted" style="margin-top:4px;">{{ $feedbackUrl }}</div>
+        @endif
         <div>Terima kasih!</div>
     </div>
 </body>

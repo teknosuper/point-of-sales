@@ -64,6 +64,18 @@ class DocumentController extends Controller
         return 'data:image/png;base64,'.base64_encode($data);
     }
 
+    private function qrCodeDataUri(string $url, int $size = 180): ?string
+    {
+        $endpoint = 'https://api.qrserver.com/v1/create-qr-code/?size='.$size.'x'.$size.'&margin=0&data='.urlencode($url);
+        $binary = @file_get_contents($endpoint);
+
+        if ($binary === false || $binary === '') {
+            return null;
+        }
+
+        return 'data:image/png;base64,'.base64_encode($binary);
+    }
+
     private function ensureUserCanAccessOutlet(Request $request, ?int $outletId): void
     {
         $user = $request->user();
@@ -122,10 +134,13 @@ class DocumentController extends Controller
 
         $template = $size === '58' ? 'pdf.receipt_58' : 'pdf.receipt_80';
         $width = $size === '58' ? 164.4 : 226.8; // points (mm*2.8346)
+        $feedbackUrl = route('feedback.transactions.show', ['invoice' => $transaction->invoice], true);
         $pdf = Pdf::loadView($template, [
             'transaction' => $transaction,
             'store' => $this->storeProfile($transaction->outlet),
             'barcode' => $this->barcode($transaction->invoice),
+            'feedbackUrl' => $feedbackUrl,
+            'feedbackQrData' => $this->qrCodeDataUri($feedbackUrl),
         ])->setPaper([0, 0, $width, 800], 'portrait');
 
         return $pdf->stream("receipt-{$transaction->invoice}-{$size}.pdf");

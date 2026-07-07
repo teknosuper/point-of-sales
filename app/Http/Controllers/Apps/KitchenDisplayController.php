@@ -599,6 +599,7 @@ class KitchenDisplayController extends Controller
                 $ticketMaps['service_status_map'],
                 $ticketMaps['latest_dispatch_event_map'],
                 $ticketMaps['latest_return_event_map'],
+                $ticketMaps['latest_customer_alert_event_map'],
                 $statusFilter
             ))
             ->values();
@@ -622,6 +623,7 @@ class KitchenDisplayController extends Controller
         Collection $serviceStatusMap,
         Collection $latestDispatchEventMap,
         Collection $latestReturnEventMap,
+        Collection $latestCustomerAlertEventMap,
         string $statusFilter = 'active'
     ): array
     {
@@ -683,6 +685,8 @@ class KitchenDisplayController extends Controller
         $returnedItems = $returnedSnapshotItems;
         /** @var KitchenTicketEvent|null $latestDispatchEvent */
         $latestDispatchEvent = $latestDispatchEventMap->get((int) $ticket->id);
+        /** @var KitchenTicketEvent|null $latestCustomerAlertEvent */
+        $latestCustomerAlertEvent = $latestCustomerAlertEventMap->get((int) $ticket->id);
         $printJobs = $ticket->printJobs->sortBy('id')->values();
         $latestPrintJob = $printJobs->last();
         $successfulPrintJobs = $printJobs->where('status', 'success');
@@ -762,6 +766,19 @@ class KitchenDisplayController extends Controller
                 'print_job_id' => data_get($latestDispatchEvent->payload, 'print_job_id'),
                 'print_job_status' => data_get($latestDispatchEvent->payload, 'print_job_status'),
                 'reason' => data_get($latestDispatchEvent->payload, 'reason'),
+            ] : null,
+            'customer_alert' => $latestCustomerAlertEvent ? [
+                'event_id' => (int) $latestCustomerAlertEvent->id,
+                'created_at' => ReportTimezone::formatSourceIso8601($latestCustomerAlertEvent->getRawOriginal('created_at')),
+                'message' => (string) data_get($latestCustomerAlertEvent->payload, 'message', ''),
+                'product_title' => (string) data_get($latestCustomerAlertEvent->payload, 'product_title', 'Produk'),
+                'customer_name' => (string) data_get($latestCustomerAlertEvent->payload, 'customer_name', ''),
+                'customer_phone' => (string) data_get($latestCustomerAlertEvent->payload, 'customer_phone', ''),
+                'order_type' => (string) data_get($latestCustomerAlertEvent->payload, 'order_type', ''),
+                'table_code' => (string) data_get($latestCustomerAlertEvent->payload, 'table_code', ''),
+                'table_name' => (string) data_get($latestCustomerAlertEvent->payload, 'table_name', ''),
+                'transaction_detail_id' => (int) data_get($latestCustomerAlertEvent->payload, 'transaction_detail_id', 0),
+                'qty' => (int) data_get($latestCustomerAlertEvent->payload, 'qty', 0),
             ] : null,
             'print' => [
                 'status' => $printStatus,
@@ -1139,10 +1156,21 @@ class KitchenDisplayController extends Controller
                 ->unique('kitchen_ticket_id')
                 ->keyBy(fn ($event) => (int) $event->kitchen_ticket_id);
 
+        $latestCustomerAlertEventMap = $ticketIds->isEmpty()
+            ? collect()
+            : KitchenTicketEvent::query()
+                ->whereIn('kitchen_ticket_id', $ticketIds->all())
+                ->where('event', 'ticket.customer_alert')
+                ->orderByDesc('created_at')
+                ->get()
+                ->unique('kitchen_ticket_id')
+                ->keyBy(fn ($event) => (int) $event->kitchen_ticket_id);
+
         return [
             'service_status_map' => $serviceStatusMap,
             'latest_dispatch_event_map' => $latestDispatchEventMap,
             'latest_return_event_map' => $latestReturnEventMap,
+            'latest_customer_alert_event_map' => $latestCustomerAlertEventMap,
         ];
     }
 

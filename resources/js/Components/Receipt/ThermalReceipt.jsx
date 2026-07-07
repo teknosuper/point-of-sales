@@ -503,6 +503,18 @@ export default function ThermalReceipt({
                 <p className="text-xs">tidak dapat ditukar/dikembalikan</p>
                 <p className="text-xs mt-1">#{transaction?.invoice}</p>
                 <SimpleBarcode value={transaction?.invoice} />
+                {layout?.feedback?.qr_url ? (
+                    <div className="mt-3 flex flex-col items-center gap-1">
+                        <img
+                            src={layout.feedback.qr_url}
+                            alt="QR kritik dan saran"
+                            className="h-28 w-28"
+                        />
+                        <p className="text-[10px] font-semibold">
+                            {layout.feedback.label}
+                        </p>
+                    </div>
+                ) : null}
             </div>
 
             <style>{`
@@ -582,6 +594,18 @@ export function ThermalReceipt58mm({
             <pre>{line}</pre>
             <p className="text-center">Terima kasih!</p>
             <SimpleBarcode value={transaction?.invoice} compact />
+            {layout?.feedback?.qr_url ? (
+                <div className="mt-2 flex flex-col items-center gap-1">
+                    <img
+                        src={layout.feedback.qr_url}
+                        alt="QR kritik dan saran"
+                        className="h-24 w-24"
+                    />
+                    <p className="text-center text-[9px] font-semibold">
+                        {layout.feedback.label}
+                    </p>
+                </div>
+            ) : null}
 
             <style>{`
                 .thermal-receipt-58,

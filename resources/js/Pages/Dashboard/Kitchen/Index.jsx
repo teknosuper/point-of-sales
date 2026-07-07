@@ -142,6 +142,22 @@ const formatOrderLocation = (ticket) => {
     return "Ambil sendiri / takeaway";
 };
 
+const formatCustomerAlertLocation = (customerAlert, ticket) => {
+    const orderType = customerAlert?.order_type || ticket?.order_type;
+    const tableCode = customerAlert?.table_code || ticket?.table_code;
+    const tableName = customerAlert?.table_name || ticket?.table_name;
+
+    if (orderType === "dine_in") {
+        if (tableCode && tableName) {
+            return `${tableCode} - ${tableName}`;
+        }
+
+        return tableCode || tableName || "Meja belum dipilih";
+    }
+
+    return "Ambil sendiri / takeaway";
+};
+
 const normalizeKitchenServiceStatus = (item) => {
     if (item?.resolved_service_status) {
         return item.resolved_service_status;
@@ -832,6 +848,7 @@ export default function KitchenIndex({
     const pollAbortControllerRef = useRef(null);
     const pollInFlightRef = useRef(false);
     const failedPrintWarnedRef = useRef(new Set());
+    const customerAlertWarnedRef = useRef(new Set());
 
     useEffect(() => {
         if (flash?.success) {
@@ -1058,6 +1075,57 @@ export default function KitchenIndex({
             html: `<p class="mb-2 text-sm text-slate-600 dark:text-slate-300">Terdapat pesanan yang masih gagal cetak ke printer:</p><ul class="text-left text-sm text-slate-700 dark:text-slate-200 list-disc pl-5">${ticketList}</ul>`,
             confirmButtonText: "Mengerti",
             confirmButtonColor: "#e11d48",
+            background: document.documentElement.classList.contains("dark")
+                ? "#1e293b"
+                : undefined,
+            color: document.documentElement.classList.contains("dark")
+                ? "#e2e8f0"
+                : undefined,
+        });
+    }, [boardState.tickets, playErrorSound]);
+
+    useEffect(() => {
+        const tickets = boardState.tickets?.data || [];
+        const alertTickets = tickets.filter(
+            (ticket) => Number(ticket?.customer_alert?.event_id || 0) > 0
+        );
+
+        if (alertTickets.length === 0) {
+            customerAlertWarnedRef.current = new Set();
+            return;
+        }
+
+        const newAlerts = alertTickets.filter(
+            (ticket) =>
+                !customerAlertWarnedRef.current.has(
+                    Number(ticket.customer_alert.event_id)
+                )
+        );
+
+        if (newAlerts.length === 0) {
+            return;
+        }
+
+        customerAlertWarnedRef.current = new Set([
+            ...customerAlertWarnedRef.current,
+            ...newAlerts.map((ticket) => Number(ticket.customer_alert.event_id)),
+        ]);
+
+        const alertList = newAlerts
+            .map(
+                (ticket) =>
+                    `<li class="mb-3"><strong>${ticket.ticket_number || "#" + ticket.id}</strong> — ${ticket.customer_alert?.product_title || "Produk"}<br><span>Pemesan: ${ticket.customer_alert?.customer_name || ticket.customer_name || "Pelanggan umum"}</span><br><span>Lokasi: ${formatCustomerAlertLocation(ticket.customer_alert, ticket)}</span>${ticket.customer_alert?.customer_phone ? `<br><span>Kontak: ${ticket.customer_alert.customer_phone}</span>` : ""}<br><span>${ticket.customer_alert?.message || "Pembeli menandai item belum diterima."}</span></li>`
+            )
+            .join("");
+
+        void playErrorSound();
+
+        Swal.fire({
+            icon: "warning",
+            title: "Alert dari Pembeli",
+            html: `<p class="mb-2 text-sm text-slate-600 dark:text-slate-300">Ada pembeli yang menandai item belum diterima:</p><ul class="text-left text-sm text-slate-700 dark:text-slate-200 list-disc pl-5">${alertList}</ul>`,
+            confirmButtonText: "Cek Ticket",
+            confirmButtonColor: "#dc2626",
             background: document.documentElement.classList.contains("dark")
                 ? "#1e293b"
                 : undefined,
@@ -2262,6 +2330,11 @@ const resolveSelectedKitchenActionItemIds = (ticket, allowedStatuses = []) => {
                                                             Retur {ticket.returned_qty_total || 0} item
                                                         </p>
                                                     ) : null}
+                                                    {ticket.customer_alert ? (
+                                                        <p className="mt-1.5 inline-flex rounded-full bg-rose-100 px-2 py-1 text-[10px] font-semibold text-rose-700 dark:bg-rose-950/30 dark:text-rose-300">
+                                                            Alert pembeli
+                                                        </p>
+                                                    ) : null}
                                                     <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                                                         <span
                                                             className={`inline-flex rounded-full px-2 py-1 text-[10px] font-semibold ${printStatus.badge}`}
@@ -2631,6 +2704,9 @@ const resolveSelectedKitchenActionItemIds = (ticket, allowedStatuses = []) => {
                                                     {ticket.has_return_activity ? (
                                                         <p className="inline-flex rounded-full bg-rose-50 px-2.5 py-1 text-[11px] font-semibold text-rose-700 dark:bg-rose-950/30 dark:text-rose-300">Retur {ticket.returned_qty_total || 0} item</p>
                                                     ) : null}
+                                                    {ticket.customer_alert ? (
+                                                        <p className="inline-flex rounded-full bg-rose-100 px-2.5 py-1 text-[11px] font-semibold text-rose-700 dark:bg-rose-950/30 dark:text-rose-300">Alert pembeli</p>
+                                                    ) : null}
 
                                                     <div className="space-y-1 text-xs text-slate-500 dark:text-slate-400">
                                                         <div className="flex items-center gap-2"><IconClockHour4 size={14} /><span>Masuk {formatTime(ticket.fired_at)}</span></div>
@@ -2644,6 +2720,27 @@ const resolveSelectedKitchenActionItemIds = (ticket, allowedStatuses = []) => {
                                                         <div><span className="font-semibold text-slate-700 dark:text-slate-200">Lokasi:</span> {formatOrderLocation(ticket)}</div>
                                                         <div><span className="font-semibold text-slate-700 dark:text-slate-200">Pelanggan:</span> {ticket.customer_name || "Pelanggan umum"}</div>
                                                         {ticket.notes ? <div className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300">Ada catatan pesanan</div> : null}
+                                                        {ticket.customer_alert ? (
+                                                            <div className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-1.5 text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-300">
+                                                                <div className="font-semibold">
+                                                                    Alert pembeli untuk {ticket.customer_alert.product_title}
+                                                                </div>
+                                                                <div className="mt-1 text-[11px]">
+                                                                    Pemesan: {ticket.customer_alert.customer_name || ticket.customer_name || "Pelanggan umum"}
+                                                                </div>
+                                                                <div className="text-[11px]">
+                                                                    Lokasi: {formatCustomerAlertLocation(ticket.customer_alert, ticket)}
+                                                                </div>
+                                                                {ticket.customer_alert.customer_phone ? (
+                                                                    <div className="text-[11px]">
+                                                                        Kontak: {ticket.customer_alert.customer_phone}
+                                                                    </div>
+                                                                ) : null}
+                                                                <div className="mt-1">
+                                                                    {ticket.customer_alert.message}
+                                                                </div>
+                                                            </div>
+                                                        ) : null}
                                                     </div>
 
                                                     <div className="flex flex-wrap items-center gap-1.5 text-[11px]">

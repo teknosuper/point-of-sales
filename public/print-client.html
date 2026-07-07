@@ -276,14 +276,14 @@
         try {
             setStatus('🖨️ Mencetak...', 'status-printing');
 
-            let byteArray;
+            let byteArray = decodeRawPayload(job);
             const printColumns = resolvePaperColumns(job, config);
             const runtimeConfig = {
                 ...config,
                 paperWidth: printColumns,
             };
 
-            if (ReceiptPrinterEncoder) {
+            if (!byteArray && ReceiptPrinterEncoder) {
                 // Use library encoder
                 const encoder = new ReceiptPrinterEncoder({
                     language: 'esc-pos',
@@ -298,7 +298,7 @@
                     result = encodeKitchenTicketLib(encoder, job, runtimeConfig);
                 }
                 byteArray = Array.from(result);
-            } else {
+            } else if (!byteArray) {
                 // Use built-in raw ESC/POS encoder
                 if (job.type === 'receipt') {
                     byteArray = encodeReceiptRaw(job, runtimeConfig);
@@ -350,6 +350,22 @@
     const ESC = 0x1B;
     const GS = 0x1D;
     const LF = 0x0A;
+
+    function decodeRawPayload(job) {
+        const base64 = job?.payload?.raw_base64;
+        if (!base64) {
+            return null;
+        }
+
+        const binary = atob(base64);
+        const bytes = new Array(binary.length);
+
+        for (let index = 0; index < binary.length; index += 1) {
+            bytes[index] = binary.charCodeAt(index);
+        }
+
+        return bytes;
+    }
 
     function textToBytes(text) {
         const bytes = [];
