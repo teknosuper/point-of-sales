@@ -214,6 +214,8 @@ class PrintQueueController extends Controller
                     'name' => $storeProfile['name'] ?? '',
                     'address' => $storeProfile['address'] ?? '',
                     'phone' => $storeProfile['phone'] ?? '',
+                    'email' => $storeProfile['email'] ?? '',
+                    'website' => $storeProfile['website'] ?? '',
                 ],
                 $paperWidth === '80mm' ? '80mm' : '58mm'
             )
@@ -232,6 +234,8 @@ class PrintQueueController extends Controller
                 'name' => $storeProfile['name'] ?? '',
                 'address' => $storeProfile['address'] ?? '',
                 'phone' => $storeProfile['phone'] ?? '',
+                'email' => $storeProfile['email'] ?? '',
+                'website' => $storeProfile['website'] ?? '',
             ],
             'layout' => $layout,
             'preview' => $layout ? $this->receiptLayoutService->buildEscPosPreview($layout) : null,
