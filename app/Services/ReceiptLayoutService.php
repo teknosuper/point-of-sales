@@ -254,7 +254,9 @@ class ReceiptLayoutService
 
         foreach (($layout['items'] ?? []) as $item) {
             foreach ($this->receiptItemPrimaryLines($item, $cols) as $line) {
+                $chunks[] = "\x1B\x45\x01";
                 $this->appendEncodedLine($chunks, $line);
+                $chunks[] = "\x1B\x45\x00";
             }
 
             if (! empty($item['promo'])) {
@@ -559,20 +561,17 @@ class ReceiptLayoutService
         $qty = (string) ($item['qty'] ?? '1x');
         $name = (string) ($item['name'] ?? 'Item');
         $total = (string) ($item['line_total_label'] ?? $item['detail_right'] ?? '0');
-        $rightWidth = $cols >= 48 ? 12 : 8;
-        $qtyWidth = $cols >= 48 ? 4 : 3;
-        $nameWidth = max(1, $cols - $qtyWidth - $rightWidth - 3);
+        $rightWidth = $cols >= 48 ? 12 : 9;
+        $qtyWidth = 4;
+        $nameWidth = max(1, $cols - $qtyWidth - $rightWidth - 2);
         $nameLines = $this->wrapText($name, $nameWidth);
         $lines = [];
 
         foreach ($nameLines as $index => $nameLine) {
-            $leftPrefix = $index === 0
-                ? str_pad($qty, $qtyWidth, ' ', STR_PAD_RIGHT)
-                : str_repeat(' ', $qtyWidth);
-            $leftValue = rtrim($leftPrefix.' '.$nameLine);
+            $leftPrefix = $index === 0 ? str_pad($qty, $qtyWidth) : str_repeat(' ', $qtyWidth);
             $rightValue = $index === 0 ? $total : '';
-            $space = max(1, $cols - strlen($leftValue) - strlen($rightValue));
-            $lines[] = $leftValue.str_repeat(' ', $space).$rightValue;
+            $space = max(1, $cols - strlen($leftPrefix) - strlen($nameLine) - strlen($rightValue));
+            $lines[] = $leftPrefix.' '.$nameLine.str_repeat(' ', max(0, $space - 1)).$rightValue;
         }
 
         return $lines;
