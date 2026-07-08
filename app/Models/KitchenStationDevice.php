@@ -13,6 +13,9 @@ class KitchenStationDevice extends Model
     public const PRINT_PROFILE_RAWBT = 'rawbt_android';
     public const PRINT_PROFILE_QZ_TRAY = 'qz_tray';
     public const PRINT_PROFILE_BRIDGE = 'local_bridge';
+    public const RECEIPT_PROFILE_58_SMALL = '58_small';
+    public const RECEIPT_PROFILE_58_STANDARD = '58_standard';
+    public const RECEIPT_PROFILE_80_STANDARD = '80_standard';
 
     protected $fillable = [
         'kitchen_station_id',
@@ -49,6 +52,15 @@ class KitchenStationDevice extends Model
             self::PRINT_PROFILE_RAWBT => 'Android RawBT',
             self::PRINT_PROFILE_QZ_TRAY => 'QZ Tray Desktop',
             self::PRINT_PROFILE_BRIDGE => 'Local Print Bridge',
+        ];
+    }
+
+    public static function receiptProfiles(): array
+    {
+        return [
+            self::RECEIPT_PROFILE_58_SMALL => '58mm Kecil',
+            self::RECEIPT_PROFILE_58_STANDARD => '58mm Standard',
+            self::RECEIPT_PROFILE_80_STANDARD => '80mm Standard',
         ];
     }
 }

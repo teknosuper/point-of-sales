@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Apps;
 use App\Http\Controllers\Controller;
 use App\Models\KitchenStation;
 use App\Models\KitchenStationDevice;
+use App\Models\Setting;
 use App\Services\OutletResolver;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -37,6 +38,19 @@ class PrinterSettingController extends Controller
             ->with('kitchenStation:id,name,slug,code,outlet_id')
             ->orderBy('name')
             ->get(['id', 'kitchen_station_id', 'name', 'device_type', 'connection_driver', 'endpoint', 'meta']);
+
+        $legacyReceiptDevice = $devices->first(fn (KitchenStationDevice $device) => $device->device_type === 'receipt_printer');
+        $configuredCashierPaperWidth = Setting::get('cashier_receipt_paper_width', null, $outlet->id);
+        $configuredCashierReceiptProfile = Setting::get('cashier_receipt_profile', null, $outlet->id);
+
+        $cashierPaperWidth = (string) ($configuredCashierPaperWidth
+            ?? ($legacyReceiptDevice ? data_get($legacyReceiptDevice->meta, 'paper_width', '58mm') : '80mm'));
+
+        $cashierReceiptProfile = (string) ($configuredCashierReceiptProfile ?? Setting::get(
+            'cashier_receipt_profile',
+            $cashierPaperWidth === '58mm' ? '58_small' : '80_standard',
+            $outlet->id
+        ));
 
         $queueUrls = [
             'cashier' => [
@@ -82,6 +96,7 @@ class PrinterSettingController extends Controller
             'queueUrls' => $queueUrls,
             'stationUrls' => $stationUrls,
             'deviceUrls' => $deviceUrls,
+            'receiptProfiles' => KitchenStationDevice::receiptProfiles(),
             'config' => [
                 'token' => $token,
                 'base_url' => $baseUrl,
@@ -89,10 +104,43 @@ class PrinterSettingController extends Controller
                 'outlet_name' => $outlet->name,
                 'done_url' => "{$baseUrl}/api/print-queue/{id}/done?token={$token}",
                 'fail_url' => "{$baseUrl}/api/print-queue/{id}/fail?token={$token}",
-                'print_client_cashier' => "{$baseUrl}/print-client.html?v={$printClientVersion}&base_url=" . urlencode($baseUrl) . "&token={$token}&outlet_id={$outlet->id}&type=cashier&autostart=1",
+                'print_client_cashier' => "{$baseUrl}/print-client.html?v={$printClientVersion}&base_url=" . urlencode($baseUrl) . "&token={$token}&outlet_id={$outlet->id}&type=cashier&autostart=1"
+                    . ($configuredCashierPaperWidth ? "&paper_width=" . urlencode((string) $configuredCashierPaperWidth) : '')
+                    . ($configuredCashierReceiptProfile ? "&receipt_profile=" . urlencode((string) $configuredCashierReceiptProfile) : ''),
                 'print_client_kitchen' => "{$baseUrl}/print-client.html?v={$printClientVersion}&base_url=" . urlencode($baseUrl) . "&token={$token}&outlet_id={$outlet->id}&type=kitchen&autostart=1",
             ],
+            'cashierReceipt' => [
+                'paper_width' => $cashierPaperWidth,
+                'receipt_profile' => $cashierReceiptProfile,
+            ],
         ]);
+    }
+
+    public function updateCashierReceipt(Request $request)
+    {
+        $outlet = $this->outletResolver->resolve($request, $request->user());
+        abort_if(! $outlet, 404, 'Outlet aktif tidak ditemukan.');
+
+        $validated = $request->validate([
+            'paper_width' => ['required', 'in:58mm,80mm'],
+            'receipt_profile' => ['required', 'in:' . implode(',', array_keys(KitchenStationDevice::receiptProfiles()))],
+        ]);
+
+        Setting::set(
+            'cashier_receipt_paper_width',
+            $validated['paper_width'],
+            'Lebar kertas default untuk struk kasir.',
+            $outlet->id
+        );
+
+        Setting::set(
+            'cashier_receipt_profile',
+            $validated['receipt_profile'],
+            'Profile layout default untuk struk kasir.',
+            $outlet->id
+        );
+
+        return back()->with('success', 'Pengaturan struk kasir berhasil diperbarui.');
     }
 
     private function resolvePrintClientVersion(): string

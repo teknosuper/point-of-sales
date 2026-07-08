@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\KitchenStationDevice;
 use App\Models\KitchenTicket;
 use App\Models\PrintJob;
+use App\Models\Setting;
 use App\Models\Transaction;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -14,6 +15,16 @@ class PrintJobService
     public function queueReceipt(Transaction $transaction, ?KitchenStationDevice $device = null, ?int $userId = null, bool $forceRequeue = false): PrintJob
     {
         $receiptDevice = $device ?? $this->resolveReceiptDevice($transaction->outlet_id);
+        $configuredPaperWidth = Setting::get('cashier_receipt_paper_width', null, $transaction->outlet_id);
+        $configuredReceiptProfile = Setting::get('cashier_receipt_profile', null, $transaction->outlet_id);
+
+        $paperWidth = $configuredPaperWidth !== null
+            ? (string) $configuredPaperWidth
+            : ($receiptDevice ? (string) data_get($receiptDevice->meta, 'paper_width', '58mm') : null);
+
+        $receiptProfile = $configuredReceiptProfile !== null
+            ? (string) $configuredReceiptProfile
+            : ($paperWidth === '58mm' ? '58_small' : null);
 
         $existing = PrintJob::query()
             ->where('transaction_id', $transaction->id)
@@ -46,9 +57,8 @@ class PrintJobService
                 'invoice' => $transaction->invoice,
                 'device_name' => $receiptDevice?->name,
                 'device_type' => $receiptDevice?->device_type,
-                // If no dedicated receipt device is configured, let the print client
-                // use its own local paper width setting instead of forcing 58mm.
-                'paper_width' => $receiptDevice ? data_get($receiptDevice->meta, 'paper_width', '58mm') : null,
+                'paper_width' => $paperWidth,
+                'receipt_profile' => $receiptProfile,
             ],
             'queued_at' => now(),
             'created_by' => $userId,

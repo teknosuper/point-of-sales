@@ -28,6 +28,11 @@ class KitchenSettingsController extends Controller
         KitchenStationDevice::PRINT_PROFILE_QZ_TRAY,
         KitchenStationDevice::PRINT_PROFILE_BRIDGE,
     ];
+    private const RECEIPT_PROFILES = [
+        KitchenStationDevice::RECEIPT_PROFILE_58_SMALL,
+        KitchenStationDevice::RECEIPT_PROFILE_58_STANDARD,
+        KitchenStationDevice::RECEIPT_PROFILE_80_STANDARD,
+    ];
 
     public function __construct(
         private readonly OutletResolver $outletResolver
@@ -116,6 +121,7 @@ class KitchenSettingsController extends Controller
                     : $this->accessibleOutlets($user)->pluck('id')
             ),
             'printProfiles' => KitchenStationDevice::printProfiles(),
+            'receiptProfiles' => KitchenStationDevice::receiptProfiles(),
             'setupStatus' => $setupStatus,
             'operationalSettings' => $this->operationalSettingsPayload(
                 $lockedKitchenOutletId ?: ($filters['outlet_id'] !== '' ? (int) $filters['outlet_id'] : null)
@@ -360,6 +366,7 @@ class KitchenSettingsController extends Controller
             'connection_driver' => ['required', 'string', 'max:30'],
             'endpoint' => ['nullable', 'string', 'max:255'],
             'print_profile' => ['nullable', 'string', 'in:'.implode(',', self::PRINT_PROFILES)],
+            'receipt_profile' => ['nullable', 'string', 'in:'.implode(',', self::RECEIPT_PROFILES)],
             'dispatch_mode' => ['nullable', 'string', 'in:manual,auto'],
             'fallback_device_id' => ['nullable', 'integer', 'exists:kitchen_station_devices,id'],
             'rawbt_intent_url' => ['nullable', 'string', 'max:255'],
@@ -390,6 +397,7 @@ class KitchenSettingsController extends Controller
                 'template_style' => $data['template_style'] ?? 'standard',
                 'print_copies' => (int) ($data['print_copies'] ?? 1),
                 'print_profile' => $data['print_profile'] ?? $this->defaultPrintProfile($data['connection_driver'], $data['device_type']),
+                'receipt_profile' => $data['receipt_profile'] ?? $this->defaultReceiptProfile($data['paper_width'] ?? '80mm'),
                 'dispatch_mode' => $data['dispatch_mode'] ?? 'manual',
                 'fallback_device_id' => $data['fallback_device_id'] ?? null,
                 'rawbt_intent_url' => $data['rawbt_intent_url'] ?? null,
@@ -411,6 +419,7 @@ class KitchenSettingsController extends Controller
             'connection_driver' => ['required', 'string', 'max:30'],
             'endpoint' => ['nullable', 'string', 'max:255'],
             'print_profile' => ['nullable', 'string', 'in:'.implode(',', self::PRINT_PROFILES)],
+            'receipt_profile' => ['nullable', 'string', 'in:'.implode(',', self::RECEIPT_PROFILES)],
             'dispatch_mode' => ['nullable', 'string', 'in:manual,auto'],
             'fallback_device_id' => ['nullable', 'integer', 'exists:kitchen_station_devices,id'],
             'rawbt_intent_url' => ['nullable', 'string', 'max:255'],
@@ -445,6 +454,7 @@ class KitchenSettingsController extends Controller
                 'template_style' => $data['template_style'] ?? (($device->meta ?? [])['template_style'] ?? 'standard'),
                 'print_copies' => (int) ($data['print_copies'] ?? (($device->meta ?? [])['print_copies'] ?? 1)),
                 'print_profile' => $data['print_profile'] ?? (($device->meta ?? [])['print_profile'] ?? $this->defaultPrintProfile($data['connection_driver'], $data['device_type'])),
+                'receipt_profile' => $data['receipt_profile'] ?? (($device->meta ?? [])['receipt_profile'] ?? $this->defaultReceiptProfile($data['paper_width'] ?? (($device->meta ?? [])['paper_width'] ?? '80mm'))),
                 'dispatch_mode' => $data['dispatch_mode'] ?? (($device->meta ?? [])['dispatch_mode'] ?? 'manual'),
                 'fallback_device_id' => $data['fallback_device_id'] ?? (($device->meta ?? [])['fallback_device_id'] ?? null),
                 'rawbt_intent_url' => $data['rawbt_intent_url'] ?? (($device->meta ?? [])['rawbt_intent_url'] ?? null),
@@ -607,6 +617,13 @@ class KitchenSettingsController extends Controller
             'usb', 'network', 'cloud' => KitchenStationDevice::PRINT_PROFILE_BRIDGE,
             default => KitchenStationDevice::PRINT_PROFILE_BROWSER,
         };
+    }
+
+    private function defaultReceiptProfile(string $paperWidth): string
+    {
+        return $paperWidth === '58mm'
+            ? KitchenStationDevice::RECEIPT_PROFILE_58_SMALL
+            : KitchenStationDevice::RECEIPT_PROFILE_80_STANDARD;
     }
 
     private function testMessage(KitchenStationDevice $device, string $profile): string

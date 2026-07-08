@@ -4,7 +4,12 @@ namespace App\Services;
 
 class ReceiptLayoutService
 {
-    public function build(object $transaction, array $store = [], string $paperWidth = '58mm'): array
+    public function build(
+        object $transaction,
+        array $store = [],
+        string $paperWidth = '58mm',
+        ?string $receiptProfile = null
+    ): array
     {
         $items = collect($transaction->details ?? []);
         $promoDiscount = (int) $items->sum(fn ($item) => (int) ($item->discount_total ?? 0));
@@ -32,6 +37,7 @@ class ReceiptLayoutService
 
         return [
             'paper_width' => $paperWidth,
+            'receipt_profile' => $this->normalizeReceiptProfile($paperWidth, $receiptProfile),
             'store' => array_filter([
                 'name' => $store['name'] ?? null,
                 'address' => $store['address'] ?? null,
@@ -108,8 +114,7 @@ class ReceiptLayoutService
 
     public function buildEscPosPreview(array $layout): array
     {
-        $isCompact58 = ($layout['paper_width'] ?? '58mm') !== '80mm';
-        $cols = $isCompact58 ? 32 : 48;
+        $cols = $this->receiptColumns($layout);
         $separator = str_repeat('-', $cols);
         $store = $layout['store'] ?? [];
         $metaRows = $layout['meta_rows'] ?? [];
@@ -136,7 +141,14 @@ class ReceiptLayoutService
         $lines[] = $separator;
 
         foreach ($metaRows as $row) {
-            $lines = array_merge($lines, $this->twoColumnLines((string) ($row['label'] ?? ''), (string) ($row['value'] ?? ''), $cols));
+            $lines = array_merge(
+                $lines,
+                $this->receiptMetaLines(
+                    (string) ($row['label'] ?? ''),
+                    (string) ($row['value'] ?? ''),
+                    $cols
+                )
+            );
         }
 
         if (! empty($layout['notes'])) {
@@ -198,6 +210,7 @@ class ReceiptLayoutService
 
         return [
             'paper_width' => $layout['paper_width'] ?? '58mm',
+            'receipt_profile' => $layout['receipt_profile'] ?? null,
             'cols' => $cols,
             'lines' => $lines,
         ];
@@ -436,7 +449,30 @@ class ReceiptLayoutService
 
     private function receiptItemsHeaderLine(int $cols): string
     {
-        return $cols >= 48 ? 'Qty Item                                Total' : 'Qty Item             Total';
+        return $cols >= 48 ? 'Qty Item                                Total' : 'Qty Item           Total';
+    }
+
+    private function receiptColumns(array $layout): int
+    {
+        $paperWidth = (string) ($layout['paper_width'] ?? '58mm');
+        $profile = $this->normalizeReceiptProfile($paperWidth, $layout['receipt_profile'] ?? null);
+
+        return match ($profile) {
+            '58_small' => 30,
+            '58_standard' => 32,
+            default => 48,
+        };
+    }
+
+    private function normalizeReceiptProfile(string $paperWidth, ?string $receiptProfile): string
+    {
+        $profile = trim((string) $receiptProfile);
+
+        if ($profile !== '') {
+            return $profile;
+        }
+
+        return $paperWidth === '58mm' ? '58_small' : '80_standard';
     }
 
     private function receiptItemPrimaryLines(array $item, int $cols): array
@@ -455,6 +491,36 @@ class ReceiptLayoutService
             $rightValue = $index === 0 ? $total : '';
             $space = max(1, $cols - strlen($leftPrefix) - strlen($nameLine) - strlen($rightValue));
             $lines[] = $leftPrefix.' '.$nameLine.str_repeat(' ', max(0, $space - 1)).$rightValue;
+        }
+
+        return $lines;
+    }
+
+    private function receiptMetaLines(string $label, string $value, int $cols): array
+    {
+        if ($cols >= 48) {
+            return $this->twoColumnLines($label, $value, $cols);
+        }
+
+        $label = $this->sanitizeReceiptContent($label);
+        $value = $this->sanitizeReceiptContent($value);
+
+        if ($label === '') {
+            return $this->wrapText($value, $cols);
+        }
+
+        if ($value === '') {
+            return $this->wrapText($label, $cols);
+        }
+
+        $inline = $this->twoColumnLines($label, $value, $cols);
+        if (count($inline) === 1) {
+            return $inline;
+        }
+
+        $lines = $this->wrapText($label, $cols);
+        foreach ($this->wrapText($value, $cols) as $index => $line) {
+            $lines[] = $index === 0 ? str_pad($line, $cols, ' ', STR_PAD_LEFT) : $line;
         }
 
         return $lines;

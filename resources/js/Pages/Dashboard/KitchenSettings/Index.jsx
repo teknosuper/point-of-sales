@@ -23,6 +23,7 @@ const defaultDevice = {
     connection_driver: "browser",
     endpoint: "",
     print_profile: "browser_manual",
+    receipt_profile: "80_standard",
     dispatch_mode: "manual",
     fallback_device_id: "",
     rawbt_intent_url: "",
@@ -52,7 +53,7 @@ const printProfileDescriptions = {
     local_bridge: "Laravel queue dan printer agent lokal yang mengeksekusi cetak.",
 };
 
-export default function Index({ stations = [], filters = {}, outlets = [], outletUsers = {}, printProfiles = {}, setupStatus = {}, ui = {}, recentPrintJobs = [], operationalSettings = {} }) {
+export default function Index({ stations = [], filters = {}, outlets = [], outletUsers = {}, printProfiles = {}, receiptProfiles = {}, setupStatus = {}, ui = {}, recentPrintJobs = [], operationalSettings = {} }) {
     const { flash, auth, activeOutlet } = usePage().props;
     const isKitchenWorkspace = auth?.user?.preferred_workspace === "kitchen";
     const [selectedOutlet, setSelectedOutlet] = useState(filters?.outlet_id || "");
@@ -214,6 +215,11 @@ export default function Index({ stations = [], filters = {}, outlets = [], outle
             connection_driver: device.connection_driver || "browser",
             endpoint: device.endpoint || "",
             print_profile: device.meta?.print_profile || "browser_manual",
+            receipt_profile:
+                device.meta?.receipt_profile ||
+                (device.meta?.paper_width === "58mm"
+                    ? "58_small"
+                    : "80_standard"),
             dispatch_mode: device.meta?.dispatch_mode || "manual",
             fallback_device_id: device.meta?.fallback_device_id ? String(device.meta.fallback_device_id) : "",
             rawbt_intent_url: device.meta?.rawbt_intent_url || "",
@@ -1013,6 +1019,17 @@ export default function Index({ stations = [], filters = {}, outlets = [], outle
                                     <option value="80mm">80mm</option>
                                 </select>
                                 <select
+                                    value={editingDevice?.stationId === station.id ? deviceForm.data.receipt_profile : "80_standard"}
+                                    onChange={(event) => deviceForm.setData("receipt_profile", event.target.value)}
+                                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
+                                >
+                                    {Object.entries(receiptProfiles).map(([value, label]) => (
+                                        <option key={value} value={value}>
+                                            {label}
+                                        </option>
+                                    ))}
+                                </select>
+                                <select
                                     value={editingDevice?.stationId === station.id ? deviceForm.data.template_style : "standard"}
                                     onChange={(event) => deviceForm.setData("template_style", event.target.value)}
                                     className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
@@ -1139,6 +1156,7 @@ export default function Index({ stations = [], filters = {}, outlets = [], outle
                                             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                                                 {printProfiles[device.meta?.print_profile || "browser_manual"] || "Browser Manual"} •{" "}
                                                 {device.meta?.paper_width || "80mm"} •{" "}
+                                                {(receiptProfiles[device.meta?.receipt_profile || (device.meta?.paper_width === "58mm" ? "58_small" : "80_standard")] || "80mm Standard")} •{" "}
                                                 {device.meta?.template_style || "standard"} •{" "}
                                                 {device.meta?.print_copies || 1} copy
                                             </p>

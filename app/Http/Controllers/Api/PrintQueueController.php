@@ -207,6 +207,7 @@ class PrintQueueController extends Controller
             ? (int) ($transaction->cash ?? 0)
             : max((int) ($transaction->cash ?? 0), $grandTotal);
         $paperWidth = data_get($job->payload, 'paper_width');
+        $receiptProfile = data_get($job->payload, 'receipt_profile');
         $layout = $transaction
             ? $this->receiptLayoutService->build(
                 $transaction,
@@ -217,7 +218,8 @@ class PrintQueueController extends Controller
                     'email' => $storeProfile['email'] ?? '',
                     'website' => $storeProfile['website'] ?? '',
                 ],
-                $paperWidth === '80mm' ? '80mm' : '58mm'
+                $paperWidth === '80mm' ? '80mm' : '58mm',
+                is_string($receiptProfile) ? $receiptProfile : null
             )
             : null;
 
@@ -228,6 +230,7 @@ class PrintQueueController extends Controller
             'paper_width' => $paperWidth,
             'payload' => array_filter([
                 'paper_width' => $paperWidth,
+                'receipt_profile' => $receiptProfile,
                 'raw_base64' => $layout ? $this->receiptLayoutService->encodeEscPosPayload($layout) : null,
             ]),
             'store' => [

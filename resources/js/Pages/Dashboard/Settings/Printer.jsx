@@ -1,4 +1,4 @@
-import { Head } from "@inertiajs/react";
+import { Head, useForm } from "@inertiajs/react";
 import React, { useState } from "react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import toast from "react-hot-toast";
@@ -12,6 +12,76 @@ import {
     IconDevices,
     IconInfoCircle,
 } from "@/Utils/icons";
+
+function CashierReceiptCard({ receipt = null, receiptProfiles = {} }) {
+    const form = useForm({
+        receipt_profile: receipt?.receipt_profile || "80_standard",
+        paper_width: receipt?.paper_width || "80mm",
+    });
+
+    const submit = (event) => {
+        event.preventDefault();
+        form.put(route("settings.printer.cashier-receipt"), {
+            preserveScroll: true,
+            onSuccess: () => toast.success("Pengaturan struk kasir diperbarui"),
+            onError: () => toast.error("Gagal memperbarui pengaturan struk kasir"),
+        });
+    };
+
+    return (
+        <form
+            onSubmit={submit}
+            className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900"
+        >
+            <div className="mb-4">
+                <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                    Profile Struk Kasir
+                </p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Pengaturan ini khusus untuk print client kasir, terpisah dari printer dapur.
+                </p>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+                <label className="space-y-1">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                        Lebar Kertas
+                    </span>
+                    <select
+                        value={form.data.paper_width}
+                        onChange={(event) => form.setData("paper_width", event.target.value)}
+                        className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
+                    >
+                        <option value="58mm">58mm</option>
+                        <option value="80mm">80mm</option>
+                    </select>
+                </label>
+                <label className="space-y-1">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                        Profile Receipt
+                    </span>
+                    <select
+                        value={form.data.receipt_profile}
+                        onChange={(event) => form.setData("receipt_profile", event.target.value)}
+                        className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
+                    >
+                        {Object.entries(receiptProfiles).map(([value, label]) => (
+                            <option key={value} value={value}>
+                                {label}
+                            </option>
+                        ))}
+                    </select>
+                </label>
+            </div>
+            <button
+                type="submit"
+                disabled={form.processing}
+                className="mt-4 inline-flex h-11 items-center justify-center rounded-xl bg-primary-600 px-4 text-sm font-semibold text-white disabled:opacity-50"
+            >
+                {form.processing ? "Menyimpan..." : "Simpan Profile"}
+            </button>
+        </form>
+    );
+}
 
 function CopyButton({ text, label = "Copy" }) {
     const [copied, setCopied] = useState(false);
@@ -70,7 +140,14 @@ function UrlCard({ icon, label, description, url }) {
     );
 }
 
-export default function Printer({ queueUrls = {}, stationUrls = [], deviceUrls = [], config = {} }) {
+export default function Printer({
+    queueUrls = {},
+    stationUrls = [],
+    deviceUrls = [],
+    cashierReceipt = null,
+    receiptProfiles = {},
+    config = {},
+}) {
     return (
         <>
             <Head title="Pengaturan Printer" />
@@ -176,6 +253,19 @@ export default function Printer({ queueUrls = {}, stationUrls = [], deviceUrls =
                 </div>
 
                 {/* Main Queue URLs */}
+                <div>
+                    <h2 className="mb-3 text-lg font-semibold text-slate-900 dark:text-white">
+                        Profile Struk Kasir
+                    </h2>
+                    <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">
+                        Atur ukuran dan profile struk kasir di sini. Pengaturan ini tidak mengambil printer dapur.
+                    </p>
+                    <CashierReceiptCard
+                        receipt={cashierReceipt}
+                        receiptProfiles={receiptProfiles}
+                    />
+                </div>
+
                 <div>
                     <h2 className="mb-3 text-lg font-semibold text-slate-900 dark:text-white">URL Antrian Utama</h2>
                     <div className="grid gap-3 lg:grid-cols-2">
