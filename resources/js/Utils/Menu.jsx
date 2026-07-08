@@ -155,6 +155,13 @@ export default function Menu() {
                     ["transactions-history-access"]
                 ),
                 menuItem(
+                    "Kritik & Saran",
+                    route("transaction-feedback.index"),
+                    url.startsWith("/dashboard/transaction-feedback"),
+                    <IconBell size={20} strokeWidth={1.5} />,
+                    ["transactions-history-access"]
+                ),
+                menuItem(
                     "Setoran",
                     route("cashier-settlements.index"),
                     url.startsWith("/dashboard/cashier-settlements"),

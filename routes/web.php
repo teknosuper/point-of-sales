@@ -28,6 +28,7 @@ use App\Http\Controllers\Apps\StockMutationController;
 use App\Http\Controllers\Apps\StockOpnameController;
 use App\Http\Controllers\Apps\SupplierReturnController;
 use App\Http\Controllers\Apps\TableOrderController;
+use App\Http\Controllers\Apps\TransactionFeedbackController;
 use App\Http\Controllers\Apps\TransactionController;
 use App\Http\Controllers\Apps\WaiterBoardController;
 use App\Http\Controllers\Apps\WorkspaceSalesController;
@@ -371,6 +372,7 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
     Route::get('/transactions/{invoice}/print', [TransactionController::class, 'print'])->middleware('permission:transactions-history-access')->name('transactions.print');
     Route::get('/transactions/history-feed', [TransactionController::class, 'historyFeed'])->middleware('permission:transactions-history-access')->name('transactions.history-feed');
     Route::get('/transactions/history', [TransactionController::class, 'history'])->middleware('permission:transactions-history-access')->name('transactions.history');
+    Route::get('/transaction-feedback', [TransactionFeedbackController::class, 'index'])->middleware('permission:transactions-history-access')->name('transaction-feedback.index');
     Route::get('/kitchen', [KitchenDisplayController::class, 'index'])->middleware('permission:kitchen-access')->name('kitchen.index');
     Route::get('/kitchen/{stationSlug}', [KitchenDisplayController::class, 'show'])->middleware('permission:kitchen-access')->name('kitchen.show');
     Route::get('/kitchen/{stationSlug}/feed', [KitchenDisplayController::class, 'feed'])->middleware('permission:kitchen-access')->name('kitchen.feed');
