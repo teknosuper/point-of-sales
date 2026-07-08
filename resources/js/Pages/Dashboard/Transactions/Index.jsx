@@ -20,9 +20,6 @@ import NumpadModal from "@/Components/POS/NumpadModal";
 import HeldTransactions, {
     HoldButton,
 } from "@/Components/POS/HeldTransactions";
-import ThermalReceipt, {
-    ThermalReceipt58mm,
-} from "@/Components/Receipt/ThermalReceipt";
 import useBarcodeScanner from "@/Hooks/useBarcodeScanner";
 import {
     buildLocalPricingPreview,
@@ -9502,36 +9499,26 @@ export default function Index({
                                 </button>
                             </div>
                             <div className="flex-1 overflow-y-auto px-4 py-4">
-                                <div className="mx-auto rounded-lg bg-white px-3 py-4 shadow-inner ring-1 ring-slate-200">
-                                    <ThermalReceipt
-                                        transaction={{
-                                            invoice:
-                                                selectedHistoryTransaction.invoice,
-                                            created_at:
-                                                selectedHistoryTransaction.created_at,
-                                            order_type:
-                                                selectedHistoryTransaction.order_type,
-                                            cashier:
-                                                selectedHistoryTransaction.cashier,
-                                            customer:
-                                                selectedHistoryTransaction.customer,
-                                            grand_total:
-                                                selectedHistoryTransaction.grand_total,
-                                            cash: selectedHistoryTransaction.cash,
-                                            change:
-                                                selectedHistoryTransaction.change,
-                                            payment_method:
-                                                selectedHistoryTransaction.payment_method,
-                                            dining_table:
-                                                selectedHistoryTransaction.table,
-                                            details:
-                                                selectedHistoryTransaction.details ||
-                                                [],
-                                        }}
-                                        layout={
-                                            selectedHistoryTransaction.receiptLayout
-                                        }
-                                    />
+                                <div className="mx-auto rounded-lg bg-white px-4 py-4 shadow-inner ring-1 ring-slate-200">
+                                    <pre className="overflow-x-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-tight text-black">
+                                        {(selectedHistoryTransaction.receiptPreview?.lines ||
+                                            []
+                                        ).join("\n")}
+                                    </pre>
+                                    {selectedHistoryTransaction.receiptLayout
+                                        ?.feedback?.qr_url ? (
+                                        <div className="mt-4 flex flex-col items-center gap-2">
+                                            <img
+                                                src={
+                                                    selectedHistoryTransaction
+                                                        .receiptLayout.feedback
+                                                        .qr_url
+                                                }
+                                                alt="QR kritik dan saran"
+                                                className="h-32 w-32"
+                                            />
+                                        </div>
+                                    ) : null}
                                 </div>
                             </div>
                             <div className="border-t border-slate-200 bg-slate-50 px-5 py-4 dark:border-slate-800 dark:bg-slate-900/80">
@@ -9568,34 +9555,25 @@ export default function Index({
                         </div>
                         <div className="flex-1 overflow-y-auto px-4 py-4">
                             <div className="mx-auto max-w-[280px] rounded-lg bg-white px-3 py-4 shadow-inner ring-1 ring-slate-200">
-                                <ThermalReceipt58mm
-                                    transaction={{
-                                        invoice:
-                                            selectedHistoryTransaction.invoice,
-                                        created_at:
-                                            selectedHistoryTransaction.created_at,
-                                        order_type:
-                                            selectedHistoryTransaction.order_type,
-                                        cashier:
-                                            selectedHistoryTransaction.cashier,
-                                        customer:
-                                            selectedHistoryTransaction.customer,
-                                        grand_total:
-                                            selectedHistoryTransaction.grand_total,
-                                        cash: selectedHistoryTransaction.cash,
-                                        change: selectedHistoryTransaction.change,
-                                        payment_method:
-                                            selectedHistoryTransaction.payment_method,
-                                        dining_table:
-                                            selectedHistoryTransaction.table,
-                                        details:
-                                            selectedHistoryTransaction.details ||
-                                            [],
-                                    }}
-                                    layout={
-                                        selectedHistoryTransaction.receiptLayout
-                                    }
-                                />
+                                <pre className="overflow-x-auto whitespace-pre-wrap break-words font-mono text-[10px] leading-tight text-black">
+                                    {(selectedHistoryTransaction.receiptPreview?.lines ||
+                                        []
+                                    ).join("\n")}
+                                </pre>
+                                {selectedHistoryTransaction.receiptLayout
+                                    ?.feedback?.qr_url ? (
+                                    <div className="mt-3 flex flex-col items-center gap-2">
+                                        <img
+                                            src={
+                                                selectedHistoryTransaction
+                                                    .receiptLayout.feedback
+                                                    .qr_url
+                                            }
+                                            alt="QR kritik dan saran"
+                                            className="h-28 w-28"
+                                        />
+                                    </div>
+                                ) : null}
                             </div>
                         </div>
                         <div className="border-t border-slate-200 bg-slate-50 px-5 py-4 dark:border-slate-800 dark:bg-slate-900/80">
