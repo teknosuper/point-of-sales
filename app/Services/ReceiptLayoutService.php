@@ -115,6 +115,7 @@ class ReceiptLayoutService
     public function buildEscPosPreview(array $layout): array
     {
         $cols = $this->receiptColumns($layout);
+        $isCompact58 = $cols === 32;
         $separator = str_repeat('-', $cols);
         $store = $layout['store'] ?? [];
         $metaRows = $layout['meta_rows'] ?? [];
