@@ -126,16 +126,16 @@ class ReceiptLayoutService
         $lines = [];
 
         if (! empty($store['name'])) {
-            $lines = array_merge($lines, $this->wrapText((string) $store['name'], $cols));
+            $lines = array_merge($lines, $this->centerWrappedText((string) $store['name'], $cols));
         }
 
         $storeFields = $isCompact58
-            ? ['phone', 'email', 'website']
+            ? ['address', 'phone', 'email', 'website']
             : ['address', 'phone', 'email', 'website'];
 
         foreach ($storeFields as $field) {
             if (! empty($store[$field])) {
-                $lines = array_merge($lines, $this->wrapText((string) $store[$field], $cols));
+                $lines = array_merge($lines, $this->centerWrappedText((string) $store[$field], $cols));
             }
         }
 
@@ -200,13 +200,15 @@ class ReceiptLayoutService
 
         foreach ($footerLines as $footerLine) {
             if (! empty($footerLine)) {
-                $lines = array_merge($lines, $this->wrapText((string) $footerLine, $cols));
+                $lines = array_merge($lines, $this->centerWrappedText((string) $footerLine, $cols));
             }
         }
 
         if (! empty($layout['feedback']['label'])) {
             $lines[] = '';
-            $lines = array_merge($lines, $this->wrapText((string) $layout['feedback']['label'], $cols));
+            $lines[] = '';
+            $lines = array_merge($lines, $this->centerWrappedText((string) $layout['feedback']['label'], $cols));
+            $lines[] = '';
         }
 
         return [
@@ -231,8 +233,11 @@ class ReceiptLayoutService
         }
 
         if (! empty($layout['feedback']['url'])) {
+            $chunks[] = "\n";
             $chunks[] = "\x1B\x61\x01";
             $this->appendEscPosQrCode($chunks, (string) $layout['feedback']['url']);
+            $chunks[] = "\n";
+            $chunks[] = "\x1B\x61\x00";
         }
 
         $chunks[] = "\n\n\n";
@@ -328,8 +333,8 @@ class ReceiptLayoutService
         $pH = intdiv($length, 256);
 
         $chunks[] = "\x1D\x28\x6B\x04\x00\x31\x41\x32\x00";
-        $chunks[] = "\x1D\x28\x6B\x03\x00\x31\x43\x08";
-        $chunks[] = "\x1D\x28\x6B\x03\x00\x31\x45\x31";
+        $chunks[] = "\x1D\x28\x6B\x03\x00\x31\x43\x0A";
+        $chunks[] = "\x1D\x28\x6B\x03\x00\x31\x45\x33";
         $chunks[] = "\x1D\x28\x6B".chr($pL).chr($pH)."\x31\x50\x30".$sanitized;
         $chunks[] = "\x1D\x28\x6B\x03\x00\x31\x51\x30";
     }
@@ -373,6 +378,14 @@ class ReceiptLayoutService
         return array_map(
             fn ($line) => $prefix.$line,
             $this->wrapText($text, max(1, $width - strlen($prefix)))
+        );
+    }
+
+    private function centerWrappedText(string $text, int $width): array
+    {
+        return array_map(
+            fn ($line) => $this->centerText($line, $width),
+            $this->wrapText($text, $width)
         );
     }
 
@@ -452,7 +465,13 @@ class ReceiptLayoutService
 
     private function receiptItemsHeaderLine(int $cols): string
     {
-        return $cols >= 48 ? 'Qty Item                                Total' : 'Qt Item                Total';
+        [$qtyWidth, $nameWidth, $totalWidth] = $this->receiptItemColumnWidths($cols);
+
+        return str_pad('Qty', $qtyWidth)
+            .' '
+            .$this->centerText('Item', $nameWidth)
+            .' '
+            .str_pad('Total', $totalWidth, ' ', STR_PAD_LEFT);
     }
 
     private function receiptColumns(array $layout): int
@@ -483,20 +502,40 @@ class ReceiptLayoutService
         $qty = (string) ($item['qty'] ?? '1x');
         $name = (string) ($item['name'] ?? 'Item');
         $total = (string) ($item['line_total_label'] ?? $item['detail_right'] ?? '0');
-        $rightWidth = $cols >= 48 ? 12 : 8;
-        $qtyWidth = $cols >= 48 ? 4 : 2;
-        $nameWidth = max(1, $cols - $qtyWidth - $rightWidth - 2);
+        [$qtyWidth, $nameWidth, $totalWidth] = $this->receiptItemColumnWidths($cols);
         $nameLines = $this->wrapText($name, $nameWidth);
         $lines = [];
 
         foreach ($nameLines as $index => $nameLine) {
-            $leftPrefix = $index === 0 ? str_pad($qty, $qtyWidth) : str_repeat(' ', $qtyWidth);
+            $leftPrefix = $index === 0 ? str_pad(substr($qty, 0, $qtyWidth), $qtyWidth) : str_repeat(' ', $qtyWidth);
             $rightValue = $index === 0 ? $total : '';
-            $space = max(1, $cols - strlen($leftPrefix) - strlen($nameLine) - strlen($rightValue));
-            $lines[] = $leftPrefix.' '.$nameLine.str_repeat(' ', max(0, $space - 1)).$rightValue;
+            $lines[] = $leftPrefix
+                .' '
+                .str_pad(substr($nameLine, 0, $nameWidth), $nameWidth)
+                .' '
+                .str_pad(substr($rightValue, 0, $totalWidth), $totalWidth, ' ', STR_PAD_LEFT);
         }
 
         return $lines;
+    }
+
+    private function receiptItemColumnWidths(int $cols): array
+    {
+        $qtyWidth = $cols >= 48 ? 4 : 3;
+        $totalWidth = $cols >= 48 ? 12 : 9;
+        $nameWidth = max(1, $cols - $qtyWidth - $totalWidth - 2);
+
+        return [$qtyWidth, $nameWidth, $totalWidth];
+    }
+
+    private function centerText(string $text, int $width): string
+    {
+        $text = substr($text, 0, max(0, $width));
+        $padding = max(0, $width - strlen($text));
+        $left = intdiv($padding, 2);
+        $right = $padding - $left;
+
+        return str_repeat(' ', $left).$text.str_repeat(' ', $right);
     }
 
     private function receiptMetaLines(string $label, string $value, int $cols): array
