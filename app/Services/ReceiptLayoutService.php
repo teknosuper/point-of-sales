@@ -232,13 +232,14 @@ class ReceiptLayoutService
         }
 
         if (! empty($layout['feedback']['url'])) {
+            $chunks[] = "\n";
             $chunks[] = "\x1B\x61\x01";
-            foreach ($this->buildEscPosBitImageQrCode(
+            $this->appendEscPosQrCode(
+                $chunks,
                 (string) $layout['feedback']['url'],
                 (string) ($layout['paper_width'] ?? '58mm')
-            ) as $byteChunk) {
-                $chunks[] = $byteChunk;
-            }
+            );
+            $chunks[] = "\n";
             $chunks[] = "\x1B\x61\x00";
         }
 
@@ -324,66 +325,31 @@ class ReceiptLayoutService
 
     private function feedbackQrUrl(string $url): string
     {
-        return 'https://api.qrserver.com/v1/create-qr-code/?size=512x512&margin=4&data='.urlencode($url);
+        return 'https://api.qrserver.com/v1/create-qr-code/?size=320x320&margin=8&data='.urlencode($url);
     }
 
-    private function buildEscPosBitImageQrCode(string $url, string $paperWidth = '58mm'): array
+    private function appendEscPosQrCode(array &$chunks, string $data, string $paperWidth = '58mm'): void
     {
-        $pngData = $this->generateQrPng($url, $paperWidth);
-        $image = imagecreatefromstring($pngData);
+        $sanitized = $this->sanitizeReceiptContent($data);
+        $length = strlen($sanitized) + 3;
+        $pL = $length % 256;
+        $pH = intdiv($length, 256);
+        [$moduleSize, $errorCorrection] = $this->qrPrinterProfile($paperWidth);
 
-        if ($image === false) {
-            return [];
-        }
-
-        $width = imagesx($image);
-        $height = imagesy($image);
-        $widthBytes = (int) ceil($width / 8);
-        $stripeHeight = 24;
-        $chunks = ["\n"];
-
-        for ($y = 0; $y < $height; $y += $stripeHeight) {
-            $chunks[] = "\x1B\x2A\x21".chr($widthBytes % 256).chr(intdiv($widthBytes, 256));
-
-            for ($xb = 0; $xb < $widthBytes; $xb++) {
-                for ($slice = 0; $slice < 3; $slice++) {
-                    $byte = 0;
-
-                    for ($bit = 0; $bit < 8; $bit++) {
-                        $x = $xb * 8 + $bit;
-                        $yy = $y + ($slice * 8) + $bit;
-
-                        if ($x >= $width || $yy >= $height) {
-                            continue;
-                        }
-
-                        $colorIndex = imagecolorat($image, $x, $yy);
-                        $rgba = imagecolorsforindex($image, $colorIndex);
-                        $luminance = ($rgba['red'] * 0.299) + ($rgba['green'] * 0.587) + ($rgba['blue'] * 0.114);
-
-                        if ($rgba['alpha'] < 127 && $luminance < 220) {
-                            $byte |= (0x80 >> $bit);
-                        }
-                    }
-
-                    $chunks[] = chr($byte);
-                }
-            }
-
-            $chunks[] = "\n";
-        }
-
-        imagedestroy($image);
-
-        return [...$chunks, "\n"];
+        $chunks[] = "\x1D\x28\x6B\x04\x00\x31\x41\x32\x00";
+        $chunks[] = "\x1D\x28\x6B\x03\x00\x31\x43".chr($moduleSize);
+        $chunks[] = "\x1D\x28\x6B\x03\x00\x31\x45".chr($errorCorrection);
+        $chunks[] = "\x1D\x28\x6B".chr($pL).chr($pH)."\x31\x50\x30".$sanitized;
+        $chunks[] = "\x1D\x28\x6B\x03\x00\x31\x51\x30";
     }
 
-    private function generateQrPng(string $url, string $paperWidth = '58mm'): string
+    private function qrPrinterProfile(string $paperWidth): array
     {
-        $size = $paperWidth === '80mm' ? 768 : 512;
-        $qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size='.$size.'x'.$size.'&margin=4&data='.urlencode($url);
+        if ($paperWidth === '80mm') {
+            return [6, 49];
+        }
 
-        return (string) file_get_contents($qrUrl);
+        return [5, 49];
     }
 
     private function compactMoney(int $value): string
