@@ -307,15 +307,6 @@
                 }
             }
 
-            if (job.type === 'receipt' && job?.payload?.qr_image_url) {
-                const qrBytes = await buildQrImageBytes(job, runtimeConfig);
-                if (qrBytes.length > 0) {
-                    const cutBytes = byteArray.slice(-4);
-                    const bodyBytes = byteArray.slice(0, -4);
-                    byteArray = [...bodyBytes, ...qrBytes, ...cutBytes];
-                }
-            }
-
             const payload = {
                 type: "ENCODED_POST_DATA",
                 bytes: byteArray,

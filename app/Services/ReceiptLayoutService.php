@@ -2,6 +2,11 @@
 
 namespace App\Services;
 
+use BaconQrCode\Renderer\Image\ImagickImageBackEnd;
+use BaconQrCode\Renderer\ImageRenderer;
+use BaconQrCode\Renderer\RendererStyle\RendererStyle;
+use BaconQrCode\Writer;
+
 class ReceiptLayoutService
 {
     public function build(
@@ -231,6 +236,17 @@ class ReceiptLayoutService
             $this->appendEncodedLine($chunks, (string) $line);
         }
 
+        if (! empty($layout['feedback']['url'])) {
+            $chunks[] = "\x1B\x61\x01";
+            foreach ($this->buildEscPosBitImageQrCode(
+                (string) $layout['feedback']['url'],
+                (string) ($layout['paper_width'] ?? '58mm')
+            ) as $byteChunk) {
+                $chunks[] = $byteChunk;
+            }
+            $chunks[] = "\x1B\x61\x00";
+        }
+
         $chunks[] = "\n\n\n";
         $chunks[] = "\x1D\x56\x00";
 
@@ -314,6 +330,68 @@ class ReceiptLayoutService
     private function feedbackQrUrl(string $url): string
     {
         return 'https://api.qrserver.com/v1/create-qr-code/?size=512x512&margin=4&data='.urlencode($url);
+    }
+
+    private function buildEscPosBitImageQrCode(string $url, string $paperWidth = '58mm'): array
+    {
+        $pngData = $this->generateQrPng($url, $paperWidth);
+        $image = imagecreatefromstring($pngData);
+
+        if ($image === false) {
+            return [];
+        }
+
+        $width = imagesx($image);
+        $height = imagesy($image);
+        $widthBytes = (int) ceil($width / 8);
+        $stripeHeight = 24;
+        $chunks = ["\n"];
+
+        for ($y = 0; $y < $height; $y += $stripeHeight) {
+            $chunks[] = "\x1B\x2A\x21".chr($widthBytes % 256).chr(intdiv($widthBytes, 256));
+
+            for ($xb = 0; $xb < $widthBytes; $xb++) {
+                for ($slice = 0; $slice < 3; $slice++) {
+                    $byte = 0;
+
+                    for ($bit = 0; $bit < 8; $bit++) {
+                        $x = $xb * 8 + $bit;
+                        $yy = $y + ($slice * 8) + $bit;
+
+                        if ($x >= $width || $yy >= $height) {
+                            continue;
+                        }
+
+                        $colorIndex = imagecolorat($image, $x, $yy);
+                        $rgba = imagecolorsforindex($image, $colorIndex);
+                        $luminance = ($rgba['red'] * 0.299) + ($rgba['green'] * 0.587) + ($rgba['blue'] * 0.114);
+
+                        if ($rgba['alpha'] < 127 && $luminance < 220) {
+                            $byte |= (0x80 >> $bit);
+                        }
+                    }
+
+                    $chunks[] = chr($byte);
+                }
+            }
+
+            $chunks[] = "\n";
+        }
+
+        imagedestroy($image);
+
+        return [...$chunks, "\n"];
+    }
+
+    private function generateQrPng(string $url, string $paperWidth = '58mm'): string
+    {
+        $size = $paperWidth === '80mm' ? 384 : 256;
+        $renderer = new ImageRenderer(
+            new RendererStyle($size, 4),
+            new ImagickImageBackEnd('png', 100)
+        );
+
+        return (new Writer($renderer))->writeString($url);
     }
 
     private function compactMoney(int $value): string
