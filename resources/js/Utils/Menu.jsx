@@ -159,7 +159,7 @@ export default function Menu() {
                     route("transaction-feedback.index"),
                     url.startsWith("/dashboard/transaction-feedback"),
                     <IconBell size={20} strokeWidth={1.5} />,
-                    ["transactions-history-access"]
+                    ["reports-access"]
                 ),
                 menuItem(
                     "Setoran",

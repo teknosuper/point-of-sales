@@ -5,10 +5,10 @@ import {
     IconAlertTriangle,
     IconBell,
     IconChevronDown,
-    IconChevronUp,
     IconFileSearch,
     IconMedal,
     IconSearch,
+    IconX,
 } from "@/Utils/icons";
 
 const formatDateTime = (value) =>
@@ -67,6 +67,10 @@ export default function Index({
 }) {
     const [showFilters, setShowFilters] = useState(false);
     const isTenantWorkspace = Boolean(workspace?.is_tenant);
+    const currentPage = Number(feedbacks?.current_page || 1);
+    const totalItems = Number(feedbacks?.total || 0);
+    const fromItem = Number(feedbacks?.from || 0);
+    const toItem = Number(feedbacks?.to || 0);
 
     const updateFilters = (payload = {}) => {
         router.get(
@@ -95,14 +99,35 @@ export default function Index({
                                 : "Lihat rating, kritik, saran, dan alert item dari seluruh tenant di outlet aktif."}
                         </p>
                     </div>
-                    <button
-                        type="button"
-                        onClick={() => setShowFilters((value) => !value)}
-                        className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-600 dark:border-slate-700 dark:text-slate-300"
-                    >
-                        {showFilters ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
-                        {showFilters ? "Sembunyikan filter" : "Buka filter"}
-                    </button>
+                    <div className="flex flex-wrap items-center gap-3">
+                        <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+                            <span>Tampil</span>
+                            <select
+                                value={filters.per_page || 10}
+                                onChange={(event) =>
+                                    updateFilters({
+                                        per_page: event.target.value,
+                                        page: 1,
+                                    })
+                                }
+                                className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-900"
+                            >
+                                {[10, 25, 50].map((size) => (
+                                    <option key={size} value={size}>
+                                        {size}
+                                    </option>
+                                ))}
+                            </select>
+                        </label>
+                        <button
+                            type="button"
+                            onClick={() => setShowFilters(true)}
+                            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                        >
+                            <IconChevronDown size={16} />
+                            Advanced Filter
+                        </button>
+                    </div>
                 </div>
 
                 {workspace?.active_outlet?.name ? (
@@ -117,82 +142,6 @@ export default function Index({
                     <SummaryCard title="Pesan Masuk" value={summary.with_message_count || 0} icon={<IconBell size={18} />} />
                     <SummaryCard title="Alert Belum Diterima" value={summary.not_received_count || 0} icon={<IconAlertTriangle size={18} />} />
                 </div>
-
-                {showFilters ? (
-                    <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-                        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-                            <label className="space-y-1 xl:col-span-2">
-                                <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                                    Cari
-                                </span>
-                                <div className="flex items-center rounded-xl border border-slate-200 bg-slate-50 px-3 dark:border-slate-700 dark:bg-slate-800">
-                                    <IconSearch size={16} className="text-slate-400" />
-                                    <input
-                                        type="text"
-                                        defaultValue={filters.q || ""}
-                                        onKeyDown={(event) => {
-                                            if (event.key === "Enter") {
-                                                updateFilters({ q: event.currentTarget.value, page: 1 });
-                                            }
-                                        }}
-                                        placeholder="Invoice, produk, tenant, pelanggan, pesan"
-                                        className="h-11 w-full bg-transparent px-2 text-sm text-slate-700 outline-none dark:text-slate-200"
-                                    />
-                                </div>
-                            </label>
-                            {!isTenantWorkspace ? (
-                                <label className="space-y-1">
-                                    <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                                        Tenant
-                                    </span>
-                                    <select
-                                        value={filters.tenant_outlet_id || ""}
-                                        onChange={(event) => updateFilters({ tenant_outlet_id: event.target.value, page: 1 })}
-                                        className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm dark:border-slate-700 dark:bg-slate-800"
-                                    >
-                                        <option value="">Semua tenant</option>
-                                        {tenantOptions.map((tenant) => (
-                                            <option key={tenant.id} value={tenant.id}>
-                                                {tenant.name}
-                                            </option>
-                                        ))}
-                                    </select>
-                                </label>
-                            ) : null}
-                            <label className="space-y-1">
-                                <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                                    Rating
-                                </span>
-                                <select
-                                    value={filters.rating || ""}
-                                    onChange={(event) => updateFilters({ rating: event.target.value, page: 1 })}
-                                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm dark:border-slate-700 dark:bg-slate-800"
-                                >
-                                    <option value="">Semua rating</option>
-                                    {[5, 4, 3, 2, 1].map((rating) => (
-                                        <option key={rating} value={rating}>
-                                            {rating} bintang
-                                        </option>
-                                    ))}
-                                </select>
-                            </label>
-                            <label className="space-y-1">
-                                <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                                    Status
-                                </span>
-                                <select
-                                    value={filters.delivery_status || ""}
-                                    onChange={(event) => updateFilters({ delivery_status: event.target.value, page: 1 })}
-                                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm dark:border-slate-700 dark:bg-slate-800"
-                                >
-                                    <option value="">Semua status</option>
-                                    <option value="received">Diterima</option>
-                                    <option value="not_received">Belum diterima</option>
-                                </select>
-                            </label>
-                        </div>
-                    </div>
-                ) : null}
 
                 <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
                     <div className="hidden overflow-x-auto lg:block">
@@ -286,7 +235,13 @@ export default function Index({
                     ) : null}
                 </div>
 
-                {feedbacks.links?.length > 3 ? (
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="text-sm text-slate-500 dark:text-slate-400">
+                        {totalItems > 0
+                            ? `Menampilkan ${fromItem}-${toItem} dari ${totalItems} feedback • Halaman ${currentPage}`
+                            : "Belum ada data feedback"}
+                    </div>
+                    {feedbacks.links?.length > 3 ? (
                     <div className="flex flex-wrap items-center gap-2">
                         {feedbacks.links.map((link, index) => (
                             <button
@@ -303,8 +258,154 @@ export default function Index({
                             />
                         ))}
                     </div>
-                ) : null}
+                    ) : null}
+                </div>
             </div>
+
+            {showFilters ? (
+                <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
+                    <div
+                        className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm"
+                        onClick={() => setShowFilters(false)}
+                    />
+                    <div className="relative z-10 w-full max-w-3xl rounded-3xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-800 dark:bg-slate-900">
+                        <div className="mb-5 flex items-start justify-between gap-4">
+                            <div>
+                                <h2 className="text-lg font-bold text-slate-900 dark:text-white">
+                                    Advanced Filter
+                                </h2>
+                                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                    Saring feedback berdasarkan tenant, rating, status, dan kata kunci.
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setShowFilters(false)}
+                                className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-300"
+                            >
+                                <IconX size={18} />
+                            </button>
+                        </div>
+
+                        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+                            <label className="space-y-1 xl:col-span-2">
+                                <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                                    Cari
+                                </span>
+                                <div className="flex items-center rounded-xl border border-slate-200 bg-slate-50 px-3 dark:border-slate-700 dark:bg-slate-800">
+                                    <IconSearch size={16} className="text-slate-400" />
+                                    <input
+                                        type="text"
+                                        defaultValue={filters.q || ""}
+                                        onKeyDown={(event) => {
+                                            if (event.key === "Enter") {
+                                                updateFilters({
+                                                    q: event.currentTarget.value,
+                                                    page: 1,
+                                                });
+                                                setShowFilters(false);
+                                            }
+                                        }}
+                                        placeholder="Invoice, produk, tenant, pelanggan, pesan"
+                                        className="h-11 w-full bg-transparent px-2 text-sm text-slate-700 outline-none dark:text-slate-200"
+                                    />
+                                </div>
+                            </label>
+                            {!isTenantWorkspace ? (
+                                <label className="space-y-1">
+                                    <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                                        Tenant
+                                    </span>
+                                    <select
+                                        value={filters.tenant_outlet_id || ""}
+                                        onChange={(event) =>
+                                            updateFilters({
+                                                tenant_outlet_id: event.target.value,
+                                                page: 1,
+                                            })
+                                        }
+                                        className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm dark:border-slate-700 dark:bg-slate-800"
+                                    >
+                                        <option value="">Semua tenant</option>
+                                        {tenantOptions.map((tenant) => (
+                                            <option key={tenant.id} value={tenant.id}>
+                                                {tenant.name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </label>
+                            ) : null}
+                            <label className="space-y-1">
+                                <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                                    Rating
+                                </span>
+                                <select
+                                    value={filters.rating || ""}
+                                    onChange={(event) =>
+                                        updateFilters({
+                                            rating: event.target.value,
+                                            page: 1,
+                                        })
+                                    }
+                                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm dark:border-slate-700 dark:bg-slate-800"
+                                >
+                                    <option value="">Semua rating</option>
+                                    {[5, 4, 3, 2, 1].map((rating) => (
+                                        <option key={rating} value={rating}>
+                                            {rating} bintang
+                                        </option>
+                                    ))}
+                                </select>
+                            </label>
+                            <label className="space-y-1">
+                                <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                                    Status
+                                </span>
+                                <select
+                                    value={filters.delivery_status || ""}
+                                    onChange={(event) =>
+                                        updateFilters({
+                                            delivery_status: event.target.value,
+                                            page: 1,
+                                        })
+                                    }
+                                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm dark:border-slate-700 dark:bg-slate-800"
+                                >
+                                    <option value="">Semua status</option>
+                                    <option value="received">Diterima</option>
+                                    <option value="not_received">Belum diterima</option>
+                                </select>
+                            </label>
+                        </div>
+
+                        <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    updateFilters({
+                                        q: "",
+                                        rating: "",
+                                        delivery_status: "",
+                                        tenant_outlet_id: "",
+                                        page: 1,
+                                    });
+                                    setShowFilters(false);
+                                }}
+                                className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                            >
+                                Reset Filter
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setShowFilters(false)}
+                                className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white"
+                            >
+                                Tutup
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            ) : null}
         </>
     );
 }
