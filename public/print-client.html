@@ -388,7 +388,7 @@
 
         const image = await loadImage(qrImageUrl);
         const canvas = document.createElement('canvas');
-        const targetWidth = Number(config?.paperWidth || 32) >= 48 ? 320 : 224;
+        const targetWidth = Number(config?.paperWidth || 32) >= 48 ? 384 : 256;
         const scale = Math.max(1, targetWidth / Math.max(1, image.width));
         const width = Math.max(8, Math.round(image.width * scale));
         const height = Math.max(8, Math.round(image.height * scale));
@@ -429,7 +429,7 @@
                         const a = rgba[offset + 3];
                         const luminance = (r * 0.299) + (g * 0.587) + (b * 0.114);
 
-                        if (a > 0 && luminance < 180) {
+                        if (a > 0 && luminance < 220) {
                             byte |= (0x80 >> bit);
                         }
                     }

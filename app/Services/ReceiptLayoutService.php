@@ -231,18 +231,6 @@ class ReceiptLayoutService
             $this->appendEncodedLine($chunks, (string) $line);
         }
 
-        if (! empty($layout['feedback']['url'])) {
-            $chunks[] = "\n";
-            $chunks[] = "\x1B\x61\x01";
-            $this->appendEscPosQrCode(
-                $chunks,
-                (string) $layout['feedback']['url'],
-                (string) ($layout['paper_width'] ?? '58mm')
-            );
-            $chunks[] = "\n";
-            $chunks[] = "\x1B\x61\x00";
-        }
-
         $chunks[] = "\n\n\n";
         $chunks[] = "\x1D\x56\x00";
 
@@ -325,31 +313,7 @@ class ReceiptLayoutService
 
     private function feedbackQrUrl(string $url): string
     {
-        return 'https://api.qrserver.com/v1/create-qr-code/?size=320x320&margin=8&data='.urlencode($url);
-    }
-
-    private function appendEscPosQrCode(array &$chunks, string $data, string $paperWidth = '58mm'): void
-    {
-        $sanitized = $this->sanitizeReceiptContent($data);
-        $length = strlen($sanitized) + 3;
-        $pL = $length % 256;
-        $pH = intdiv($length, 256);
-        [$moduleSize, $errorCorrection] = $this->qrPrinterProfile($paperWidth);
-
-        $chunks[] = "\x1D\x28\x6B\x04\x00\x31\x41\x32\x00";
-        $chunks[] = "\x1D\x28\x6B\x03\x00\x31\x43".chr($moduleSize);
-        $chunks[] = "\x1D\x28\x6B\x03\x00\x31\x45".chr($errorCorrection);
-        $chunks[] = "\x1D\x28\x6B".chr($pL).chr($pH)."\x31\x50\x30".$sanitized;
-        $chunks[] = "\x1D\x28\x6B\x03\x00\x31\x51\x30";
-    }
-
-    private function qrPrinterProfile(string $paperWidth): array
-    {
-        if ($paperWidth === '80mm') {
-            return [6, 49];
-        }
-
-        return [5, 49];
+        return 'https://api.qrserver.com/v1/create-qr-code/?size=512x512&margin=4&data='.urlencode($url);
     }
 
     private function compactMoney(int $value): string
