@@ -579,7 +579,9 @@ class ReceiptLayoutService
 
     private function sanitizeReceiptLine(string $text): string
     {
-        return rtrim($this->sanitizeReceiptContent($text));
+        $text = preg_replace('/[\x00-\x08\x0B-\x1F\x7F]/u', ' ', $text) ?? $text;
+
+        return rtrim($text);
     }
 
     private function sanitizeReceiptContent(string $text): string
