@@ -231,6 +231,8 @@ class PrintQueueController extends Controller
             'payload' => array_filter([
                 'paper_width' => $paperWidth,
                 'receipt_profile' => $receiptProfile,
+                'qr_mode_hint' => 'native_or_raster_fallback',
+                'qr_image_url' => $layout ? data_get($layout, 'feedback.qr_url') : null,
                 'raw_base64' => $layout ? $this->receiptLayoutService->encodeEscPosPayload($layout) : null,
             ]),
             'store' => [
