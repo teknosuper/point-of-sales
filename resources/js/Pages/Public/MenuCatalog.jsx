@@ -18,6 +18,7 @@ export default function MenuCatalog({
     outlet,
     store,
     storeHours,
+    supportContact,
     tenants = [],
 }) {
     const [products, setProducts] = useState([]);
@@ -383,6 +384,16 @@ export default function MenuCatalog({
                                                 Update data terbaru
                                             </button>
                                         </div>
+                                        {supportContact?.email || supportContact?.phone || supportContact?.address ? (
+                                            <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
+                                                <p className="font-semibold uppercase tracking-[0.16em] text-slate-500">
+                                                    Kontak Support
+                                                </p>
+                                                {supportContact.phone ? <p className="mt-2">No. Telepon: {supportContact.phone}</p> : null}
+                                                {supportContact.email ? <p className="mt-1">Email: {supportContact.email}</p> : null}
+                                                {supportContact.address ? <p className="mt-1">Alamat Usaha: {supportContact.address}</p> : null}
+                                            </div>
+                                        ) : null}
                                     </div>
                                 </>
                             )}

@@ -119,6 +119,15 @@ class PublicMenuController extends Controller
                 'name' => $storeName,
                 'logo' => null,
             ],
+            'supportContact' => $outlet ? [
+                'email' => $outlet->email ?? '',
+                'phone' => $outlet->phone ?? '',
+                'address' => $outlet->address ?? '',
+            ] : [
+                'email' => '',
+                'phone' => '',
+                'address' => '',
+            ],
             'tenants' => $tenants,
             'storeHours' => $storeHours,
         ]);
