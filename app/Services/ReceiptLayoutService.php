@@ -2,11 +2,6 @@
 
 namespace App\Services;
 
-use BaconQrCode\Renderer\Image\ImagickImageBackEnd;
-use BaconQrCode\Renderer\ImageRenderer;
-use BaconQrCode\Renderer\RendererStyle\RendererStyle;
-use BaconQrCode\Writer;
-
 class ReceiptLayoutService
 {
     public function build(
@@ -385,13 +380,10 @@ class ReceiptLayoutService
 
     private function generateQrPng(string $url, string $paperWidth = '58mm'): string
     {
-        $size = $paperWidth === '80mm' ? 384 : 256;
-        $renderer = new ImageRenderer(
-            new RendererStyle($size, 4),
-            new ImagickImageBackEnd('png', 100)
-        );
+        $size = $paperWidth === '80mm' ? 768 : 512;
+        $qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size='.$size.'x'.$size.'&margin=4&data='.urlencode($url);
 
-        return (new Writer($renderer))->writeString($url);
+        return (string) file_get_contents($qrUrl);
     }
 
     private function compactMoney(int $value): string
