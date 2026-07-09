@@ -127,6 +127,76 @@ const formatInertiaErrorBag = (errors, fallbackMessage) => {
     return messages.join("\n");
 };
 
+const decodeEscPosPreviewText = (rawBase64) => {
+    if (!rawBase64 || typeof window === "undefined" || typeof window.atob !== "function") {
+        return "";
+    }
+
+    try {
+        const binary = window.atob(rawBase64);
+        let output = "";
+
+        for (let index = 0; index < binary.length; index += 1) {
+            const byte = binary.charCodeAt(index);
+
+            if (byte === 0x1b) {
+                const command = binary.charCodeAt(index + 1);
+
+                if (command === 0x40 || command === 0x61 || command === 0x4d) {
+                    index += 2;
+                    continue;
+                }
+
+                index += 1;
+                continue;
+            }
+
+            if (
+                byte === 0x1d &&
+                binary.charCodeAt(index + 1) === 0x28 &&
+                binary.charCodeAt(index + 2) === 0x6b
+            ) {
+                const pL = binary.charCodeAt(index + 3) || 0;
+                const pH = binary.charCodeAt(index + 4) || 0;
+                const dataLength = pL + pH * 256;
+
+                index += 4 + dataLength;
+                continue;
+            }
+
+            if (byte === 0x1d) {
+                const command = binary.charCodeAt(index + 1);
+
+                if (command === 0x56) {
+                    break;
+                }
+
+                index += 1;
+                continue;
+            }
+
+            if (byte === 0x0a) {
+                output += "\n";
+                continue;
+            }
+
+            if (byte === 0x0d || byte === 0x09) {
+                continue;
+            }
+
+            if (byte >= 0x20 && byte <= 0x7e) {
+                output += binary[index];
+            }
+        }
+
+        return output
+            .replace(/\n{3,}/g, "\n\n")
+            .trim();
+    } catch (error) {
+        return "";
+    }
+};
+
 const resolveFreshnessMeta = (timestamp) => {
     if (!timestamp) {
         return {
@@ -1769,6 +1839,14 @@ export default function Index({
             ) ?? historyTransactions[0]
         );
     }, [historyTransactions, selectedHistoryTransactionId]);
+    const selectedHistoryThermalText = useMemo(() => {
+        return (
+            decodeEscPosPreviewText(
+                selectedHistoryTransaction?.receiptPayload?.raw_base64
+            ) ||
+            (selectedHistoryTransaction?.receiptPreview?.lines || []).join("\n")
+        );
+    }, [selectedHistoryTransaction]);
 
     useEffect(() => {
         if (unmetRewardWarnings.length === 0 && checkoutWarning) {
@@ -9501,9 +9579,7 @@ export default function Index({
                             <div className="flex-1 overflow-y-auto px-4 py-4">
                                 <div className="mx-auto rounded-lg bg-white px-4 py-4 shadow-inner ring-1 ring-slate-200">
                                     <pre className="overflow-x-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-tight text-black">
-                                        {(selectedHistoryTransaction.receiptPreview?.lines ||
-                                            []
-                                        ).join("\n")}
+                                        {selectedHistoryThermalText}
                                     </pre>
                                     {selectedHistoryTransaction.receiptLayout
                                         ?.feedback?.qr_url ? (
@@ -9556,9 +9632,7 @@ export default function Index({
                         <div className="flex-1 overflow-y-auto px-4 py-4">
                             <div className="mx-auto max-w-[280px] rounded-lg bg-white px-3 py-4 shadow-inner ring-1 ring-slate-200">
                                 <pre className="overflow-x-auto whitespace-pre-wrap break-words font-mono text-[10px] leading-tight text-black">
-                                    {(selectedHistoryTransaction.receiptPreview?.lines ||
-                                        []
-                                    ).join("\n")}
+                                    {selectedHistoryThermalText}
                                 </pre>
                                 {selectedHistoryTransaction.receiptLayout
                                     ?.feedback?.qr_url ? (
