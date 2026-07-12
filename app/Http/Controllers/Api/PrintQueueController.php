@@ -63,7 +63,11 @@ class PrintQueueController extends Controller
 
         return response()->json([
             'success' => true,
-            'jobs' => $jobs->map(fn (PrintJob $job) => $this->receiptPayload($job))->values(),
+            'jobs' => $jobs->map(function (PrintJob $job) {
+                return $job->job_type === PrintJob::TYPE_PARKING_TICKET
+                    ? $this->parkingTicketPayload($job)
+                    : $this->receiptPayload($job);
+            })->values(),
             'count' => $jobs->count(),
         ]);
     }
@@ -163,7 +167,7 @@ class PrintQueueController extends Controller
         $baseQuery = PrintJob::query()
             ->when($outletId > 0, fn ($q) => $q->where('outlet_id', $outletId));
 
-        $queuedReceipts = (clone $baseQuery)->where('job_type', PrintJob::TYPE_RECEIPT)->whereIn('status', [PrintJob::STATUS_QUEUED, PrintJob::STATUS_PROCESSING])->count();
+        $queuedReceipts = (clone $baseQuery)->whereIn('job_type', [PrintJob::TYPE_RECEIPT, PrintJob::TYPE_PARKING_TICKET])->whereIn('status', [PrintJob::STATUS_QUEUED, PrintJob::STATUS_PROCESSING])->count();
         $queuedKitchen = (clone $baseQuery)->where('job_type', PrintJob::TYPE_KITCHEN_TICKET)->whereIn('status', [PrintJob::STATUS_QUEUED, PrintJob::STATUS_PROCESSING])->count();
         $processingCount = (clone $baseQuery)->where('status', PrintJob::STATUS_PROCESSING)->count();
         $failedCount = (clone $baseQuery)->where('status', PrintJob::STATUS_FAILED)->count();
@@ -307,6 +311,95 @@ class PrintQueueController extends Controller
             ] : null,
             'queued_at' => $job->queued_at?->toIso8601String(),
         ];
+    }
+
+    private function parkingTicketPayload(PrintJob $job): array
+    {
+        $outlet = \App\Models\Outlet::find($job->outlet_id);
+        $storeProfile = $outlet?->profilePayload() ?? [];
+        $paperWidth = (string) data_get($job->payload, 'paper_width', '58mm');
+        $preview = $this->buildParkingTicketPreview($job, $storeProfile, $paperWidth);
+
+        return [
+            'id' => $job->id,
+            'type' => 'parking_ticket',
+            'copies' => $job->copies ?: 1,
+            'paper_width' => $paperWidth,
+            'payload' => [
+                'paper_width' => $paperWidth,
+                'ticket_code' => (string) data_get($job->payload, 'ticket_code', ''),
+                'printed_at' => (string) data_get($job->payload, 'printed_at', ''),
+                'print_user_name' => (string) data_get($job->payload, 'print_user_name', ''),
+                'raw_base64' => $this->encodeParkingTicketPayload($preview),
+            ],
+            'store' => [
+                'name' => $storeProfile['name'] ?? '',
+                'address' => $storeProfile['address'] ?? '',
+            ],
+            'preview' => $preview,
+        ];
+    }
+
+    private function buildParkingTicketPreview(PrintJob $job, array $storeProfile, string $paperWidth): array
+    {
+        $cols = $paperWidth === '80mm' ? 48 : 32;
+        $separator = str_repeat('-', $cols);
+        $header = collect([
+            $storeProfile['name'] ?? '',
+            $storeProfile['address'] ?? '',
+        ])->filter()->implode(' - ');
+        $footer = collect([
+            (string) data_get($job->payload, 'printed_at', ''),
+            (string) data_get($job->payload, 'print_user_name', ''),
+        ])->filter()->implode(' • ');
+
+        return [
+            'paper_width' => $paperWidth,
+            'cols' => $cols,
+            'lines' => array_values(array_filter([
+                $header,
+                trim('KARCIS PARKIR '.(string) data_get($job->payload, 'ticket_code', '')),
+                $separator,
+                'PLAT No. ____ ____ ______ MOBIL / MOTOR',
+                $separator,
+                '........................',
+                $separator,
+                $footer,
+            ], fn ($line) => $line !== '')),
+        ];
+    }
+
+    private function encodeParkingTicketPayload(array $preview): string
+    {
+        $chunks = ["\x1B\x40", "\x1B\x61\x01"];
+
+        foreach (($preview['lines'] ?? []) as $index => $line) {
+            $text = (string) $line;
+            $chunks[] = $index >= 3 ? "\x1B\x61\x00" : "\x1B\x61\x01";
+            if (str_starts_with($text, 'KARCIS PARKIR')) {
+                $chunks[] = "\x1B\x45\x01";
+                $chunks[] = $text."\n";
+                $chunks[] = "\x1B\x45\x00";
+                continue;
+            }
+
+            if ($text === '........................') {
+                $chunks[] = "\x1B\x61\x01";
+                $chunks[] = $text."\n";
+                continue;
+            }
+
+            if ($index === count($preview['lines']) - 1) {
+                $chunks[] = "\x1B\x61\x01";
+            }
+
+            $chunks[] = $text."\n";
+        }
+
+        $chunks[] = "\x1B\x64\x02";
+        $chunks[] = "\x1D\x56\x00";
+
+        return base64_encode(implode('', $chunks));
     }
 
     private function paymentMethodLabel($transaction): string

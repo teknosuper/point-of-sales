@@ -2933,6 +2933,56 @@ class TransactionController extends Controller
         ]);
     }
 
+    public function queueParkingTicket(Request $request): JsonResponse
+    {
+        $outlet = $this->resolveActiveOutlet($request);
+
+        if (! $outlet) {
+            return response()->json([
+                'message' => 'Outlet aktif tidak ditemukan.',
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+        }
+
+        $validated = $request->validate([
+            'quantity' => ['nullable', 'integer', 'min:1', 'max:200'],
+        ]);
+
+        $jobs = $this->printJobService->queueParkingTicket(
+            (int) $outlet->id,
+            [
+                ...$validated,
+                'print_user_name' => (string) ($request->user()?->name ?? ''),
+            ],
+            userId: $request->user()?->id,
+        );
+        $firstJob = $jobs->first();
+        $quantity = (int) $jobs->count();
+
+        $this->auditLogService->log(
+            event: 'transaction.parking_ticket_queued',
+            module: 'transactions',
+            auditable: null,
+            description: 'Karcis parkir dimasukkan ke queue printer kasir.',
+            after: [
+                'outlet_id' => $outlet->id,
+                'quantity' => $quantity,
+                'print_job_id' => $firstJob?->id,
+                'job_status' => $firstJob?->status,
+            ],
+        );
+
+        return response()->json([
+            'message' => $quantity > 1
+                ? "Sebanyak {$quantity} karcis parkir berhasil dimasukkan ke antrean print."
+                : 'Karcis parkir berhasil dimasukkan ke antrean print.',
+            'data' => [
+                'print_job_id' => $firstJob?->id,
+                'status' => $firstJob?->status,
+                'quantity' => $quantity,
+            ],
+        ]);
+    }
+
     private function resolveOperationalSettings(?int $outletId): array
     {
         $outlet = $outletId ? \App\Models\Outlet::query()->find($outletId) : null;

@@ -294,6 +294,8 @@
                 let result;
                 if (job.type === 'receipt') {
                     result = encodeReceiptLib(encoder, job, runtimeConfig);
+                } else if (job.type === 'parking_ticket') {
+                    result = encodeParkingTicketLib(encoder, job, runtimeConfig);
                 } else {
                     result = encodeKitchenTicketLib(encoder, job, runtimeConfig);
                 }
@@ -302,6 +304,8 @@
                 // Use built-in raw ESC/POS encoder
                 if (job.type === 'receipt') {
                     byteArray = encodeReceiptRaw(job, runtimeConfig);
+                } else if (job.type === 'parking_ticket') {
+                    byteArray = encodeParkingTicketRaw(job, runtimeConfig);
                 } else {
                     byteArray = encodeKitchenTicketRaw(job, runtimeConfig);
                 }
@@ -946,6 +950,41 @@
         return bytes;
     }
 
+    function encodeParkingTicketRaw(job, config) {
+        const store = job.store || {};
+        const payload = job.payload || {};
+        const cols = config.paperWidth;
+        const sep = '-'.repeat(cols);
+        const bytes = [];
+
+        bytes.push(...escInit());
+        bytes.push(...escAlignCenter());
+        const headerParts = [store.name, store.address]
+            .map((value) => String(value || '').trim())
+            .filter(Boolean);
+        if (headerParts.length > 0) {
+            wrapText(headerParts.join(' - '), Math.max(20, cols)).slice(0, 1).forEach(line => {
+                bytes.push(...escLine(line));
+            });
+        }
+        bytes.push(...escBoldLine(`KARCIS PARKIR ${String(payload.ticket_code || '').trim()}`.trim()));
+        bytes.push(...escLine(sep));
+        bytes.push(...escAlignLeft());
+        bytes.push(...escLine('PLAT No. ____ ____ ______ MOBIL / MOTOR'));
+        bytes.push(...escLine(sep));
+        bytes.push(...escLine('........................'));
+        if (payload.printed_at) {
+            bytes.push(...escLine(sep));
+            bytes.push(...escAlignCenter());
+            bytes.push(...escLine([String(payload.printed_at), String(payload.print_user_name || '')].filter(Boolean).join(' • ')));
+            bytes.push(...escAlignLeft());
+        }
+        bytes.push(...escFeed(2));
+        bytes.push(...escCut());
+
+        return bytes;
+    }
+
     function encodeReceiptLib(encoder, job, config) {
         if (job.layout) {
             const sep = config.paperWidth === 48 ? '------------------------------------------------' : '--------------------------------';
@@ -1077,6 +1116,38 @@
         }
 
         encoder.newline().newline().cut();
+
+        return encoder.encode();
+    }
+
+    function encodeParkingTicketLib(encoder, job, config) {
+        const store = job.store || {};
+        const payload = job.payload || {};
+        const sep = config.paperWidth === 48 ? '------------------------------------------------' : '--------------------------------';
+        encoder.initialize().align('center').bold(true);
+        const headerParts = [store.name, store.address]
+            .map((value) => String(value || '').trim())
+            .filter(Boolean);
+        if (headerParts.length > 0) {
+            encoder.bold(false);
+            wrapText(headerParts.join(' - '), Math.max(20, config.paperWidth)).slice(0, 1).forEach(line => {
+                encoder.text(line).newline();
+            });
+        }
+        encoder.bold(true);
+        encoder.text(`KARCIS PARKIR ${String(payload.ticket_code || '').trim()}`.trim()).newline();
+        encoder.bold(false);
+        encoder.text(sep).newline();
+        encoder.align('left');
+        encoder.text('PLAT No. ____ ____ ______ MOBIL / MOTOR').newline();
+        encoder.text(sep).newline();
+        encoder.text('........................').newline();
+        if (payload.printed_at) {
+            encoder.text(sep).newline();
+            encoder.align('center').text([String(payload.printed_at), String(payload.print_user_name || '')].filter(Boolean).join(' • ')).newline().align('left');
+        }
+        encoder.newline();
+        encoder.cut();
 
         return encoder.encode();
     }

@@ -366,6 +366,7 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
 
     // route transaction store
     Route::post('/transactions/store', [TransactionController::class, 'store'])->middleware(['permission:transactions-access', 'active_shift'])->name('transactions.store');
+    Route::post('/transactions/parking-ticket/queue', [TransactionController::class, 'queueParkingTicket'])->middleware(['permission:transactions-access', 'active_shift'])->name('transactions.parking-ticket.queue');
     Route::get('/transactions/health', [TransactionController::class, 'health'])->middleware('permission:transactions-access')->name('transactions.health');
     Route::post('/transactions/sync-offline', [TransactionController::class, 'syncOffline'])->middleware(['permission:transactions-access', 'active_shift'])->name('transactions.sync-offline');
     Route::post('/transactions/{transaction}/requeue-receipt', [TransactionController::class, 'requeueReceipt'])->middleware(['permission:transactions-access', 'outlet_access'])->name('transactions.requeue-receipt');

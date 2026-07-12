@@ -12,6 +12,7 @@ class PrintJob extends Model
 
     public const TYPE_KITCHEN_TICKET = 'kitchen_ticket';
     public const TYPE_RECEIPT = 'receipt';
+    public const TYPE_PARKING_TICKET = 'parking_ticket';
 
     public const STATUS_QUEUED = 'queued';
     public const STATUS_PROCESSING = 'processing';

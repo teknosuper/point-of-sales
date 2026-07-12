@@ -8,10 +8,59 @@ use App\Models\PrintJob;
 use App\Models\Setting;
 use App\Models\Transaction;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 
 class PrintJobService
 {
+    public function queueParkingTicket(int $outletId, array $ticketData, ?KitchenStationDevice $device = null, ?int $userId = null): Collection
+    {
+        $receiptDevice = $device ?? $this->resolveReceiptDevice($outletId);
+        $paperWidth = (string) (Setting::get('cashier_receipt_paper_width', null, $outletId)
+            ?? ($receiptDevice ? (string) data_get($receiptDevice->meta, 'paper_width', '58mm') : '58mm'));
+        $quantity = max(1, min(200, (int) Arr::get($ticketData, 'quantity', 1)));
+        $printedAt = now();
+        $basePayload = [
+            'device_name' => $receiptDevice?->name,
+            'device_type' => $receiptDevice?->device_type,
+            'paper_width' => $paperWidth,
+            'printed_at' => $printedAt->format('d/m/Y H:i'),
+            'print_user_name' => (string) Arr::get($ticketData, 'print_user_name', ''),
+        ];
+
+        return DB::transaction(function () use ($quantity, $printedAt, $outletId, $receiptDevice, $userId, $basePayload) {
+            $todaySequenceStart = (int) PrintJob::query()
+                ->where('job_type', PrintJob::TYPE_PARKING_TICKET)
+                ->whereDate('created_at', $printedAt->toDateString())
+                ->lockForUpdate()
+                ->count();
+
+            return collect(range(1, $quantity))->map(function (int $sequence) use ($todaySequenceStart, $printedAt, $outletId, $receiptDevice, $userId, $basePayload) {
+                $dailySequence = $todaySequenceStart + $sequence;
+
+                $job = PrintJob::create([
+                    'outlet_id' => $outletId,
+                    'transaction_id' => null,
+                    'kitchen_ticket_id' => null,
+                    'kitchen_station_device_id' => $receiptDevice?->id,
+                    'job_type' => PrintJob::TYPE_PARKING_TICKET,
+                    'status' => PrintJob::STATUS_QUEUED,
+                    'copies' => 1,
+                    'payload' => [
+                        ...$basePayload,
+                        'batch_sequence' => $sequence,
+                        'ticket_sequence' => $dailySequence,
+                        'ticket_code' => sprintf('PARK-%04d', $dailySequence),
+                    ],
+                    'queued_at' => $printedAt,
+                    'created_by' => $userId,
+                ]);
+
+                return $job->fresh();
+            });
+        });
+    }
+
     public function queueReceipt(Transaction $transaction, ?KitchenStationDevice $device = null, ?int $userId = null, bool $forceRequeue = false): PrintJob
     {
         $receiptDevice = $device ?? $this->resolveReceiptDevice($transaction->outlet_id);
@@ -178,7 +227,7 @@ class PrintJobService
     {
         $jobIds = DB::transaction(function () use ($outletId, $deviceId, $limit) {
             $jobs = PrintJob::query()
-                ->where('job_type', PrintJob::TYPE_RECEIPT)
+                ->whereIn('job_type', [PrintJob::TYPE_RECEIPT, PrintJob::TYPE_PARKING_TICKET])
                 ->where('status', PrintJob::STATUS_QUEUED)
                 ->where('outlet_id', $outletId)
                 ->when($deviceId, fn ($query) => $query->where('kitchen_station_device_id', $deviceId))

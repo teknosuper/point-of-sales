@@ -59,6 +59,7 @@ import {
     IconUser,
     IconShoppingCart,
     IconReceipt,
+    IconReceipt2,
     IconPrinter,
     IconHistory,
     IconKeyboard,
@@ -195,6 +196,49 @@ const decodeEscPosPreviewText = (rawBase64) => {
     } catch (error) {
         return "";
     }
+};
+
+const buildParkingTicketPreviewBase64 = ({
+    storeName = "",
+    storeAddress = "",
+    ticketCode = "PARK-0001",
+    printedAt = "",
+    printedBy = "",
+} = {}) => {
+    if (typeof window === "undefined" || typeof window.btoa !== "function") {
+        return "";
+    }
+
+    const header = [storeName, storeAddress].filter(Boolean).join(" - ");
+    const footer = [printedAt, printedBy].filter(Boolean).join(" • ");
+    const lines = [
+        "\x1B\x40",
+        "\x1B\x61\x01",
+        header,
+        "\x1B\x45\x01",
+        `KARCIS PARKIR ${ticketCode}`,
+        "\x1B\x45\x00",
+        "--------------------------------",
+        "\x1B\x61\x00",
+        "PLAT No. ____ ____ ______ MOBIL / MOTOR",
+        "--------------------------------",
+        "\x1B\x61\x01",
+        "........................",
+        "--------------------------------",
+        footer,
+        "\x1B\x64\x02",
+        "\x1D\x56\x00",
+    ].filter(Boolean);
+
+    const source = lines.join("\n");
+    const encoded = new TextEncoder().encode(source);
+    let binary = "";
+
+    encoded.forEach((byte) => {
+        binary += String.fromCharCode(byte);
+    });
+
+    return window.btoa(binary);
 };
 
 const resolveFreshnessMeta = (timestamp) => {
@@ -451,6 +495,11 @@ export default function Index({
     const [tableOrderEditItems, setTableOrderEditItems] = useState([]);
     const [isUpdatingTableOrder, setIsUpdatingTableOrder] = useState(false);
     const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+    const [isParkingTicketModalOpen, setIsParkingTicketModalOpen] =
+        useState(false);
+    const [parkingTicketQuantity, setParkingTicketQuantity] = useState("1");
+    const [isSubmittingParkingTicket, setIsSubmittingParkingTicket] =
+        useState(false);
     const [isHistoryFilterExpanded, setIsHistoryFilterExpanded] =
         useState(false);
     const [historyFilters, setHistoryFilters] = useState({
@@ -557,6 +606,16 @@ export default function Index({
         storeProfileProp ||
         (isOfflineMode ? trustedOfflineBootstrap?.storeProfile : null) ||
         null;
+    const parkingTicketPreviewRawBase64 = buildParkingTicketPreviewBase64({
+        storeName: storeProfile?.name || activeOutlet?.name || "Outlet",
+        storeAddress: storeProfile?.address || "",
+        ticketCode: "PARK-0001",
+        printedAt: "12/07/2026 14:30",
+        printedBy: auth?.user?.name || "Kasir",
+    });
+    const parkingTicketPreviewText = decodeEscPosPreviewText(
+        parkingTicketPreviewRawBase64
+    );
     const resolvedDefaultPaymentGateway =
         defaultPaymentGateway ||
         trustedOfflineBootstrap?.defaultPaymentGateway ||
@@ -4879,6 +4938,38 @@ export default function Index({
         }
     }, []);
 
+    const handleQueueParkingTicket = useCallback(async () => {
+        const normalizedQuantity = Math.max(
+            1,
+            Math.min(200, Number(parkingTicketQuantity || 1))
+        );
+
+        setIsSubmittingParkingTicket(true);
+
+        try {
+            const response = await axios.post(
+                route("transactions.parking-ticket.queue"),
+                {
+                    quantity: normalizedQuantity,
+                }
+            );
+
+            toast.success(
+                response.data?.message ||
+                    "Karcis parkir berhasil dimasukkan ke antrean print."
+            );
+            setParkingTicketQuantity("1");
+            setIsParkingTicketModalOpen(false);
+        } catch (error) {
+            toast.error(
+                error?.response?.data?.message ||
+                    "Gagal memasukkan karcis parkir ke antrean print."
+            );
+        } finally {
+            setIsSubmittingParkingTicket(false);
+        }
+    }, [parkingTicketQuantity]);
+
     const buildOfflineTransactionPayload = useCallback(() => {
         const offlineReference = buildOfflineInvoice();
         const normalizedItems = localCarts.map((item) => {
@@ -5818,6 +5909,27 @@ export default function Index({
                     </button>
                 </div>
 
+                <div className="border-b border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-950/60 lg:px-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                            <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                                Utilitas Kasir
+                            </p>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                                Cetak karcis parkir manual ke printer kasir.
+                            </p>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setIsParkingTicketModalOpen(true)}
+                            className="inline-flex items-center gap-2 rounded-full bg-primary-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-primary-700"
+                        >
+                            <IconReceipt2 size={14} />
+                            Print Karcis Parkir
+                        </button>
+                    </div>
+                </div>
+
                 {(isOfflineMode || offlineQueueCount > 0) && (
                     <div className="border-b border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200 lg:px-4 lg:py-3 max-h-[40vh] overflow-y-auto">
                         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -6081,20 +6193,22 @@ export default function Index({
                                             : "Fokus ke daftar item yang sedang dipesan."}
                                     </p>
                                 </div>
-                                {isCartSyncing ? (
-                                    <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-2.5 py-1 text-xs font-bold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
-                                        <IconLoader2
-                                            size={12}
-                                            className="animate-spin"
-                                        />
-                                        Menyimpan...
-                                    </span>
-                                ) : null}
-                                {localCarts.length > 0 && (
-                                    <span className="rounded-full bg-primary-100 px-2.5 py-1 text-xs font-bold text-primary-700 dark:bg-primary-900/40 dark:text-primary-300">
-                                        {cartCount} item
-                                    </span>
-                                )}
+                                <div className="flex flex-wrap items-center justify-end gap-2">
+                                    {isCartSyncing ? (
+                                        <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-2.5 py-1 text-xs font-bold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                                            <IconLoader2
+                                                size={12}
+                                                className="animate-spin"
+                                            />
+                                            Menyimpan...
+                                        </span>
+                                    ) : null}
+                                    {localCarts.length > 0 && (
+                                        <span className="rounded-full bg-primary-100 px-2.5 py-1 text-xs font-bold text-primary-700 dark:bg-primary-900/40 dark:text-primary-300">
+                                            {cartCount} item
+                                        </span>
+                                    )}
+                                </div>
                             </div>
                         </div>
 
@@ -9703,6 +9817,99 @@ export default function Index({
                         >
                             Tutup
                         </button>
+                    </div>
+                </div>
+            )}
+
+            {isParkingTicketModalOpen && (
+                <div className="fixed inset-0 z-[120] flex items-end justify-center bg-slate-950/60 p-4 sm:items-center">
+                    <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-800 dark:bg-slate-900">
+                        <div className="flex items-start justify-between gap-4">
+                            <div>
+                                <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+                                    Cetak Karcis Parkir
+                                </h2>
+                                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                    Template sederhana dan masuk ke antrean printer kasir.
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    if (!isSubmittingParkingTicket) {
+                                        setIsParkingTicketModalOpen(false);
+                                    }
+                                }}
+                                className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 text-slate-500 transition hover:border-rose-300 hover:text-rose-600 dark:border-slate-700 dark:text-slate-300"
+                            >
+                                <IconX size={18} />
+                            </button>
+                        </div>
+
+                        <div className="mt-5 space-y-4">
+                            <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-950/40">
+                                <p className="mb-3 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
+                                    Preview Template
+                                </p>
+                                <pre className="mx-auto w-full max-w-[240px] overflow-x-auto rounded-xl border border-slate-300 bg-white p-3 font-mono text-[11px] leading-4 text-slate-900 shadow-sm whitespace-pre-wrap break-words dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+                                    {parkingTicketPreviewText}
+                                </pre>
+                                <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+                                    Preview ini dibaca dari payload `raw_base64` agar sama dengan format final yang dikirim ke printer.
+                                </p>
+                            </div>
+
+                            <div>
+                                <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
+                                    Jumlah Cetak
+                                </label>
+                                <input
+                                    type="number"
+                                    min="1"
+                                    max="200"
+                                    value={parkingTicketQuantity}
+                                    onChange={(event) =>
+                                        setParkingTicketQuantity(
+                                            event.target.value
+                                        )
+                                    }
+                                    placeholder="1"
+                                    className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-900 outline-none transition focus:border-primary-400 focus:ring-2 focus:ring-primary-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus:border-primary-500 dark:focus:ring-primary-900/40"
+                                />
+                                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                                    Jika isi `50`, sistem akan membuat 50 antrean karcis dan printer kasir akan mencetak 50 lembar.
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                            <button
+                                type="button"
+                                onClick={() =>
+                                    setIsParkingTicketModalOpen(false)
+                                }
+                                disabled={isSubmittingParkingTicket}
+                                className="inline-flex h-11 items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition hover:border-slate-300 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                            >
+                                Batal
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleQueueParkingTicket}
+                                disabled={isSubmittingParkingTicket}
+                                className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-primary-600 px-4 text-sm font-medium text-white transition hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                                {isSubmittingParkingTicket ? (
+                                    <IconLoader2
+                                        size={16}
+                                        className="animate-spin"
+                                    />
+                                ) : (
+                                    <IconPrinter size={16} />
+                                )}
+                                Masukkan ke Antrean Print
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}
