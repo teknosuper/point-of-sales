@@ -9,6 +9,7 @@ import {
     IconDatabaseOff,
     IconSearch,
     IconHistory,
+    IconBell,
     IconReceipt,
     IconFilter,
     IconX,
@@ -518,6 +519,18 @@ const History = ({ transactions, filters }) => {
                                                             />
                                                         </Link>
                                                     ) : null}
+                                                    <a
+                                                        href={route(
+                                                            "feedback.transactions.show",
+                                                            transaction.invoice
+                                                        )}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="inline-flex items-center justify-center w-9 h-9 rounded-lg text-amber-600 hover:text-amber-700 bg-amber-50 hover:bg-amber-100 dark:bg-amber-900/30 dark:hover:bg-amber-900/50 transition-colors"
+                                                        title="Kritik & Saran"
+                                                    >
+                                                        <IconBell size={18} />
+                                                    </a>
                                                     <Link
                                                         href={route(
                                                             "transactions.print",
@@ -796,6 +809,17 @@ const History = ({ transactions, filters }) => {
                                                 Campaign WA
                                             </Link>
                                         ) : null}
+                                        <a
+                                            href={route(
+                                                "feedback.transactions.show",
+                                                transaction.invoice
+                                            )}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="inline-flex items-center justify-center gap-1 px-3 py-2 text-xs font-semibold rounded-lg bg-amber-50 text-amber-700 hover:bg-amber-100 dark:bg-amber-900/30 dark:text-amber-300 dark:hover:bg-amber-900/50"
+                                        >
+                                            Kritik & Saran
+                                        </a>
                                         <a
                                             href={route(
                                                 "pdf.transactions.shipping",
