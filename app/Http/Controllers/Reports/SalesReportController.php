@@ -334,6 +334,8 @@ class SalesReportController extends Controller
             'owner_product_markup_total' => (int) ($ownerSplitSummary['owner_product_markup_total'] ?? 0),
             'owner_topping_markup_total' => (int) ($ownerSplitSummary['owner_topping_markup_total'] ?? 0),
             'owner_net_total' => (int) ($ownerSplitSummary['owner_net_total'] ?? 0),
+            'owner_sales_net_total' => max(0, (int) $metricSummary['revenue_total'] - (int) ($ownerSplitSummary['owner_net_total'] ?? 0)),
+            'target_profit_total' => (int) ($ownerSplitSummary['owner_net_total'] ?? 0),
             'average_order' => (int) $metricSummary['average_order'],
         ];
         $summary['walk_in_count'] = (int) $metricSummary['walk_in_count'];
@@ -903,15 +905,23 @@ class SalesReportController extends Controller
             ->groupBy('transaction_id')
             ->pluck('total_profit', 'transaction_id');
 
+        $ownerNetByTransaction = TransactionDetail::query()
+            ->selectRaw('transaction_id, COALESCE(SUM(owner_net_total), 0) as owner_net_total')
+            ->whereIn('transaction_id', $transactionIds)
+            ->when($tenantOutletId, fn ($query, $tenantId) => $query->where('tenant_outlet_id', $tenantId))
+            ->groupBy('transaction_id')
+            ->pluck('owner_net_total', 'transaction_id');
+
         return $transactionRows
             ->groupBy(fn ($row) => ReportTimezone::sourceDateKey(
                 method_exists($row, 'getRawOriginal') ? $row->getRawOriginal('created_at') : $row->created_at
             ))
-            ->map(function (Collection $rows, $date) use ($itemsByTransaction, $profitByTransaction) {
+            ->map(function (Collection $rows, $date) use ($itemsByTransaction, $profitByTransaction, $ownerNetByTransaction) {
                 return [
                     'date' => $date,
                     'revenue_total' => (int) $rows->sum(fn ($row) => (int) data_get($row, 'net_grand_total', $row->grand_total ?? 0)),
                     'profit_total' => (int) $rows->sum(fn ($row) => (int) ($profitByTransaction->get($row->id) ?? 0)),
+                    'target_profit_total' => (int) $rows->sum(fn ($row) => (int) ($ownerNetByTransaction->get($row->id) ?? 0)),
                     'items_sold' => (int) $rows->sum(fn ($row) => (int) ($itemsByTransaction->get($row->id) ?? 0)),
                 ];
             })

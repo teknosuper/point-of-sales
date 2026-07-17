@@ -124,6 +124,9 @@ class CashierSettlementController extends Controller
         $walletTransactions = $isTenantRequestWorkspace
             ? $this->buildTenantWalletTransactions($user, $outlet, $walletFilters)
             : null;
+        $ownerOverview = ! $isTenantRequestWorkspace
+            ? $this->buildOwnerSettlementOverview($outlet, $visibleOutletIds)
+            : null;
 
         return Inertia::render('Dashboard/CashierSettlements/Index', [
             'walletFilters' => $walletFilters,
@@ -137,6 +140,7 @@ class CashierSettlementController extends Controller
             'canCreateRequest' => $isTenantRequestWorkspace,
             'wallet' => $wallet,
             'walletTransactions' => $walletTransactions,
+            'ownerOverview' => $ownerOverview,
         ]);
     }
 
@@ -633,6 +637,274 @@ class CashierSettlementController extends Controller
         ];
     }
 
+    private function buildOwnerSettlementOverview(Outlet $activeOutlet, \Illuminate\Support\Collection $visibleOutletIds): array
+    {
+        $tenantOutletIds = $this->resolveOwnerSettlementTenantOutletIds($activeOutlet, $visibleOutletIds);
+
+        if ($tenantOutletIds->isEmpty()) {
+            return [
+                'completed_transactions_count' => 0,
+                'pending_kitchen_transactions_count' => 0,
+                'completed_gross_sales_total' => 0,
+                'pending_kitchen_gross_sales_total' => 0,
+                'total_gross_sales_total' => 0,
+                'gross_sales_total' => 0,
+                'tenant_rights_total' => 0,
+                'owner_markup_total' => 0,
+                'should_withdraw_total' => 0,
+                'withdrawn_total' => 0,
+                'pending_withdraw_total' => 0,
+                'unwithdrawn_total' => 0,
+                'returns_count' => 0,
+                'tenant_breakdown' => [],
+            ];
+        }
+
+        $tenantNames = Outlet::query()
+            ->whereIn('id', $tenantOutletIds->all())
+            ->get(['id', 'name', 'code'])
+            ->keyBy('id');
+
+        $allocationQuery = TransactionTenantAllocation::query()
+            ->where('waiter_status', 'delivered')
+            ->whereNotNull('delivered_at')
+            ->when(
+                (string) ($activeOutlet->outlet_type ?? '') === 'main',
+                fn (Builder $builder) => $builder->where('outlet_id', (int) $activeOutlet->id)
+            )
+            ->whereIn('tenant_outlet_id', $tenantOutletIds->all());
+
+        $allocationIds = (clone $allocationQuery)->pluck('id');
+        $grossSalesTotal = $allocationIds->isNotEmpty()
+            ? (int) ((clone $allocationQuery)->sum('subtotal') ?? 0)
+            : 0;
+        $tenantRightsTotal = TenantWalletMetrics::sumTenantNetValueForAllocationIds($allocationIds);
+        $ownerMarkupTotal = TenantWalletMetrics::sumOwnerMarkupValueForAllocationIds($allocationIds);
+        $completedTransactionsCount = (int) (clone $allocationQuery)
+            ->distinct('transaction_id')
+            ->count('transaction_id');
+
+        $pendingKitchenTransactionsCount = (int) TransactionTenantAllocation::query()
+            ->when(
+                (string) ($activeOutlet->outlet_type ?? '') === 'main',
+                fn (Builder $builder) => $builder->where('outlet_id', (int) $activeOutlet->id)
+            )
+            ->whereIn('tenant_outlet_id', $tenantOutletIds->all())
+            ->where(function (Builder $builder) {
+                $builder
+                    ->where('waiter_status', '!=', 'delivered')
+                    ->orWhereNull('delivered_at');
+            })
+            ->distinct('transaction_id')
+            ->count('transaction_id');
+
+        $pendingKitchenGrossSalesTotal = (int) TransactionTenantAllocation::query()
+            ->when(
+                (string) ($activeOutlet->outlet_type ?? '') === 'main',
+                fn (Builder $builder) => $builder->where('outlet_id', (int) $activeOutlet->id)
+            )
+            ->whereIn('tenant_outlet_id', $tenantOutletIds->all())
+            ->where(function (Builder $builder) {
+                $builder
+                    ->where('waiter_status', '!=', 'delivered')
+                    ->orWhereNull('delivered_at');
+            })
+            ->sum('subtotal');
+
+        $completedByTenant = (clone $allocationQuery)
+            ->selectRaw('tenant_outlet_id, COUNT(DISTINCT transaction_id) as total_transactions, COALESCE(SUM(subtotal), 0) as gross_sales_total')
+            ->groupBy('tenant_outlet_id')
+            ->get()
+            ->keyBy('tenant_outlet_id');
+
+        $pendingByTenant = TransactionTenantAllocation::query()
+            ->when(
+                (string) ($activeOutlet->outlet_type ?? '') === 'main',
+                fn (Builder $builder) => $builder->where('outlet_id', (int) $activeOutlet->id)
+            )
+            ->whereIn('tenant_outlet_id', $tenantOutletIds->all())
+            ->where(function (Builder $builder) {
+                $builder
+                    ->where('waiter_status', '!=', 'delivered')
+                    ->orWhereNull('delivered_at');
+            })
+            ->selectRaw('tenant_outlet_id, COUNT(DISTINCT transaction_id) as total_transactions, COALESCE(SUM(subtotal), 0) as gross_sales_total')
+            ->groupBy('tenant_outlet_id')
+            ->get()
+            ->keyBy('tenant_outlet_id');
+
+        $allocationIdsByTenant = (clone $allocationQuery)
+            ->select(['id', 'tenant_outlet_id'])
+            ->get()
+            ->groupBy('tenant_outlet_id')
+            ->map(fn (Collection $rows) => $rows->pluck('id')->map(fn ($id) => (int) $id)->values());
+
+        $returns = SalesReturn::query()
+            ->with(['items.transactionDetail'])
+            ->where('status', 'completed')
+            ->whereHas('items.transactionDetail', fn (Builder $builder) => $builder->whereIn('tenant_outlet_id', $tenantOutletIds->all()))
+            ->get();
+
+        $returnsCount = $returns->count();
+        $returnGrossTotal = 0;
+        $returnTenantRightsTotal = 0;
+        $returnOwnerMarkupTotal = 0;
+
+        foreach ($returns as $salesReturn) {
+            foreach ($salesReturn->items as $item) {
+                $detail = $item->transactionDetail;
+                if (! $detail || ! $tenantOutletIds->contains((int) ($detail->tenant_outlet_id ?? 0))) {
+                    continue;
+                }
+
+                $qty = (int) ($item->qty_return ?? 0);
+                $detailQty = max(1, (int) ($detail->qty ?? 1));
+                $customerUnitPrice = (int) ($detail->customer_base_unit_price ?? $detail->unit_price ?? 0);
+                $tenantBaseUnitPrice = (int) ($detail->tenant_base_unit_price ?? 0);
+                $ownerMarkupUnitPrice = (int) ($detail->owner_markup_unit_price ?? 0);
+
+                $returnGrossTotal += $customerUnitPrice * $qty;
+                $returnTenantRightsTotal += (int) ($detail->tenant_net_total ?? 0) > 0
+                    ? (int) round(((int) $detail->tenant_net_total / $detailQty) * $qty)
+                    : $tenantBaseUnitPrice * $qty;
+                $returnOwnerMarkupTotal += (int) ($detail->owner_net_total ?? 0) > 0
+                    ? (int) round(((int) $detail->owner_net_total / $detailQty) * $qty)
+                    : $ownerMarkupUnitPrice * $qty;
+            }
+        }
+
+        $grossSalesTotal = max(0, $grossSalesTotal - $returnGrossTotal);
+        $tenantRightsTotal -= $returnTenantRightsTotal;
+        $ownerMarkupTotal -= $returnOwnerMarkupTotal;
+
+        $withdrawnTotal = (int) CashierSettlementRequest::query()
+            ->whereIn('outlet_id', $tenantOutletIds->all())
+            ->whereNull('cashier_shift_id')
+            ->where('status', CashierSettlementRequest::STATUS_APPROVED)
+            ->sum('approved_amount');
+
+        $pendingWithdrawTotal = (int) CashierSettlementRequest::query()
+            ->whereIn('outlet_id', $tenantOutletIds->all())
+            ->whereNull('cashier_shift_id')
+            ->where('status', CashierSettlementRequest::STATUS_PENDING)
+            ->sum('requested_amount');
+
+        $withdrawnByTenant = CashierSettlementRequest::query()
+            ->whereIn('outlet_id', $tenantOutletIds->all())
+            ->whereNull('cashier_shift_id')
+            ->where('status', CashierSettlementRequest::STATUS_APPROVED)
+            ->selectRaw('outlet_id, COALESCE(SUM(approved_amount), 0) as total_amount')
+            ->groupBy('outlet_id')
+            ->pluck('total_amount', 'outlet_id');
+
+        $pendingWithdrawByTenant = CashierSettlementRequest::query()
+            ->whereIn('outlet_id', $tenantOutletIds->all())
+            ->whereNull('cashier_shift_id')
+            ->where('status', CashierSettlementRequest::STATUS_PENDING)
+            ->selectRaw('outlet_id, COALESCE(SUM(requested_amount), 0) as total_amount')
+            ->groupBy('outlet_id')
+            ->pluck('total_amount', 'outlet_id');
+
+        $shouldWithdrawTotal = max(0, $tenantRightsTotal);
+        $unwithdrawnTotal = max(0, $tenantRightsTotal - $withdrawnTotal - $pendingWithdrawTotal);
+
+        $returnAdjustmentsByTenant = $returns->reduce(function (array $carry, SalesReturn $salesReturn) use ($tenantOutletIds) {
+            foreach ($salesReturn->items as $item) {
+                $detail = $item->transactionDetail;
+                $tenantId = (int) ($detail->tenant_outlet_id ?? 0);
+
+                if (! $detail || ! $tenantOutletIds->contains($tenantId)) {
+                    continue;
+                }
+
+                $qty = (int) ($item->qty_return ?? 0);
+                $detailQty = max(1, (int) ($detail->qty ?? 1));
+                $customerUnitPrice = (int) ($detail->customer_base_unit_price ?? $detail->unit_price ?? 0);
+                $tenantBaseUnitPrice = (int) ($detail->tenant_base_unit_price ?? 0);
+                $ownerMarkupUnitPrice = (int) ($detail->owner_markup_unit_price ?? 0);
+
+                $carry[$tenantId]['gross_sales_total'] = ($carry[$tenantId]['gross_sales_total'] ?? 0) + ($customerUnitPrice * $qty);
+                $carry[$tenantId]['tenant_rights_total'] = ($carry[$tenantId]['tenant_rights_total'] ?? 0) + (
+                    (int) ($detail->tenant_net_total ?? 0) > 0
+                        ? (int) round(((int) $detail->tenant_net_total / $detailQty) * $qty)
+                        : $tenantBaseUnitPrice * $qty
+                );
+                $carry[$tenantId]['owner_markup_total'] = ($carry[$tenantId]['owner_markup_total'] ?? 0) + (
+                    (int) ($detail->owner_net_total ?? 0) > 0
+                        ? (int) round(((int) $detail->owner_net_total / $detailQty) * $qty)
+                        : $ownerMarkupUnitPrice * $qty
+                );
+            }
+
+            return $carry;
+        }, []);
+
+        $tenantBreakdown = $tenantOutletIds->map(function (int $tenantId) use (
+            $tenantNames,
+            $allocationIdsByTenant,
+            $completedByTenant,
+            $pendingByTenant,
+            $withdrawnByTenant,
+            $pendingWithdrawByTenant,
+            $returnAdjustmentsByTenant
+        ) {
+            $tenantAllocationIds = $allocationIdsByTenant->get($tenantId, collect());
+            $grossSalesTotal = $tenantAllocationIds->isNotEmpty()
+                ? (int) TransactionTenantAllocation::query()->whereIn('id', $tenantAllocationIds->all())->sum('subtotal')
+                : 0;
+            $tenantRightsTotal = TenantWalletMetrics::sumTenantNetValueForAllocationIds($tenantAllocationIds);
+            $ownerMarkupTotal = TenantWalletMetrics::sumOwnerMarkupValueForAllocationIds($tenantAllocationIds);
+            $returnAdjustments = $returnAdjustmentsByTenant[$tenantId] ?? [];
+            $completedGrossSalesTotal = (int) ($completedByTenant->get($tenantId)?->gross_sales_total ?? 0);
+            $pendingKitchenGrossSalesTotal = (int) ($pendingByTenant->get($tenantId)?->gross_sales_total ?? 0);
+
+            $grossSalesTotal = max(0, $grossSalesTotal - (int) ($returnAdjustments['gross_sales_total'] ?? 0));
+            $completedGrossSalesTotal = max(0, $completedGrossSalesTotal - (int) ($returnAdjustments['gross_sales_total'] ?? 0));
+            $tenantRightsTotal -= (int) ($returnAdjustments['tenant_rights_total'] ?? 0);
+            $ownerMarkupTotal -= (int) ($returnAdjustments['owner_markup_total'] ?? 0);
+            $withdrawnTotal = (int) ($withdrawnByTenant->get($tenantId, 0) ?? 0);
+            $pendingWithdrawTotal = (int) ($pendingWithdrawByTenant->get($tenantId, 0) ?? 0);
+            $shouldWithdrawTotal = max(0, $tenantRightsTotal);
+            $unwithdrawnTotal = max(0, $tenantRightsTotal - $withdrawnTotal - $pendingWithdrawTotal);
+            $tenant = $tenantNames->get($tenantId);
+
+            return [
+                'tenant_outlet_id' => $tenantId,
+                'tenant_name' => $tenant?->name ?? 'Tenant',
+                'tenant_code' => $tenant?->code,
+                'completed_transactions_count' => (int) ($completedByTenant->get($tenantId)?->total_transactions ?? 0),
+                'pending_kitchen_transactions_count' => (int) ($pendingByTenant->get($tenantId)?->total_transactions ?? 0),
+                'completed_gross_sales_total' => $completedGrossSalesTotal,
+                'pending_kitchen_gross_sales_total' => $pendingKitchenGrossSalesTotal,
+                'total_gross_sales_total' => $completedGrossSalesTotal + $pendingKitchenGrossSalesTotal,
+                'gross_sales_total' => $grossSalesTotal,
+                'tenant_rights_total' => $tenantRightsTotal,
+                'owner_markup_total' => $ownerMarkupTotal,
+                'withdrawn_total' => $withdrawnTotal,
+                'pending_withdraw_total' => $pendingWithdrawTotal,
+                'should_withdraw_total' => $shouldWithdrawTotal,
+                'unwithdrawn_total' => $unwithdrawnTotal,
+            ];
+        })->sortByDesc('tenant_rights_total')->values()->all();
+
+        return [
+            'completed_transactions_count' => $completedTransactionsCount,
+            'pending_kitchen_transactions_count' => $pendingKitchenTransactionsCount,
+            'completed_gross_sales_total' => $grossSalesTotal,
+            'pending_kitchen_gross_sales_total' => (int) $pendingKitchenGrossSalesTotal,
+            'total_gross_sales_total' => (int) ($grossSalesTotal + $pendingKitchenGrossSalesTotal),
+            'gross_sales_total' => $grossSalesTotal,
+            'tenant_rights_total' => $tenantRightsTotal,
+            'owner_markup_total' => $ownerMarkupTotal,
+            'should_withdraw_total' => $shouldWithdrawTotal,
+            'withdrawn_total' => $withdrawnTotal,
+            'pending_withdraw_total' => $pendingWithdrawTotal,
+            'unwithdrawn_total' => $unwithdrawnTotal,
+            'returns_count' => $returnsCount,
+            'tenant_breakdown' => $tenantBreakdown,
+        ];
+    }
+
     private function buildTenantWalletTransactions(User $user, Outlet $activeOutlet, array $filters)
     {
         $allocationQuery = $this->applyTenantWalletFilters(
@@ -1119,5 +1391,19 @@ class CashierSettlementController extends Controller
         }
 
         return collect([(int) $activeOutlet->id]);
+    }
+
+    private function resolveOwnerSettlementTenantOutletIds(Outlet $activeOutlet, \Illuminate\Support\Collection $visibleOutletIds): \Illuminate\Support\Collection
+    {
+        if ((string) ($activeOutlet->outlet_type ?? '') === 'tenant') {
+            return collect([(int) $activeOutlet->id]);
+        }
+
+        return Outlet::query()
+            ->whereIn('id', $visibleOutletIds->all())
+            ->where('outlet_type', 'tenant')
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->values();
     }
 }

@@ -123,6 +123,7 @@ export default function Index({
     canCreateRequest = false,
     wallet = null,
     walletTransactions = {},
+    ownerOverview = null,
 }) {
     const page = usePage();
     const { auth, errors, flash, activeOutlet, availableOutlets = [] } = page.props;
@@ -204,6 +205,8 @@ export default function Index({
         open: false,
         transaction: null,
     });
+    const [tenantBreakdownModalOpen, setTenantBreakdownModalOpen] =
+        useState(false);
     const [approvalForm, setApprovalForm] = useState(defaultApprovalForm);
     const [rejectionReason, setRejectionReason] = useState("");
     const [rejectionPassword, setRejectionPassword] = useState("");
@@ -249,6 +252,29 @@ export default function Index({
             ).length,
         [availableOutlets]
     );
+    const safeOwnerOverview = {
+        completed_transactions_count:
+            ownerOverview?.completed_transactions_count ?? 0,
+        pending_kitchen_transactions_count:
+            ownerOverview?.pending_kitchen_transactions_count ?? 0,
+        completed_gross_sales_total:
+            ownerOverview?.completed_gross_sales_total ?? 0,
+        pending_kitchen_gross_sales_total:
+            ownerOverview?.pending_kitchen_gross_sales_total ?? 0,
+        total_gross_sales_total:
+            ownerOverview?.total_gross_sales_total ?? 0,
+        gross_sales_total: ownerOverview?.gross_sales_total ?? 0,
+        tenant_rights_total: ownerOverview?.tenant_rights_total ?? 0,
+        owner_markup_total: ownerOverview?.owner_markup_total ?? 0,
+        should_withdraw_total: ownerOverview?.should_withdraw_total ?? 0,
+        withdrawn_total: ownerOverview?.withdrawn_total ?? 0,
+        pending_withdraw_total: ownerOverview?.pending_withdraw_total ?? 0,
+        unwithdrawn_total: ownerOverview?.unwithdrawn_total ?? 0,
+        returns_count: ownerOverview?.returns_count ?? 0,
+        tenant_breakdown: Array.isArray(ownerOverview?.tenant_breakdown)
+            ? ownerOverview.tenant_breakdown
+            : [],
+    };
     const ownerScopeLabel = isTenantRequestMode
         ? `Tenant ${activeOutlet?.name || "-"}`
         : `Semua tenant ${activeOutlet?.name || "outlet aktif"}`;
@@ -632,6 +658,24 @@ export default function Index({
                             <SummaryCard title="Total Pending" value={formatCurrency(summary?.requested_total ?? 0)} description="Nominal pengajuan yang menunggu approval" icon={<IconReceipt2 size={20} />} tone="blue" />
                             <SummaryCard title="Total Disetujui" value={formatCurrency(summary?.approved_total ?? 0)} description="Nominal sudah dibayar" icon={<IconCashBanknote size={20} />} tone="slate" />
                         </div>
+                        {!isTenantRequestMode && ownerOverview ? (
+                            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                                <SummaryCard title="Transaksi Selesai" value={String(safeOwnerOverview.completed_transactions_count)} description={`Transaksi delivered yang sudah masuk settlement tenant • Retur ${safeOwnerOverview.returns_count}`} icon={<IconReceipt2 size={20} />} tone="slate" />
+                                <SummaryCard title="Transaksi Belum Diselesaikan Dapur" value={String(safeOwnerOverview.pending_kitchen_transactions_count)} description="Transaksi tenant yang masih belum berstatus delivered di dapur" icon={<IconClockHour4 size={20} />} tone="amber" />
+                                <SummaryCard title="Penghasilan Selesai Dapur" value={formatCurrency(safeOwnerOverview.completed_gross_sales_total)} description={`Transaksi delivered tenant setelah koreksi retur • Belum selesai ${formatCurrency(safeOwnerOverview.pending_kitchen_gross_sales_total)}`} icon={<IconUserDollar size={20} />} tone="blue" />
+                                <SummaryCard title="Markup Owner" value={formatCurrency(safeOwnerOverview.owner_markup_total)} description="Hak owner dari markup produk dan topping tenant" icon={<IconCashBanknote size={20} />} tone="emerald" />
+                                <button
+                                    type="button"
+                                    onClick={() => setTenantBreakdownModalOpen(true)}
+                                    className="text-left"
+                                >
+                                    <SummaryCard title="Hak Tenant Siap Withdraw" value={formatCurrency(safeOwnerOverview.tenant_rights_total)} description="Hak bersih tenant dari transaksi delivered setelah split tenant dan retur. Klik untuk breakdown per tenant." icon={<IconShieldCheck size={20} />} tone="blue" />
+                                </button>
+                                <SummaryCard title="Seharusnya Di-Withdraw" value={formatCurrency(safeOwnerOverview.should_withdraw_total)} description="Total hak tenant kumulatif yang layak dicairkan" icon={<IconChevronUp size={20} />} tone="slate" />
+                                <SummaryCard title="Sudah Di-Withdraw" value={formatCurrency(safeOwnerOverview.withdrawn_total)} description="Pengajuan tenant yang sudah disetujui dan dibayar" icon={<IconCheck size={20} />} tone="emerald" />
+                                <SummaryCard title="Belum Di-Withdraw" value={formatCurrency(safeOwnerOverview.unwithdrawn_total)} description={`Sisa hak tenant yang belum terbayar • Pending approval ${formatCurrency(safeOwnerOverview.pending_withdraw_total)}`} icon={<IconX size={20} />} tone="rose" />
+                            </div>
+                        ) : null}
                     </>
                 ) : null}
 
@@ -1591,6 +1635,224 @@ export default function Index({
                                                         </td>
                                                         <td className={`px-4 py-3 text-right ${detail.discount_total < 0 ? "font-semibold text-danger-600 dark:text-danger-300" : "text-slate-700 dark:text-slate-300"}`}>
                                                             {formatCurrency(detail.discount_total || 0)}
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                ) : null}
+
+                {tenantBreakdownModalOpen ? (
+                    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/55 p-4">
+                        <div className="flex min-h-full items-center justify-center py-2">
+                            <div className="flex w-full max-w-6xl max-h-[calc(100vh-2rem)] flex-col overflow-hidden rounded-3xl bg-white shadow-2xl dark:bg-slate-900">
+                                <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-6 py-5 dark:border-slate-800">
+                                    <div>
+                                        <h2 className="text-xl font-semibold text-slate-900 dark:text-white">
+                                            Breakdown Hak Tenant
+                                        </h2>
+                                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                            Per tenant: selesai dapur, belum selesai dapur, sudah withdraw, pending, dan sisa hak.
+                                        </p>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => setTenantBreakdownModalOpen(false)}
+                                        className="rounded-xl border border-slate-200 px-3 py-2 text-sm dark:border-slate-700"
+                                    >
+                                        Tutup
+                                    </button>
+                                </div>
+                                <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+                                    <div className="grid gap-3 md:grid-cols-4">
+                                        <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-800/60">
+                                            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                                Penghasilan Selesai Dapur
+                                            </p>
+                                            <p className="mt-2 text-lg font-bold text-slate-900 dark:text-white">
+                                                {formatCurrency(safeOwnerOverview.completed_gross_sales_total)}
+                                            </p>
+                                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                {Number(safeOwnerOverview.completed_transactions_count ?? 0).toLocaleString("id-ID")} transaksi delivered
+                                            </p>
+                                        </div>
+                                        <div className="rounded-2xl bg-amber-50 p-4 dark:bg-amber-950/20">
+                                            <p className="text-xs font-semibold uppercase tracking-wide text-amber-500">
+                                                Penghasilan Belum Selesai
+                                            </p>
+                                            <p className="mt-2 text-lg font-bold text-amber-700 dark:text-amber-300">
+                                                {formatCurrency(safeOwnerOverview.pending_kitchen_gross_sales_total)}
+                                            </p>
+                                            <p className="mt-1 text-xs text-amber-700/80 dark:text-amber-300/80">
+                                                {Number(safeOwnerOverview.pending_kitchen_transactions_count ?? 0).toLocaleString("id-ID")} transaksi belum delivered
+                                            </p>
+                                        </div>
+                                        <div className="rounded-2xl bg-blue-50 p-4 dark:bg-blue-950/20">
+                                            <p className="text-xs font-semibold uppercase tracking-wide text-blue-500">
+                                                Total Penghasilan Transaksi
+                                            </p>
+                                            <p className="mt-2 text-lg font-bold text-blue-700 dark:text-blue-300">
+                                                {formatCurrency(safeOwnerOverview.total_gross_sales_total)}
+                                            </p>
+                                            <p className="mt-1 text-xs text-blue-700/80 dark:text-blue-300/80">
+                                                Penghasilan selesai + belum selesai
+                                            </p>
+                                        </div>
+                                        <div className="rounded-2xl bg-blue-50 p-4 dark:bg-blue-950/20">
+                                            <p className="text-xs font-semibold uppercase tracking-wide text-blue-500">
+                                                Hak Tenant Siap Withdraw
+                                            </p>
+                                            <p className="mt-2 text-lg font-bold text-blue-700 dark:text-blue-300">
+                                                {formatCurrency(safeOwnerOverview.tenant_rights_total)}
+                                            </p>
+                                            <p className="mt-1 text-xs text-blue-700/80 dark:text-blue-300/80">
+                                                Hanya dari transaksi delivered
+                                            </p>
+                                        </div>
+                                        <div className="rounded-2xl bg-emerald-50 p-4 dark:bg-emerald-950/20">
+                                            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-500">
+                                                Sudah Di-Withdraw
+                                            </p>
+                                            <p className="mt-2 text-lg font-bold text-emerald-700 dark:text-emerald-300">
+                                                {formatCurrency(safeOwnerOverview.withdrawn_total)}
+                                            </p>
+                                        </div>
+                                        <div className="rounded-2xl bg-blue-50 p-4 dark:bg-blue-950/20">
+                                            <p className="text-xs font-semibold uppercase tracking-wide text-amber-500">
+                                                Pending Approval
+                                            </p>
+                                            <p className="mt-2 text-lg font-bold text-amber-700 dark:text-amber-300">
+                                                {formatCurrency(safeOwnerOverview.pending_withdraw_total)}
+                                            </p>
+                                        </div>
+                                        <div className="rounded-2xl bg-rose-50 p-4 dark:bg-rose-950/20">
+                                            <p className="text-xs font-semibold uppercase tracking-wide text-rose-500">
+                                                Belum Di-Withdraw
+                                            </p>
+                                            <p className="mt-2 text-lg font-bold text-rose-700 dark:text-rose-300">
+                                                {formatCurrency(safeOwnerOverview.unwithdrawn_total)}
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-300">
+                                        <div className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                            Cara Baca Angka
+                                        </div>
+                                        <div className="grid gap-3 md:grid-cols-2">
+                                            <div className="rounded-xl bg-white/80 p-3 dark:bg-slate-900/60">
+                                                <div className="font-semibold text-slate-700 dark:text-slate-200">
+                                                    Penghasilan Selesai
+                                                </div>
+                                                <div className="mt-1 text-slate-600 dark:text-slate-300">
+                                                    Total transaksi tenant yang sudah berstatus `delivered`.
+                                                </div>
+                                            </div>
+                                            <div className="rounded-xl bg-white/80 p-3 dark:bg-slate-900/60">
+                                                <div className="font-semibold text-slate-700 dark:text-slate-200">
+                                                    Penghasilan Belum Selesai
+                                                </div>
+                                                <div className="mt-1 text-slate-600 dark:text-slate-300">
+                                                    Total transaksi tenant yang belum `delivered`.
+                                                </div>
+                                            </div>
+                                            <div className="rounded-xl bg-white/80 p-3 dark:bg-slate-900/60">
+                                                <div className="font-semibold text-slate-700 dark:text-slate-200">
+                                                    Total Penghasilan
+                                                </div>
+                                                <div className="mt-1 text-slate-600 dark:text-slate-300">
+                                                    Penjumlahan `Penghasilan Selesai` dan `Penghasilan Belum Selesai`.
+                                                </div>
+                                            </div>
+                                            <div className="rounded-xl bg-white/80 p-3 dark:bg-slate-900/60">
+                                                <div className="font-semibold text-slate-700 dark:text-slate-200">
+                                                    Hak Tenant Siap Withdraw
+                                                </div>
+                                                <div className="mt-1 text-slate-600 dark:text-slate-300">
+                                                    Hak bersih tenant dari transaksi `delivered`, setelah split tenant dan koreksi retur.
+                                                </div>
+                                            </div>
+                                            <div className="rounded-xl bg-white/80 p-3 dark:bg-slate-900/60">
+                                                <div className="font-semibold text-slate-700 dark:text-slate-200">
+                                                    Sudah Withdraw
+                                                </div>
+                                                <div className="mt-1 text-slate-600 dark:text-slate-300">
+                                                    Pengajuan tenant yang sudah `approved`.
+                                                </div>
+                                            </div>
+                                            <div className="rounded-xl bg-white/80 p-3 dark:bg-slate-900/60">
+                                                <div className="font-semibold text-slate-700 dark:text-slate-200">
+                                                    Pending dan Belum Withdraw
+                                                </div>
+                                                <div className="mt-1 text-slate-600 dark:text-slate-300">
+                                                    `Pending` adalah pengajuan yang belum di-approve. `Belum Withdraw` adalah sisa: `Hak Tenant Siap Withdraw - Sudah Withdraw - Pending`.
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="mt-5 overflow-x-auto">
+                                        <table className="w-full min-w-[1100px] text-sm">
+                                            <thead>
+                                                <tr className="border-b border-slate-100 dark:border-slate-800">
+                                                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Tenant</th>
+                                                    <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Selesai Dapur</th>
+                                                    <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Penghasilan Selesai</th>
+                                                    <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Belum Selesai</th>
+                                                    <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Penghasilan Belum Selesai</th>
+                                                    <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Total Penghasilan</th>
+                                                    <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Hak Tenant Siap Withdraw</th>
+                                                    <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Markup Owner</th>
+                                                    <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Sudah Withdraw</th>
+                                                    <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Pending</th>
+                                                    <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Belum Withdraw</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                                {safeOwnerOverview.tenant_breakdown.map((row) => (
+                                                    <tr key={row.tenant_outlet_id}>
+                                                        <td className="px-4 py-3">
+                                                            <div className="font-medium text-slate-900 dark:text-white">
+                                                                {row.tenant_name}
+                                                            </div>
+                                                            <div className="text-xs text-slate-500 dark:text-slate-400">
+                                                                {row.tenant_code || "-"}
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-4 py-3 text-right text-slate-700 dark:text-slate-300">
+                                                            {Number(row.completed_transactions_count ?? 0).toLocaleString("id-ID")}
+                                                        </td>
+                                                        <td className="px-4 py-3 text-right text-slate-700 dark:text-slate-300">
+                                                            {formatCurrency(row.completed_gross_sales_total ?? 0)}
+                                                        </td>
+                                                        <td className="px-4 py-3 text-right text-slate-700 dark:text-slate-300">
+                                                            {Number(row.pending_kitchen_transactions_count ?? 0).toLocaleString("id-ID")}
+                                                        </td>
+                                                        <td className="px-4 py-3 text-right text-amber-700 dark:text-amber-300">
+                                                            {formatCurrency(row.pending_kitchen_gross_sales_total ?? 0)}
+                                                        </td>
+                                                        <td className="px-4 py-3 text-right text-slate-700 dark:text-slate-300">
+                                                            {formatCurrency(row.total_gross_sales_total ?? 0)}
+                                                        </td>
+                                                        <td className="px-4 py-3 text-right font-semibold text-blue-700 dark:text-blue-300">
+                                                            {formatCurrency(row.tenant_rights_total ?? 0)}
+                                                        </td>
+                                                        <td className="px-4 py-3 text-right font-semibold text-emerald-700 dark:text-emerald-300">
+                                                            {formatCurrency(row.owner_markup_total ?? 0)}
+                                                        </td>
+                                                        <td className="px-4 py-3 text-right text-slate-700 dark:text-slate-300">
+                                                            {formatCurrency(row.withdrawn_total ?? 0)}
+                                                        </td>
+                                                        <td className="px-4 py-3 text-right text-amber-700 dark:text-amber-300">
+                                                            {formatCurrency(row.pending_withdraw_total ?? 0)}
+                                                        </td>
+                                                        <td className="px-4 py-3 text-right font-semibold text-rose-700 dark:text-rose-300">
+                                                            {formatCurrency(row.unwithdrawn_total ?? 0)}
                                                         </td>
                                                     </tr>
                                                 ))}

@@ -703,6 +703,7 @@ const Sales = ({
         items_sold: summary?.items_sold ?? 0,
         profit_total: summary?.profit_total ?? 0,
         owner_net_total: summary?.owner_net_total ?? 0,
+        owner_sales_net_total: summary?.owner_sales_net_total ?? 0,
         owner_product_markup_total: summary?.owner_product_markup_total ?? 0,
         owner_topping_markup_total: summary?.owner_topping_markup_total ?? 0,
         average_order: summary?.average_order ?? 0,
@@ -710,52 +711,89 @@ const Sales = ({
         registered_customer_count: summary?.registered_customer_count ?? 0,
     };
 
-    const summaryCards = [
-        {
-            title: "Pendapatan Bersih",
-            value: formatCurrency(safeSummary.revenue_total),
-            description: "Total setelah diskon",
-            icon: <IconReceipt2 />,
-        },
-        {
-            title: isTenantWorkspace ? "Total Profit" : "Markup Owner",
-            value: formatCurrency(
-                isTenantWorkspace
-                    ? safeSummary.profit_total
-                    : safeSummary.owner_net_total
-            ),
-            description: isTenantWorkspace
-                ? `Selisih harga beli outlet vs HPP tenant`
-                : `Produk ${formatCurrency(safeSummary.owner_product_markup_total)} • Topping ${formatCurrency(safeSummary.owner_topping_markup_total)} • Total ${formatCurrency(safeSummary.owner_net_total)}`,
-            icon: <IconCoin />,
-        },
-        {
-            title: "Item Terjual",
-            value: safeSummary.items_sold.toLocaleString("id-ID"),
-            description: `${safeSummary.orders_count} transaksi`,
-            icon: <IconShoppingBag />,
-        },
-        {
-            title: "Diskon Diberikan",
-            value: formatCurrency(safeSummary.discount_total),
-            description: isTenantWorkspace
-                ? `Diskon tenant ${formatCurrency(safeSummary.tenant_discount_total)}`
-                : `Tenant ${formatCurrency(safeSummary.tenant_discount_total)} • Owner ${formatCurrency(safeSummary.owner_discount_total)}`,
-            icon: <IconDiscount2 />,
-        },
-        {
-            title: "Transaksi Tanpa Profil Customer",
-            value: safeSummary.walk_in_count.toLocaleString("id-ID"),
-            description: `${safeSummary.orders_count > 0 ? ((safeSummary.walk_in_count / safeSummary.orders_count) * 100).toFixed(0) : 0}% dari transaksi`,
-            icon: <IconUsers />,
-        },
-        {
-            title: "Transaksi Dengan Profil Customer",
-            value: safeSummary.registered_customer_count.toLocaleString("id-ID"),
-            description: `${safeSummary.orders_count > 0 ? ((safeSummary.registered_customer_count / safeSummary.orders_count) * 100).toFixed(0) : 0}% dari transaksi`,
-            icon: <IconWallet />,
-        },
-    ];
+    const summaryCards = isTenantWorkspace
+        ? [
+              {
+                  title: "Pendapatan Bersih",
+                  value: formatCurrency(safeSummary.revenue_total),
+                  description: "Total setelah diskon",
+                  icon: <IconReceipt2 />,
+              },
+              {
+                  title: "Total Profit",
+                  value: formatCurrency(safeSummary.profit_total),
+                  description: "Selisih harga beli outlet vs HPP tenant",
+                  icon: <IconCoin />,
+              },
+              {
+                  title: "Item Terjual",
+                  value: safeSummary.items_sold.toLocaleString("id-ID"),
+                  description: `${safeSummary.orders_count} transaksi`,
+                  icon: <IconShoppingBag />,
+              },
+              {
+                  title: "Diskon Diberikan",
+                  value: formatCurrency(safeSummary.discount_total),
+                  description: `Diskon tenant ${formatCurrency(safeSummary.tenant_discount_total)}`,
+                  icon: <IconDiscount2 />,
+              },
+              {
+                  title: "Transaksi Tanpa Profil Customer",
+                  value: safeSummary.walk_in_count.toLocaleString("id-ID"),
+                  description: `${safeSummary.orders_count > 0 ? ((safeSummary.walk_in_count / safeSummary.orders_count) * 100).toFixed(0) : 0}% dari transaksi`,
+                  icon: <IconUsers />,
+              },
+              {
+                  title: "Transaksi Dengan Profil Customer",
+                  value: safeSummary.registered_customer_count.toLocaleString("id-ID"),
+                  description: `${safeSummary.orders_count > 0 ? ((safeSummary.registered_customer_count / safeSummary.orders_count) * 100).toFixed(0) : 0}% dari transaksi`,
+                  icon: <IconWallet />,
+              },
+          ]
+        : [
+              {
+                  title: "Penjualan Kotor",
+                  value: formatCurrency(safeSummary.revenue_total),
+                  description: "Total penjualan setelah diskon pada periode aktif",
+                  icon: <IconReceipt2 />,
+              },
+              {
+                  title: "Penjualan Setelah Dikurangi Markup Owner",
+                  value: formatCurrency(safeSummary.owner_sales_net_total),
+                  description: `Penjualan kotor ${formatCurrency(safeSummary.revenue_total)} - markup owner ${formatCurrency(safeSummary.owner_net_total)}`,
+                  icon: <IconWallet />,
+              },
+              {
+                  title: "Keuntungan Markup Owner",
+                  value: formatCurrency(safeSummary.owner_net_total),
+                  description: `Produk ${formatCurrency(safeSummary.owner_product_markup_total)} • Topping ${formatCurrency(safeSummary.owner_topping_markup_total)}`,
+                  icon: <IconCoin />,
+              },
+              {
+                  title: "Item Terjual",
+                  value: safeSummary.items_sold.toLocaleString("id-ID"),
+                  description: `${safeSummary.orders_count} transaksi`,
+                  icon: <IconShoppingBag />,
+              },
+              {
+                  title: "Diskon Diberikan",
+                  value: formatCurrency(safeSummary.discount_total),
+                  description: `Tenant ${formatCurrency(safeSummary.tenant_discount_total)} • Owner ${formatCurrency(safeSummary.owner_discount_total)}`,
+                  icon: <IconDiscount2 />,
+              },
+              {
+                  title: "Transaksi Tanpa Profil Customer",
+                  value: safeSummary.walk_in_count.toLocaleString("id-ID"),
+                  description: `${safeSummary.orders_count > 0 ? ((safeSummary.walk_in_count / safeSummary.orders_count) * 100).toFixed(0) : 0}% dari transaksi`,
+                  icon: <IconUsers />,
+              },
+              {
+                  title: "Transaksi Dengan Profil Customer",
+                  value: safeSummary.registered_customer_count.toLocaleString("id-ID"),
+                  description: `${safeSummary.orders_count > 0 ? ((safeSummary.registered_customer_count / safeSummary.orders_count) * 100).toFixed(0) : 0}% dari transaksi`,
+                  icon: <IconWallet />,
+              },
+          ];
     const paymentMethodBreakdown = analytics?.payment_method_breakdown || [];
     const activePaymentMethodsCount = paymentMethodBreakdown.filter(
         (item) => (item?.orders_count ?? 0) > 0
@@ -960,7 +998,7 @@ const Sales = ({
         },
         {
             key: "profit",
-            title: "Target Profit",
+            title: isTenantWorkspace ? "Target Profit" : "Target Markup Owner",
             actual: targets?.profit_actual ?? 0,
             target: targets?.profit_target ?? 0,
             progress: targets?.profit_progress_percent,

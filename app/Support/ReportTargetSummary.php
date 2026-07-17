@@ -14,7 +14,7 @@ class ReportTargetSummary
         $dailyItemTarget = Setting::getInt('daily_global_item_target', 0, $outletId);
 
         $salesActual = (int) ($summary['revenue_total'] ?? 0);
-        $profitActual = (int) ($summary['profit_total'] ?? 0);
+        $profitActual = (int) ($summary['target_profit_total'] ?? ($summary['profit_total'] ?? 0));
         $itemsActual = (int) ($summary['items_sold'] ?? 0);
         $bounds = self::resolveBounds($filters);
 
@@ -168,7 +168,7 @@ class ReportTargetSummary
             $profitTarget = self::proratedTargetForPeriod($monthlyProfitTarget, $cursor, $cursor);
             $itemTarget = $dailyItemTarget > 0 ? $dailyItemTarget : 0;
             $salesActual = (int) ($metric['revenue_total'] ?? 0);
-            $profitActual = (int) ($metric['profit_total'] ?? 0);
+            $profitActual = (int) ($metric['target_profit_total'] ?? ($metric['profit_total'] ?? 0));
             $itemsActual = (int) ($metric['items_sold'] ?? 0);
 
             $rows[] = [
