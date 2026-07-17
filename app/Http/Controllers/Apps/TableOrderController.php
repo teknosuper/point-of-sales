@@ -97,7 +97,7 @@ class TableOrderController extends Controller
                     ->count(),
                 'pending_online_count' => (clone $summaryQuery)
                     ->where('status', 'pending_cashier_payment')
-                    ->whereHas('transaction', fn ($transactionQuery) => $transactionQuery->whereIn('payment_method', ['xendit', 'midtrans']))
+                    ->whereHas('transaction', fn ($transactionQuery) => $transactionQuery->whereIn('payment_method', ['xendit', 'midtrans', 'pakasir']))
                     ->count(),
                 'paid' => (clone $summaryQuery)->where('status', 'paid')->count(),
                 'rejected' => (clone $summaryQuery)->where('status', 'rejected')->count(),

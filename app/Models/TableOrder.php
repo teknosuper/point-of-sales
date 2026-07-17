@@ -77,10 +77,15 @@ class TableOrder extends Model
 
     public function resolvedGrandTotal(): int
     {
+        $storedGrandTotal = (int) ($this->grand_total ?? 0);
         $itemsTotal = $this->relationLoaded('items')
             ? (int) $this->items->sum('line_total')
             : (int) $this->items()->sum('line_total');
 
-        return $itemsTotal > 0 ? $itemsTotal : (int) ($this->grand_total ?? 0);
+        if ($storedGrandTotal > 0) {
+            return $storedGrandTotal;
+        }
+
+        return $itemsTotal;
     }
 }

@@ -30,6 +30,12 @@ const formatPrice = (value = 0) =>
         minimumFractionDigits: 0,
     });
 
+const flattenErrorMessages = (errors = {}) =>
+    Object.values(errors)
+        .flatMap((value) => (Array.isArray(value) ? value : [value]))
+        .filter(Boolean)
+        .map((value) => String(value));
+
 const normalizeModifierGroupName = (value) => {
     const normalized = String(value || "").trim();
 
@@ -279,6 +285,13 @@ export default function Menu({
         address: "",
     });
     const logoutForm = useForm({});
+    const submitOrderLabel = editableOrder?.access_token
+        ? "Simpan Perubahan Pesanan"
+        : orderForm.data.payment_method === "cash"
+          ? "Buat Pesanan"
+          : orderForm.data.payment_method === "bank_transfer"
+            ? "Buat Pesanan & Lanjut Bayar"
+            : "Buat Pesanan & Bayar Online";
 
     useEffect(() => {
         if (orderNotesFocusedRef.current) {
@@ -302,11 +315,16 @@ export default function Menu({
             }, {}),
         [products]
     );
+    const cartStorageOwnerKey = customer?.id
+        ? `customer:${customer.id}`
+        : pendingPhone
+          ? `phone:${sanitizePhoneNumber(pendingPhone)}`
+          : customer?.no_telp
+            ? `phone:${sanitizePhoneNumber(customer.no_telp)}`
+            : `table:${table.qr_token}`;
     const cartStorageKey = editableOrder?.access_token
         ? `table-order-edit:${editableOrder.access_token}`
-        : customer?.id
-          ? `table-order-cart:${table.qr_token}:${customer.id}`
-        : null;
+        : `table-order-cart:${table.qr_token}:${cartStorageOwnerKey}`;
 
     const normalizedCarts = useMemo(
         () =>
@@ -368,6 +386,9 @@ export default function Menu({
     const subtotal = Number(
         resolvedPricingPreview?.summary?.subtotal_after_promo ?? 0
     );
+    const paymentFeeTotal = Number(
+        resolvedPricingPreview?.summary?.payment_fee_total ?? 0
+    );
     const payable = Number(
         resolvedPricingPreview?.summary?.grand_total ?? subtotal ?? 0
     );
@@ -428,6 +449,11 @@ export default function Menu({
                 return {
                     item,
                     promoState,
+                    estimatedRemainingStock: Math.max(
+                        0,
+                        Number(fallbackProduct?.stock || 0) -
+                            Number(item.qty || 0)
+                    ),
                     resolvedPromoItem: {
                         ...item,
                         qty: item.qty,
@@ -1185,6 +1211,12 @@ export default function Menu({
                 : orderForm.data.payment_method === "bank_transfer"
                   ? "Anda transfer manual ke rekening outlet, lalu admin/kasir mengonfirmasi setelah dana diterima."
                   : "Setelah order dibuat, Anda bisa langsung bayar sendiri dari meja lewat tautan pembayaran otomatis.";
+        const paymentProcessingSummary =
+            orderForm.data.payment_method === "cash"
+                ? "Pesanan masuk ke dapur setelah pembayaran di-approve kasir."
+                : orderForm.data.payment_method === "bank_transfer"
+                  ? "Pesanan masuk ke dapur setelah transfer diverifikasi oleh admin atau kasir."
+                  : "Pesanan masuk ke dapur otomatis setelah pembayaran online berhasil.";
         const itemsHtml = paymentPreviewItems
             .map(({ item, resolvedPromoItem, promoState }) => {
                 const { resolvedLine } = promoState;
@@ -1317,7 +1349,7 @@ export default function Menu({
                             <div style="margin-top:8px;display:grid;gap:8px;font-size:13px;color:#334155;">
                                 <div style="display:flex;gap:10px;"><span style="display:inline-flex;height:22px;min-width:22px;align-items:center;justify-content:center;border-radius:999px;background:#2563eb;color:#fff;font-size:11px;font-weight:700;">1</span><span>Metode dipilih: <strong>${paymentMethodLabel}</strong>.</span></div>
                                 <div style="display:flex;gap:10px;"><span style="display:inline-flex;height:22px;min-width:22px;align-items:center;justify-content:center;border-radius:999px;background:#0f766e;color:#fff;font-size:11px;font-weight:700;">2</span><span>${paymentFlowSummary}</span></div>
-                                <div style="display:flex;gap:10px;"><span style="display:inline-flex;height:22px;min-width:22px;align-items:center;justify-content:center;border-radius:999px;background:#b45309;color:#fff;font-size:11px;font-weight:700;">3</span><span>Pesanan masuk ke dapur setelah pembayaran terkonfirmasi atau di-approve kasir.</span></div>
+                                <div style="display:flex;gap:10px;"><span style="display:inline-flex;height:22px;min-width:22px;align-items:center;justify-content:center;border-radius:999px;background:#b45309;color:#fff;font-size:11px;font-weight:700;">3</span><span>${paymentProcessingSummary}</span></div>
                             </div>
                         </div>
                         <div style="border:1px solid #e2e8f0;border-radius:18px;padding:14px;background:#fff;">
@@ -1333,6 +1365,7 @@ export default function Menu({
                         <div style="display:flex;justify-content:space-between;gap:12px;font-size:13px;"><span style="color:#64748b;">Subtotal Dasar</span><strong>${formatPrice(baseSubtotal)}</strong></div>
                         <div style="display:flex;justify-content:space-between;gap:12px;font-size:13px;"><span style="color:#64748b;">${PROMO_TOTAL_LABEL}</span><strong style="color:#e11d48;">-${formatPrice(promoDiscount)}</strong></div>
                         <div style="display:flex;justify-content:space-between;gap:12px;font-size:13px;"><span style="color:#64748b;">Subtotal Setelah Promo</span><strong>${formatPrice(subtotal)}</strong></div>
+                        ${paymentFeeTotal > 0 ? `<div style="display:flex;justify-content:space-between;gap:12px;font-size:13px;border:1px solid #fdba74;border-radius:14px;padding:10px 12px;background:linear-gradient(135deg,#fff7ed 0%,#fffbeb 100%);"><span style="color:#9a3412;font-weight:600;">Biaya layanan pembayaran</span><strong style="color:#9a3412;">${formatPrice(paymentFeeTotal)}</strong></div>` : ""}
                         <div style="height:1px;background:#e2e8f0;"></div>
                         <div style="display:flex;justify-content:space-between;gap:12px;font-size:17px;"><span><strong>Total pembayaran</strong></span><strong style="color:#4f46e5;">${formatPrice(payable)}</strong></div>
                     </div>
@@ -1355,6 +1388,7 @@ export default function Menu({
         editableOrder?.access_token,
         orderForm.data.notes,
         payable,
+        paymentFeeTotal,
         paymentPreviewItems,
         promoDiscount,
         selectedPaymentMethod?.label,
@@ -1398,6 +1432,15 @@ export default function Menu({
 
             const submitConfig = {
                 preserveScroll: true,
+                onError: (errors) => {
+                    const messages = flattenErrorMessages(errors);
+
+                    toast.error(
+                        messages[0] ||
+                            "Pesanan belum bisa dikirim karena stok atau data pesanan berubah."
+                    );
+                    setMobileView("cart");
+                },
                 onSuccess: () => {
                     if (cartStorageKey && typeof window !== "undefined") {
                         window.localStorage.removeItem(cartStorageKey);
@@ -1640,6 +1683,7 @@ export default function Menu({
                     route("table-order.preview", table.qr_token),
                     {
                         notes: orderForm.data.notes || "",
+                        payment_method: orderForm.data.payment_method,
                         items: buildPreviewRequestItems(previewItems),
                     },
                     {
@@ -1678,6 +1722,7 @@ export default function Menu({
         modifierModalProduct,
         normalizedCarts,
         orderForm.data.notes,
+        orderForm.data.payment_method,
         table.qr_token,
     ]);
 
@@ -1702,6 +1747,7 @@ export default function Menu({
                     route("table-order.preview", table.qr_token),
                     {
                         notes: orderForm.data.notes || "",
+                        payment_method: orderForm.data.payment_method,
                         items: buildPreviewRequestItems(normalizedCarts),
                     },
                     {
@@ -1739,6 +1785,7 @@ export default function Menu({
         buildPreviewRequestItems,
         normalizedCarts,
         orderForm.data.notes,
+        orderForm.data.payment_method,
         pricingDependency,
         table.qr_token,
     ]);
@@ -1916,7 +1963,7 @@ export default function Menu({
             <button
                 type="button"
                 onClick={() => setSidebarOpen(true)}
-                className="fixed left-3 top-3 z-50 flex h-10 w-10 items-center justify-center rounded-full border border-slate-200/80 bg-white/95 shadow-lg shadow-slate-900/10 backdrop-blur sm:left-5 sm:top-5"
+                className="fixed left-5 top-5 z-50 hidden h-10 w-10 items-center justify-center rounded-full border border-slate-200/80 bg-white/95 shadow-lg shadow-slate-900/10 backdrop-blur sm:flex"
                 aria-label="Buka menu"
             >
                 <svg
@@ -1937,19 +1984,41 @@ export default function Menu({
                 </svg>
             </button>
 
-            <div className="relative flex h-screen flex-col overflow-hidden bg-slate-100">
+            <div className="relative flex h-dvh flex-col overflow-hidden bg-slate-100">
+                <div className="border-b border-slate-200 bg-white px-4 py-3">
+                    <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                            <p className="truncate text-base font-semibold text-slate-900">
+                                {outlet?.name || storeProfile?.name || "Outlet"}
+                            </p>
+                            <p className="truncate text-xs text-slate-500">
+                                Meja {table.code || table.name}
+                                {customer?.name ? ` • ${customer.name}` : ""}
+                            </p>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setSidebarOpen(true)}
+                            className="shrink-0 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+                        >
+                            Riwayat & Meja
+                        </button>
+                    </div>
+
+                </div>
+
                 <div className="grid grid-cols-3 border-b border-slate-200 bg-white">
                     <button
                         type="button"
                         onClick={() => setMobileView("products")}
-                        className={`flex items-center justify-center gap-2 px-3 py-3 text-sm font-semibold transition-colors ${
+                            className={`flex items-center justify-center gap-1 px-2 py-2.5 text-sm font-semibold transition-colors ${
                             mobileView === "products"
                                 ? "border-b-2 border-primary-500 text-primary-600"
                                 : "text-slate-500"
                         }`}
                     >
                         <IconShoppingCart size={18} />
-                        <span>Produk</span>
+                        <span>Menu</span>
                     </button>
                     <button
                         type="button"
@@ -1965,7 +2034,7 @@ export default function Menu({
 
                             setMobileView("cart");
                         }}
-                        className={`flex items-center justify-center gap-2 px-3 py-3 text-sm font-semibold transition-colors ${
+                        className={`flex items-center justify-center gap-1 px-2 py-2.5 text-sm font-semibold transition-colors ${
                             mobileView === "cart"
                                 ? "border-b-2 border-primary-500 text-primary-600"
                                 : "text-slate-500"
@@ -1973,7 +2042,7 @@ export default function Menu({
                     >
                         <IconReceipt size={18} />
                         <span className="inline-flex items-center gap-1">
-                            Keranjang
+                            Pesanan
                             {cartCount > 0 && (
                                 <span className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-primary-500 px-1.5 text-[11px] font-bold text-white">
                                     {cartCount}
@@ -1984,14 +2053,14 @@ export default function Menu({
                     <button
                         type="button"
                         onClick={openPaymentInfoTab}
-                        className={`flex items-center justify-center gap-2 px-2 py-3 text-center text-sm font-semibold transition-colors ${
+                        className={`flex items-center justify-center gap-1 px-2 py-2.5 text-center text-sm font-semibold transition-colors ${
                             mobileView === "payment"
                                 ? "border-b-2 border-primary-500 text-primary-600"
                                 : "text-slate-500"
                         }`}
                     >
                         <IconCash size={18} />
-                        <span className="truncate">Info Pembayaran</span>
+                        <span className="truncate">Cara Bayar</span>
                     </button>
                 </div>
 
@@ -2049,7 +2118,7 @@ export default function Menu({
                             compactHeaderLayout={true}
                             embedHeaderInScroll={true}
                             scrollIntro={
-                                <div className="rounded-[24px] border border-slate-200 bg-white px-4 py-3 shadow-sm">
+                                <div className="rounded-[24px] border border-[#d8c7ab] bg-[linear-gradient(135deg,_#fffaf2_0%,_#fff1d6_52%,_#f9e3b3_100%)] px-4 py-3 shadow-[0_18px_40px_-30px_rgba(180,83,9,0.35)]">
                                     <div className="flex flex-wrap items-center justify-between gap-3">
                                         <div className="min-w-0">
                                             <p className="text-sm font-semibold text-slate-800">
@@ -2165,7 +2234,7 @@ export default function Menu({
                                             Keranjang kosong
                                         </p>
                                         <p className="mt-1 text-xs text-slate-400">
-                                            Tambahkan produk dari tab Produk.
+                                            Tambahkan menu dari halaman menu.
                                         </p>
                                     </div>
                                 )}
@@ -2174,7 +2243,7 @@ export default function Menu({
 
                         <div className="hidden flex-shrink-0 border-t border-slate-200 bg-slate-50 p-3 lg:block">
                             <div className="space-y-3">
-                                <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left">
+                                <div className="rounded-2xl border border-emerald-200 bg-[linear-gradient(135deg,_#f4fdf7_0%,_#dcfce7_100%)] px-4 py-3 text-left shadow-[0_18px_36px_-30px_rgba(22,163,74,0.35)]">
                                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                                         Pelanggan
                                     </p>
@@ -2197,8 +2266,8 @@ export default function Menu({
                                     <IconCash size={16} />
                                     <span>
                                         {!normalizedCarts.length
-                                            ? "Pilih menu dulu"
-                                            : "Lanjut ke info pembayaran"}
+                                            ? "Pilih menu lebih dulu"
+                                            : "Lanjut ke pembayaran"}
                                     </span>
                                 </button>
                             </div>
@@ -2206,7 +2275,7 @@ export default function Menu({
 
                         <div className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-slate-50/95 p-3 pb-[calc(env(safe-area-inset-bottom,0px)+0.75rem)] backdrop-blur lg:hidden">
                             <div className="mx-auto w-full max-w-5xl space-y-3">
-                                <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left">
+                                <div className="rounded-2xl border border-emerald-200 bg-[linear-gradient(135deg,_#f4fdf7_0%,_#dcfce7_100%)] px-4 py-3 text-left shadow-[0_18px_36px_-30px_rgba(22,163,74,0.35)]">
                                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                                         Pelanggan
                                     </p>
@@ -2229,8 +2298,8 @@ export default function Menu({
                                     <IconCash size={16} />
                                     <span>
                                         {!normalizedCarts.length
-                                            ? "Pilih menu dulu"
-                                            : "Lanjut ke info pembayaran"}
+                                            ? "Pilih menu lebih dulu"
+                                            : "Lanjut ke pembayaran"}
                                     </span>
                                 </button>
                             </div>
@@ -2244,15 +2313,15 @@ export default function Menu({
                     >
                         <div className="border-b border-slate-200 px-4 py-4">
                             <p className="text-sm font-semibold text-slate-800">
-                                Info Pembayaran
+                                Pembayaran
                             </p>
                             <p className="text-xs text-slate-500">
-                                Cek total pesanan dan pilih alur pembayaran yang sesuai untuk meja ini.
+                                Cek total pesanan dan pilih cara bayar yang paling sesuai.
                             </p>
                         </div>
 
                         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 pb-36 lg:pb-4">
-                            <div className="rounded-3xl border border-sky-200 bg-gradient-to-br from-sky-50 via-white to-slate-50 p-4">
+                            <div className="rounded-3xl border border-sky-200 bg-[linear-gradient(135deg,_#eff6ff_0%,_#f0fdf4_45%,_#fff7ed_100%)] p-4 shadow-[0_24px_50px_-34px_rgba(14,165,233,0.35)]">
                                 <div className="flex items-start justify-between gap-3">
                                     <div>
                                         <p className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-700">
@@ -2274,7 +2343,7 @@ export default function Menu({
                                           : "Order dibuat lebih dulu, lalu Anda bisa langsung bayar sendiri dari meja memakai tautan pembayaran otomatis."}
                                 </p>
                                 <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                                    <div className="rounded-2xl border border-white/80 bg-white/90 p-3">
+                                    <div className="rounded-2xl border border-sky-100 bg-white/90 p-3">
                                         <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
                                             1. Kirim order
                                         </p>
@@ -2284,7 +2353,7 @@ export default function Menu({
                                                 : "Anda kirim detail menu dan sistem menyiapkan tagihan untuk meja ini."}
                                         </p>
                                     </div>
-                                    <div className="rounded-2xl border border-white/80 bg-white/90 p-3">
+                                    <div className="rounded-2xl border border-emerald-100 bg-white/90 p-3">
                                         <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
                                             2. Verifikasi pesanan
                                         </p>
@@ -2294,7 +2363,7 @@ export default function Menu({
                                                 : "Sistem menyiapkan tagihan sesuai item, topping, promo, dan total akhir yang sama."}
                                         </p>
                                     </div>
-                                    <div className="rounded-2xl border border-white/80 bg-white/90 p-3">
+                                    <div className="rounded-2xl border border-amber-100 bg-white/90 p-3">
                                         <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
                                             {orderForm.data.payment_method === "cash"
                                                 ? "3. Bayar ke kasir"
@@ -2311,7 +2380,7 @@ export default function Menu({
                                 </div>
                             </div>
 
-                            <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                            <div className="rounded-2xl border border-violet-200 bg-[linear-gradient(135deg,_#faf5ff_0%,_#ffffff_100%)] p-4 shadow-[0_20px_45px_-34px_rgba(139,92,246,0.28)]">
                                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                                     Metode pembayaran
                                 </p>
@@ -2396,7 +2465,7 @@ export default function Menu({
                                 ) : null}
                             </div>
 
-                            <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                            <div className="rounded-2xl border border-rose-200 bg-[linear-gradient(135deg,_#fff7f7_0%,_#ffffff_100%)] p-4 shadow-[0_18px_40px_-32px_rgba(244,63,94,0.22)]">
                                 <div className="mb-4">
                                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                                         Ringkasan menu dipilih
@@ -2406,6 +2475,7 @@ export default function Menu({
                                             ({
                                                 item,
                                                 promoState,
+                                                estimatedRemainingStock,
                                                 resolvedPromoItem,
                                             }) => {
                                                 const { resolvedLine } =
@@ -2440,6 +2510,10 @@ export default function Menu({
                                                                         )}{" "}
                                                                         ×{" "}
                                                                         {item.qty}
+                                                                    </p>
+                                                                    <p className="mt-1 text-[11px] text-slate-400">
+                                                                        Perkiraan sisa stok setelah order:{" "}
+                                                                        {estimatedRemainingStock}
                                                                     </p>
                                                                 </div>
                                                                 {hasPromoApplied(
@@ -2570,6 +2644,16 @@ export default function Menu({
                                             {formatPrice(subtotal)}
                                         </span>
                                     </div>
+                                    {paymentFeeTotal > 0 && (
+                                        <div className="flex justify-between rounded-xl border border-amber-200 bg-[linear-gradient(135deg,_#fff7ed_0%,_#fffbeb_100%)] px-3 py-2 text-sm">
+                                            <span className="font-medium text-amber-800">
+                                                Biaya layanan pembayaran
+                                            </span>
+                                            <span className="font-semibold text-amber-900">
+                                                {formatPrice(paymentFeeTotal)}
+                                            </span>
+                                        </div>
+                                    )}
                                     <div className="h-px bg-slate-200" />
                                     <div className="flex justify-between">
                                         <span className="text-base font-semibold text-slate-800">
@@ -2582,7 +2666,7 @@ export default function Menu({
                                 </div>
                             </div>
 
-                            <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                            <div className="rounded-2xl border border-amber-200 bg-[linear-gradient(135deg,_#fffaf0_0%,_#ffffff_100%)] p-4 shadow-[0_20px_42px_-34px_rgba(245,158,11,0.25)]">
                                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                                     Catatan umum order
                                 </p>
@@ -2604,7 +2688,7 @@ export default function Menu({
                                 />
                             </div>
 
-                            <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                            <div className="rounded-2xl border border-cyan-200 bg-[linear-gradient(135deg,_#ecfeff_0%,_#ffffff_100%)] p-4 shadow-[0_20px_42px_-34px_rgba(6,182,212,0.22)]">
                                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                                     Riwayat pelanggan
                                 </p>
@@ -2700,9 +2784,7 @@ export default function Menu({
                                         ? editableOrder?.access_token
                                           ? "Menyimpan perubahan..."
                                           : "Mengirim order..."
-                                        : editableOrder?.access_token
-                                          ? "Simpan Perubahan Pesanan"
-                                          : "Kirim Order ke Kasir"}
+                                        : submitOrderLabel}
                                 </span>
                             </button>
                         </div>
@@ -2729,9 +2811,7 @@ export default function Menu({
                                             ? editableOrder?.access_token
                                               ? "Menyimpan perubahan..."
                                               : "Mengirim order..."
-                                            : editableOrder?.access_token
-                                              ? "Simpan Perubahan Pesanan"
-                                              : "Kirim Order ke Kasir"}
+                                            : submitOrderLabel}
                                     </span>
                                 </button>
                             </div>

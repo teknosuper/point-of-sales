@@ -22,13 +22,14 @@ const paymentMethodLabel = (order) => {
             qris: "QRIS Kasir",
             xendit: "Xendit Online",
             midtrans: "Midtrans Online",
+            pakasir: "Pakasir Online",
             bank_transfer: "Transfer Bank",
         }[method] || method
     );
 };
 
 const isOnlinePayment = (order) =>
-    ["xendit", "midtrans"].includes(
+    ["xendit", "midtrans", "pakasir"].includes(
         String(order?.transaction?.payment_method || order?.payment_method || "").toLowerCase()
     );
 

@@ -199,6 +199,70 @@ class PaymentWebhookController extends Controller
     }
 
     /**
+     * Handle Pakasir notification webhook
+     * URL: POST /api/webhooks/pakasir
+     */
+    public function pakasir(Request $request)
+    {
+        try {
+            $orderId = $request->input('order_id');
+            $transaction = Transaction::where('invoice', $orderId)->first();
+            $paymentSetting = PaymentSetting::resolveForOutlet($transaction?->outlet_id);
+
+            if (! $paymentSetting || ! $paymentSetting->pakasir_enabled) {
+                return response()->json(['status' => 'error', 'message' => 'Pakasir not configured'], 400);
+            }
+
+            if (blank($orderId) || blank($request->input('status'))) {
+                return response()->json(['status' => 'error', 'message' => 'Invalid payload'], 422);
+            }
+
+            if (! $transaction) {
+                Log::warning('Pakasir Webhook: Transaction not found', [
+                    'provider' => 'pakasir',
+                    'order_id' => $orderId,
+                    'verification_result' => 'accepted',
+                    'error_category' => 'transaction_not_found',
+                ]);
+
+                return response()->json(['status' => 'error', 'message' => 'Transaction not found'], 404);
+            }
+
+            $newStatus = $this->mapPakasirStatus((string) $request->input('status'));
+            $previousStatus = (string) ($transaction->payment_status ?? '');
+
+            $transaction->update([
+                'payment_status' => $newStatus,
+                'payment_reference' => $request->input('order_id') ?: $transaction->payment_reference,
+            ]);
+
+            if ($newStatus === 'paid' && $previousStatus !== 'paid') {
+                $this->tableOrderService->finalizePublicPayment($transaction->fresh());
+            }
+
+            Log::info('Pakasir Webhook: Transaction updated', [
+                'provider' => 'pakasir',
+                'order_id' => $orderId,
+                'payment_method' => $request->input('payment_method'),
+                'normalized_status' => $newStatus,
+                'verification_result' => 'accepted',
+            ]);
+
+            return response()->json(['status' => 'success']);
+        } catch (\Exception $e) {
+            Log::error('Pakasir Webhook Error', [
+                'provider' => 'pakasir',
+                'order_id' => $request->input('order_id'),
+                'verification_result' => 'unknown',
+                'error_category' => 'exception',
+                'message' => $e->getMessage(),
+            ]);
+
+            return response()->json(['status' => 'error', 'message' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
      * Map Midtrans transaction status to our payment status
      */
     private function mapMidtransStatus(string $transactionStatus, ?string $fraudStatus = null): string
@@ -225,6 +289,15 @@ class PaymentWebhookController extends Controller
             'PAID', 'SETTLED' => 'paid',
             'PENDING' => 'pending',
             'EXPIRED', 'FAILED' => 'failed',
+            default => 'pending',
+        };
+    }
+
+    private function mapPakasirStatus(string $status): string
+    {
+        return match (strtolower($status)) {
+            'completed', 'paid', 'settled' => 'paid',
+            'expired', 'failed', 'cancelled', 'canceled' => 'failed',
             default => 'pending',
         };
     }

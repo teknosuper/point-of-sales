@@ -29,6 +29,7 @@ const paymentMethodLabel = (value) => {
             qris: "QRIS Kasir",
             xendit: "Xendit",
             midtrans: "Midtrans",
+            pakasir: "Pakasir",
             bank_transfer: "Transfer Bank",
         }[normalized] || value || "-"
     );
@@ -40,7 +41,7 @@ const orderStatusLabel = (order) => {
     ).toLowerCase();
     const paymentStatus = String(order?.transaction?.payment_status || "").toLowerCase();
 
-    if (order?.status === "pending_cashier_payment" && paymentMethod === "xendit") {
+    if (order?.status === "pending_cashier_payment" && ["xendit", "pakasir"].includes(paymentMethod)) {
         return paymentStatus === "paid"
             ? "Sudah Dibayar Online"
             : "Menunggu Bayar Online";

@@ -29,6 +29,8 @@ class Transaction extends Model
         'shipping_cost' => 'integer',
         'grand_total' => 'integer',
         'bank_account_id' => 'integer',
+        'payment_payload' => 'array',
+        'payment_expires_at' => 'datetime',
     ];
 
     /**
@@ -62,6 +64,8 @@ class Transaction extends Model
         'payment_status',
         'payment_reference',
         'payment_url',
+        'payment_payload',
+        'payment_expires_at',
         'bank_account_id',
     ];
 

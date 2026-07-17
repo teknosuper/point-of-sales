@@ -44,6 +44,12 @@ export default function Payment({
         xendit_public_key: setting?.xendit_public_key ?? "",
         xendit_callback_token: "",
         xendit_production: setting?.xendit_production ?? false,
+        pakasir_enabled: setting?.pakasir_enabled ?? false,
+        pakasir_project_slug: setting?.pakasir_project_slug ?? "",
+        pakasir_api_key: "",
+        pakasir_method: setting?.pakasir_method ?? "qris",
+        pakasir_fee_percentage: setting?.pakasir_fee_percentage ?? 0,
+        pakasir_fee_fixed: setting?.pakasir_fee_fixed ?? 0,
         qris_enabled: setting?.qris_enabled ?? false,
         qris_static_image: null,
         remove_qris_image: false,
@@ -70,6 +76,7 @@ export default function Payment({
         if (gateway === "cash") return true;
         if (gateway === "midtrans") return data.midtrans_enabled;
         if (gateway === "xendit") return data.xendit_enabled;
+        if (gateway === "pakasir") return data.pakasir_enabled;
         if (gateway === "bank_transfer") return data.bank_transfer_enabled;
         if (gateway === "qris") return data.qris_enabled;
         return false;
@@ -228,6 +235,76 @@ export default function Payment({
                     </div>
                 </div>
 
+                <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">
+                    <div className="flex items-center justify-between mb-4">
+                        <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-2"><IconCreditCard size={18} /> Pakasir</h3>
+                        <label className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium cursor-pointer transition-all ${data.pakasir_enabled ? "bg-success-100 dark:bg-success-900/50 text-success-700 dark:text-success-400" : "bg-slate-100 dark:bg-slate-800 text-slate-500"}`}>
+                            <Checkbox checked={data.pakasir_enabled} onChange={(e) => setData("pakasir_enabled", e.target.checked)} disabled={!canUpdatePaymentSettings} />
+                            {data.pakasir_enabled ? "Aktif" : "Nonaktif"}
+                        </label>
+                    </div>
+                    <div className={`space-y-4 ${!data.pakasir_enabled ? "opacity-50 pointer-events-none" : ""}`}>
+                        <div className="grid gap-4 md:grid-cols-2">
+                            <Input label="Project Slug" type="text" value={data.pakasir_project_slug} onChange={(e) => setData("pakasir_project_slug", e.target.value)} errors={errors?.pakasir_project_slug} placeholder="depodomain" disabled={!canUpdatePaymentSettings} hintText="Slug proyek dari dashboard Pakasir." />
+                            <Input label="API Key" type="password" value={data.pakasir_api_key} onChange={(e) => setData("pakasir_api_key", e.target.value)} errors={errors?.pakasir_api_key}
+                                placeholder={paymentSettingSources?.pakasir_api_key?.configured ? "Kosongkan untuk mempertahankan nilai saat ini" : "pakasir-api-key"}
+                                disabled={!canUpdatePaymentSettings || paymentSettingSources?.pakasir_api_key?.managed_by_environment}
+                                hintText="API key dari detail proyek Pakasir." />
+                        </div>
+                        {renderSecretHint("pakasir_api_key", "Isi ulang hanya jika ingin mengganti API key.")}
+                        <div>
+                            <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                Metode Pakasir
+                            </label>
+                            <select
+                                value={data.pakasir_method}
+                                onChange={(e) => setData("pakasir_method", e.target.value)}
+                                disabled={!canUpdatePaymentSettings}
+                                className="w-full h-11 px-4 text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all"
+                            >
+                                <option value="qris">QRIS</option>
+                                <option value="bni_va">BNI VA</option>
+                                <option value="bri_va">BRI VA</option>
+                                <option value="permata_va">Permata VA</option>
+                                <option value="maybank_va">Maybank VA</option>
+                                <option value="cimb_niaga_va">CIMB Niaga VA</option>
+                                <option value="sampoerna_va">Sampoerna VA</option>
+                                <option value="bnc_va">BNC VA</option>
+                                <option value="atm_bersama_va">ATM Bersama VA</option>
+                                <option value="artha_graha_va">Artha Graha VA</option>
+                            </select>
+                            {errors?.pakasir_method && (
+                                <small className="text-xs text-danger-500 mt-1">{errors.pakasir_method}</small>
+                            )}
+                        </div>
+                        <div className="grid gap-4 md:grid-cols-2">
+                            <Input
+                                label="Fee Persentase (%)"
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                value={data.pakasir_fee_percentage}
+                                onChange={(e) => setData("pakasir_fee_percentage", e.target.value)}
+                                errors={errors?.pakasir_fee_percentage}
+                                placeholder="0.70"
+                                disabled={!canUpdatePaymentSettings}
+                                hintText="Contoh 0.70 untuk tambahan 0.7%."
+                            />
+                            <Input
+                                label="Fee Tetap (Rp)"
+                                type="number"
+                                min="0"
+                                value={data.pakasir_fee_fixed}
+                                onChange={(e) => setData("pakasir_fee_fixed", e.target.value)}
+                                errors={errors?.pakasir_fee_fixed}
+                                placeholder="0"
+                                disabled={!canUpdatePaymentSettings}
+                                hintText="Biaya tetap tambahan per transaksi."
+                            />
+                        </div>
+                    </div>
+                </div>
+
                 {/* QRIS */}
                 <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">
                     <div className="flex items-center justify-between mb-4">
@@ -319,6 +396,13 @@ export default function Payment({
                             <div className="flex items-center gap-2">
                                 <input type="text" readOnly value={webhookUrls.xendit || ""} className="flex-1 h-10 px-3 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400" />
                                 <button type="button" onClick={() => { navigator.clipboard.writeText(webhookUrls.xendit || ""); toast.success("URL disalin!"); }} className="px-3 h-10 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">Salin</button>
+                            </div>
+                        </div>
+                        <div>
+                            <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Pakasir Webhook URL</label>
+                            <div className="flex items-center gap-2">
+                                <input type="text" readOnly value={webhookUrls.pakasir || ""} className="flex-1 h-10 px-3 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400" />
+                                <button type="button" onClick={() => { navigator.clipboard.writeText(webhookUrls.pakasir || ""); toast.success("URL disalin!"); }} className="px-3 h-10 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">Salin</button>
                             </div>
                         </div>
                     </div>

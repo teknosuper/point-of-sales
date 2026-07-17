@@ -37,6 +37,10 @@ return [
         'server_key' => env('MIDTRANS_SERVER_KEY'),
     ],
 
+    'pakasir' => [
+        'api_key' => env('PAKASIR_API_KEY'),
+    ],
+
     'print_bridge' => [
         'token' => env('PRINT_BRIDGE_TOKEN', '0000'),
     ],

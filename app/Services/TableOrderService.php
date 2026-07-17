@@ -40,12 +40,13 @@ class TableOrderService
         $preview = $this->previewPublicMenu($table, $customer, $payload);
         $orderItems = collect($preview['items'] ?? []);
         $subtotal = (int) ($preview['subtotal'] ?? 0);
+        $grandTotal = (int) ($preview['grand_total'] ?? $subtotal);
         $paymentMethod = $this->normalizePublicPaymentMethod($payload['payment_method'] ?? null);
         $bankAccountId = $paymentMethod === PaymentSetting::GATEWAY_BANK_TRANSFER
             ? (int) ($payload['bank_account_id'] ?? 0)
             : null;
 
-        $tableOrder = DB::transaction(function () use ($table, $customer, $payload, $orderItems, $subtotal, $paymentMethod, $bankAccountId) {
+        $tableOrder = DB::transaction(function () use ($table, $customer, $payload, $orderItems, $subtotal, $grandTotal, $paymentMethod, $bankAccountId) {
             $order = TableOrder::create([
                 'outlet_id' => $table->outlet_id,
                 'dining_table_id' => $table->id,
@@ -60,7 +61,7 @@ class TableOrderService
                 'payment_method' => $paymentMethod,
                 'status' => 'pending_cashier_payment',
                 'subtotal' => $subtotal,
-                'grand_total' => $subtotal,
+                'grand_total' => $grandTotal,
             ]);
 
             foreach ($orderItems as $item) {
@@ -308,6 +309,9 @@ class TableOrderService
         })->values();
 
         $subtotal = (int) data_get($pricingPreview, 'summary.grand_total', $orderItems->sum('line_total'));
+        $paymentMethod = $this->normalizePublicPaymentMethod($payload['payment_method'] ?? null);
+        $paymentSurcharge = $this->resolvePublicPaymentSurcharge($table->outlet_id, $paymentMethod, $subtotal);
+        $grandTotal = $subtotal + (int) ($paymentSurcharge['total'] ?? 0);
 
         $previewItems = collect($pricingPreview['items'] ?? [])
             ->map(function (array $pricingItem) use ($orderItems) {
@@ -325,9 +329,18 @@ class TableOrderService
         return [
             'items' => $orderItems->values()->all(),
             'subtotal' => $subtotal,
-            'grand_total' => $subtotal,
+            'grand_total' => $grandTotal,
             'pricing_preview' => [
                 ...$pricingPreview,
+                'summary' => [
+                    ...(array) ($pricingPreview['summary'] ?? []),
+                    'subtotal_after_promo' => $subtotal,
+                    'payment_fee_total' => (int) ($paymentSurcharge['total'] ?? 0),
+                    'payment_fee_percentage' => (float) ($paymentSurcharge['percentage'] ?? 0),
+                    'payment_fee_fixed' => (int) ($paymentSurcharge['fixed'] ?? 0),
+                    'payment_fee_percentage_amount' => (int) ($paymentSurcharge['percentage_amount'] ?? 0),
+                    'grand_total' => $grandTotal,
+                ],
                 'items' => $previewItems,
             ],
         ];
@@ -729,16 +742,46 @@ class TableOrderService
                 continue;
             }
 
-            $this->stockMutationService->decrementForOutlet(
-                $product,
-                (int) $tableOrder->outlet_id,
-                $qty,
-                'table_order',
-                (int) $tableOrder->id,
-                $notes,
-                $userId
-            );
+            try {
+                $this->stockMutationService->decrementForOutlet(
+                    $product,
+                    (int) $tableOrder->outlet_id,
+                    $qty,
+                    'table_order',
+                    (int) $tableOrder->id,
+                    $notes,
+                    $userId
+                );
+            } catch (ValidationException $exception) {
+                $currentStock = $this->resolveCurrentOutletStock(
+                    $product,
+                    (int) $tableOrder->outlet_id
+                );
+
+                throw ValidationException::withMessages([
+                    'items' => $currentStock <= 0
+                        ? "Stok {$product->title} habis saat pesanan dikirim. Silakan kurangi atau hapus menu ini."
+                        : "Stok {$product->title} berubah saat pesanan dikirim. Sisa stok saat ini {$currentStock}, sedangkan pesanan meminta {$qty}.",
+                    'stock' => $currentStock <= 0
+                        ? "Stok {$product->title} habis saat pesanan dikirim."
+                        : "Sisa stok {$product->title} saat ini {$currentStock}, pesanan meminta {$qty}.",
+                ]);
+            }
         }
+    }
+
+    private function resolveCurrentOutletStock(Product $product, int $outletId): int
+    {
+        $outletStock = ProductOutletStock::query()
+            ->where('outlet_id', $outletId)
+            ->where('product_id', $product->id)
+            ->value('stock');
+
+        if ($outletStock !== null) {
+            return (int) $outletStock;
+        }
+
+        return (int) ($product->stock ?? 0);
     }
 
     private function releaseReservedStockForOrder(
@@ -861,9 +904,35 @@ class TableOrderService
             PaymentSetting::GATEWAY_BANK_TRANSFER,
             PaymentSetting::GATEWAY_MIDTRANS,
             PaymentSetting::GATEWAY_XENDIT,
+            PaymentSetting::GATEWAY_PAKASIR,
         ], true)
             ? $paymentMethod
             : 'cash';
+    }
+
+    private function resolvePublicPaymentSurcharge(int $outletId, string $paymentMethod, int $subtotal): array
+    {
+        if ($paymentMethod !== PaymentSetting::GATEWAY_PAKASIR || ! PaymentSetting::supportsPakasirConfiguration()) {
+            return [
+                'percentage' => 0,
+                'fixed' => 0,
+                'percentage_amount' => 0,
+                'total' => 0,
+            ];
+        }
+
+        $paymentSetting = PaymentSetting::resolveForOutlet($outletId);
+
+        if (! $paymentSetting) {
+            return [
+                'percentage' => 0,
+                'fixed' => 0,
+                'percentage_amount' => 0,
+                'total' => 0,
+            ];
+        }
+
+        return $paymentSetting->calculatePakasirFee($subtotal);
     }
 
     private function createPendingSelfServiceTransaction(

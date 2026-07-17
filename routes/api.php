@@ -22,6 +22,7 @@ use Illuminate\Support\Facades\Route;
 Route::prefix('webhooks')->group(function () {
     Route::post('/midtrans', [PaymentWebhookController::class, 'midtrans'])->name('webhooks.midtrans');
     Route::post('/xendit', [PaymentWebhookController::class, 'xendit'])->name('webhooks.xendit');
+    Route::post('/pakasir', [PaymentWebhookController::class, 'pakasir'])->name('webhooks.pakasir');
 });
 
 Route::prefix('print-bridge')->group(function () {

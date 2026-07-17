@@ -721,8 +721,15 @@ export const shouldUseLocalPricingPreview = (
         return sum + Number(resolveCartPricingLine(cartItem, pricingItem)?.effectiveLineTotal || 0);
     }, 0);
     const currentGrandTotal = Number(pricingPreview?.summary?.grand_total ?? 0);
+    const currentPaymentFeeTotal = Number(
+        pricingPreview?.summary?.payment_fee_total ?? 0
+    );
+    const comparableGrandTotal = Math.max(
+        0,
+        currentGrandTotal - currentPaymentFeeTotal
+    );
 
-    if (Math.abs(previewItemsGrandTotal - currentGrandTotal) > 1) {
+    if (Math.abs(previewItemsGrandTotal - comparableGrandTotal) > 1) {
         return true;
     }
 

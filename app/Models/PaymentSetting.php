@@ -19,11 +19,16 @@ class PaymentSetting extends Model
 
     public const GATEWAY_QRIS = 'qris';
 
+    public const GATEWAY_PAKASIR = 'pakasir';
+
     public const SECRET_FIELDS = [
         'midtrans_server_key',
         'xendit_secret_key',
         'xendit_callback_token',
+        'pakasir_api_key',
     ];
+
+    private static ?bool $hasPakasirColumns = null;
 
     protected $fillable = [
         'outlet_id',
@@ -38,6 +43,12 @@ class PaymentSetting extends Model
         'xendit_public_key',
         'xendit_callback_token',
         'xendit_production',
+        'pakasir_enabled',
+        'pakasir_project_slug',
+        'pakasir_api_key',
+        'pakasir_method',
+        'pakasir_fee_percentage',
+        'pakasir_fee_fixed',
         'qris_enabled',
         'qris_static_image',
     ];
@@ -49,10 +60,14 @@ class PaymentSetting extends Model
         'midtrans_production' => 'boolean',
         'xendit_enabled' => 'boolean',
         'xendit_production' => 'boolean',
+        'pakasir_enabled' => 'boolean',
+        'pakasir_fee_percentage' => 'float',
+        'pakasir_fee_fixed' => 'integer',
         'qris_enabled' => 'boolean',
         'midtrans_server_key' => 'encrypted',
         'xendit_secret_key' => 'encrypted',
         'xendit_callback_token' => 'encrypted',
+        'pakasir_api_key' => 'encrypted',
     ];
 
     public static function resolveForOutlet(?int $outletId = null): ?self
@@ -145,6 +160,14 @@ class PaymentSetting extends Model
             ];
         }
 
+        if (self::supportsPakasirConfiguration() && $this->isGatewayReady(self::GATEWAY_PAKASIR)) {
+            $gateways[] = [
+                'value' => self::GATEWAY_PAKASIR,
+                'label' => 'QRIS Otomatis (Online)',
+                'description' => 'Pembayaran QRIS otomatis langsung dari meja pelanggan.',
+            ];
+        }
+
         return $gateways;
     }
 
@@ -171,6 +194,11 @@ class PaymentSetting extends Model
             && filled($this->xendit_public_key),
             self::GATEWAY_QRIS => $this->qris_enabled
             && filled($this->qris_static_image),
+            self::GATEWAY_PAKASIR => self::supportsPakasirConfiguration()
+            && $this->pakasir_enabled
+            && filled($this->pakasir_project_slug)
+            && filled($this->resolvedSecret('pakasir_api_key'))
+            && filled($this->pakasir_method),
             default => false,
         };
     }
@@ -193,6 +221,33 @@ class PaymentSetting extends Model
             'public_key' => $this->xendit_public_key,
             'callback_token' => $this->resolvedSecret('xendit_callback_token'),
             'is_production' => $this->xendit_production,
+        ];
+    }
+
+    public function pakasirConfig(): array
+    {
+        return [
+            'enabled' => $this->isGatewayReady(self::GATEWAY_PAKASIR),
+            'project_slug' => $this->pakasir_project_slug,
+            'api_key' => $this->resolvedSecret('pakasir_api_key'),
+            'method' => $this->pakasir_method ?: 'qris',
+            'fee_percentage' => (float) ($this->pakasir_fee_percentage ?? 0),
+            'fee_fixed' => (int) ($this->pakasir_fee_fixed ?? 0),
+        ];
+    }
+
+    public function calculatePakasirFee(int $amount): array
+    {
+        $percentage = max(0, (float) ($this->pakasir_fee_percentage ?? 0));
+        $fixed = max(0, (int) ($this->pakasir_fee_fixed ?? 0));
+        $percentageFee = (int) round(max(0, $amount) * ($percentage / 100));
+        $totalFee = max(0, $percentageFee + $fixed);
+
+        return [
+            'percentage' => $percentage,
+            'fixed' => $fixed,
+            'percentage_amount' => $percentageFee,
+            'total' => $totalFee,
         ];
     }
 
@@ -253,6 +308,7 @@ class PaymentSetting extends Model
             'midtrans_server_key' => $this->secretMetadata('midtrans_server_key'),
             'xendit_secret_key' => $this->secretMetadata('xendit_secret_key'),
             'xendit_callback_token' => $this->secretMetadata('xendit_callback_token'),
+            'pakasir_api_key' => $this->secretMetadata('pakasir_api_key'),
         ];
     }
 
@@ -272,8 +328,27 @@ class PaymentSetting extends Model
             'midtrans_server_key' => config('services.midtrans.server_key'),
             'xendit_secret_key' => config('services.xendit.secret_key'),
             'xendit_callback_token' => config('services.xendit.callback_token'),
+            'pakasir_api_key' => config('services.pakasir.api_key'),
             default => null,
         };
+    }
+
+    public static function supportsPakasirConfiguration(): bool
+    {
+        if (self::$hasPakasirColumns !== null) {
+            return self::$hasPakasirColumns;
+        }
+
+        self::$hasPakasirColumns = Schema::hasColumns('payment_settings', [
+            'pakasir_enabled',
+            'pakasir_project_slug',
+            'pakasir_api_key',
+            'pakasir_method',
+            'pakasir_fee_percentage',
+            'pakasir_fee_fixed',
+        ]);
+
+        return self::$hasPakasirColumns;
     }
 
     private static function usesOutletScope(): bool
