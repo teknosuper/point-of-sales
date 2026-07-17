@@ -188,6 +188,7 @@ class PublicTableOrderController extends Controller
                 'access_token' => $editableOrder->access_token,
                 'order_number' => $editableOrder->order_number,
                 'notes' => $editableOrder->notes,
+                'payment_method' => $editableOrder->payment_method,
                 'items' => $editableOrder->items->map(fn ($item) => [
                     'id' => $item->id,
                     'product_id' => (int) ($item->product_id ?? 0),
@@ -892,8 +893,11 @@ class PublicTableOrderController extends Controller
         $transactionsPage = max(1, $transactionsPage);
         $metrics = $this->customerOutletMetricService->metricsForCustomer($customer, $outletId);
         $recentTableOrdersQuery = TableOrder::query()
-            ->with('items:id,table_order_id,line_total')
-            ->select('id', 'order_number', 'grand_total', 'status', 'created_at', 'access_token')
+            ->with([
+                'items:id,table_order_id,line_total',
+                'transaction:id,payment_method,payment_status',
+            ])
+            ->select('id', 'order_number', 'grand_total', 'status', 'created_at', 'access_token', 'payment_method', 'transaction_id')
             ->where('customer_id', $customer->id)
             ->where('outlet_id', $outletId)
             ->latest('created_at');
@@ -903,7 +907,7 @@ class PublicTableOrderController extends Controller
             ->get();
 
         $recentTransactionsQuery = $customer->transactions()
-            ->select('id', 'invoice', 'grand_total', 'payment_status', 'created_at', 'outlet_id')
+            ->select('id', 'invoice', 'grand_total', 'payment_status', 'payment_method', 'created_at', 'outlet_id')
             ->with('outlet:id,name')
             ->where('outlet_id', $outletId)
             ->latest('created_at');
@@ -930,6 +934,8 @@ class PublicTableOrderController extends Controller
                 'order_number' => $order->order_number,
                 'grand_total' => $order->resolvedGrandTotal(),
                 'status' => $order->status,
+                'payment_method' => $order->transaction?->payment_method ?? $order->payment_method,
+                'payment_status' => $order->transaction?->payment_status,
                 'created_at' => ReportTimezone::formatSourceIso8601($order->getRawOriginal('created_at')),
                 'access_token' => $order->access_token,
             ])->values(),
@@ -946,6 +952,7 @@ class PublicTableOrderController extends Controller
                 'invoice' => $transaction->invoice,
                 'grand_total' => (int) $transaction->grand_total,
                 'payment_status' => $transaction->payment_status,
+                'payment_method' => $transaction->payment_method,
                 'created_at' => ReportTimezone::formatSourceIso8601($transaction->getRawOriginal('created_at')),
                 'outlet_name' => $transaction->outlet?->name,
             ])->values(),

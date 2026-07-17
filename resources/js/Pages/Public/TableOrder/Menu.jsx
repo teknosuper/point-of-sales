@@ -36,6 +36,27 @@ const flattenErrorMessages = (errors = {}) =>
         .filter(Boolean)
         .map((value) => String(value));
 
+const paymentMethodSummary = (value = "", paymentStatus = "") => {
+    const normalizedMethod = String(value || "").toLowerCase();
+    const normalizedStatus = String(paymentStatus || "").toLowerCase();
+
+    if (["pakasir", "xendit", "midtrans"].includes(normalizedMethod)) {
+        return normalizedStatus === "paid"
+            ? "Dibayar online"
+            : "Menunggu pembayaran online";
+    }
+
+    if (normalizedMethod === "bank_transfer") {
+        return normalizedStatus === "paid"
+            ? "Transfer sudah terverifikasi"
+            : "Transfer menunggu verifikasi";
+    }
+
+    return normalizedStatus === "paid"
+        ? "Dibayar di kasir"
+        : "Bayar di kasir";
+};
+
 const normalizeModifierGroupName = (value) => {
     const normalized = String(value || "").trim();
 
@@ -1568,6 +1589,10 @@ export default function Menu({
         editableOrderHydratedTokenRef.current = editableOrder.access_token;
         setCartLines(buildEditableOrderCartLines(editableOrder));
         orderForm.setData("notes", editableOrder.notes || "");
+        orderForm.setData(
+            "payment_method",
+            editableOrder.payment_method || defaultPaymentMethod
+        );
 
         if (!editableOrderOpenedRef.current) {
             editableOrderOpenedRef.current = true;
@@ -1579,6 +1604,7 @@ export default function Menu({
         }
     }, [
         buildEditableOrderCartLines,
+        defaultPaymentMethod,
         editableOrder,
         editableOrder?.access_token,
         orderForm,
@@ -1796,169 +1822,224 @@ export default function Menu({
 
             {sidebarOpen ? (
                 <div
-                    className="fixed inset-0 z-[60] bg-black/40 backdrop-blur-sm"
+                    className="fixed inset-0 z-[70] flex items-end justify-center bg-slate-950/50 px-3 py-3 backdrop-blur-sm sm:items-center sm:px-4 sm:py-6"
                     onClick={() => setSidebarOpen(false)}
-                />
-            ) : null}
+                >
+                    <div
+                        className="max-h-[92vh] w-full max-w-3xl overflow-hidden rounded-[30px] border border-slate-200 bg-white shadow-[0_30px_90px_-40px_rgba(15,23,42,0.55)]"
+                        onClick={(event) => event.stopPropagation()}
+                    >
+                        <div className="bg-[linear-gradient(135deg,_#0f172a_0%,_#1d4ed8_52%,_#38bdf8_100%)] px-4 py-4 text-white sm:px-6 sm:py-5">
+                            <div className="flex items-start justify-between gap-4">
+                                <div className="min-w-0">
+                                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-sky-100/90">
+                                        Riwayat & Meja
+                                    </p>
+                                    <h2 className="mt-2 text-xl font-bold sm:text-2xl">
+                                        {outlet?.name || storeProfile?.name || "Outlet"}
+                                    </h2>
+                                    <p className="mt-1 text-sm text-sky-50/90">
+                                        Meja {table.code || table.name}
+                                        {customer?.name ? ` • ${customer.name}` : ""}
+                                    </p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => setSidebarOpen(false)}
+                                    className="rounded-2xl border border-white/15 bg-white/10 p-2 text-white backdrop-blur hover:bg-white/20"
+                                >
+                                    <IconX size={18} />
+                                </button>
+                            </div>
 
-            <div
-                className={`fixed inset-y-0 left-0 z-[70] w-[300px] max-w-[85vw] transform bg-white shadow-2xl transition-transform duration-300 ease-in-out ${
-                    sidebarOpen ? "translate-x-0" : "-translate-x-full"
-                }`}
-            >
-                <div className="flex h-full flex-col overflow-hidden">
-                    <div className="flex items-center justify-between border-b border-slate-200 px-4 py-4">
-                        <div>
-                            <p className="text-sm font-bold text-slate-900">
-                                Toko Anda
-                            </p>
-                            <p className="text-xs text-slate-500">
-                                Meja {table.code || table.name}
-                            </p>
-                        </div>
-                        <button
-                            type="button"
-                            onClick={() => setSidebarOpen(false)}
-                            className="rounded-xl p-2 text-slate-500 hover:bg-slate-100"
-                        >
-                            <IconX size={18} />
-                        </button>
-                    </div>
-
-                    <div className="flex-1 overflow-y-auto px-4 py-4">
-                        <div className="mb-4 rounded-2xl border border-slate-200 bg-slate-50 p-3">
-                            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-                                Outlet
-                            </p>
-                            <p className="mt-1 text-sm font-semibold text-slate-900">
-                                {outlet?.name || storeProfile?.name || "Outlet"}
-                            </p>
-                            <p className="text-xs text-slate-500">
-                                Meja {table.code || table.name} • {selectedPaymentMethod?.label || "Bayar di Kasir"}
-                            </p>
-                        </div>
-
-                        <div className="mb-4 rounded-2xl border border-slate-200 bg-slate-50 p-3">
-                            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-                                Pelanggan
-                            </p>
-                            <p className="mt-1 text-sm font-semibold text-slate-900">
-                                {customer?.name || "Pelanggan"}
-                            </p>
-                            <p className="text-xs text-slate-500">
-                                {customer?.no_telp || "-"}
-                            </p>
-                            {customer?.loyalty_points ? (
-                                <p className="mt-1 text-xs font-medium text-emerald-600">
-                                    {customer.loyalty_points} poin loyalti
-                                </p>
-                            ) : null}
-                        </div>
-
-                        <div className="mb-4 rounded-2xl border border-slate-200 bg-slate-50 p-3">
-                            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-                                Akun
-                            </p>
-                            <p className="mt-1 text-sm font-semibold text-slate-900">
-                                {customer?.email || "Belum ada email"}
-                            </p>
-                            <p className="text-xs text-slate-500">
-                                {customer?.member_code
-                                    ? `Kode member ${customer.member_code}`
-                                    : "Akun self-order aktif"}
-                            </p>
-                            <p className="mt-1 text-xs text-slate-500">
-                                Tier {customer?.loyalty_tier || "regular"}
-                            </p>
+                            <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                                <div className="rounded-2xl bg-white/12 px-4 py-3 backdrop-blur">
+                                    <p className="text-[11px] font-semibold uppercase tracking-wide text-sky-100/90">
+                                        Pembayaran aktif
+                                    </p>
+                                    <p className="mt-1 text-sm font-semibold text-white">
+                                        {selectedPaymentMethod?.label || "Bayar di Kasir"}
+                                    </p>
+                                </div>
+                                <div className="rounded-2xl bg-white/12 px-4 py-3 backdrop-blur">
+                                    <p className="text-[11px] font-semibold uppercase tracking-wide text-sky-100/90">
+                                        Nomor pelanggan
+                                    </p>
+                                    <p className="mt-1 text-sm font-semibold text-white">
+                                        {customer?.no_telp || "-"}
+                                    </p>
+                                </div>
+                                <div className="rounded-2xl bg-white/12 px-4 py-3 backdrop-blur">
+                                    <p className="text-[11px] font-semibold uppercase tracking-wide text-sky-100/90">
+                                        Status akun
+                                    </p>
+                                    <p className="mt-1 text-sm font-semibold capitalize text-white">
+                                        Tier {customer?.loyalty_tier || "regular"}
+                                    </p>
+                                </div>
+                            </div>
                         </div>
 
-                        <div className="mb-4">
-                            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-                                Riwayat Pesanan
-                            </p>
-                            {recentOrders.length > 0 ? (
-                                <div className="space-y-2">
-                                    {recentOrders.slice(0, 3).map((order) => (
-                                        <div
-                                            key={order.id}
-                                            className="rounded-xl border border-slate-200 bg-white p-3"
-                                        >
-                                            <div className="flex items-start justify-between gap-2">
-                                                <div className="min-w-0">
-                                                    <p className="truncate text-sm font-medium text-slate-800">
-                                                        {order.order_number}
-                                                    </p>
-                                                    <span className="mt-1 inline-block rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
-                                                        {orderStatusLabel[order.status] ||
-                                                            order.status}
-                                                    </span>
-                                                </div>
-                                                <p className="shrink-0 text-sm font-semibold text-slate-800">
-                                                    {formatPrice(order.grand_total)}
-                                                </p>
+                        <div className="max-h-[calc(92vh-180px)] overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
+                            <div className="grid gap-4 lg:grid-cols-[1.05fr_1.4fr]">
+                                <div className="space-y-4">
+                                    <div className="rounded-[26px] border border-amber-200 bg-[linear-gradient(135deg,_#fffaf2_0%,_#fff1d6_55%,_#f9e3b3_100%)] p-4 shadow-[0_20px_45px_-34px_rgba(180,83,9,0.3)]">
+                                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-700">
+                                            Informasi Meja
+                                        </p>
+                                        <div className="mt-3 space-y-3 text-sm text-slate-700">
+                                            <div className="flex items-start justify-between gap-3">
+                                                <span className="text-slate-500">Outlet</span>
+                                                <strong className="text-right text-slate-900">
+                                                    {outlet?.name || storeProfile?.name || "Outlet"}
+                                                </strong>
                                             </div>
-                                            {order.access_token ? (
-                                                <Link
-                                                    href={route(
-                                                        "table-order.status",
-                                                        order.access_token
-                                                    )}
-                                                    className="mt-2 inline-flex text-xs font-medium text-sky-700"
+                                            <div className="flex items-start justify-between gap-3">
+                                                <span className="text-slate-500">Meja aktif</span>
+                                                <strong className="text-right text-slate-900">
+                                                    {table.code || table.name}
+                                                </strong>
+                                            </div>
+                                            <div className="flex items-start justify-between gap-3">
+                                                <span className="text-slate-500">Pelanggan</span>
+                                                <strong className="text-right text-slate-900">
+                                                    {customer?.name || "Pelanggan"}
+                                                </strong>
+                                            </div>
+                                            <div className="flex items-start justify-between gap-3">
+                                                <span className="text-slate-500">Email</span>
+                                                <strong className="text-right text-slate-900">
+                                                    {customer?.email || "Belum ada email"}
+                                                </strong>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="rounded-[26px] border border-emerald-200 bg-[linear-gradient(135deg,_#f4fdf7_0%,_#dcfce7_100%)] p-4 shadow-[0_18px_40px_-34px_rgba(22,163,74,0.28)]">
+                                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700">
+                                            Aksi Cepat
+                                        </p>
+                                        <div className="mt-3 grid gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setSidebarOpen(false);
+                                                    setMobileView("products");
+                                                }}
+                                                className="rounded-2xl bg-white px-4 py-3 text-left text-sm font-semibold text-slate-800"
+                                            >
+                                                Lihat Menu Lagi
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setSidebarOpen(false);
+                                                    setMobileView("cart");
+                                                }}
+                                                className="rounded-2xl bg-white px-4 py-3 text-left text-sm font-semibold text-slate-800"
+                                            >
+                                                Buka Keranjang
+                                            </button>
+                                            {customer ? (
+                                                <button
+                                                    type="button"
+                                                    onClick={logoutCustomer}
+                                                    className="rounded-2xl border border-white/80 bg-white/70 px-4 py-3 text-left text-sm font-semibold text-slate-700"
                                                 >
-                                                    Lihat status →
-                                                </Link>
+                                                    Ganti Akun / Meja
+                                                </button>
                                             ) : null}
                                         </div>
-                                    ))}
+                                    </div>
                                 </div>
-                            ) : recentTransactions.length > 0 ? (
-                                <div className="space-y-2">
-                                    {recentTransactions
-                                        .slice(0, 3)
-                                        .map((transaction) => (
-                                            <div
-                                                key={transaction.id}
-                                                className="rounded-xl border border-slate-200 bg-white p-3"
-                                            >
-                                                <div className="flex items-start justify-between gap-2">
-                                                    <div className="min-w-0">
-                                                        <p className="truncate text-sm font-medium text-slate-800">
-                                                            {transaction.invoice}
-                                                        </p>
-                                                        <p className="text-xs capitalize text-slate-500">
-                                                            {transaction.payment_status}
+
+                                <div className="rounded-[26px] border border-slate-200 bg-slate-50/80 p-4">
+                                    <div className="flex items-center justify-between gap-3">
+                                        <div>
+                                            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                                                Riwayat Pesanan
+                                            </p>
+                                            <p className="mt-1 text-sm text-slate-500">
+                                                Pilih riwayat untuk cek status atau lanjut melihat detail pesanan sebelumnya.
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    <div className="mt-4 space-y-3">
+                                        {recentOrders.length > 0 ? (
+                                            recentOrders.slice(0, 5).map((order) => (
+                                                <div
+                                                    key={order.id}
+                                                    className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+                                                >
+                                                    <div className="flex items-start justify-between gap-3">
+                                                        <div className="min-w-0">
+                                                            <p className="truncate text-sm font-bold text-slate-900">
+                                                                {order.order_number}
+                                                            </p>
+                                                            <p className="mt-1 text-xs text-slate-500">
+                                                                {paymentMethodSummary(
+                                                                    order.payment_method,
+                                                                    order.payment_status ||
+                                                                        order.status
+                                                                )}
+                                                            </p>
+                                                        </div>
+                                                        <p className="shrink-0 text-sm font-bold text-slate-900">
+                                                            {formatPrice(order.grand_total)}
                                                         </p>
                                                     </div>
-                                                    <p className="shrink-0 text-sm font-semibold text-slate-800">
-                                                        {formatPrice(
-                                                            transaction.grand_total
-                                                        )}
-                                                    </p>
+                                                    {order.access_token ? (
+                                                        <Link
+                                                            href={route("table-order.status", order.access_token)}
+                                                            className="mt-3 inline-flex rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white"
+                                                        >
+                                                            Lihat Status Pesanan
+                                                        </Link>
+                                                    ) : null}
                                                 </div>
+                                            ))
+                                        ) : recentTransactions.length > 0 ? (
+                                            recentTransactions.slice(0, 5).map((transaction) => (
+                                                <div
+                                                    key={transaction.id}
+                                                    className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+                                                >
+                                                    <div className="flex items-start justify-between gap-3">
+                                                        <div className="min-w-0">
+                                                            <p className="truncate text-sm font-bold text-slate-900">
+                                                                {transaction.invoice}
+                                                            </p>
+                                                            <p className="mt-1 text-xs capitalize text-slate-500">
+                                                                {paymentMethodSummary(
+                                                                    transaction.payment_method,
+                                                                    transaction.payment_status
+                                                                )}
+                                                            </p>
+                                                        </div>
+                                                        <p className="shrink-0 text-sm font-bold text-slate-900">
+                                                            {formatPrice(transaction.grand_total)}
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            ))
+                                        ) : (
+                                            <div className="rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-8 text-center">
+                                                <p className="text-sm font-medium text-slate-500">
+                                                    Belum ada riwayat pesanan
+                                                </p>
+                                                <p className="mt-1 text-xs text-slate-400">
+                                                    Riwayat pesanan pelanggan akan muncul di sini.
+                                                </p>
                                             </div>
-                                        ))}
+                                        )}
+                                    </div>
                                 </div>
-                            ) : (
-                                <p className="rounded-xl border border-dashed border-slate-200 px-3 py-4 text-center text-xs text-slate-400">
-                                    Belum ada riwayat pesanan.
-                                </p>
-                            )}
+                            </div>
                         </div>
                     </div>
-
-                    <div className="border-t border-slate-200 px-4 py-3">
-                        {customer ? (
-                            <button
-                                type="button"
-                                onClick={logoutCustomer}
-                                className="inline-flex w-full items-center justify-center rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
-                            >
-                                Ganti akun
-                            </button>
-                        ) : null}
-                    </div>
                 </div>
-            </div>
+            ) : null}
 
             <button
                 type="button"
@@ -2741,9 +2822,10 @@ export default function Menu({
                                                                 {transaction.invoice}
                                                             </p>
                                                             <p className="mt-1 text-xs text-slate-500 capitalize">
-                                                                {
+                                                                {paymentMethodSummary(
+                                                                    transaction.payment_method,
                                                                     transaction.payment_status
-                                                                }
+                                                                )}
                                                             </p>
                                                         </div>
                                                         <p className="text-sm font-semibold text-slate-900">

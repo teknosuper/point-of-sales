@@ -98,6 +98,35 @@ export default function Status({ order }) {
             : null;
     const pakasirExpiresAt =
         order.transaction?.payment_expires_at || paymentPayload?.expired_at || null;
+    const paymentModeCard = isSelfServiceOnlinePayment
+        ? {
+              badge: "Pembayaran Online",
+              title: orderPaymentStatus === "paid"
+                  ? "Sudah dibayar online"
+                  : "Bayar online dari halaman ini",
+              description: orderPaymentStatus === "paid"
+                  ? "Pembayaran online sudah masuk dan pesanan dapat diproses."
+                  : "Pesanan ini tidak dibayar di kasir. Selesaikan pembayaran online agar pesanan diproses.",
+              className:
+                  "border-emerald-200 bg-[linear-gradient(135deg,_#ecfdf5_0%,_#d1fae5_100%)]",
+              badgeClassName: "bg-emerald-600 text-white",
+              titleClassName: "text-emerald-950",
+              descriptionClassName: "text-emerald-800",
+          }
+        : {
+              badge: "Bayar di Kasir",
+              title: order.status === "paid"
+                  ? "Pembayaran kasir sudah selesai"
+                  : "Pembayaran dilakukan di kasir",
+              description: order.status === "paid"
+                  ? "Kasir sudah menerima pembayaran untuk pesanan ini."
+                  : "Pesanan ini dibayar langsung ke kasir, bukan lewat pembayaran online.",
+              className:
+                  "border-amber-200 bg-[linear-gradient(135deg,_#fff7ed_0%,_#ffedd5_100%)]",
+              badgeClassName: "bg-amber-600 text-white",
+              titleClassName: "text-amber-950",
+              descriptionClassName: "text-amber-800",
+          };
     const receiptRows = [
         {
             label: "Subtotal",
@@ -529,7 +558,7 @@ export default function Status({ order }) {
 
                     <div
                         id="ringkasan-order"
-                        className="rounded-3xl border border-slate-200 bg-white p-5"
+                        className="rounded-[28px] border border-sky-200 bg-[linear-gradient(180deg,_#ffffff_0%,_#f8fbff_100%)] p-5 shadow-sm"
                     >
                         <p className="text-sm text-slate-500">
                             Meja {order.table?.code || order.table?.name}
@@ -553,12 +582,32 @@ export default function Status({ order }) {
                             {paymentMethodLabel(orderPaymentMethod)}
                         </p>
 
+                        <div
+                            className={`mt-4 rounded-[24px] border p-4 shadow-[0_18px_40px_-34px_rgba(15,23,42,0.28)] ${paymentModeCard.className}`}
+                        >
+                            <span
+                                className={`inline-flex rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${paymentModeCard.badgeClassName}`}
+                            >
+                                {paymentModeCard.badge}
+                            </span>
+                            <p
+                                className={`mt-3 text-base font-bold ${paymentModeCard.titleClassName}`}
+                            >
+                                {paymentModeCard.title}
+                            </p>
+                            <p
+                                className={`mt-1 text-sm leading-6 ${paymentModeCard.descriptionClassName}`}
+                            >
+                                {paymentModeCard.description}
+                            </p>
+                        </div>
+
                         <div className="mt-4 flex flex-col gap-2">
                             {isOnlinePaymentPending && isPakasirPayment ? (
                                 <button
                                     type="button"
                                     onClick={() => setPaymentModalOpen(true)}
-                                    className="rounded-xl bg-slate-900 px-4 py-3 text-sm font-medium text-white"
+                                    className="rounded-xl bg-emerald-600 px-4 py-3 text-sm font-medium text-white shadow-lg shadow-emerald-600/25"
                                 >
                                     Bayar Sekarang
                                 </button>
@@ -568,7 +617,7 @@ export default function Status({ order }) {
                                     href={order.transaction?.payment_url || "#"}
                                     target="_blank"
                                     rel="noreferrer"
-                                    className="rounded-xl bg-slate-900 px-4 py-3 text-center text-sm font-medium text-white"
+                                    className="rounded-xl bg-emerald-600 px-4 py-3 text-center text-sm font-medium text-white shadow-lg shadow-emerald-600/25"
                                 >
                                     Bayar Sekarang
                                 </a>
@@ -610,7 +659,7 @@ export default function Status({ order }) {
 
                     <div
                         id="daftar-pesanan"
-                        className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm"
+                        className="overflow-hidden rounded-[28px] border border-amber-200 bg-[linear-gradient(180deg,_#ffffff_0%,_#fffaf5_100%)] shadow-sm"
                     >
                         <div className="border-b border-dashed border-slate-200 px-5 py-4">
                             <p className="text-center text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">
