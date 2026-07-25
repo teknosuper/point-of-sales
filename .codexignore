@@ -1,0 +1,31 @@
+# Dependency
+vendor/
+node_modules/
+
+# Git
+.git/
+
+# Laravel
+storage/
+bootstrap/cache/
+
+# Build
+public/build/
+dist/
+coverage/
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# Database dump
+*.sql
+*.sqlite
+
+# Archive
+*.zip
+*.rar
+*.7z
