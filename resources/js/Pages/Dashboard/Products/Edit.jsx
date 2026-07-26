@@ -19,6 +19,7 @@ import {
     IconTrash,
     IconStar,
 } from "@/Utils/icons";
+import { useAuthorization } from "@/Utils/authorization";
 import { getProductImageUrl } from "@/Utils/imageUrl";
 import {
     IMAGE_UPLOAD_ACCEPT,
@@ -232,7 +233,12 @@ export default function Edit({
     toppingMarkupSettings = {},
     capabilities = {},
 }) {
-    const { errors } = usePage().props;
+    const { errors, auth, activeOutlet } = usePage().props;
+    const { isSuperAdmin } = useAuthorization();
+    const canViewPenaltyInfo = isSuperAdmin() ||
+        auth.roleNames?.includes('admin-sistem') ||
+        (activeOutlet?.outlet_type === 'main' &&
+         ['admin-owner-outlet', 'outlet-owner'].some(role => auth.roleNames?.includes(role)));
     const isTenantWorkspace = workspace?.is_tenant === true;
     const canManageCatalog = capabilities?.can_manage_catalog === true;
     const canManagePricing = capabilities?.can_manage_pricing === true;
@@ -2020,35 +2026,39 @@ export default function Edit({
                                     />
                                 </label>
 
-                                <div className="md:col-span-2">
-                                    <label className="block text-xs font-medium text-slate-700 dark:text-slate-300">
-                                        Shadow Ban Reason
-                                    </label>
-                                    <input
-                                        type="text"
-                                        value={data.shadow_ban_reason}
-                                        onChange={(e) => setData("shadow_ban_reason", e.target.value)}
-                                        placeholder="Alasan shadow ban (jika ada)"
-                                        className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
-                                    />
-                                </div>
+                                {canViewPenaltyInfo && (
+                                    <div className="md:col-span-2">
+                                        <label className="block text-xs font-medium text-slate-700 dark:text-slate-300">
+                                            Shadow Ban Reason
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={data.shadow_ban_reason}
+                                            onChange={(e) => setData("shadow_ban_reason", e.target.value)}
+                                            placeholder="Alasan shadow ban (jika ada)"
+                                            className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+                                        />
+                                    </div>
+                                )}
                             </div>
 
-                            <div className="mt-4">
-                                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300">
-                                    Penalty Status
-                                </label>
-                                <select
-                                    value={data.penalty_status}
-                                    onChange={(e) => setData("penalty_status", e.target.value)}
-                                    className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
-                                >
-                                    <option value="">Tidak ada status</option>
-                                    <option value="under_review">Under Review</option>
-                                    <option value="accepted">Accepted (unban)</option>
-                                    <option value="rejected">Rejected (keep banned)</option>
-                                </select>
-                            </div>
+                            {canViewPenaltyInfo && (
+                                <div className="mt-4">
+                                    <label className="block text-xs font-medium text-slate-700 dark:text-slate-300">
+                                        Penalty Status
+                                    </label>
+                                    <select
+                                        value={data.penalty_status}
+                                        onChange={(e) => setData("penalty_status", e.target.value)}
+                                        className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+                                    >
+                                        <option value="">Tidak ada status</option>
+                                        <option value="under_review">Under Review</option>
+                                        <option value="accepted">Accepted (unban)</option>
+                                        <option value="rejected">Rejected (keep banned)</option>
+                                    </select>
+                                </div>
+                            )}
                         </div>
 
                         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">

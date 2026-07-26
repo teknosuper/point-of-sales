@@ -127,6 +127,7 @@ function ProductCard({
     onToggleFeatured,
     onApplyShadowBan,
     onUpdatePenaltyStatus,
+    canViewPenaltyInfo = false,
 }) {
     const displayStock = Number(
         product.display_stock ??
@@ -231,30 +232,34 @@ function ProductCard({
                         )}
                         {canUpdate && (
                             <>
-                                <button
-                                    type="button"
-                                    onClick={() => onApplyShadowBan?.(product)}
-                                    className={`rounded-xl bg-white p-2.5 shadow-lg transition-colors ${
-                                        product.shadow_banned_at
-                                            ? "hover:bg-blue-50 text-blue-600"
-                                            : "hover:bg-rose-50 text-slate-400"
-                                    }`}
-                                    title={product.shadow_banned_at ? "Buka shadow ban" : "Shadow ban"}
-                                >
-                                    <IconX size={18} />
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => onUpdatePenaltyStatus?.(product)}
-                                    className={`rounded-xl bg-white p-2.5 shadow-lg transition-colors hover:bg-amber-50 ${
-                                        product.penalty_status
-                                            ? "text-amber-600"
-                                            : "text-slate-400"
-                                    }`}
-                                    title="Ubah status penalty"
-                                >
-                                    <IconAlertTriangle size={18} />
-                                </button>
+                                {canViewPenaltyInfo && (
+                                    <>
+                                        <button
+                                            type="button"
+                                            onClick={() => onApplyShadowBan?.(product)}
+                                            className={`rounded-xl bg-white p-2.5 shadow-lg transition-colors ${
+                                                product.shadow_banned_at
+                                                    ? "hover:bg-blue-50 text-blue-600"
+                                                    : "hover:bg-rose-50 text-slate-400"
+                                            }`}
+                                            title={product.shadow_banned_at ? "Buka shadow ban" : "Shadow ban"}
+                                        >
+                                            <IconX size={18} />
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => onUpdatePenaltyStatus?.(product)}
+                                            className={`rounded-xl bg-white p-2.5 shadow-lg transition-colors hover:bg-amber-50 ${
+                                                product.penalty_status
+                                                    ? "text-amber-600"
+                                                    : "text-slate-400"
+                                            }`}
+                                            title="Ubah status penalty"
+                                        >
+                                            <IconAlertTriangle size={18} />
+                                        </button>
+                                    </>
+                                )}
                             </>
                         )}
                         {canDelete && (
@@ -303,12 +308,12 @@ function ProductCard({
                             Featured
                         </span>
                     ) : null}
-                    {product.shadow_banned_at ? (
+                    {canViewPenaltyInfo && product.shadow_banned_at ? (
                         <span className="rounded-md bg-rose-100 px-2 py-0.5 text-[11px] font-semibold text-rose-700 dark:bg-rose-900/40 dark:text-rose-300">
                             Shadow Ban
                         </span>
                     ) : null}
-                    {product.penalty_status ? (
+                    {canViewPenaltyInfo && product.penalty_status ? (
                         <span className={`rounded-md px-2 py-0.5 text-[11px] font-semibold ${
                             product.penalty_status === 'under_review'
                                 ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
@@ -407,6 +412,10 @@ export default function Index({
 }) {
     const { can, isSuperAdmin } = useAuthorization();
     const { activeOutlet, auth, flash } = usePage().props;
+    const canViewPenaltyInfo = isSuperAdmin() ||
+        auth.roleNames?.includes('admin-sistem') ||
+        (activeOutlet?.outlet_type === 'main' &&
+         ['admin-owner-outlet', 'outlet-owner'].some(role => auth.roleNames?.includes(role)));
     const [viewMode, setViewMode] = useState("grid");
     const [showFilters, setShowFilters] = useState(false);
     const [showSetupGuide, setShowSetupGuide] = useState(false);
@@ -610,7 +619,7 @@ export default function Index({
             });
         }
 
-        if (filterData.penalty_status !== "") {
+        if (filterData.penalty_status !== "" && canViewPenaltyInfo) {
             const penaltyLabel = {
                 shadow_banned: "Shadow Banned",
                 active: "Aktif",
@@ -1748,25 +1757,27 @@ export default function Index({
                                     </select>
                                 </div>
 
-                                <div>
-                                    <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                        Status Penalty
-                                    </label>
-                                    <select
-                                        value={filterData.penalty_status}
-                                        onChange={(event) =>
-                                            handleChange("penalty_status", event.target.value)
-                                        }
-                                        className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-700 outline-none transition focus:border-primary-300 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
-                                    >
-                                        <option value="">Semua status</option>
-                                        <option value="shadow_banned">Shadow Banned</option>
-                                        <option value="active">Aktif</option>
-                                        <option value="under_review">Under Review</option>
-                                        <option value="accepted">Accepted</option>
-                                        <option value="rejected">Rejected</option>
-                                    </select>
-                                </div>
+                                {canViewPenaltyInfo && (
+                                    <div>
+                                        <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                            Status Penalty
+                                        </label>
+                                        <select
+                                            value={filterData.penalty_status}
+                                            onChange={(event) =>
+                                                handleChange("penalty_status", event.target.value)
+                                            }
+                                            className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-700 outline-none transition focus:border-primary-300 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                                        >
+                                            <option value="">Semua status</option>
+                                            <option value="shadow_banned">Shadow Banned</option>
+                                            <option value="active">Aktif</option>
+                                            <option value="under_review">Under Review</option>
+                                            <option value="accepted">Accepted</option>
+                                            <option value="rejected">Rejected</option>
+                                        </select>
+                                    </div>
+                                )}
 
                                 <div>
                                     <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
@@ -1788,7 +1799,7 @@ export default function Index({
                                         <option value="stock_low">Stok terendah</option>
                                         <option value="stock_high">Stok tertinggi</option>
                                         <option value="featured_first">Featured</option>
-                                        <option value="shadow_banned_desc">Shadow Ban terbaru</option>
+                                        {canViewPenaltyInfo && <option value="shadow_banned_desc">Shadow Ban terbaru</option>}
                                     </select>
                                 </div>
 
@@ -2068,6 +2079,7 @@ export default function Index({
                                     onToggleFeatured={handleToggleFeatured}
                                     onApplyShadowBan={handleApplyShadowBan}
                                     onUpdatePenaltyStatus={handleUpdatePenaltyStatus}
+                                    canViewPenaltyInfo={canViewPenaltyInfo}
                                 />
                             ))}
                         </div>
@@ -2139,12 +2151,12 @@ export default function Index({
                                                                     Featured
                                                                 </span>
                                                             ) : null}
-                                                            {product.shadow_banned_at ? (
+                                                            {canViewPenaltyInfo && product.shadow_banned_at ? (
                                                                 <span className="rounded bg-rose-100 px-2 py-0.5 text-[11px] font-semibold text-rose-700 dark:bg-rose-900/40 dark:text-rose-300">
                                                                     Shadow Ban
                                                                 </span>
                                                             ) : null}
-                                                            {product.penalty_status ? (
+                                                            {canViewPenaltyInfo && product.penalty_status ? (
                                                                 <span className={`rounded px-2 py-0.5 text-[11px] font-semibold ${
                                                                     product.penalty_status === 'under_review'
                                                                         ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
@@ -2276,30 +2288,34 @@ export default function Index({
                                                             >
                                                                 <IconStar size={16} />
                                                             </button>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => handleApplyShadowBan(product)}
-                                                                className={`rounded-lg border px-2.5 py-2 text-xs font-medium transition hover:bg-rose-50 ${
-                                                                    product.shadow_banned_at
-                                                                        ? "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-800 dark:bg-rose-950/30 dark:text-rose-300"
-                                                                        : "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
-                                                                }`}
-                                                                title={product.shadow_banned_at ? "Buka shadow ban" : "Shadow ban"}
-                                                            >
-                                                                <IconX size={16} />
-                                                            </button>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => handleUpdatePenaltyStatus(product)}
-                                                                className={`rounded-lg border px-2.5 py-2 text-xs font-medium transition hover:bg-amber-50 ${
-                                                                    product.penalty_status
-                                                                        ? "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300"
-                                                                        : "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
-                                                                }`}
-                                                                title="Ubah status penalty"
-                                                            >
-                                                                <IconAlertTriangle size={16} />
-                                                            </button>
+                                                            {canViewPenaltyInfo && (
+                                                                <>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => handleApplyShadowBan(product)}
+                                                                        className={`rounded-lg border px-2.5 py-2 text-xs font-medium transition hover:bg-rose-50 ${
+                                                                            product.shadow_banned_at
+                                                                                ? "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-800 dark:bg-rose-950/30 dark:text-rose-300"
+                                                                                : "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                                                                        }`}
+                                                                        title={product.shadow_banned_at ? "Buka shadow ban" : "Shadow ban"}
+                                                                    >
+                                                                        <IconX size={16} />
+                                                                    </button>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => handleUpdatePenaltyStatus(product)}
+                                                                        className={`rounded-lg border px-2.5 py-2 text-xs font-medium transition hover:bg-amber-50 ${
+                                                                            product.penalty_status
+                                                                                ? "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300"
+                                                                                : "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                                                                        }`}
+                                                                        title="Ubah status penalty"
+                                                                    >
+                                                                        <IconAlertTriangle size={16} />
+                                                                    </button>
+                                                                </>
+                                                            )}
                                                         </>
                                                     ) : null}
                                                     {canUpdateDailyStock ? (
