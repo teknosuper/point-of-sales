@@ -9,7 +9,13 @@ import {
     IconAdjustmentsHorizontal,
     IconLayoutGrid,
     IconList,
+    IconStar,
+    IconSparkles,
+    IconChecklist,
+    IconBox,
+    IconTrendingUp,
 } from "@/Utils/icons";
+import { IconTag } from "@tabler/icons-react";
 import { getProductImageUrl, getProductThumbUrl } from "@/Utils/imageUrl";
 import LazyImage from "@/Components/Dashboard/LazyImage";
 import CameraBarcodeScanner from "./CameraBarcodeScanner";
@@ -147,15 +153,15 @@ const ProductCard = memo(function ProductCard({
                 transition-all duration-200
                 ${
                     isSelectable && hasStock
-                        ? "hover:border-primary-300 dark:hover:border-primary-700 hover:shadow-lg hover:-translate-y-0.5 active:scale-[0.98] cursor-pointer"
+                        ? "hover:border-primary-300 dark:hover:border-primary-700 hover:shadow-xl hover:-translate-y-1 active:scale-[0.98] cursor-pointer"
                         : hasStock
                           ? ""
                           : "opacity-60"
-                } ${modifierTone.cardClass} ${isListMode ? "w-full items-center gap-2 px-2.5 py-1.5 text-left" : "flex-col overflow-hidden rounded-xl"}
+                } ${modifierTone.cardClass} ${isListMode ? "w-full items-center gap-3 px-3 py-2 text-left" : "flex-col overflow-hidden rounded-2xl"}
             `}
         >
             {!isListMode && (
-                <div className="relative aspect-square overflow-hidden bg-slate-100 dark:bg-slate-800">
+                <div className="relative aspect-[4/5] overflow-hidden bg-slate-100 dark:bg-slate-800">
                     {product.image ? (
                         <LazyImage
                             src={getProductThumbUrl(product.image, product.title)}
@@ -165,11 +171,11 @@ const ProductCard = memo(function ProductCard({
                             )}
                             alt={product.title}
                             className="h-full w-full"
-                            imgClassName="object-cover transition-transform duration-300 group-hover:scale-105"
+                            imgClassName="object-cover transition-transform duration-500 group-hover:scale-110"
                             fallback={
                                 <div className="flex h-full w-full items-center justify-center">
                                     <IconPhoto
-                                        size={isListMode ? 18 : 24}
+                                        size={isListMode ? 18 : 32}
                                         className="text-slate-400"
                                     />
                                 </div>
@@ -178,37 +184,74 @@ const ProductCard = memo(function ProductCard({
                     ) : (
                         <div className="flex h-full w-full items-center justify-center">
                             <IconPhoto
-                                size={32}
+                                size={36}
                                 className="text-slate-300 dark:text-slate-600"
                             />
                         </div>
                     )}
 
-                    {lowStock && (
-                        <span className="absolute top-2 right-2 rounded-full bg-warning-100 px-2 py-0.5 text-xs font-medium text-warning-700 dark:bg-warning-900/50 dark:text-warning-400">
+                    {/* Gradient overlay for better badge readability */}
+                    <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-black/50 to-transparent" />
+
+                    {/* Badges on image */}
+                    <div className="absolute left-3 top-3 flex flex-wrap items-center gap-1.5">
+                        {isBestSeller && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-amber-500 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-white shadow-lg shadow-amber-500/30">
+                                <IconStar size={12} fill="white" />
+                                Best Seller
+                            </span>
+                        )}
+                        {isFeatured && !isBestSeller && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-primary-500 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-white shadow-lg shadow-primary-500/30">
+                                <IconSparkles size={12} />
+                                Rekomendasi
+                            </span>
+                        )}
+                        {hasModifierOptions && product.requires_modifier_selection && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-white shadow-lg shadow-emerald-500/30">
+                                <IconChecklist size={12} />
+                                Topping Wajib
+                            </span>
+                        )}
+                        {showBadge && !showPromo && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-rose-500 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-white shadow-lg shadow-rose-500/30">
+                                <IconTag size={12} />
+                                {promoBadge.label}
+                            </span>
+                        )}
+                    </div>
+
+                    {/* Low stock indicator */}
+                    {lowStock && hasStock && (
+                        <span className="absolute right-3 top-3 rounded-full bg-white/95 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-warning-700 shadow-lg backdrop-blur-sm">
                             Sisa {product.stock}
                         </span>
                     )}
 
-                    {showBadge && (
-                        <span className="absolute left-2 top-2 max-w-[70%] truncate rounded-full bg-rose-500 px-2 py-0.5 text-[11px] font-semibold text-white shadow-lg">
-                            {promoBadge.label}
-                        </span>
+                    {/* Category pill at bottom left */}
+                    {!isListMode && secondaryLabel !== "-" && (
+                        <div className="absolute bottom-3 left-3">
+                            <span className="inline-flex rounded-full bg-white/95 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-700 shadow-lg backdrop-blur-sm">
+                                {secondaryLabel}
+                            </span>
+                        </div>
                     )}
 
+                    {/* Out of stock overlay */}
                     {!hasStock && (
-                        <div className="absolute inset-0 flex items-center justify-center bg-slate-900/60">
-                            <span className={`rounded-full px-3 py-1 text-xs font-semibold text-white ${
-                                isStoreClosed ? "bg-amber-600" : "bg-danger-500"
+                        <div className="absolute inset-0 flex items-center justify-center bg-slate-900/70 backdrop-blur-sm">
+                            <span className={`rounded-full px-4 py-2 text-xs font-bold uppercase tracking-wider text-white shadow-xl ${
+                                isStoreClosed ? "bg-amber-600" : "bg-danger-600"
                             }`}>
                                 {storeClosedLabel ?? "Habis"}
                             </span>
                         </div>
                     )}
 
+                    {/* Hover overlay */}
                     {interactive && hasStock && (
-                        <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-primary-500/10 opacity-0 transition-opacity group-hover:opacity-100">
-                            <div className="rounded-full bg-primary-500 px-4 py-2 text-sm font-semibold text-white shadow-lg">
+                        <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-primary-500/0 opacity-0 transition-all duration-300 group-hover:bg-primary-500/10 group-hover:opacity-100">
+                            <div className="rounded-full bg-primary-500 px-5 py-2.5 text-sm font-bold text-white shadow-xl translate-y-4 opacity-0 transition-all duration-300 group-hover:translate-y-0 group-hover:opacity-100">
                                 Lihat Detail
                             </div>
                         </div>
@@ -218,125 +261,146 @@ const ProductCard = memo(function ProductCard({
 
             {/* Product Info */}
             <div
-                className={`flex-1 p-3 flex ${
+                className={`flex-1 px-3 py-3 flex ${
                     isListMode
-                        ? "min-w-0 items-center justify-between gap-2 p-0"
-                        : "min-h-0 flex-col justify-between p-2"
+                        ? "min-w-0 items-center justify-between gap-3"
+                        : "flex-col justify-between"
                 }`}
             >
                 <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-1">
-                        {!isListMode && secondaryLabel !== "-" && (
-                            <span className="inline-flex max-w-full items-center rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                                <span className="truncate">
+                    {/* List mode badges */}
+                    {isListMode && (
+                        <div className="flex flex-wrap items-center gap-1.5">
+                            {secondaryLabel !== "-" && (
+                                <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-600 dark:bg-slate-800 dark:text-slate-300">
                                     {secondaryLabel}
                                 </span>
-                            </span>
-                        )}
-                        {hasModifierOptions && (
-                            <span
-                                className={`inline-flex rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${modifierTone.badgeClass}`}
-                            >
-                                {modifierTone.badgeLabel}
-                            </span>
-                        )}
-                        {showBadge && !showPromo && (
-                            <span className="inline-flex rounded-full bg-rose-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-rose-600 dark:bg-rose-950/30 dark:text-rose-300">
-                                Promo
-                            </span>
-                        )}
-                        {!hasStock && !isStoreClosed && (
-                            <span className="inline-flex rounded-full bg-slate-200 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                                Habis
-                            </span>
-                        )}
-                        {isStoreClosed && (
-                            <span className="inline-flex rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
-                                {storeClosedLabel}
-                            </span>
-                        )}
-                        {lowStock && hasStock && (
-                            <span className="inline-flex rounded-full bg-warning-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-warning-700 dark:bg-warning-900/50 dark:text-warning-400">
-                                Sisa {product.stock}
-                            </span>
-                        )}
-                        {isBestSeller && (
-                            <span className="inline-flex items-center gap-0.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
-                                Best Seller
-                            </span>
-                        )}
-                        {isFeatured && (
-                            <span className="inline-flex items-center gap-0.5 rounded-full bg-primary-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-primary-700 dark:bg-primary-900/40 dark:text-primary-300">
-                                Rekomendasi
-                            </span>
-                        )}
-                    </div>
-                    <h3 className={`font-semibold break-words ${
+                            )}
+                            {hasModifierOptions && (
+                                <span
+                                    className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${modifierTone.badgeClass}`}
+                                >
+                                    {modifierTone.badgeLabel}
+                                </span>
+                            )}
+                            {isBestSeller && (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                                    <IconStar size={10} fill="currentColor" />
+                                    Best Seller
+                                </span>
+                            )}
+                            {isFeatured && (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-primary-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-primary-700 dark:bg-primary-900/40 dark:text-primary-300">
+                                    <IconSparkles size={10} />
+                                    Rekomendasi
+                                </span>
+                            )}
+                        </div>
+                    )}
+
+                    {/* Title */}
+                    <h3 className={`font-bold break-words ${
                         isListMode 
-                            ? "text-xs leading-tight" 
-                            : "mt-1 text-[13px] leading-tight"
-                    } text-slate-800 dark:text-slate-200`}>
+                            ? "text-sm leading-snug mt-0.5" 
+                            : "mt-2 text-sm leading-snug"
+                    } text-slate-900 dark:text-slate-100`}>
                         {product.title}
                     </h3>
-                    <div className={`${isListMode ? "mt-0.5" : "mt-0.5"} space-y-0.5 text-[10px] text-slate-500 dark:text-slate-400`}>
-                        <p className="break-words leading-4">
-                            <span className="font-medium text-slate-600 dark:text-slate-300">
-                                {secondaryLabel}
-                            </span>
-                        </p>
-                        <p>
-                            <span className="font-medium text-slate-600 dark:text-slate-300">
-                                {Number(product.stock || 0)} tersisa
-                            </span>
-                        </p>
-                        {soldQty > 0 && (
-                            <p className="font-medium text-slate-600 dark:text-slate-300">
-                                {soldQty.toLocaleString('id-ID')} terjual
-                            </p>
-                        )}
-                        {ratingCount > 0 && (
-                            <p className="flex items-center gap-1 font-medium text-slate-600 dark:text-slate-300">
-                                <span className="flex items-center gap-0.5 text-amber-500">
-                                    {[0,1,2,3,4].map((i) => (
-                                        <svg key={i} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill={i < Math.round(ratingAvg) ? "currentColor" : "none"} stroke="currentColor" strokeWidth={2} className="h-3 w-3">
-                                            <path strokeLinecap="round" strokeLinejoin="round" d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.562.562 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.562.562 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.562.562 0 0 1 .321-.988l5.518-.442a.562.562 0 0 0 .475-.345L11.48 3.5Z" />
-                                        </svg>
-                                    ))}
+
+                    {/* Grid mode meta info */}
+                    {!isListMode && (
+                        <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
+                            {product.stock !== null && (
+                                <span className="flex items-center gap-1">
+                                    <IconBox size={14} className="text-slate-400" />
+                                    <span className="font-semibold text-slate-600 dark:text-slate-300">
+                                        {Number(product.stock || 0)} tersisa
+                                    </span>
                                 </span>
-                                <span>{ratingAvg.toFixed(1)}</span>
-                                <span className="text-slate-400">({ratingCount})</span>
-                            </p>
-                        )}
-                        {!interactive && hasModifierOptions && (
-                            <p className={`font-medium ${modifierTone.hintClass}`}>
-                                {product.requires_modifier_selection
-                                    ? "Pilih detail topping wajib"
-                                    : "Klik untuk lihat topping"}
-                            </p>
-                        )}
-                    </div>
+                            )}
+                            {soldQty > 0 && (
+                                <span className="flex items-center gap-1">
+                                    <IconTrendingUp size={14} className="text-primary-500" />
+                                    <span className="font-semibold text-slate-600 dark:text-slate-300">
+                                        {soldQty.toLocaleString('id-ID')} terjual
+                                    </span>
+                                </span>
+                            )}
+                            {ratingCount > 0 && (
+                                <span className="flex items-center gap-1">
+                                    <span className="flex items-center gap-0.5 text-amber-500">
+                                        {[0,1,2,3,4].map((i) => (
+                                            <svg key={i} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill={i < Math.round(ratingAvg) ? "currentColor" : "none"} stroke="currentColor" strokeWidth={1.5} className="h-3.5 w-3.5">
+                                                <path strokeLinecap="round" strokeLinejoin="round" d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.562.562 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.562.562 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.562.562 0 0 1 .321-.988l5.518-.442a.562.562 0 0 0 .475-.345L11.48 3.5Z" />
+                                            </svg>
+                                        ))}
+                                    </span>
+                                    <span className="font-bold text-slate-700 dark:text-slate-200">{ratingAvg.toFixed(1)}</span>
+                                    <span className="text-slate-400">({ratingCount})</span>
+                                </span>
+                            )}
+                        </div>
+                    )}
+
+                    {/* List mode meta info */}
+                    {isListMode && (
+                        <div className="mt-1 flex items-center gap-4 text-xs text-slate-500 dark:text-slate-400">
+                            {product.stock !== null && (
+                                <span className="font-semibold text-slate-600 dark:text-slate-300">
+                                    {Number(product.stock || 0)} tersisa
+                                </span>
+                            )}
+                            {soldQty > 0 && (
+                                <span className="font-semibold text-slate-600 dark:text-slate-300">
+                                    {soldQty.toLocaleString('id-ID')} terjual
+                                </span>
+                            )}
+                            {ratingCount > 0 && (
+                                <span className="flex items-center gap-1">
+                                    <span className="flex items-center gap-0.5 text-amber-500">
+                                        {[0,1,2,3,4].map((i) => (
+                                            <svg key={i} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill={i < Math.round(ratingAvg) ? "currentColor" : "none"} stroke="currentColor" strokeWidth={2} className="h-3 w-3">
+                                                <path strokeLinecap="round" strokeLinejoin="round" d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.562.562 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.562.562 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.562.562 0 0 1 .321-.988l5.518-.442a.562.562 0 0 0 .475-.345L11.48 3.5Z" />
+                                            </svg>
+                                        ))}
+                                    </span>
+                                    <span className="font-bold text-slate-700 dark:text-slate-200">{ratingAvg.toFixed(1)}</span>
+                                    <span className="text-slate-400">({ratingCount})</span>
+                                </span>
+                            )}
+                            {!interactive && hasModifierOptions && (
+                                <span className={`font-medium ${modifierTone.hintClass}`}>
+                                    {product.requires_modifier_selection
+                                        ? "Pilih detail topping wajib"
+                                        : "Klik untuk lihat topping"}
+                                </span>
+                            )}
+                        </div>
+                    )}
                 </div>
+
+                {/* Price section */}
                 <div
                     className={`${
                         isListMode
                             ? "flex shrink-0 flex-col items-end text-right"
-                            : "mt-1.5"
+                            : "mt-3"
                     }`}
                 >
                     {showPromo && (
-                        <p className={`${isListMode ? "text-[11px]" : "text-[10px]"} text-slate-400 line-through`}>
+                        <p className={`${isListMode ? "text-xs" : "text-[10px]"} text-slate-400 line-through`}>
                             {formatPrice(basePrice)}
                         </p>
                     )}
                     <p className={`break-words font-bold text-primary-600 dark:text-primary-400 ${
-                        isListMode ? "text-xs" : "text-[13px]"
+                        isListMode ? "text-sm" : "text-base"
                     }`}>
                         {formatPrice(showPromo ? promoPrice : product.sell_price)}
                     </p>
                     {promoDetail && (
                         <p
-                            className={`mt-0.5 max-w-[180px] break-words text-[10px] leading-4 ${
-                                isListMode
+                            className={`mt-0.5 max-w-[180px] break-words text-[10px] leading-4 text-rose-600 dark:text-rose-400 ${
+                            isListMode
                                     ? "text-right text-rose-600 dark:text-rose-300"
                                     : "text-rose-600 dark:text-rose-300"
                             }`}
