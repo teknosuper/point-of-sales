@@ -14,6 +14,7 @@ import {
     IconCopy,
     IconDatabaseOff,
     IconInfoCircle,
+    IconAlertTriangle,
     IconLayoutGrid,
     IconList,
     IconPackage,
@@ -123,6 +124,9 @@ function ProductCard({
     activeOutletName,
     showCostAsPrimary = false,
     showSellPrice = true,
+    onToggleFeatured,
+    onApplyShadowBan,
+    onUpdatePenaltyStatus,
 }) {
     const displayStock = Number(
         product.display_stock ??
@@ -216,7 +220,7 @@ function ProductCard({
                         {canUpdate && (
                             <button
                                 type="button"
-                                onClick={() => handleToggleFeatured(product)}
+                                onClick={() => onToggleFeatured?.(product)}
                                 className={`rounded-xl bg-white p-2.5 shadow-lg transition-colors hover:bg-amber-50 ${
                                     product.is_featured ? "text-amber-600" : "text-slate-400"
                                 }`}
@@ -226,16 +230,32 @@ function ProductCard({
                             </button>
                         )}
                         {canUpdate && (
-                            <button
-                                type="button"
-                                onClick={() => handleApplyShadowBan(product)}
-                                className={`rounded-xl bg-white p-2.5 shadow-lg transition-colors hover:bg-rose-50 ${
-                                    product.shadow_banned_at ? "text-rose-600" : "text-slate-400"
-                                }`}
-                                title={product.shadow_banned_at ? "Buka shadow ban" : "Shadow ban"}
-                            >
-                                <IconX size={18} />
-                            </button>
+                            <>
+                                <button
+                                    type="button"
+                                    onClick={() => onApplyShadowBan?.(product)}
+                                    className={`rounded-xl bg-white p-2.5 shadow-lg transition-colors ${
+                                        product.shadow_banned_at
+                                            ? "hover:bg-blue-50 text-blue-600"
+                                            : "hover:bg-rose-50 text-slate-400"
+                                    }`}
+                                    title={product.shadow_banned_at ? "Buka shadow ban" : "Shadow ban"}
+                                >
+                                    <IconX size={18} />
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => onUpdatePenaltyStatus?.(product)}
+                                    className={`rounded-xl bg-white p-2.5 shadow-lg transition-colors hover:bg-amber-50 ${
+                                        product.penalty_status
+                                            ? "text-amber-600"
+                                            : "text-slate-400"
+                                    }`}
+                                    title="Ubah status penalty"
+                                >
+                                    <IconAlertTriangle size={18} />
+                                </button>
+                            </>
                         )}
                         {canDelete && (
                             <Button
@@ -286,6 +306,17 @@ function ProductCard({
                     {product.shadow_banned_at ? (
                         <span className="rounded-md bg-rose-100 px-2 py-0.5 text-[11px] font-semibold text-rose-700 dark:bg-rose-900/40 dark:text-rose-300">
                             Shadow Ban
+                        </span>
+                    ) : null}
+                    {product.penalty_status ? (
+                        <span className={`rounded-md px-2 py-0.5 text-[11px] font-semibold ${
+                            product.penalty_status === 'under_review'
+                                ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
+                                : product.penalty_status === 'accepted'
+                                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
+                                : 'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                        }`}>
+                            {product.penalty_status === 'under_review' ? 'Under Review' : product.penalty_status === 'accepted' ? 'Accepted' : 'Rejected'}
                         </span>
                     ) : null}
                 </div>
@@ -813,25 +844,85 @@ export default function Index({
     };
 
     const handleApplyShadowBan = async (product) => {
-        const reason = prompt === null ? null : prompt;
         const result = await Swal.fire({
-            title: "Shadow Ban produk?",
-            text: `${product.title} akan disembunyikan dari pencarian dan daftar menu publik.`,
-            input: "text",
-            inputLabel: "Alasan shadow ban (opsional)",
-            inputPlaceholder: "Contoh: kualitas tidak memenuhi standar",
+            title: product.shadow_banned_at ? "Buka Shadow Ban?" : "Shadow Ban produk?",
+            text: product.shadow_banned_at
+                ? `${product.title} akan muncul kembali di pencarian dan daftar menu publik.`
+                : `${product.title} akan disembunyikan dari pencarian dan daftar menu publik.`,
+            input: !product.shadow_banned_at ? "text" : undefined,
+            inputLabel: !product.shadow_banned_at ? "Alasan shadow ban (opsional)" : undefined,
+            inputPlaceholder: !product.shadow_banned_at ? "Contoh: kualitas tidak memenuhi standar" : undefined,
             showCancelButton: true,
-            confirmButtonText: "Ya, Shadow Ban",
+            confirmButtonText: product.shadow_banned_at ? "Ya, Buka Ban" : "Ya, Shadow Ban",
             cancelButtonText: "Batal",
-            confirmButtonColor: "#dc2626",
+            confirmButtonColor: product.shadow_banned_at ? "#2563eb" : "#dc2626",
             reverseButtons: true,
         });
 
         if (!result.isConfirmed) return;
 
+        if (product.shadow_banned_at) {
+            router.patch(
+                route("products.penalty-status", product.id),
+                { status: "accepted" },
+                {
+                    preserveScroll: true,
+                    onSuccess: () => {
+                        router.reload({ only: ["products"], preserveScroll: true });
+                    },
+                }
+            );
+        } else {
+            router.patch(
+                route("products.shadow-ban", product.id),
+                { reason: result.value || null },
+                {
+                    preserveScroll: true,
+                    onSuccess: () => {
+                        router.reload({ only: ["products"], preserveScroll: true });
+                    },
+                }
+            );
+        }
+    };
+
+    const handleUpdatePenaltyStatus = async (product) => {
+        const currentStatus = product.penalty_status || "";
+        if (!currentStatus) {
+            await Swal.fire({
+                title: "Status Penalty",
+                text: `${product.title} belum memiliki status penalty.`,
+                icon: "info",
+                confirmButtonText: "OK",
+            });
+            return;
+        }
+
+        const result = await Swal.fire({
+            title: "Ubah Status Penalty?",
+            text: `${product.title} — Status saat ini: ${currentStatus}`,
+            input: "select",
+            inputOptions: {
+                under_review: "Under Review",
+                accepted: "Accepted (unban)",
+                rejected: "Rejected (keep banned)",
+            },
+            inputValue: currentStatus,
+            showCancelButton: true,
+            confirmButtonText: "Simpan",
+            cancelButtonText: "Batal",
+            confirmButtonColor: "#2563eb",
+            reverseButtons: true,
+        });
+
+        if (!result.isConfirmed) return;
+
+        const newStatus = result.value;
+        if (!newStatus || newStatus === currentStatus) return;
+
         router.patch(
-            route("products.shadow-ban", product.id),
-            { reason: result.value || null },
+            route("products.penalty-status", product.id),
+            { status: newStatus },
             {
                 preserveScroll: true,
                 onSuccess: () => {
@@ -1974,6 +2065,9 @@ export default function Index({
                                     activeOutletName={activeOutletName}
                                     showCostAsPrimary={showCostAsPrimary}
                                     showSellPrice={canManagePricing}
+                                    onToggleFeatured={handleToggleFeatured}
+                                    onApplyShadowBan={handleApplyShadowBan}
+                                    onUpdatePenaltyStatus={handleUpdatePenaltyStatus}
                                 />
                             ))}
                         </div>
@@ -2038,6 +2132,29 @@ export default function Index({
                                                         <div className="space-y-0.5 text-xs text-slate-500 dark:text-slate-400">
                                                             {product.barcode ? <p>Barcode: {product.barcode}</p> : null}
                                                             {product.sku ? <p>SKU: {product.sku}</p> : null}
+                                                        </div>
+                                                        <div className="mt-1 flex flex-wrap gap-1">
+                                                            {product.is_featured ? (
+                                                                <span className="rounded bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                                                                    Featured
+                                                                </span>
+                                                            ) : null}
+                                                            {product.shadow_banned_at ? (
+                                                                <span className="rounded bg-rose-100 px-2 py-0.5 text-[11px] font-semibold text-rose-700 dark:bg-rose-900/40 dark:text-rose-300">
+                                                                    Shadow Ban
+                                                                </span>
+                                                            ) : null}
+                                                            {product.penalty_status ? (
+                                                                <span className={`rounded px-2 py-0.5 text-[11px] font-semibold ${
+                                                                    product.penalty_status === 'under_review'
+                                                                        ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
+                                                                        : product.penalty_status === 'accepted'
+                                                                        ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
+                                                                        : 'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                                                                }`}>
+                                                                    {product.penalty_status === 'under_review' ? 'Under Review' : product.penalty_status === 'accepted' ? 'Accepted' : 'Rejected'}
+                                                                </span>
+                                                            ) : null}
                                                         </div>
                                                     </div>
                                                 </div>
@@ -2170,6 +2287,18 @@ export default function Index({
                                                                 title={product.shadow_banned_at ? "Buka shadow ban" : "Shadow ban"}
                                                             >
                                                                 <IconX size={16} />
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleUpdatePenaltyStatus(product)}
+                                                                className={`rounded-lg border px-2.5 py-2 text-xs font-medium transition hover:bg-amber-50 ${
+                                                                    product.penalty_status
+                                                                        ? "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300"
+                                                                        : "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                                                                }`}
+                                                                title="Ubah status penalty"
+                                                            >
+                                                                <IconAlertTriangle size={16} />
                                                             </button>
                                                         </>
                                                     ) : null}

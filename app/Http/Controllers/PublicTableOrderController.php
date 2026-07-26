@@ -53,7 +53,7 @@ class PublicTableOrderController extends Controller
 
         $products = Product::query()
             ->with([
-                'category:id,name',
+                'category:id,name,parent_id',
                 'modifierOptions',
                 'tenantOutlet:id,name,code,slug,sort_order',
                 'kitchenStationMappings.kitchenStation:id,name,code',
@@ -71,9 +71,9 @@ class PublicTableOrderController extends Controller
                 'category_id',
                 'tenant_outlet_id',
                 'supports_modifiers',
-                'requires_modifier_selection'
+                'requires_modifier_selection',
+                'shadow_banned_at'
             )
-            ->whereNull('shadow_banned_at')
             ->orderBy('title')
             ->get()
             ->map(function (Product $product) {

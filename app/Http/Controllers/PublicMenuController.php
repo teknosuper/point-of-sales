@@ -159,12 +159,13 @@ class PublicMenuController extends Controller
                 'tenant_outlet_id', 'supports_modifiers', 'requires_modifier_selection', 'created_at',
                 'is_featured', 'shadow_banned_at', 'shadow_ban_reason', 'penalty_status',
             ])
-            ->whereNull('shadow_banned_at')
-            ->when($request->filled('search'), fn ($b) => $b->where(fn ($q) => $q
-                ->where('title', 'like', '%'.trim((string) $request->input('search')).'%')
-                ->orWhere('sku', 'like', '%'.trim((string) $request->input('search')).'%')
-                ->orWhere('barcode', 'like', '%'.trim((string) $request->input('search')).'%')
-            ))
+            ->when(
+                $request->filled('search'),
+                fn ($b) => $b->where(fn ($q) => $q
+                    ->where('title', 'like', '%'.trim((string) $request->input('search')).'%')
+                    ->orWhere('sku', 'like', '%'.trim((string) $request->input('search')).'%')
+                    ->orWhere('barcode', 'like', '%'.trim((string) $request->input('search')).'%')
+                ))
             ->when($request->filled('category_id'), fn ($b) => $b->where('category_id', (int) $request->input('category_id')))
             ->when($request->filled('tenant_outlet_id'), fn ($b) => $b->where('tenant_outlet_id', (int) $request->input('tenant_outlet_id')))
             ->orderByDesc('is_featured')

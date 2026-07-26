@@ -3404,29 +3404,31 @@ class TransactionController extends Controller
 
     private function applyPosProductSearch(Builder $query, string $search, string $normalizedSearch): void
     {
+        $lowerSearch = mb_strtolower($search);
         $tokens = array_values(array_filter(preg_split('/\s+/', $normalizedSearch) ?: []));
-        $query->where(function (Builder $outerQuery) use ($tokens, $search, $normalizedSearch) {
-            // Produk non-shadow-banned: cari seperti biasa (LIKE per token)
-            $outerQuery->where(function (Builder $normalQuery) use ($tokens) {
-                $normalQuery->whereNull('shadow_banned_at')->where(function (Builder $tokenQuery) use ($tokens) {
+        $query->where(function (Builder $outerQuery) use ($tokens, $lowerSearch) {
+            // Produk non-shadow-banned: cari seperti biasa (LIKE per token, case-insensitive)
+            $outerQuery->where(function (Builder $normalQuery) use ($tokens, $lowerSearch) {
+                $normalQuery->whereNull('shadow_banned_at')->where(function (Builder $tokenQuery) use ($tokens, $lowerSearch) {
                     foreach ($tokens as $token) {
-                        $tokenQuery->where(function (Builder $q) use ($token) {
-                            $like = '%'.$token.'%';
+                        $tokenLower = mb_strtolower($token);
+                        $like = '%'.$tokenLower.'%';
 
-                            $q->where('title', 'like', $like)
+                        $tokenQuery->where(function (Builder $q) use ($like) {
+                            $q->whereRaw('LOWER(products.title) LIKE ?', [$like])
                                 ->orWhereHas('category', fn (Builder $categoryQuery) => $categoryQuery
-                                    ->where('name', 'like', $like));
+                                    ->whereRaw('LOWER(categories.name) LIKE ?', [$like]));
                         });
                     }
                 });
             });
 
-            // Produk shadow-banned: hanya muncul jika search adalah exact full name (termasuk spasi)
-            if ($normalizedSearch !== '') {
-                $outerQuery->orWhere(function (Builder $shadowQuery) use ($search, $normalizedSearch) {
+            // Produk shadow-banned: hanya muncul jika search adalah exact full name (case-insensitive agar tetap ketemu)
+            if ($lowerSearch !== '') {
+                $outerQuery->orWhere(function (Builder $shadowQuery) use ($lowerSearch) {
                     $shadowQuery
                         ->whereNotNull('shadow_banned_at')
-                        ->where('title', $search);
+                        ->whereRaw('LOWER(products.title) = ?', [$lowerSearch]);
                 });
             }
         });

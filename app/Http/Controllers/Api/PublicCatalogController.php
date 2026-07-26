@@ -371,7 +371,6 @@ class PublicCatalogController extends Controller
                 'shadow_ban_reason',
                 'penalty_status',
             ])
-            ->whereNull('shadow_banned_at')
             ->when(
                 $request->filled('search'),
                 fn ($builder) => $builder->where(function ($searchQuery) use ($request) {

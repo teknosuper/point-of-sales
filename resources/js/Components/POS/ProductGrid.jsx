@@ -505,10 +505,38 @@ export default function ProductGrid({
 
         return initialSortMode || "alphabetical";
     });
+    const toggleCategorySection = (categoryId) => {
+        setCollapsedCategoryIds((prev) => ({
+            ...prev,
+            [categoryId]: !prev[categoryId],
+        }));
+    };
+    const collapseAllCategories = () => {
+        setCollapsedCategoryIds(
+            groupedCategorySections.reduce((acc, section) => {
+                acc[section.categoryId] = true;
+                return acc;
+            }, {})
+        );
+    };
+    const expandAllCategories = () => {
+        setCollapsedCategoryIds({});
+    };
     const [isCompactLandscape, setIsCompactLandscape] = useState(false);
     const [isMobileFilterSheetOpen, setIsMobileFilterSheetOpen] = useState(false);
     const [showInlineFloatingCategoryBar, setShowInlineFloatingCategoryBar] =
         useState(false);
+    const [collapsedCategoryIds, setCollapsedCategoryIds] = useState(() => {
+        if (typeof window === "undefined") return {};
+        try {
+            const saved = window.localStorage.getItem(
+                storageKey(storageNamespace, "collapsed-categories")
+            );
+            return saved ? JSON.parse(saved) : {};
+        } catch {
+            return {};
+        }
+    });
     const loadMoreSentinelRef = useRef(null);
     const scrollContainerRef = useRef(null);
     const lastEmittedSearchRef = useRef(searchQuery || "");
@@ -627,7 +655,11 @@ export default function ProductGrid({
                     product.barcode
                         ?.toLowerCase()
                         .includes(searchDraft.toLowerCase());
-                return matchesMainCategory && matchesCategory && matchesSearch;
+                const matchesShadowBan =
+                    !product.is_shadow_banned ||
+                    (searchDraft &&
+                        product.title.toLowerCase() === searchDraft.toLowerCase());
+                return matchesMainCategory && matchesCategory && matchesSearch && matchesShadowBan;
             }),
         [products, searchDraft, selectedMainCategoryId, selectedCategoryId]
     );
@@ -794,6 +826,17 @@ export default function ProductGrid({
             sortMode
         );
     }, [sortMode, storageNamespace]);
+
+    useEffect(() => {
+        if (typeof window === "undefined") {
+            return;
+        }
+
+        window.localStorage.setItem(
+            storageKey(storageNamespace, "collapsed-categories"),
+            JSON.stringify(collapsedCategoryIds)
+        );
+    }, [collapsedCategoryIds, storageNamespace]);
 
     useEffect(() => {
         if (!filterPanelCollapsible) {
@@ -1334,41 +1377,92 @@ export default function ProductGrid({
                 )}
                 {sortedProducts.length > 0 ? (
                     groupedCategorySections.length > 0 ? (
-                        <div className="space-y-5">
-                            {groupedCategorySections.map((section) => (
-                                <section key={`${selectedMainCategoryId}-${section.categoryId}`}>
-                                    <div className="mb-3 flex items-center justify-between gap-3">
-                                        <div>
-                                            <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                                                {section.categoryName}
-                                            </h3>
-                                            <p className="text-xs text-slate-500 dark:text-slate-400">
-                                                {section.products.length} menu
-                                            </p>
-                                        </div>
+                        <>
+                            {groupedCategorySections.length >= 2 && (
+                                <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-2 dark:border-slate-700 dark:bg-slate-900">
+                                    <p className="text-xs font-semibold text-slate-500">
+                                        {Object.keys(collapsedCategoryIds).length ===
+                                        groupedCategorySections.length
+                                            ? "Semua kategori diciutkan"
+                                            : Object.keys(collapsedCategoryIds).length > 0
+                                              ? `${Object.keys(collapsedCategoryIds).length} kategori diciutkan`
+                                              : "Kategori"}
+                                    </p>
+                                    <div className="flex items-center gap-2">
+                                        {Object.keys(collapsedCategoryIds).length > 0 && (
+                                            <button
+                                                type="button"
+                                                onClick={expandAllCategories}
+                                                className="rounded-lg px-2.5 py-1.5 text-xs font-semibold text-primary-600 transition hover:bg-primary-50 dark:text-primary-400 dark:hover:bg-primary-950/30"
+                                            >
+                                                Perluas Semua
+                                            </button>
+                                        )}
+                                        {Object.keys(collapsedCategoryIds).length < groupedCategorySections.length && (
+                                            <button
+                                                type="button"
+                                                onClick={collapseAllCategories}
+                                                className="rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+                                            >
+                                                Ciutkan Semua
+                                            </button>
+                                        )}
                                     </div>
-                                    <div
-                                        className={
-                                            viewMode === "grid"
-                                                ? gridLayoutClass
-                                                : listLayoutClass
-                                        }
-                                    >
-                                        {section.products.map((product) => (
-                                            <ProductCard
-                                                key={product.id}
-                                                product={product}
-                                                onAddToCart={onAddToCart}
-                                                isAdding={addingProductId === product.id}
-                                                viewMode={viewMode}
-                                                interactive={interactive}
-                                                onProductSelect={onProductSelect}
-                                            />
-                                        ))}
-                                    </div>
-                                </section>
-                            ))}
-                        </div>
+                                </div>
+                            )}
+                            <div className="space-y-5">
+                                {groupedCategorySections.map((section) => {
+                                    const isCollapsed = collapsedCategoryIds[section.categoryId];
+                                    return (
+                                        <section key={`${selectedMainCategoryId}-${section.categoryId}`}>
+                                            <div className="mb-3 flex items-center justify-between gap-3">
+                                                <div>
+                                                    <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                                                        {section.categoryName}
+                                                    </h3>
+                                                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                                                        {section.products.length} menu
+                                                    </p>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => toggleCategorySection(section.categoryId)}
+                                                    className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-500 transition hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
+                                                >
+                                                    {isCollapsed ? "Lihat" : "Sembunyikan"}
+                                                    {isCollapsed ? (
+                                                        <IconChevronDown size={14} />
+                                                    ) : (
+                                                        <IconChevronUp size={14} />
+                                                    )}
+                                                </button>
+                                            </div>
+                                            {!isCollapsed && (
+                                                <div
+                                                    className={
+                                                        viewMode === "grid"
+                                                            ? gridLayoutClass
+                                                            : listLayoutClass
+                                                    }
+                                                >
+                                                    {section.products.map((product) => (
+                                                        <ProductCard
+                                                            key={product.id}
+                                                            product={product}
+                                                            onAddToCart={onAddToCart}
+                                                            isAdding={addingProductId === product.id}
+                                                            viewMode={viewMode}
+                                                            interactive={interactive}
+                                                            onProductSelect={onProductSelect}
+                                                        />
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </section>
+                                    );
+                                })}
+                            </div>
+                        </>
                     ) : (
                         <div
                             className={

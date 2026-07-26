@@ -1396,7 +1396,7 @@ class ProductController extends Controller
         return to_route('products.index');
     }
 
-    public function toggleFeatured(Request $request, Product $product): \Illuminate\Http\JsonResponse
+    public function toggleFeatured(Request $request, Product $product)
     {
         $product = $this->resolveWorkspaceProduct($product, $request);
         $featured = ! (bool) ($product->is_featured ?? false);
@@ -1410,13 +1410,10 @@ class ProductController extends Controller
             after: ['is_featured' => $featured]
         );
 
-        return response()->json([
-            'status' => 'success',
-            'data' => ['id' => $product->id, 'is_featured' => $featured],
-        ]);
+        return back()->with('success', $featured ? 'Produk berhasil dijadikan featured.' : 'Featured produk berhasil dihapus.');
     }
 
-    public function applyShadowBan(Request $request, Product $product): \Illuminate\Http\JsonResponse
+    public function applyShadowBan(Request $request, Product $product)
     {
         $product = $this->resolveWorkspaceProduct($product, $request);
         $validated = $request->validate([
@@ -1441,17 +1438,10 @@ class ProductController extends Controller
             ]
         );
 
-        return response()->json([
-            'status' => 'success',
-            'data' => [
-                'id' => $product->id,
-                'shadow_banned_at' => $product->shadow_banned_at?->toISOString(),
-                'penalty_status' => $product->penalty_status,
-            ],
-        ]);
+        return back()->with('success', 'Produk berhasil di-shadow-ban.');
     }
 
-    public function updatePenaltyStatus(Request $request, Product $product): \Illuminate\Http\JsonResponse
+    public function updatePenaltyStatus(Request $request, Product $product)
     {
         $product = $this->resolveWorkspaceProduct($product, $request);
         $validated = $request->validate([
@@ -1492,15 +1482,7 @@ class ProductController extends Controller
             ]
         );
 
-        return response()->json([
-            'status' => 'success',
-            'data' => [
-                'id' => $product->id,
-                'shadow_banned_at' => $product->shadow_banned_at?->toISOString(),
-                'shadow_ban_reason' => $product->shadow_ban_reason,
-                'penalty_status' => $product->penalty_status,
-            ],
-        ]);
+        return back()->with('success', 'Status penalty produk berhasil diperbarui.');
     }
 
     private function generateUniqueSku(
