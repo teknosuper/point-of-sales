@@ -17,6 +17,7 @@ use App\Models\Setting;
 use App\Models\TableOrder;
 use App\Models\TransactionDetail;
 use App\Services\LoyaltyService;
+use App\Services\MenuReviewService;
 use App\Services\Payments\PaymentGatewayManager;
 use App\Services\ProductCatalogService;
 use App\Services\PricingService;
@@ -48,6 +49,7 @@ class PublicMenuController extends Controller
         private readonly ProductCatalogService $productCatalogService,
         private readonly TableOrderService $tableOrderService,
         private readonly StoreHoursService $storeHoursService,
+        private readonly MenuReviewService $menuReviewService,
     ) {}
 
     public function index(Request $request)
@@ -56,7 +58,7 @@ class PublicMenuController extends Controller
         $outletId = $outlet?->id;
 
         $categories = Category::query()
-            ->select('id', 'name', 'description', 'image')
+            ->select('id', 'name', 'description', 'image', 'parent_id')
             ->orderBy('name')
             ->get()
             ->map(fn (Category $category) => [
@@ -64,6 +66,7 @@ class PublicMenuController extends Controller
                 'name' => $category->name,
                 'description' => $category->description,
                 'image' => $category->image,
+                'parent_id' => $category->parent_id,
             ])
             ->values();
 
@@ -108,6 +111,12 @@ class PublicMenuController extends Controller
 
         return inertia('Public/MenuCatalog', [
             'categories' => $categories,
+            'mainCategories' => Category::query()
+                ->whereNull('parent_id')
+                ->whereNull('tenant_outlet_id')
+                ->orderBy('name')
+                ->get(['id', 'name', 'image'])
+                ->values(),
             'promoSummary' => $promoSummary,
             'outlet' => $outlet ? [
                 'id' => $outlet->id,
@@ -140,7 +149,7 @@ class PublicMenuController extends Controller
 
         $query = Product::query()
             ->with([
-                'category:id,name,description,image',
+                'category:id,name,description,image,parent_id',
                 'tenantOutlet:id,code,slug,name,sort_order',
                 'modifierOptions',
             ])
@@ -148,7 +157,9 @@ class PublicMenuController extends Controller
                 'id', 'image', 'barcode', 'sku', 'title', 'description',
                 'buy_price', 'sell_price', 'stock', 'category_id',
                 'tenant_outlet_id', 'supports_modifiers', 'requires_modifier_selection', 'created_at',
+                'is_featured', 'shadow_banned_at', 'shadow_ban_reason', 'penalty_status',
             ])
+            ->whereNull('shadow_banned_at')
             ->when($request->filled('search'), fn ($b) => $b->where(fn ($q) => $q
                 ->where('title', 'like', '%'.trim((string) $request->input('search')).'%')
                 ->orWhere('sku', 'like', '%'.trim((string) $request->input('search')).'%')
@@ -156,6 +167,7 @@ class PublicMenuController extends Controller
             ))
             ->when($request->filled('category_id'), fn ($b) => $b->where('category_id', (int) $request->input('category_id')))
             ->when($request->filled('tenant_outlet_id'), fn ($b) => $b->where('tenant_outlet_id', (int) $request->input('tenant_outlet_id')))
+            ->orderByDesc('is_featured')
             ->orderBy('title');
 
         if ($request->has('include_out_of_stock') && ! $request->boolean('include_out_of_stock')) {
@@ -202,12 +214,72 @@ class PublicMenuController extends Controller
             'price_high' => $mapped->sortByDesc('effective_price')->values(),
             'latest' => $mapped->sortByDesc('created_at')->values(),
             'promo_first' => $mapped->sortByDesc(fn (array $p) => $p['pricing_badge'] !== null)->values(),
+            'featured_first' => $mapped->sortByDesc('is_featured')->values(),
             default => $mapped->sortBy('title')->values(),
         };
 
         return response()->json([
             'data' => $mapped->values()->all(),
             'meta' => ['total' => $mapped->count(), 'has_promos' => $mapped->contains(fn (array $p) => $p['pricing_badge'] !== null)],
+        ]);
+    }
+
+    public function reviews(Request $request)
+    {
+        $outlet = $this->resolveOutlet($request);
+        $outletId = $outlet?->id;
+
+        $validated = $request->validate([
+            'product_id' => ['required', 'integer', 'exists:products,id'],
+            'rating' => ['required', 'integer', 'min:1', 'max:5'],
+            'comment' => ['nullable', 'string', 'max:1000'],
+            'is_verified_purchase' => ['nullable', 'boolean'],
+        ]);
+
+        $customer = $this->resolveSessionCustomer($request, $outletId);
+
+        $review = $this->menuReviewService->createReview([
+            'product_id' => $validated['product_id'],
+            'customer_id' => $customer?->id,
+            'rating' => $validated['rating'],
+            'comment' => $validated['comment'] ?? null,
+            'is_verified_purchase' => (bool) ($validated['is_verified_purchase'] ?? false),
+        ]);
+
+        return response()->json([
+            'status' => 'success',
+            'data' => [
+                'id' => $review->id,
+                'rating' => (int) $review->rating,
+                'comment' => $review->comment,
+                'reviewed_at' => optional($review->reviewed_at)->toISOString(),
+                'customer_name' => $review->customer?->name,
+                'is_verified_purchase' => (bool) $review->is_verified_purchase,
+            ],
+        ], 201);
+    }
+
+    public function productReviews(Request $request, Product $product)
+    {
+        if ($product->shadow_banned_at) {
+            abort(404);
+        }
+
+        $reviews = $product->reviews()
+            ->with('customer:id,name')
+            ->get()
+            ->map(fn ($review) => [
+                'id' => $review->id,
+                'rating' => (int) $review->rating,
+                'comment' => $review->comment,
+                'reviewed_at' => optional($review->reviewed_at)->toISOString(),
+                'customer_name' => $review->customer?->name,
+                'is_verified_purchase' => (bool) $review->is_verified_purchase,
+            ])
+            ->values();
+
+        return response()->json([
+            'data' => $reviews,
         ]);
     }
 

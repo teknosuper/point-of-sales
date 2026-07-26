@@ -348,6 +348,7 @@ export default function Index({
     outletOpenShift = null,
     loyaltyTierOptions: loyaltyTierOptionValues = [],
     tenantOutlets: tenantOutletOptions = [],
+    mainCategories = [],
     operationalSettings = null,
 }) {
     const {
@@ -6150,11 +6151,11 @@ export default function Index({
                         mobileView !== "products" ? "hidden" : "flex flex-col"
                     } ${(isOfflineMode || offlineQueueCount > 0)}`}
                 >
-                        <ProductGrid
-                            products={allProducts}
-                            tenantOutlets={tenantOutlets}
-                            categories={categories}
-                            selectedCategory={selectedCategory}
+                            <ProductGrid
+                                products={allProducts}
+                                mainCategories={mainCategories}
+                                categories={categories}
+                                selectedCategory={selectedCategory}
                             onCategoryChange={(categoryId) =>
                                 setSelectedCategory(
                                     categoryId === null ? null : Number(categoryId)

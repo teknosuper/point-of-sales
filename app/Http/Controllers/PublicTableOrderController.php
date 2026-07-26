@@ -73,6 +73,7 @@ class PublicTableOrderController extends Controller
                 'supports_modifiers',
                 'requires_modifier_selection'
             )
+            ->whereNull('shadow_banned_at')
             ->orderBy('title')
             ->get()
             ->map(function (Product $product) {
@@ -203,6 +204,17 @@ class PublicTableOrderController extends Controller
                 ])->values(),
             ] : null,
             'tenantOutlets' => $tenantOutlets,
+            'categories' => \App\Models\Category::query()
+                ->select('id', 'name', 'image', 'parent_id')
+                ->orderBy('name')
+                ->get()
+                ->values(),
+            'mainCategories' => \App\Models\Category::query()
+                ->whereNull('parent_id')
+                ->whereNull('tenant_outlet_id')
+                ->orderBy('name')
+                ->get(['id', 'name', 'image'])
+                ->values(),
             'paymentMethods' => $selfOrderPaymentMethods,
             'bankAccounts' => $bankAccounts->map(fn (BankAccount $bankAccount) => [
                 'id' => (int) $bankAccount->id,

@@ -95,6 +95,7 @@ class ProductCatalogService
                 'stock' => (int) ($product->stock ?? 0),
                 'category_id' => $product->category_id,
                 'tenant_outlet_id' => $product->tenant_outlet_id,
+                'is_featured' => (bool) ($product->is_featured ?? false),
                 'supports_modifiers' => (bool) $product->supports_modifiers,
                 'requires_modifier_selection' => (bool) $product->requires_modifier_selection,
                 'sold_qty' => (int) ($soldQtyByProduct[$product->id] ?? 0),
@@ -105,6 +106,7 @@ class ProductCatalogService
                     'name' => $product->category->name,
                     'description' => $product->category->description,
                     'image' => $product->category->image,
+                    'parent_id' => $product->category->parent_id,
                 ] : null,
                 'tenant_outlet' => $product->tenantOutlet ? [
                     'id' => $product->tenantOutlet->id,
@@ -137,6 +139,9 @@ class ProductCatalogService
                 'store_closed_reason' => $product->tenant_outlet_id
                     ? ($closedReasonsByTenant[(int) $product->tenant_outlet_id] ?? null)
                     : null,
+                'is_shadow_banned' => (bool) $product->shadow_banned_at,
+                'shadow_ban_reason' => $product->shadow_ban_reason,
+                'penalty_status' => $product->penalty_status,
             ];
 
             if ($includeKitchenStations) {

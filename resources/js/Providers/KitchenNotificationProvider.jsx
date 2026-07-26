@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback, useMemo, useState } from 'react';
+import toast from 'react-hot-toast';
 
 /**
  * Komponen Provider untuk notifikasi pesanan kitchen
@@ -22,63 +23,82 @@ export default function KitchenNotificationProvider({ children, outletId = null,
     const audioUnlockedRef = useRef(false);
     const lastActiveCountRef = useRef(0);
     const intervalRef = useRef(null);
+    const failedSoundFetchRef = useRef(false);
 
-    // Fetch sounds from database
+    const fallbackAudioUrls = {
+        general: '/sounds/notification/general.mp3',
+        new_order: '/sounds/notification/new_order.mp3',
+        error: '/sounds/notification/error.mp3',
+        reminder: '/sounds/notification/reminder.mp3',
+    };
+
+    const resolveAudioUrl = useCallback((type = 'new_order') => {
+        return soundUrls[type] || fallbackAudioUrls[type] || null;
+    }, [soundUrls]);
+
     useEffect(() => {
         const fetchSounds = async () => {
             try {
-                // Use absolute URL to avoid auth redirect issues
                 const baseUrl = window.location.origin;
-                const response = await fetch(`${baseUrl}/dashboard/settings/notification-sounds/data`, {
-                credentials: 'include',
-                headers: {
-                    'X-Requested-With': 'XMLHttpRequest',
-                    'Accept': 'application/json',
-                }
-            });
-                
-                // Skip if response is not JSON (e.g., login page redirect)
+                const url = `${baseUrl}/dashboard/settings/notification-sounds/data`;
+
+                const response = await fetch(url, {
+                    credentials: 'include',
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'Accept': 'application/json',
+                    },
+                });
+
                 const contentType = response.headers.get('content-type');
                 if (!contentType || !contentType.includes('application/json')) {
-                    console.debug('Skipping sound fetch - not authenticated or not JSON response');
+                    console.warn('KitchenNotificationProvider: skipping sound fetch - not JSON', { contentType, status: response.status });
+                    failedSoundFetchRef.current = true;
                     return;
                 }
-                
+
                 if (!response.ok) {
-                    console.warn('Failed to fetch sounds, status:', response.status);
+                    console.warn('KitchenNotificationProvider: sound fetch failed', { status: response.status });
+                    failedSoundFetchRef.current = true;
                     return;
                 }
-                
+
                 const data = await response.json();
-                
-                if (data.success && data.data) {
+
+                if (data.success && Array.isArray(data.data)) {
                     const urls = {
                         general: null,
                         new_order: null,
                         error: null,
                         reminder: null,
                     };
-                    
-                    data.data.forEach(sound => {
-                        if (sound.is_active && sound.url) {
+
+                    data.data.forEach((sound) => {
+                        if (sound?.is_active && sound?.url && sound?.type && urls.hasOwnProperty(sound.type)) {
                             urls[sound.type] = sound.url;
                         }
                     });
-                    
+
+                    console.info('KitchenNotificationProvider: loaded sounds', urls);
+                    failedSoundFetchRef.current = false;
                     setSoundUrls(urls);
+                } else {
+                    console.warn('KitchenNotificationProvider: unexpected sound payload', data);
+                    failedSoundFetchRef.current = true;
                 }
             } catch (e) {
-                console.warn('Failed to fetch notification sounds:', e);
+                console.warn('KitchenNotificationProvider: failed to fetch notification sounds', e);
+                failedSoundFetchRef.current = true;
             }
         };
-        
-        fetchSounds();
-    }, []);
 
-    // Get audio URL for type - no fallback
+        fetchSounds();
+    }, [outletId]);
+
+    // Get audio URL for type with fallback
     const getAudioUrl = useCallback((type = 'new_order') => {
-        return soundUrls[type] || null;
-    }, [soundUrls]);
+        return resolveAudioUrl(type);
+    }, [resolveAudioUrl]);
 
     // Inisialisasi audio
     const initAudio = useCallback(() => {
@@ -86,44 +106,98 @@ export default function KitchenNotificationProvider({ children, outletId = null,
         
         audioUnlockedRef.current = true;
         
-        // Preload audio dengan suara new_order jika ada
         const audioUrl = getAudioUrl('new_order') || getAudioUrl('general');
-        if (audioUrl && !audioRef.current) {
-            audioRef.current = new Audio(audioUrl);
-            audioRef.current.volume = 1.0;
-            audioRef.current.load();
+        if (audioUrl) {
+            const temp = new Audio(audioUrl);
+            temp.volume = 1.0;
+            temp.load();
+            void temp.play().then(() => {
+                temp.pause();
+                temp.currentTime = 0;
+            }).catch(() => {
+                // some browsers may still block this initial silent unlock
+            });
+            audioRef.current = temp;
         }
     }, [getAudioUrl]);
 
-    // Mainkan suara notifikasi
-    const playNotificationSound = useCallback((type = 'new_order') => {
-        if (!audioUnlockedRef.current) {
-            initAudio();
-            return;
+    const ensureErrorBeepFallback = useCallback(() => {
+        if (typeof window === 'undefined' || !('AudioContext' in window) && !('webkitAudioContext' in window)) {
+            return false;
         }
 
-        const audioUrl = getAudioUrl(type);
+        try {
+            const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+            const context = new AudioContextClass();
+
+            if (context.state === 'suspended') {
+                context.resume();
+            }
+
+            const oscillator = context.createOscillator();
+            const gainNode = context.createGain();
+
+            oscillator.type = 'square';
+            oscillator.frequency.value = 440;
+            gainNode.gain.value = 0.1;
+
+            oscillator.connect(gainNode);
+            gainNode.connect(context.destination);
+
+            oscillator.start();
+            oscillator.stop(context.currentTime + 0.2);
+
+            return true;
+        } catch (e) {
+            console.warn('Failed to play fallback error beep', e);
+            return false;
+        }
+    }, []);
+
+    const unlockAudioContext = useCallback(async () => {
+        if (typeof window === 'undefined') return;
         
-        // Jika tidak ada suara yang dikonfigurasi, skip
+        try {
+            const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+            if (!AudioContextClass) return;
+            
+            const context = new AudioContextClass();
+            if (context.state === 'suspended') {
+                await context.resume();
+            }
+        } catch (e) {
+            console.warn('Failed to unlock audio context', e);
+        }
+    }, []);
+
+    const playNotificationSound = useCallback(async (type = 'new_order') => {
+        const audioUrl = resolveAudioUrl(type);
+
         if (!audioUrl) {
-            console.debug(`No sound configured for type: ${type}`);
+            console.debug(`No sound configured for type: ${type}, using fallback beep`);
+            ensureErrorBeepFallback();
             return;
         }
 
         try {
-            if (!audioRef.current || audioRef.current.src !== audioUrl) {
-                audioRef.current = new Audio(audioUrl);
-                audioRef.current.volume = 1.0;
-            }
+            await unlockAudioContext();
 
-            audioRef.current.currentTime = 0;
-            audioRef.current.play().catch((err) => {
-                console.warn('Autoplay diblokir browser:', err.message);
-            });
+            const audio = new Audio(audioUrl);
+            audio.volume = 1.0;
+            audio.currentTime = 0;
+
+            const playPromise = audio.play();
+            if (playPromise) {
+                playPromise.catch((err) => {
+                    console.warn('Autoplay diblokir browser, mencoba fallback beep:', err.message);
+                    ensureErrorBeepFallback();
+                });
+            }
         } catch (error) {
             console.error('Gagal memutar suara notifikasi:', error);
+            ensureErrorBeepFallback();
         }
-    }, [initAudio, getAudioUrl]);
+    }, [resolveAudioUrl, ensureErrorBeepFallback, unlockAudioContext]);
 
     // Tampilkan browser notification
     const showBrowserNotification = useCallback((title, body) => {
@@ -183,8 +257,9 @@ export default function KitchenNotificationProvider({ children, outletId = null,
 
     // Setup: unlock audio on user interaction
     useEffect(() => {
-        const handleInteraction = () => {
+        const handleInteraction = async () => {
             initAudio();
+            await unlockAudioContext();
             window.removeEventListener('click', handleInteraction);
             window.removeEventListener('touchstart', handleInteraction);
         };
@@ -196,7 +271,7 @@ export default function KitchenNotificationProvider({ children, outletId = null,
             window.removeEventListener('click', handleInteraction);
             window.removeEventListener('touchstart', handleInteraction);
         };
-    }, [initAudio]);
+    }, [initAudio, unlockAudioContext]);
 
     // Listen to explicit kitchen board events so toast and sound stay in sync.
     useEffect(() => {
@@ -218,10 +293,50 @@ export default function KitchenNotificationProvider({ children, outletId = null,
 
         window.addEventListener('kitchen:new-order', handleNewOrderEvent);
 
+        const handlePrintError = () => {
+            console.info('KitchenNotificationProvider: kitchen:print-error received');
+            if (!enabled) {
+                console.warn('KitchenNotificationProvider: print-error ignored because enabled=false');
+                return;
+            }
+
+            const errorUrl = resolveAudioUrl('error');
+            console.info('KitchenNotificationProvider: error sound url', errorUrl);
+
+            toast.error('Peringatan: ada cetak gagal ke printer dapur.');
+            playNotificationSound('error');
+        };
+
+        const handleReminder = () => {
+            console.info('KitchenNotificationProvider: kitchen:print-reminder received');
+            if (!enabled) {
+                return;
+            }
+
+            toast.info('Pengingat: ada pesanan sudah tercetak tetapi belum diproses di dapur.');
+            playNotificationSound('reminder');
+        };
+
+        const handleQrFeedback = () => {
+            console.info('KitchenNotificationProvider: kitchen:qr-feedback received');
+            if (!enabled) {
+                return;
+            }
+
+            playNotificationSound('general');
+        };
+
+        window.addEventListener('kitchen:print-error', handlePrintError);
+        window.addEventListener('kitchen:print-reminder', handleReminder);
+        window.addEventListener('kitchen:qr-feedback', handleQrFeedback);
+
         return () => {
             window.removeEventListener('kitchen:new-order', handleNewOrderEvent);
+            window.removeEventListener('kitchen:print-error', handlePrintError);
+            window.removeEventListener('kitchen:print-reminder', handleReminder);
+            window.removeEventListener('kitchen:qr-feedback', handleQrFeedback);
         };
-    }, [enabled, playNotificationSound, showBrowserNotification]);
+    }, [enabled, playNotificationSound]);
 
     // Start polling
     useEffect(() => {

@@ -19,7 +19,7 @@ import {
     prepareImageUpload,
 } from "@/Utils/imageUpload";
 
-export default function Edit({ category, tenantOutlets = [] }) {
+export default function Edit({ category, tenantOutlets = [], mainCategories = [] }) {
     const { errors } = usePage().props;
 
     const { data, setData, post, processing } = useForm({
@@ -27,6 +27,7 @@ export default function Edit({ category, tenantOutlets = [] }) {
         name: category.name,
         description: category.description,
         tenant_outlet_id: category.tenant_outlet_id ?? "",
+        parent_id: category.parent_id ?? "",
         image: "",
         _method: "PUT",
     });
@@ -165,6 +166,30 @@ export default function Edit({ category, tenantOutlets = [] }) {
                             <div className="space-y-4">
                                 <div>
                                     <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                        Kategori Utama
+                                    </label>
+                                    <select
+                                        value={data.parent_id}
+                                        onChange={(e) =>
+                                            setData("parent_id", e.target.value)
+                                        }
+                                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                    >
+                                        <option value="">Tanpa kategori utama (kategori utama)</option>
+                                        {mainCategories.map((category) => (
+                                            <option key={category.id} value={String(category.id)}>
+                                                {category.name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    {errors.parent_id && (
+                                        <p className="mt-1 text-xs text-red-500">
+                                            {errors.parent_id}
+                                        </p>
+                                    )}
+                                </div>
+                                <div>
+                                    <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
                                         Tenant Outlet
                                     </label>
                                     <select
@@ -176,7 +201,7 @@ export default function Edit({ category, tenantOutlets = [] }) {
                                     >
                                         <option value="">Global / Owner Outlet</option>
                                         {tenantOutlets.map((outlet) => (
-                                            <option key={outlet.id} value={outlet.id}>
+                                            <option key={outlet.id} value={String(outlet.id)}>
                                                 {outlet.code} - {outlet.name}
                                             </option>
                                         ))}

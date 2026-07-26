@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Outlet;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
@@ -17,6 +18,7 @@ class NotificationSound extends Model
         'file_size',
         'is_active',
         'sort_order',
+        'outlet_id',
     ];
 
     protected $casts = [
@@ -24,6 +26,11 @@ class NotificationSound extends Model
         'file_size' => 'integer',
         'sort_order' => 'integer',
     ];
+
+    public function outlet()
+    {
+        return $this->belongsTo(Outlet::class);
+    }
 
     // Sound types
     const TYPE_NEW_ORDER = 'new_order';

@@ -86,12 +86,69 @@ class CategoryController extends Controller
         };
 
         $categories = $categories
-            ->with('tenantOutlet:id,name,code')
+            ->with(['tenantOutlet:id,name,code', 'parent:id,name'])
             ->paginate($filters['per_page'])
             ->withQueryString();
 
+        $treeQuery = Category::query()
+            ->when($filters['search'] !== '', function ($query) use ($filters) {
+                $search = $filters['search'];
+
+                $query->where(function ($innerQuery) use ($search) {
+                    $innerQuery
+                        ->where('name', 'like', '%'.$search.'%')
+                        ->orWhere('description', 'like', '%'.$search.'%');
+                });
+            })
+            ->when($filters['has_image'] !== '', function ($query) use ($filters) {
+                if ($filters['has_image'] === 'yes') {
+                    $query->whereNotNull('image')->where('image', '!=', '');
+                }
+
+                if ($filters['has_image'] === 'no') {
+                    $query->where(function ($innerQuery) {
+                        $innerQuery->whereNull('image')->orWhere('image', '');
+                    });
+                }
+            })
+            ->with(['tenantOutlet:id,name,code', 'parent:id,name']);
+
+        if ($isTenantWorkspace && $activeOutlet?->id) {
+            $treeQuery->where('tenant_outlet_id', $activeOutlet->id);
+        } elseif ($filters['tenant_outlet_id'] !== '') {
+            if ($filters['tenant_outlet_id'] === 'global') {
+                $treeQuery->whereNull('tenant_outlet_id');
+            } else {
+                $treeQuery->where('tenant_outlet_id', $filters['tenant_outlet_id']);
+            }
+        }
+
+        $allCategories = $treeQuery->orderBy('parent_id')->orderBy('name')->get();
+
+        $parentIds = $allCategories
+            ->pluck('parent_id')
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        if (! empty($parentIds)) {
+            $missingParents = Category::query()
+                ->whereIn('id', $parentIds)
+                ->with(['tenantOutlet:id,name,code', 'parent:id,name'])
+                ->get();
+
+            $existingIds = $allCategories->pluck('id')->toArray();
+            $missingParents = $missingParents->filter(
+                fn ($cat) => ! in_array($cat->id, $existingIds, true)
+            );
+
+            $allCategories = $allCategories->merge($missingParents)->values();
+        }
+
         return Inertia::render('Dashboard/Categories/Index', [
             'categories' => $categories,
+            'allCategories' => $allCategories,
             'filters' => $filters,
             'meta' => [
                 'per_page_options' => $allowedPerPage,
@@ -111,6 +168,12 @@ class CategoryController extends Controller
 
         return Inertia::render('Dashboard/Categories/Create', [
             'tenantOutlets' => $this->availableTenantOutlets($request),
+            'mainCategories' => Category::query()
+                ->whereNull('parent_id')
+                ->whereNull('tenant_outlet_id')
+                ->orderBy('name')
+                ->get(['id', 'name'])
+                ->values(),
             'workspace' => [
                 'is_tenant' => $activeOutlet?->outlet_type === 'tenant',
                 'active_outlet_id' => $activeOutlet?->id,
@@ -136,12 +199,14 @@ class CategoryController extends Controller
             'name' => ['required', 'string', 'max:255'],
             'description' => ['required', 'string'],
             'tenant_outlet_id' => ['nullable', 'exists:outlets,id'],
+            'parent_id' => ['nullable', 'exists:categories,id'],
         ], [
             'image.image' => 'File yang diunggah harus berupa gambar.',
             'image.mimes' => 'Format gambar harus jpeg, jpg, png, atau webp.',
             'image.max' => 'Ukuran gambar maksimal 2MB.',
             'name.required' => 'Nama kategori wajib diisi.',
             'description.required' => 'Deskripsi kategori wajib diisi.',
+            'parent_id.exists' => 'Kategori utama tidak valid.',
         ]);
 
         $image = $request->file('image');
@@ -161,13 +226,31 @@ class CategoryController extends Controller
             $imageName = $storedImage['basename'];
         }
 
+        $tenantOutletId = $isTenantWorkspace
+            ? ($activeOutlet?->id ?: null)
+            : ($request->integer('tenant_outlet_id') ?: null);
+
+        $parentId = $request->integer('parent_id') ?: null;
+
+        // Tenant categories must have a parent main category
+        if ($tenantOutletId && ! $parentId) {
+            $mainCategory = Category::query()
+                ->whereNull('parent_id')
+                ->whereNull('tenant_outlet_id')
+                ->where('name', $validated['name'])
+                ->first();
+
+            if ($mainCategory) {
+                $parentId = $mainCategory->id;
+            }
+        }
+
         Category::create([
             'image' => $imageName,
             'name' => $validated['name'],
             'description' => $validated['description'],
-            'tenant_outlet_id' => $isTenantWorkspace
-                ? ($activeOutlet?->id ?: null)
-                : ($request->integer('tenant_outlet_id') ?: null),
+            'tenant_outlet_id' => $tenantOutletId,
+            'parent_id' => $parentId,
         ]);
 
         return to_route('categories.index');
@@ -191,6 +274,12 @@ class CategoryController extends Controller
         return Inertia::render('Dashboard/Categories/Edit', [
             'category' => $category,
             'tenantOutlets' => $this->availableTenantOutlets($request),
+            'mainCategories' => Category::query()
+                ->whereNull('parent_id')
+                ->whereNull('tenant_outlet_id')
+                ->orderBy('name')
+                ->get(['id', 'name'])
+                ->values(),
             'workspace' => [
                 'is_tenant' => $isTenantWorkspace,
                 'active_outlet_id' => $activeOutlet?->id,
@@ -218,12 +307,14 @@ class CategoryController extends Controller
             'name' => ['required', 'string', 'max:255'],
             'description' => ['required', 'string'],
             'tenant_outlet_id' => ['nullable', 'exists:outlets,id'],
+            'parent_id' => ['nullable', 'exists:categories,id'],
         ], [
             'image.image' => 'File yang diunggah harus berupa gambar.',
             'image.mimes' => 'Format gambar harus jpeg, jpg, png, atau webp.',
             'image.max' => 'Ukuran gambar maksimal 2MB.',
             'name.required' => 'Nama kategori wajib diisi.',
             'description.required' => 'Deskripsi kategori wajib diisi.',
+            'parent_id.exists' => 'Kategori utama tidak valid.',
         ]);
 
         if ($request->file('image')) {
@@ -247,6 +338,7 @@ class CategoryController extends Controller
                 'tenant_outlet_id' => $isTenantWorkspace
                     ? ($activeOutlet?->id ?: null)
                     : ($request->integer('tenant_outlet_id') ?: null),
+                'parent_id' => $request->integer('parent_id') ?: null,
             ]);
         } else {
             $category->update([
@@ -255,6 +347,7 @@ class CategoryController extends Controller
                 'tenant_outlet_id' => $isTenantWorkspace
                     ? ($activeOutlet?->id ?: null)
                     : ($request->integer('tenant_outlet_id') ?: null),
+                'parent_id' => $request->integer('parent_id') ?: null,
             ]);
         }
 
@@ -279,6 +372,47 @@ class CategoryController extends Controller
         $this->deleteCategoryImage($category->getRawOriginal('image'));
         $category->delete();
         return to_route('categories.index');
+    }
+
+    public function bulkMove(Request $request)
+    {
+        $activeOutlet = $this->outletResolver->resolve($request, $request->user());
+        $isTenantWorkspace = $activeOutlet?->outlet_type === 'tenant';
+
+        $validated = $request->validate([
+            'category_ids' => ['required', 'array', 'min:1'],
+            'category_ids.*' => ['required', 'exists:categories,id'],
+            'parent_id' => ['nullable', 'exists:categories,id'],
+        ], [
+            'category_ids.required' => 'Pilih minimal satu kategori yang akan dipindah.',
+            'category_ids.min' => 'Pilih minimal satu kategori yang akan dipindah.',
+            'parent_id.exists' => 'Kategori utama tujuan tidak valid.',
+        ]);
+
+        $categoryIds = $validated['category_ids'];
+        $parentId = $validated['parent_id'] ?: null;
+
+        if ($isTenantWorkspace && $activeOutlet?->id) {
+            $forbidden = Category::whereIn('id', $categoryIds)
+                ->where('tenant_outlet_id', '!=', $activeOutlet->id)
+                ->whereNotNull('tenant_outlet_id')
+                ->exists();
+
+            if ($forbidden) {
+                abort(403, 'Tenant hanya dapat memindahkan kategori milik outlet aktif.');
+            }
+        }
+
+        if ($parentId) {
+            $parent = Category::findOrFail($parentId);
+            if ((bool) $parent->tenant_outlet_id) {
+                return back()->with('error', 'Kategori utama tujuan tidak boleh menjadi kategori tenant.');
+            }
+        }
+
+        Category::whereIn('id', $categoryIds)->update(['parent_id' => $parentId]);
+
+        return back()->with('success', count($categoryIds).' kategori berhasil dipindahkan.');
     }
 
     private function availableTenantOutlets(Request $request)

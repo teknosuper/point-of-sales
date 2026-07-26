@@ -7,6 +7,9 @@ import {
     IconClock,
     IconPhoto,
     IconRefresh,
+    IconStar,
+    IconMessageCircle,
+    IconSend,
     IconWifiOff,
     IconX,
 } from "@tabler/icons-react";
@@ -20,6 +23,8 @@ export default function MenuCatalog({
     storeHours,
     supportContact,
     tenants = [],
+    categories = [],
+    mainCategories = [],
 }) {
     const [products, setProducts] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -30,6 +35,9 @@ export default function MenuCatalog({
     const [usingCachedData, setUsingCachedData] = useState(false);
     const [syncError, setSyncError] = useState("");
     const [isShortLandscape, setIsShortLandscape] = useState(false);
+    const [reviews, setReviews] = useState([]);
+    const [reviewForm, setReviewForm] = useState({ rating: 5, comment: "", is_verified_purchase: false });
+    const [submittingReview, setSubmittingReview] = useState(false);
     const searchInputRef = useRef(null);
     const cacheKey = `public-menu:catalog:${outlet?.code || store?.name || "default"}`;
 
@@ -109,6 +117,42 @@ export default function MenuCatalog({
             return null;
         }
     }, [cacheKey]);
+
+    const fetchProductReviews = useCallback(async (productId) => {
+        try {
+            const response = await fetch(`/api/public/catalog/products/${productId}/reviews`);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const data = await response.json();
+            setReviews(Array.isArray(data.data) ? data.data : []);
+        } catch {
+            setReviews([]);
+        }
+    }, []);
+
+    const submitReview = useCallback(async () => {
+        if (!selectedProduct || submittingReview) return;
+        setSubmittingReview(true);
+        try {
+            const response = await fetch('/daftarmenu/reviews', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                body: JSON.stringify({
+                    product_id: selectedProduct.id,
+                    rating: Math.max(1, Math.min(5, Number(reviewForm.rating) || 5)),
+                    comment: reviewForm.comment?.trim() || null,
+                    is_verified_purchase: Boolean(reviewForm.is_verified_purchase),
+                }),
+            });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const data = await response.json();
+            setReviews((prev) => [data.data, ...prev]);
+            setReviewForm({ rating: 5, comment: "", is_verified_purchase: false });
+        } catch {
+            // silently fail for public users
+        } finally {
+            setSubmittingReview(false);
+        }
+    }, [selectedProduct, submittingReview, reviewForm]);
 
     const writeCache = useCallback(
         (items, timestamp) => {
@@ -193,6 +237,14 @@ export default function MenuCatalog({
         const id = window.setInterval(() => fetchProducts({ silent: true }), AUTO_REFRESH_INTERVAL);
         return () => window.clearInterval(id);
     }, [fetchProducts]);
+
+    useEffect(() => {
+        if (selectedProduct?.id) {
+            fetchProductReviews(selectedProduct.id);
+        } else {
+            setReviews([]);
+        }
+    }, [selectedProduct?.id, fetchProductReviews]);
 
     useEffect(() => {
         const onVisible = () => document.visibilityState === "visible" && fetchProducts({ silent: true });
@@ -329,7 +381,8 @@ export default function MenuCatalog({
                                                     ...(hours ? { tenant_store_hours: hours } : {}),
                                                 };
                                             })}
-                                        tenantOutlets={tenantOutlets}
+                                        categories={categories}
+                                        mainCategories={mainCategories.length > 0 ? mainCategories : categories.filter((c) => !c.parent_id)}
                                         searchQuery={searchQuery}
                                         onSearchChange={setSearchQuery}
                                         onSearch={() => undefined}
@@ -344,14 +397,15 @@ export default function MenuCatalog({
                                         enableBarcodeScanner={false}
                                         sortControlVariant="chips"
                                         filterPanelCollapsible={false}
-                                        tenantSectionLabel="Dapur"
-                                        allTenantLabel="Semua Dapur"
+                                        mainCategorySectionLabel="Kategori Utama"
+                                        allMainCategoriesLabel="Semua Kategori"
                                         gridLayoutClass="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5"
                                         listLayoutClass="grid grid-cols-1 gap-3"
                                         compactHeaderLayout={true}
                                         showFilterSummary={false}
-                                        groupByCategoryWhenTenantFiltered={true}
+                                        groupByCategoryWhenMainCategoryFiltered={true}
                                         storageNamespace={`public-menu:${outlet?.code || store?.name || "default"}`}
+                                        initialSortMode="best_seller"
                                     />
 
                                     <div className="border-t border-slate-200 bg-white px-4 py-3">
@@ -581,7 +635,99 @@ export default function MenuCatalog({
                                                                                     <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-rose-600">
                                                                                         Habis
                                                                                     </span>
-                                                                                ) : null}
+                                        ) : null}
+
+                                        {/* Review section */}
+                                        <div className="mt-6 space-y-4">
+                                            <div className="flex items-center gap-2">
+                                                <IconStar size={18} className="text-amber-500" />
+                                                <h4 className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-700">
+                                                    Ulasan Pelanggan
+                                                </h4>
+                                            </div>
+
+                                            {/* Review list */}
+                                            {reviews.length > 0 ? (
+                                                <div className="space-y-3">
+                                                    {reviews.map((review) => (
+                                                        <div key={review.id} className="rounded-2xl border border-slate-200 bg-white p-3">
+                                                            <div className="flex items-center justify-between gap-2">
+                                                                <div className="flex items-center gap-1">
+                                                                    {Array.from({ length: 5 }).map((_, i) => (
+                                                                        <IconStar
+                                                                            key={i}
+                                                                            size={14}
+                                                                            className={i < review.rating ? "text-amber-500 fill-amber-500" : "text-slate-300"}
+                                                                        />
+                                                                    ))}
+                                                                </div>
+                                                                <span className="text-[10px] text-slate-400">
+                                                                    {review.customer_name || 'Pengguna'}
+                                                                </span>
+                                                            </div>
+                                                            {review.comment?.trim() ? (
+                                                                <p className="mt-1.5 text-xs leading-5 text-slate-600">
+                                                                    {review.comment}
+                                                                </p>
+                                                            ) : null}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            ) : (
+                                                <p className="text-xs text-slate-400">Belum ada ulasan untuk menu ini.</p>
+                                            )}
+
+                                            {/* Review form */}
+                                            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                                                <p className="text-xs font-semibold text-slate-700">Tulis ulasan Anda</p>
+                                                <div className="mt-2 flex items-center gap-2">
+                                                    {Array.from({ length: 5 }).map((_, i) => (
+                                                        <button
+                                                            key={i}
+                                                            type="button"
+                                                            onClick={() => setReviewForm((prev) => ({ ...prev, rating: i + 1 }))}
+                                                            className="p-0"
+                                                        >
+                                                            <IconStar
+                                                                size={20}
+                                                                className={i < reviewForm.rating ? "text-amber-500 fill-amber-500" : "text-slate-300"}
+                                                            />
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                                <textarea
+                                                    value={reviewForm.comment}
+                                                    onChange={(e) => setReviewForm((prev) => ({ ...prev, comment: e.target.value }))}
+                                                    placeholder="Bagikan pengalaman Anda..."
+                                                    rows={2}
+                                                    className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs focus:border-primary-500 focus:ring-primary-500"
+                                                />
+                                                <div className="mt-2 flex items-center justify-between gap-2">
+                                                    <label className="flex items-center gap-1.5 text-[11px] text-slate-600">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={reviewForm.is_verified_purchase}
+                                                            onChange={(e) => setReviewForm((prev) => ({ ...prev, is_verified_purchase: e.target.checked }))}
+                                                            className="h-3.5 w-3.5 rounded border-slate-300 text-primary-500"
+                                                        />
+                                                        Saya sudah memesan di sini
+                                                    </label>
+                                                    <button
+                                                        type="button"
+                                                        onClick={submitReview}
+                                                        disabled={submittingReview}
+                                                        className="inline-flex items-center gap-1.5 rounded-xl bg-primary-500 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-primary-600 disabled:opacity-60"
+                                                    >
+                                                        {submittingReview ? (
+                                                            <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                                                        ) : (
+                                                            <IconSend size={14} />
+                                                        )}
+                                                        Kirim
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
                                                                             </div>
                                                                             <p className="mt-0.5 text-xs text-slate-500">
                                                                                 {option.price > 0 ? "Topping berbayar" : "Topping gratis"}

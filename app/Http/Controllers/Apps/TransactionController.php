@@ -380,7 +380,7 @@ class TransactionController extends Controller
         $products = $catalogResult['data'];
 
         // get all categories
-        $categories = \App\Models\Category::select('id', 'name', 'image')
+        $categories = \App\Models\Category::select('id', 'name', 'image', 'parent_id')
             ->orderBy('name')
             ->get();
 
@@ -484,6 +484,12 @@ class TransactionController extends Controller
             'outletOpenShift' => $this->cashierShiftService->summarizeForDisplay($outletOpenShift),
             'loyaltyTierOptions' => $this->loyaltyService->tierOptions(),
             'operationalSettings' => $this->resolveOperationalSettings($outlet?->id),
+            'mainCategories' => \App\Models\Category::query()
+                ->whereNull('parent_id')
+                ->whereNull('tenant_outlet_id')
+                ->orderBy('name')
+                ->get(['id', 'name', 'image'])
+                ->values(),
             'tenantOutlets' => Outlet::query()
                 ->active()
                 ->tenant()
@@ -539,9 +545,15 @@ class TransactionController extends Controller
                     ...$customer->toArray(),
                     'loyalty_tier' => $this->loyaltyService->resolvedTier($customer, $outlet?->id),
                 ])->values(),
-                'categories' => \App\Models\Category::select('id', 'name', 'image')
+                'categories' => \App\Models\Category::select('id', 'name', 'image', 'parent_id')
                     ->orderBy('name')
                     ->get()
+                    ->values(),
+                'mainCategories' => \App\Models\Category::query()
+                    ->whereNull('parent_id')
+                    ->whereNull('tenant_outlet_id')
+                    ->orderBy('name')
+                    ->get(['id', 'name', 'image'])
                     ->values(),
                 'diningTables' => DiningTable::query()
                     ->where('outlet_id', $outlet?->id)
@@ -664,7 +676,9 @@ class TransactionController extends Controller
         $outlet = $this->resolveActiveOutlet($request);
 
         // find product by barcode
-        $product = Product::where('barcode', $request->barcode)->first();
+        $product = Product::where('barcode', $request->barcode)
+            ->whereNull('shadow_banned_at')
+            ->first();
 
         if ($product) {
             if ($outlet && Schema::hasTable('product_outlet_stocks')) {
@@ -3229,13 +3243,14 @@ class TransactionController extends Controller
         $search = trim((string) ($filters['q'] ?? ''));
         $normalizedSearch = mb_strtolower($search);
         $categoryId = isset($filters['category_id']) ? (int) $filters['category_id'] : null;
+        $mainCategoryId = isset($filters['main_category_id']) ? (int) $filters['main_category_id'] : null;
         $limit = max(1, min(5000, $limit));
         $page = max(1, $page);
         $offset = ($page - 1) * $limit;
         $isRemoteSearch = $search !== '';
 
         $baseProductsQuery = Product::with([
-            'category:id,name',
+            'category:id,name,parent_id',
             'modifierOptions',
             'tenantOutlet:id,name,code,slug,sort_order',
         ])
@@ -3253,7 +3268,22 @@ class TransactionController extends Controller
                 'supports_modifiers',
                 'requires_modifier_selection'
             )
+            ->when(
+                ! $isRemoteSearch,
+                fn ($query) => $query->whereNull('shadow_banned_at')
+            )
             ->when($categoryId, fn ($query) => $query->where('category_id', $categoryId))
+            ->when(
+                $mainCategoryId,
+                fn ($query) => $query->whereIn('category_id', function ($subQuery) use ($mainCategoryId) {
+                    $subQuery->select('id')
+                        ->from('categories')
+                        ->where(function ($q) use ($mainCategoryId) {
+                            $q->where('id', $mainCategoryId)
+                                ->orWhere('parent_id', $mainCategoryId);
+                        });
+                })
+            )
             ->when(
                 // Sembunyikan produk dari tenant yang tutup permanen (is_active=false)
                 // Pakai helper terpusat Outlet::inactiveTenantIds()
@@ -3273,7 +3303,7 @@ class TransactionController extends Controller
                 preg_split('/\s+/', $normalizedSearch) ?: []
             ));
             $products = (clone $baseProductsQuery)
-                ->where(fn ($query) => $this->applyPosProductSearch($query, $search))
+                ->where(fn ($query) => $this->applyPosProductSearch($query, $search, $normalizedSearch))
                 ->limit($searchWindow)
                 ->get();
 
@@ -3372,19 +3402,31 @@ class TransactionController extends Controller
         ];
     }
 
-    private function applyPosProductSearch(Builder $query, string $search): void
+    private function applyPosProductSearch(Builder $query, string $search, string $normalizedSearch): void
     {
-        $normalizedSearch = trim($search);
         $tokens = array_values(array_filter(preg_split('/\s+/', $normalizedSearch) ?: []));
-        $query->where(function (Builder $outerQuery) use ($tokens) {
-            foreach ($tokens as $token) {
-                $outerQuery->where(function (Builder $innerQuery) use ($token) {
-                    $like = '%'.$token.'%';
+        $query->where(function (Builder $outerQuery) use ($tokens, $search, $normalizedSearch) {
+            // Produk non-shadow-banned: cari seperti biasa (LIKE per token)
+            $outerQuery->where(function (Builder $normalQuery) use ($tokens) {
+                $normalQuery->whereNull('shadow_banned_at')->where(function (Builder $tokenQuery) use ($tokens) {
+                    foreach ($tokens as $token) {
+                        $tokenQuery->where(function (Builder $q) use ($token) {
+                            $like = '%'.$token.'%';
 
-                    $innerQuery
-                        ->where('title', 'like', $like)
-                        ->orWhereHas('category', fn (Builder $categoryQuery) => $categoryQuery
-                            ->where('name', 'like', $like));
+                            $q->where('title', 'like', $like)
+                                ->orWhereHas('category', fn (Builder $categoryQuery) => $categoryQuery
+                                    ->where('name', 'like', $like));
+                        });
+                    }
+                });
+            });
+
+            // Produk shadow-banned: hanya muncul jika search adalah exact full name (termasuk spasi)
+            if ($normalizedSearch !== '') {
+                $outerQuery->orWhere(function (Builder $shadowQuery) use ($search, $normalizedSearch) {
+                    $shadowQuery
+                        ->whereNotNull('shadow_banned_at')
+                        ->where('title', $search);
                 });
             }
         });

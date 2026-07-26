@@ -44,6 +44,12 @@ class PublicCatalogController extends Controller
             'data' => [
                 'outlet' => $this->outletPayload($outlet),
                 'categories' => $categories,
+                'main_categories' => Category::query()
+                    ->whereNull('parent_id')
+                    ->whereNull('tenant_outlet_id')
+                    ->orderBy('name')
+                    ->get(['id', 'name', 'image'])
+                    ->values(),
                 'promo_summary' => [
                     'active_rules_count' => $rules->count(),
                     'rule_kinds' => $rules->pluck('kind')->unique()->values()->all(),
@@ -57,13 +63,14 @@ class PublicCatalogController extends Controller
                         'include_out_of_stock',
                         'sort',
                     ],
-                    'sorts' => [
-                        'title',
-                        'price_low',
-                        'price_high',
-                        'latest',
-                        'promo_first',
-                    ],
+                'sorts' => [
+                    'title',
+                    'featured_first',
+                    'price_low',
+                    'price_high',
+                    'latest',
+                    'promo_first',
+                ],
                     'promo_kinds' => [
                         PricingRule::KIND_STANDARD_DISCOUNT,
                         PricingRule::KIND_QTY_BREAK,
@@ -115,6 +122,11 @@ class PublicCatalogController extends Controller
     public function show(Request $request, Product $product): JsonResponse
     {
         $outlet = $this->resolveOutlet($request);
+
+        if ($product->shadow_banned_at) {
+            abort(404);
+        }
+
         $hydratedProduct = Product::query()
             ->with([
                 'category:id,name,description,image',
@@ -334,7 +346,7 @@ class PublicCatalogController extends Controller
     {
         $query = Product::query()
             ->with([
-                'category:id,name,description,image',
+                'category:id,name,description,image,parent_id',
                 'tenantOutlet:id,code,slug,name',
                 'modifierOptions',
                 'kitchenStationMappings.kitchenStation:id,name,code',
@@ -354,7 +366,12 @@ class PublicCatalogController extends Controller
                 'supports_modifiers',
                 'requires_modifier_selection',
                 'created_at',
+                'is_featured',
+                'shadow_banned_at',
+                'shadow_ban_reason',
+                'penalty_status',
             ])
+            ->whereNull('shadow_banned_at')
             ->when(
                 $request->filled('search'),
                 fn ($builder) => $builder->where(function ($searchQuery) use ($request) {
@@ -369,6 +386,7 @@ class PublicCatalogController extends Controller
                 $request->filled('category_id'),
                 fn ($builder) => $builder->where('category_id', (int) $request->input('category_id'))
             )
+            ->orderByDesc('is_featured')
             ->orderBy('title');
 
         if ($request->has('include_out_of_stock') && ! $request->boolean('include_out_of_stock')) {
@@ -409,6 +427,7 @@ class PublicCatalogController extends Controller
                     'name' => $product->category->name,
                     'description' => $product->category->description,
                     'image' => $product->category->image,
+                    'parent_id' => $product->category->parent_id,
                 ] : null,
                 'tenant_outlet' => $product->tenantOutlet ? [
                     'id' => $product->tenantOutlet->id,
@@ -450,6 +469,10 @@ class PublicCatalogController extends Controller
                     'stock' => (int) $product->stock,
                 ],
                 'created_at' => optional($product->created_at)->toISOString(),
+                'is_featured' => (bool) ($product->is_featured ?? false),
+                'is_shadow_banned' => (bool) $product->shadow_banned_at,
+                'shadow_ban_reason' => $product->shadow_ban_reason,
+                'penalty_status' => $product->penalty_status,
             ];
         })->values();
     }
@@ -461,6 +484,7 @@ class PublicCatalogController extends Controller
             'price_high' => $products->sortByDesc('effective_price')->values(),
             'latest' => $products->sortByDesc('created_at')->values(),
             'promo_first' => $products->sortByDesc(fn (array $product) => $product['pricing_badge'] !== null)->values(),
+            'featured_first' => $products->sortByDesc('is_featured')->values(),
             default => $products->sortBy('title')->values(),
         };
     }

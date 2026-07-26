@@ -63,6 +63,8 @@ class ProductController extends Controller
             'tenant_outlet_id' => $request->input('tenant_outlet_id', ''),
             'mapping_status' => $request->input('mapping_status', ''),
             'stock_status' => $request->input('stock_status', ''),
+            'featured' => $request->input('featured', ''),
+            'penalty_status' => $request->input('penalty_status', ''),
             'sort' => $request->input('sort', 'latest'),
             'per_page' => (int) $request->input('per_page', 10),
         ];
@@ -219,6 +221,23 @@ class ProductController extends Controller
                     'ready' => $query->whereRaw("{$resolvedStockExpression} > 5"),
                     default => $query,
                 };
+            })
+            ->when($filters['featured'] !== '', function ($query) use ($filters) {
+                return match ($filters['featured']) {
+                    '1' => $query->where('is_featured', true),
+                    '0' => $query->where('is_featured', false),
+                    default => $query,
+                };
+            })
+            ->when($filters['penalty_status'] !== '', function ($query) use ($filters) {
+                return match ($filters['penalty_status']) {
+                    'shadow_banned' => $query->whereNotNull('shadow_banned_at'),
+                    'active' => $query->whereNull('shadow_banned_at'),
+                    'under_review' => $query->where('penalty_status', 'under_review'),
+                    'accepted' => $query->where('penalty_status', 'accepted'),
+                    'rejected' => $query->where('penalty_status', 'rejected'),
+                    default => $query,
+                };
             });
     }
 
@@ -231,6 +250,8 @@ class ProductController extends Controller
             'price_high' => $query->orderByDesc('sell_price'),
             'stock_low' => $query->orderByRaw("{$resolvedStockExpression} asc"),
             'stock_high' => $query->orderByRaw("{$resolvedStockExpression} desc"),
+            'featured_first' => $query->orderByDesc('is_featured')->orderByDesc('id'),
+            'shadow_banned_desc' => $query->orderByDesc('shadow_banned_at'),
             'oldest' => $query->oldest(),
             default => $query->latest(),
         };
@@ -1195,6 +1216,10 @@ class ProductController extends Controller
             'buy_price' => 'nullable|integer|min:0',
             'sell_price' => 'nullable|integer|min:0',
             'tenant_discount_price' => 'nullable|integer|min:0',
+            'is_featured' => 'nullable|boolean',
+            'shadow_banned_at' => 'nullable|date',
+            'shadow_ban_reason' => 'nullable|string|max:255',
+            'penalty_status' => 'nullable|string|in:under_review,accepted,rejected',
         ]);
 
         $validated['barcode'] = $this->generateUniqueBarcode(
@@ -1306,6 +1331,10 @@ class ProductController extends Controller
             'buy_price' => $validated['buy_price'],
             'sell_price' => $validated['sell_price'],
             'tenant_discount_price' => $tenantDiscountPrice,
+            'is_featured' => (bool) ($validated['is_featured'] ?? false),
+            'shadow_banned_at' => $validated['shadow_banned_at'] ?: null,
+            'shadow_ban_reason' => $validated['shadow_ban_reason'] ?? null,
+            'penalty_status' => $validated['penalty_status'] ?? null,
         ];
 
         // check image update
@@ -1365,6 +1394,113 @@ class ProductController extends Controller
 
         // redirect
         return to_route('products.index');
+    }
+
+    public function toggleFeatured(Request $request, Product $product): \Illuminate\Http\JsonResponse
+    {
+        $product = $this->resolveWorkspaceProduct($product, $request);
+        $featured = ! (bool) ($product->is_featured ?? false);
+        $product->update(['is_featured' => $featured]);
+
+        $this->auditLogService->log(
+            event: 'product.featured_toggled',
+            module: 'products',
+            auditable: $product,
+            description: $featured ? 'Produk dijadikan featured.' : 'Featured produk dihapus.',
+            after: ['is_featured' => $featured]
+        );
+
+        return response()->json([
+            'status' => 'success',
+            'data' => ['id' => $product->id, 'is_featured' => $featured],
+        ]);
+    }
+
+    public function applyShadowBan(Request $request, Product $product): \Illuminate\Http\JsonResponse
+    {
+        $product = $this->resolveWorkspaceProduct($product, $request);
+        $validated = $request->validate([
+            'reason' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $product->update([
+            'shadow_banned_at' => now(),
+            'shadow_ban_reason' => $validated['reason'] ?? 'Manual shadow ban',
+            'penalty_status' => 'under_review',
+        ]);
+
+        $this->auditLogService->log(
+            event: 'product.shadow_banned_manual',
+            module: 'products',
+            auditable: $product,
+            description: 'Produk di-shadow-ban manual.',
+            after: [
+                'shadow_banned_at' => $product->shadow_banned_at?->toISOString(),
+                'shadow_ban_reason' => $product->shadow_ban_reason,
+                'penalty_status' => $product->penalty_status,
+            ]
+        );
+
+        return response()->json([
+            'status' => 'success',
+            'data' => [
+                'id' => $product->id,
+                'shadow_banned_at' => $product->shadow_banned_at?->toISOString(),
+                'penalty_status' => $product->penalty_status,
+            ],
+        ]);
+    }
+
+    public function updatePenaltyStatus(Request $request, Product $product): \Illuminate\Http\JsonResponse
+    {
+        $product = $this->resolveWorkspaceProduct($product, $request);
+        $validated = $request->validate([
+            'status' => ['required', 'string', 'in:under_review,accepted,rejected'],
+            'reason' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $before = [
+            'shadow_banned_at' => $product->shadow_banned_at?->toISOString(),
+            'shadow_ban_reason' => $product->shadow_ban_reason,
+            'penalty_status' => $product->penalty_status,
+        ];
+
+        $data = [
+            'penalty_status' => $validated['status'],
+            'shadow_ban_reason' => $validated['reason'] ?? $product->shadow_ban_reason,
+        ];
+
+        if ($validated['status'] === 'accepted') {
+            $data['shadow_banned_at'] = null;
+        } elseif ($validated['status'] === 'rejected' && ! $product->shadow_banned_at) {
+            $data['shadow_banned_at'] = now();
+            $data['shadow_ban_reason'] = $validated['reason'] ?? 'Manual penalty rejected';
+        }
+
+        $product->update($data);
+
+        $this->auditLogService->log(
+            event: 'product.penalty_status_updated',
+            module: 'products',
+            auditable: $product,
+            description: 'Status penalty produk diperbarui.',
+            before: $before,
+            after: [
+                'shadow_banned_at' => $product->shadow_banned_at?->toISOString(),
+                'shadow_ban_reason' => $product->shadow_ban_reason,
+                'penalty_status' => $product->penalty_status,
+            ]
+        );
+
+        return response()->json([
+            'status' => 'success',
+            'data' => [
+                'id' => $product->id,
+                'shadow_banned_at' => $product->shadow_banned_at?->toISOString(),
+                'shadow_ban_reason' => $product->shadow_ban_reason,
+                'penalty_status' => $product->penalty_status,
+            ],
+        ]);
     }
 
     private function generateUniqueSku(
@@ -1749,6 +1885,9 @@ class ProductController extends Controller
             'tenant_outlet_id',
             'supports_modifiers',
             'requires_modifier_selection',
+            'is_featured',
+            'shadow_banned_at',
+            'penalty_status',
         ]);
     }
 

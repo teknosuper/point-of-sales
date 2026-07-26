@@ -22,6 +22,7 @@ import {
     IconPhoto,
     IconPrinter,
     IconSearch,
+    IconStar,
     IconTrash,
     IconX,
 } from "@/Utils/icons";
@@ -45,6 +46,8 @@ const defaultFilters = {
     tenant_outlet_id: "",
     mapping_status: "",
     stock_status: "",
+    featured: "",
+    penalty_status: "",
     sort: "latest",
     per_page: "10",
 };
@@ -210,6 +213,30 @@ function ProductCard({
                                 <IconPencilCog size={18} />
                             </Link>
                         )}
+                        {canUpdate && (
+                            <button
+                                type="button"
+                                onClick={() => handleToggleFeatured(product)}
+                                className={`rounded-xl bg-white p-2.5 shadow-lg transition-colors hover:bg-amber-50 ${
+                                    product.is_featured ? "text-amber-600" : "text-slate-400"
+                                }`}
+                                title={product.is_featured ? "Hapus featured" : "Jadikan featured"}
+                            >
+                                <IconStar size={18} />
+                            </button>
+                        )}
+                        {canUpdate && (
+                            <button
+                                type="button"
+                                onClick={() => handleApplyShadowBan(product)}
+                                className={`rounded-xl bg-white p-2.5 shadow-lg transition-colors hover:bg-rose-50 ${
+                                    product.shadow_banned_at ? "text-rose-600" : "text-slate-400"
+                                }`}
+                                title={product.shadow_banned_at ? "Buka shadow ban" : "Shadow ban"}
+                            >
+                                <IconX size={18} />
+                            </button>
+                        )}
                         {canDelete && (
                             <Button
                                 type="delete"
@@ -251,6 +278,16 @@ function ProductCard({
                     >
                         {kitchenReady ? "Dapur Siap" : "Dapur Belum"}
                     </span>
+                    {product.is_featured ? (
+                        <span className="rounded-md bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                            Featured
+                        </span>
+                    ) : null}
+                    {product.shadow_banned_at ? (
+                        <span className="rounded-md bg-rose-100 px-2 py-0.5 text-[11px] font-semibold text-rose-700 dark:bg-rose-900/40 dark:text-rose-300">
+                            Shadow Ban
+                        </span>
+                    ) : null}
                 </div>
 
                 <h3 className="mb-1 line-clamp-2 text-sm font-semibold text-slate-800 dark:text-slate-200">
@@ -364,6 +401,8 @@ export default function Index({
         tenant_outlet_id: castFilterValue(filters?.tenant_outlet_id),
         mapping_status: castFilterValue(filters?.mapping_status),
         stock_status: castFilterValue(filters?.stock_status),
+        featured: castFilterValue(filters?.featured),
+        penalty_status: castFilterValue(filters?.penalty_status),
         sort: castFilterValue(filters?.sort, "latest"),
         per_page: castFilterValue(filters?.per_page, "10"),
     });
@@ -376,6 +415,8 @@ export default function Index({
             tenant_outlet_id: castFilterValue(filters?.tenant_outlet_id),
             mapping_status: castFilterValue(filters?.mapping_status),
             stock_status: castFilterValue(filters?.stock_status),
+            featured: castFilterValue(filters?.featured),
+            penalty_status: castFilterValue(filters?.penalty_status),
             sort: castFilterValue(filters?.sort, "latest"),
             per_page: castFilterValue(filters?.per_page, "10"),
         });
@@ -445,6 +486,8 @@ export default function Index({
                     filterData.tenant_outlet_id ||
                     filterData.mapping_status ||
                     filterData.stock_status ||
+                    filterData.featured ||
+                    filterData.penalty_status ||
                     filterData.sort !== "latest" ||
                     filterData.per_page !== "10"
             ),
@@ -519,11 +562,35 @@ export default function Index({
                 price_high: "Harga tertinggi",
                 stock_low: "Stok terendah",
                 stock_high: "Stok tertinggi",
+                featured_first: "Featured",
+                shadow_banned_desc: "Shadow Ban terbaru",
             };
 
             chips.push({
                 key: "sort",
                 label: `Urut: ${sortLabel[filterData.sort] || filterData.sort}`,
+            });
+        }
+
+        if (filterData.featured !== "") {
+            chips.push({
+                key: "featured",
+                label: filterData.featured === "1" ? "Featured saja" : "Non-featured",
+            });
+        }
+
+        if (filterData.penalty_status !== "") {
+            const penaltyLabel = {
+                shadow_banned: "Shadow Banned",
+                active: "Aktif",
+                under_review: "Under Review",
+                accepted: "Accepted",
+                rejected: "Rejected",
+            };
+
+            chips.push({
+                key: "penalty_status",
+                label: `Status: ${penaltyLabel[filterData.penalty_status] || filterData.penalty_status}`,
             });
         }
 
@@ -593,6 +660,20 @@ export default function Index({
         });
     };
 
+    const applyQuickFilter = (mappingStatus) => {
+        const nextFilters = {
+            ...filterData,
+            mapping_status: mappingStatus,
+            per_page: filterData.per_page || "10",
+        };
+
+        setFilterData(nextFilters);
+        router.get(route("products.index"), compactFilters(nextFilters), {
+            preserveScroll: true,
+            preserveState: false,
+        });
+    };
+
     const resetFilters = () => {
         setFilterData(defaultFilters);
         setShowFilters(false);
@@ -607,20 +688,6 @@ export default function Index({
         const nextFilters = {
             ...filterData,
             per_page: value,
-        };
-
-        setFilterData(nextFilters);
-        router.get(route("products.index"), compactFilters(nextFilters), {
-            preserveScroll: true,
-            preserveState: false,
-        });
-    };
-
-    const applyQuickFilter = (mappingStatus) => {
-        const nextFilters = {
-            ...filterData,
-            mapping_status: mappingStatus,
-            per_page: filterData.per_page || "10",
         };
 
         setFilterData(nextFilters);
@@ -713,6 +780,62 @@ export default function Index({
                         only: ["products"],
                         preserveScroll: true,
                     });
+                },
+            }
+        );
+    };
+
+    const handleToggleFeatured = async (product) => {
+        const nextFeatured = !product.is_featured;
+        const result = await Swal.fire({
+            title: nextFeatured ? "Jadikan Featured?" : "Hapus Featured?",
+            text: `${product.title} akan ${nextFeatured ? "ditampilkan di bagian atas" : "dikeluarkan dari featured"} daftar menu.`,
+            icon: "question",
+            showCancelButton: true,
+            confirmButtonText: "Ya",
+            cancelButtonText: "Batal",
+            confirmButtonColor: "#2563eb",
+            reverseButtons: true,
+        });
+
+        if (!result.isConfirmed) return;
+
+        router.patch(
+            route("products.toggle-featured", product.id),
+            {},
+            {
+                preserveScroll: true,
+                onSuccess: () => {
+                    router.reload({ only: ["products"], preserveScroll: true });
+                },
+            }
+        );
+    };
+
+    const handleApplyShadowBan = async (product) => {
+        const reason = prompt === null ? null : prompt;
+        const result = await Swal.fire({
+            title: "Shadow Ban produk?",
+            text: `${product.title} akan disembunyikan dari pencarian dan daftar menu publik.`,
+            input: "text",
+            inputLabel: "Alasan shadow ban (opsional)",
+            inputPlaceholder: "Contoh: kualitas tidak memenuhi standar",
+            showCancelButton: true,
+            confirmButtonText: "Ya, Shadow Ban",
+            cancelButtonText: "Batal",
+            confirmButtonColor: "#dc2626",
+            reverseButtons: true,
+        });
+
+        if (!result.isConfirmed) return;
+
+        router.patch(
+            route("products.shadow-ban", product.id),
+            { reason: result.value || null },
+            {
+                preserveScroll: true,
+                onSuccess: () => {
+                    router.reload({ only: ["products"], preserveScroll: true });
                 },
             }
         );
@@ -1519,6 +1642,43 @@ export default function Index({
 
                                 <div>
                                     <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                        Featured
+                                    </label>
+                                    <select
+                                        value={filterData.featured}
+                                        onChange={(event) =>
+                                            handleChange("featured", event.target.value)
+                                        }
+                                        className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-700 outline-none transition focus:border-primary-300 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                                    >
+                                        <option value="">Semua</option>
+                                        <option value="1">Featured</option>
+                                        <option value="0">Non-featured</option>
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                        Status Penalty
+                                    </label>
+                                    <select
+                                        value={filterData.penalty_status}
+                                        onChange={(event) =>
+                                            handleChange("penalty_status", event.target.value)
+                                        }
+                                        className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-700 outline-none transition focus:border-primary-300 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                                    >
+                                        <option value="">Semua status</option>
+                                        <option value="shadow_banned">Shadow Banned</option>
+                                        <option value="active">Aktif</option>
+                                        <option value="under_review">Under Review</option>
+                                        <option value="accepted">Accepted</option>
+                                        <option value="rejected">Rejected</option>
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
                                         Urutkan
                                     </label>
                                     <select
@@ -1536,6 +1696,8 @@ export default function Index({
                                         <option value="price_high">Harga tertinggi</option>
                                         <option value="stock_low">Stok terendah</option>
                                         <option value="stock_high">Stok tertinggi</option>
+                                        <option value="featured_first">Featured</option>
+                                        <option value="shadow_banned_desc">Shadow Ban terbaru</option>
                                     </select>
                                 </div>
 
@@ -1982,7 +2144,35 @@ export default function Index({
                                                 />
                                             </Table.Td>
                                             <Table.Td>
-                                                <div className="flex gap-2">
+                                                <div className="flex flex-wrap gap-2">
+                                                    {(canEditCatalog || canOpenTenantProductEdit) ? (
+                                                        <>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleToggleFeatured(product)}
+                                                                className={`rounded-lg border px-2.5 py-2 text-xs font-medium transition hover:bg-amber-50 ${
+                                                                    product.is_featured
+                                                                        ? "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300"
+                                                                        : "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                                                                }`}
+                                                                title={product.is_featured ? "Hapus featured" : "Jadikan featured"}
+                                                            >
+                                                                <IconStar size={16} />
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleApplyShadowBan(product)}
+                                                                className={`rounded-lg border px-2.5 py-2 text-xs font-medium transition hover:bg-rose-50 ${
+                                                                    product.shadow_banned_at
+                                                                        ? "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-800 dark:bg-rose-950/30 dark:text-rose-300"
+                                                                        : "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                                                                }`}
+                                                                title={product.shadow_banned_at ? "Buka shadow ban" : "Shadow ban"}
+                                                            >
+                                                                <IconX size={16} />
+                                                            </button>
+                                                        </>
+                                                    ) : null}
                                                     {canUpdateDailyStock ? (
                                                         <button
                                                             type="button"

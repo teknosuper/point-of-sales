@@ -7,6 +7,7 @@ use App\Models\Product;
 use App\Models\StockMutation;
 use App\Services\OutletResolver;
 use App\Services\StockMutationService;
+use App\Support\ReportTimezone;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -33,8 +34,7 @@ class StockMutationController extends Controller
             ->when($outlet, fn ($query) => $query->where('outlet_id', $outlet->id))
             ->when($filters['product_id'], fn ($query, $productId) => $query->where('product_id', $productId))
             ->when($filters['mutation_type'], fn ($query, $mutationType) => $query->where('mutation_type', $mutationType))
-            ->when($filters['date_from'], fn ($query, $date) => $query->whereDate('created_at', '>=', $date))
-            ->when($filters['date_to'], fn ($query, $date) => $query->whereDate('created_at', '<=', $date))
+            ->when($filters['date_from'] || $filters['date_to'], fn ($query) => ReportTimezone::applySourceDateRange($query, 'created_at', $filters))
             ->latest()
             ->paginate(15)
             ->withQueryString();
@@ -62,8 +62,7 @@ class StockMutationController extends Controller
             ->when($productIds !== [], fn ($query) => $query->whereIn('product_id', $productIds))
             ->when($filters['product_id'], fn ($query, $productId) => $query->where('product_id', $productId))
             ->when($filters['mutation_type'], fn ($query, $mutationType) => $query->where('mutation_type', $mutationType))
-            ->when($filters['date_from'], fn ($query, $date) => $query->whereDate('created_at', '>=', $date))
-            ->when($filters['date_to'], fn ($query, $date) => $query->whereDate('created_at', '<=', $date));
+            ->when($filters['date_from'] || $filters['date_to'], fn ($query) => ReportTimezone::applySourceDateRange($query, 'created_at', $filters));
 
         $summaryRows = (clone $summaryQuery)
             ->selectRaw('mutation_type, COALESCE(SUM(qty), 0) as total_qty, COUNT(*) as total_rows')

@@ -15,35 +15,48 @@ export default function NotificationSounds() {
     const [showEditModal, setShowEditModal] = useState(false);
     const [editingSound, setEditingSound] = useState(null);
     const [filterType, setFilterType] = useState('');
+    const [selectedOutletId, setSelectedOutletId] = useState(
+        props.active_outlet?.id ? String(props.active_outlet.id) : ''
+    );
 
-    // Form state for upload
     const [formData, setFormData] = useState({
         name: '',
         type: 'general',
         file: null,
     });
 
-    // Form state for edit
     const [editData, setEditData] = useState({
         name: '',
         type: '',
         sort_order: 0,
     });
 
+    const activeOutlet = props.active_outlet || null;
+    const outlets = props.outlets || [];
+    const isSuperAdmin = props.is_super_admin || false;
+
     useEffect(() => {
         fetchSounds();
     }, []);
 
+    useEffect(() => {
+        fetchSounds();
+    }, [filterType, selectedOutletId]);
+
     const fetchSounds = async () => {
         setLoading(true);
         try {
-            const url = filterType 
-                ? route('settings.notification-sounds.data', { type: filterType })
+            const params = new URLSearchParams();
+            if (filterType) params.set('type', filterType);
+            if (selectedOutletId) params.set('outlet_id', selectedOutletId);
+
+            const url = params.toString()
+                ? route('settings.notification-sounds.data') + '?' + params.toString()
                 : route('settings.notification-sounds.data');
-            
+
             const response = await fetch(url);
             const data = await response.json();
-            
+
             if (data.success) {
                 setSounds(data.data);
                 setTypes(data.types);
@@ -54,10 +67,6 @@ export default function NotificationSounds() {
             setLoading(false);
         }
     };
-
-    useEffect(() => {
-        fetchSounds();
-    }, [filterType]);
 
     const handleFileChange = (e) => {
         const file = e.target.files[0];
@@ -91,6 +100,7 @@ export default function NotificationSounds() {
             type: formData.type,
             file: formData.file,
             replace_existing: true,
+            outlet_id: selectedOutletId ? Number(selectedOutletId) : undefined,
         }, {
             forceFormData: true,
             replace: true,
@@ -98,7 +108,6 @@ export default function NotificationSounds() {
                 toast.success('Suara berhasil diupload');
                 setShowUploadModal(false);
                 setFormData({ name: '', type: 'general', file: null });
-                // Refresh data after upload
                 fetchSounds();
             },
             onError: (errors) => {
@@ -209,12 +218,38 @@ export default function NotificationSounds() {
             {/* Header */}
             <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                    <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
-                        Suara Notifikasi
-                    </h1>
-                    <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                        Kelola suara notifikasi untuk berbagai jenis event
-                    </p>
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+                        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
+                            Suara Notifikasi
+                        </h1>
+                        {activeOutlet && (
+                            <span className="inline-flex w-fit items-center rounded-full bg-primary-100 px-2.5 py-1 text-xs font-medium text-primary-700 dark:bg-primary-900/40 dark:text-primary-300">
+                                {activeOutlet.name} {activeOutlet.code ? `(${activeOutlet.code})` : ''}
+                            </span>
+                        )}
+                    </div>
+                    <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+                        <p className="text-sm text-slate-500 dark:text-slate-400">
+                            {activeOutlet
+                                ? `Kelola suara notifikasi untuk outlet ${activeOutlet.name}. Suara global juga ditampilkan sebagai fallback.`
+                                : 'Kelola suara notifikasi global untuk berbagai jenis event'}
+                        </p>
+
+                        {isSuperAdmin && outlets.length > 0 && (
+                            <select
+                                value={selectedOutletId}
+                                onChange={(e) => setSelectedOutletId(e.target.value)}
+                                className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                            >
+                                <option value="">Semua Outlet / Global</option>
+                                {outlets.map((outlet) => (
+                                    <option key={outlet.id} value={String(outlet.id)}>
+                                        {outlet.name} {outlet.code ? `(${outlet.code})` : ''} {outlet.outlet_type === 'tenant' ? '[Tenant]' : ''}
+                                    </option>
+                                ))}
+                            </select>
+                        )}
+                    </div>
                 </div>
                 
                 <button
@@ -288,9 +323,21 @@ export default function NotificationSounds() {
                             >
                                 <div className="mb-3 flex items-start justify-between">
                                     <div className="flex-1">
-                                        <h3 className="font-medium text-slate-900 dark:text-white">
-                                            {sound.name}
-                                        </h3>
+                                        <div className="flex items-center gap-2">
+                                            <h3 className="font-medium text-slate-900 dark:text-white">
+                                                {sound.name}
+                                            </h3>
+                                            {sound.is_global && (
+                                                <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                                                    Global
+                                                </span>
+                                            )}
+                                            {!sound.is_global && sound.outlet_name && (
+                                                <span className="inline-flex items-center rounded-full bg-primary-100 px-2 py-0.5 text-xs font-medium text-primary-700 dark:bg-primary-900/40 dark:text-primary-300">
+                                                    {sound.outlet_name}
+                                                </span>
+                                            )}
+                                        </div>
                                         <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                                             {sound.original_name || sound.file_path.split('/').pop()} • {sound.file_size_human}
                                         </p>

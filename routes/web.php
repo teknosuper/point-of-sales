@@ -69,6 +69,8 @@ Route::post('/daftarmenu/order', [\App\Http\Controllers\PublicMenuController::cl
 Route::get('/daftarmenu/order/{accessToken}', [\App\Http\Controllers\PublicMenuController::class, 'orderStatus'])->name('public.menu.order.status');
 Route::post('/daftarmenu/logout', [\App\Http\Controllers\PublicMenuController::class, 'logout'])->name('public.menu.logout');
 
+Route::post('/daftarmenu/reviews', [\App\Http\Controllers\PublicMenuController::class, 'reviews'])->name('public.menu.reviews');
+
 Route::get('/kitchen-entry/{stationSlug}', [KitchenDisplayController::class, 'entry'])
     ->name('kitchen.entry');
 
@@ -152,11 +154,25 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
         ->middlewareFor(['create', 'store'], 'permission:categories-create')
         ->middlewareFor(['edit', 'update'], 'permission:categories-edit')
         ->middlewareFor('destroy', 'permission:categories-delete');
+
+    Route::post('categories/bulk-move', [CategoryController::class, 'bulkMove'])
+        ->middleware('permission:categories-edit')
+        ->name('categories.bulk-move');
+
     Route::resource('products', ProductController::class)
         ->middlewareFor(['index', 'show'], 'permission:products-access')
         ->middlewareFor(['create', 'store'], 'permission:products-create')
         ->middlewareFor(['edit', 'update'], 'permission:products-edit')
         ->middlewareFor('destroy', 'permission:products-delete');
+    Route::patch('products/{product}/toggle-featured', [ProductController::class, 'toggleFeatured'])
+        ->middleware(['permission:products-edit', 'step_up'])
+        ->name('products.toggle-featured');
+    Route::patch('products/{product}/shadow-ban', [ProductController::class, 'applyShadowBan'])
+        ->middleware(['permission:products-edit', 'step_up'])
+        ->name('products.shadow-ban');
+    Route::patch('products/{product}/penalty-status', [ProductController::class, 'updatePenaltyStatus'])
+        ->middleware(['permission:products-edit', 'step_up'])
+        ->name('products.penalty-status');
     Route::resource('dining-tables', DiningTableController::class)
         ->except(['show', 'create', 'edit'])
         ->middlewareFor('index', 'permission:dining-tables-access')
@@ -493,6 +509,9 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
     Route::patch('/settings/notification-sounds/{sound}/set-active', [\App\Http\Controllers\Apps\NotificationSoundController::class, 'setActive'])->middleware('permission:business-settings-access')->name('settings.notification-sounds.set-active');
     Route::delete('/settings/notification-sounds/{sound}', [\App\Http\Controllers\Apps\NotificationSoundController::class, 'destroy'])->middleware('permission:business-settings-access')->name('settings.notification-sounds.destroy');
     Route::get('/settings/notification-sounds/{sound}/play', [\App\Http\Controllers\Apps\NotificationSoundController::class, 'play'])->middleware('permission:business-settings-access')->name('settings.notification-sounds.play');
+
+    Route::get('/settings/menu-reviews', [\App\Http\Controllers\Apps\SettingController::class, 'menuReviews'])->middleware('permission:business-settings-access')->name('settings.menu-reviews');
+    Route::post('/settings/menu-reviews', [\App\Http\Controllers\Apps\SettingController::class, 'updateMenuReviews'])->middleware(['permission:business-settings-update', 'step_up'])->name('settings.menu-reviews.update');
 
     // confirm payment for bank transfer
     Route::patch('/transactions/{transaction}/confirm-payment', [TransactionController::class, 'confirmPayment'])->middleware(['permission:transactions-confirm-payment', 'step_up', 'outlet_access'])->name('transactions.confirm-payment');

@@ -407,7 +407,8 @@ function SearchInput({
 // Main ProductGrid Component
 export default function ProductGrid({
     products = [],
-    tenantOutlets = [],
+    mainCategories = [],
+    categories = [],
     searchQuery,
     onSearchChange,
     onSearch,
@@ -427,20 +428,22 @@ export default function ProductGrid({
     onProductSelect,
     sortControlVariant = "select",
     filterPanelCollapsible = true,
-    tenantSectionLabel = "Tenant",
-    allTenantLabel = "Semua Tenant",
+    mainCategorySectionLabel = "Kategori Utama",
+    allMainCategoriesLabel = "Semua Kategori",
     gridLayoutClass = "grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-2",
     listLayoutClass = "grid grid-cols-1 gap-3 md:grid-cols-2",
     compactHeaderLayout = false,
     showFilterSummary = true,
-    groupByCategoryWhenTenantFiltered = false,
+    groupByCategoryWhenMainCategoryFiltered = false,
     initialViewMode = "list",
     persistViewMode = true,
     embedHeaderInScroll = false,
     scrollIntro = null,
+    initialSortMode,
 }) {
     const [searchDraft, setSearchDraft] = useState(searchQuery || "");
-    const [selectedTenantOutletId, setSelectedTenantOutletId] = useState(null);
+    const [selectedMainCategoryId, setSelectedMainCategoryId] = useState(null);
+    const [selectedCategoryId, setSelectedCategoryId] = useState(null);
     const [isFilterPanelExpanded, setIsFilterPanelExpanded] = useState(() => {
         if (typeof window === "undefined") {
             return !compactHeaderLayout;
@@ -481,29 +484,41 @@ export default function ProductGrid({
     });
     const [sortMode, setSortMode] = useState(() => {
         if (typeof window === "undefined") {
-            return "alphabetical";
+            return initialSortMode || "alphabetical";
         }
 
-        return (
+        const savedSort =
             window.localStorage.getItem(
                 storageKey(storageNamespace, "sort-mode")
-            ) ||
-            "alphabetical"
-        );
+            );
+
+        if (savedSort && [
+            "alphabetical",
+            "cheapest",
+            "expensive",
+            "promo",
+            "best_seller",
+            "featured_first",
+        ].includes(savedSort)) {
+            return savedSort;
+        }
+
+        return initialSortMode || "alphabetical";
     });
     const [isCompactLandscape, setIsCompactLandscape] = useState(false);
     const [isMobileFilterSheetOpen, setIsMobileFilterSheetOpen] = useState(false);
-    const [showInlineFloatingTenantBar, setShowInlineFloatingTenantBar] =
+    const [showInlineFloatingCategoryBar, setShowInlineFloatingCategoryBar] =
         useState(false);
     const loadMoreSentinelRef = useRef(null);
     const scrollContainerRef = useRef(null);
     const lastEmittedSearchRef = useRef(searchQuery || "");
     const sortOptions = [
         { value: "alphabetical", label: "Urutan A-Z" },
+        { value: "featured_first", label: "Featured" },
+        { value: "best_seller", label: "Best Seller" },
         { value: "cheapest", label: "Harga Termurah" },
         { value: "expensive", label: "Harga Termahal" },
         { value: "promo", label: "Promo" },
-        { value: "best_seller", label: "Best Seller" },
     ];
     useEffect(() => {
         const nextQuery = searchQuery || "";
@@ -530,16 +545,23 @@ export default function ProductGrid({
         return () => window.clearTimeout(timerId);
     }, [onSearchChange, searchDraft]);
 
-    const tenantTabs = useMemo(
+    const mainCategoryTabs = useMemo(
         () =>
-            (tenantOutlets.length > 0
-                ? tenantOutlets
-                : products.map((product) => product.tenant_outlet))
-                .filter((tenant, index, array) =>
-                    tenant?.id &&
+            (mainCategories.length > 0
+                ? mainCategories
+                : products.map((product) => product.category?.parent || product.category))
+                .filter((category, index, array) =>
+                    category?.id &&
                     array.findIndex(
-                        (item) => Number(item?.id) === Number(tenant.id)
+                        (item) => Number(item?.id) === Number(category.id)
                     ) === index
+                )
+                .filter((category) =>
+                    products.some(
+                        (product) =>
+                            Number(product.category?.parent_id || product.category?.id) ===
+                            Number(category.id)
+                    )
                 )
                 .sort((a, b) => {
                     const sortOrderDiff =
@@ -555,16 +577,48 @@ export default function ProductGrid({
                         "id"
                     );
                 }),
-        [products, tenantOutlets]
+        [products, mainCategories]
     );
+
+    const tenantCategories = useMemo(() => {
+        if (!selectedMainCategoryId || !categories?.length) {
+            return [];
+        }
+
+        return categories
+            .filter(
+                (category) =>
+                    Number(category?.parent_id) === Number(selectedMainCategoryId)
+            )
+            .sort((a, b) => {
+                const sortOrderDiff =
+                    Number(a?.sort_order || 0) - Number(b?.sort_order || 0);
+
+                if (sortOrderDiff !== 0) {
+                    return sortOrderDiff;
+                }
+
+                return String(a?.name || "").localeCompare(
+                    String(b?.name || ""),
+                    "id"
+                );
+            });
+    }, [categories, selectedMainCategoryId]);
+
+    useEffect(() => {
+        setSelectedCategoryId(null);
+    }, [selectedMainCategoryId]);
 
     const filteredProducts = useMemo(
         () =>
             products.filter((product) => {
-                const matchesTenant =
-                    selectedTenantOutletId === null ||
-                    Number(product.tenant_outlet?.id) ===
-                        Number(selectedTenantOutletId);
+                const matchesMainCategory =
+                    selectedMainCategoryId === null ||
+                    Number(product.category?.parent_id || product.category?.id) ===
+                        Number(selectedMainCategoryId);
+                const matchesCategory =
+                    selectedCategoryId === null ||
+                    Number(product.category?.id) === Number(selectedCategoryId);
                 const matchesSearch =
                     !searchDraft ||
                     product.title
@@ -573,9 +627,9 @@ export default function ProductGrid({
                     product.barcode
                         ?.toLowerCase()
                         .includes(searchDraft.toLowerCase());
-                return matchesTenant && matchesSearch;
+                return matchesMainCategory && matchesCategory && matchesSearch;
             }),
-        [products, searchDraft, selectedTenantOutletId]
+        [products, searchDraft, selectedMainCategoryId, selectedCategoryId]
     );
 
     const sortedProducts = useMemo(
@@ -603,6 +657,12 @@ export default function ProductGrid({
                 const rightSoldQty = Number(right?.sold_qty || 0);
 
                 switch (sortMode) {
+                    case "featured_first":
+                        return (
+                            Number(right?.is_featured) - Number(left?.is_featured) ||
+                            rightSoldQty - leftSoldQty ||
+                            alphabetical
+                        );
                     case "cheapest":
                         return leftPrice - rightPrice || alphabetical;
                     case "expensive":
@@ -623,9 +683,13 @@ export default function ProductGrid({
     );
 
     const groupedCategorySections = useMemo(() => {
+        const resolvedGroupByCategory =
+            groupByCategoryWhenMainCategoryFiltered ||
+            (selectedMainCategoryId !== null && tenantCategories.length > 0);
+
         if (
-            !groupByCategoryWhenTenantFiltered ||
-            selectedTenantOutletId === null
+            !resolvedGroupByCategory ||
+            selectedMainCategoryId === null
         ) {
             return [];
         }
@@ -653,21 +717,38 @@ export default function ProductGrid({
             return sections;
         }, []);
     }, [
-        groupByCategoryWhenTenantFiltered,
-        selectedTenantOutletId,
+        groupByCategoryWhenMainCategoryFiltered,
+        selectedMainCategoryId,
         sortedProducts,
+        tenantCategories.length,
     ]);
 
-    const selectedTenantName = useMemo(
-        () =>
-            selectedTenantOutletId === null
-                ? allTenantLabel
-                : tenantTabs.find(
-                      (tenant) =>
-                          Number(tenant.id) === Number(selectedTenantOutletId)
-                  )?.name || "Tenant",
-        [allTenantLabel, selectedTenantOutletId, tenantTabs]
-    );
+    const selectedMainCategoryName = useMemo(() => {
+        const mainName =
+            selectedMainCategoryId === null
+                ? allMainCategoriesLabel
+                : mainCategoryTabs.find(
+                      (category) =>
+                          Number(category.id) === Number(selectedMainCategoryId)
+                  )?.name || "Kategori";
+
+        if (!mainName || selectedCategoryId === null) {
+            return mainName;
+        }
+
+        const tenantName =
+            tenantCategories.find(
+                (category) => Number(category.id) === Number(selectedCategoryId)
+            )?.name || "";
+
+        return tenantName ? `${mainName} / ${tenantName}` : mainName;
+    }, [
+        allMainCategoriesLabel,
+        selectedMainCategoryId,
+        selectedCategoryId,
+        mainCategoryTabs,
+        tenantCategories,
+    ]);
 
     useEffect(() => {
         if (typeof window === "undefined") {
@@ -791,26 +872,26 @@ export default function ProductGrid({
             return;
         }
 
-        const syncStickyTenantBar = () => {
-            setShowInlineFloatingTenantBar(
+        const syncStickyCategoryBar = () => {
+            setShowInlineFloatingCategoryBar(
                 Boolean(embedHeaderInScroll) &&
                     Boolean(compactHeaderLayout) &&
-                    tenantTabs.length > 0 &&
+                    mainCategoryTabs.length > 0 &&
                     container.scrollTop > 24
             );
         };
 
-        syncStickyTenantBar();
-        container.addEventListener("scroll", syncStickyTenantBar, {
+        syncStickyCategoryBar();
+        container.addEventListener("scroll", syncStickyCategoryBar, {
             passive: true,
         });
-        window.addEventListener("resize", syncStickyTenantBar);
+        window.addEventListener("resize", syncStickyCategoryBar);
 
         return () => {
-            container.removeEventListener("scroll", syncStickyTenantBar);
-            window.removeEventListener("resize", syncStickyTenantBar);
+            container.removeEventListener("scroll", syncStickyCategoryBar);
+            window.removeEventListener("resize", syncStickyCategoryBar);
         };
-    }, [compactHeaderLayout, embedHeaderInScroll, tenantTabs.length]);
+    }, [compactHeaderLayout, embedHeaderInScroll, mainCategoryTabs.length]);
 
     return (
         <div className="flex h-full min-h-0 flex-col">
@@ -921,7 +1002,7 @@ export default function ProductGrid({
                                 </div>
                                 <div className="mt-1 flex flex-wrap gap-2 text-xs text-slate-500 dark:text-slate-400">
                                     <span className="rounded-full bg-slate-100 px-2.5 py-1 dark:bg-slate-800">
-                                        {selectedTenantName}
+                                        {selectedMainCategoryName}
                                     </span>
                                 </div>
                             </>
@@ -943,7 +1024,7 @@ export default function ProductGrid({
                         )}
                         {compactHeaderLayout && (
                             <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600 md:hidden">
-                                {selectedTenantName}
+                                {selectedMainCategoryName}
                             </span>
                         )}
                         {!compactHeaderLayout && (
@@ -1048,41 +1129,41 @@ export default function ProductGrid({
                                 </div>
                             </div>
                         )}
-                        <div>
-                            <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400 dark:text-slate-500">
-                                {tenantSectionLabel}
-                            </p>
-                            <div className="flex flex-wrap gap-2">
-                                <CategoryTab
-                                    category={{
-                                        id: null,
-                                        name: allTenantLabel,
-                                    }}
-                                    isActive={selectedTenantOutletId === null}
-                                    onClick={() =>
-                                        setSelectedTenantOutletId(null)
-                                    }
-                                />
-                                {tenantTabs.map((tenant) => (
-                                    <CategoryTab
-                                        key={tenant.id}
-                                        category={{
-                                            id: tenant.id,
-                                            name: tenant.name,
-                                        }}
-                                        isActive={
-                                            Number(selectedTenantOutletId) ===
-                                            Number(tenant.id)
-                                        }
-                                        onClick={() =>
-                                            setSelectedTenantOutletId(
-                                                Number(tenant.id)
-                                            )
-                                        }
-                                    />
-                                ))}
-                            </div>
-                        </div>
+                         <div>
+                             <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400 dark:text-slate-500">
+                                  {mainCategorySectionLabel}
+                             </p>
+                             <div className="flex flex-wrap gap-2">
+                                 <CategoryTab
+                                     category={{
+                                         id: null,
+                                         name: allMainCategoriesLabel,
+                                     }}
+                                     isActive={selectedMainCategoryId === null}
+                                     onClick={() =>
+                                         setSelectedMainCategoryId(null)
+                                     }
+                                 />
+                                 {mainCategoryTabs.map((category) => (
+                                     <CategoryTab
+                                         key={category.id}
+                                         category={{
+                                             id: category.id,
+                                             name: category.name,
+                                         }}
+                                         isActive={
+                                             Number(selectedMainCategoryId) ===
+                                             Number(category.id)
+                                         }
+                                         onClick={() =>
+                                             setSelectedMainCategoryId(
+                                                 Number(category.id)
+                                             )
+                                         }
+                                     />
+                                  ))}
+                              </div>
+                          </div>
                     </div>
                 )}
             </div>
@@ -1095,12 +1176,12 @@ export default function ProductGrid({
                     isCompactLandscape ? "p-3" : "p-4"
                 }`}
             >
-                {showInlineFloatingTenantBar && (
+                {showInlineFloatingCategoryBar && (
                     <div className="sticky top-0 z-20 mb-3">
                         <div className="rounded-[22px] border border-slate-200/90 bg-white/96 p-2 shadow-[0_16px_34px_-18px_rgba(15,23,42,0.32)] backdrop-blur md:p-3">
                             <div className="mb-2 flex items-center justify-between gap-3 px-1">
                                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
-                                    {tenantSectionLabel}
+                                    {mainCategorySectionLabel}
                                 </p>
                                 <button
                                     type="button"
@@ -1113,28 +1194,50 @@ export default function ProductGrid({
                             </div>
                             <div className="flex flex-nowrap gap-2 overflow-x-auto pb-1 scrollbar-thin whitespace-nowrap md:gap-3">
                                 <CategoryTab
-                                    category={{ id: null, name: allTenantLabel }}
-                                    isActive={selectedTenantOutletId === null}
-                                    onClick={() => setSelectedTenantOutletId(null)}
+                                    category={{ id: null, name: allMainCategoriesLabel }}
+                                    isActive={selectedMainCategoryId === null}
+                                    onClick={() => setSelectedMainCategoryId(null)}
                                 />
-                                {tenantTabs.map((tenant) => (
+                                {mainCategoryTabs.map((category) => (
                                     <CategoryTab
-                                        key={`floating-inline-${tenant.id}`}
+                                        key={`floating-inline-${category.id}`}
                                         category={{
-                                            id: tenant.id,
-                                            name: tenant.name,
+                                            id: category.id,
+                                            name: category.name,
                                         }}
                                         isActive={
-                                            Number(selectedTenantOutletId) ===
-                                            Number(tenant.id)
+                                            Number(selectedMainCategoryId) ===
+                                            Number(category.id)
                                         }
                                         onClick={() =>
-                                            setSelectedTenantOutletId(
-                                                Number(tenant.id)
+                                            setSelectedMainCategoryId(
+                                                Number(category.id)
                                             )
                                         }
                                     />
                                 ))}
+                                {selectedMainCategoryId && tenantCategories.length > 0 && (
+                                    <div className="flex gap-2 border-l border-slate-200 pl-2">
+                                        {tenantCategories.map((category) => (
+                                            <CategoryTab
+                                                key={`floating-tenant-${category.id}`}
+                                                category={{
+                                                    id: category.id,
+                                                    name: category.name,
+                                                }}
+                                                isActive={
+                                                    Number(selectedCategoryId) ===
+                                                    Number(category.id)
+                                                }
+                                                onClick={() =>
+                                                    setSelectedCategoryId(
+                                                        Number(category.id)
+                                                    )
+                                                }
+                                            />
+                                        ))}
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -1207,7 +1310,7 @@ export default function ProductGrid({
 
                             <div className="mt-3 flex items-center justify-between gap-3">
                                 <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600">
-                                    {selectedTenantName}
+                                    {selectedMainCategoryName}
                                 </span>
                                 <select
                                     value={sortMode}
@@ -1233,7 +1336,7 @@ export default function ProductGrid({
                     groupedCategorySections.length > 0 ? (
                         <div className="space-y-5">
                             {groupedCategorySections.map((section) => (
-                                <section key={`${selectedTenantOutletId}-${section.categoryId}`}>
+                                <section key={`${selectedMainCategoryId}-${section.categoryId}`}>
                                     <div className="mb-3 flex items-center justify-between gap-3">
                                         <div>
                                             <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
@@ -1403,31 +1506,31 @@ export default function ProductGrid({
 
                             <div>
                                 <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
-                                    {tenantSectionLabel}
+                                    {mainCategorySectionLabel}
                                 </p>
                                 <div className="flex flex-wrap gap-2">
                                     <CategoryTab
-                                        category={{ id: null, name: allTenantLabel }}
-                                        isActive={selectedTenantOutletId === null}
+                                        category={{ id: null, name: allMainCategoriesLabel }}
+                                        isActive={selectedMainCategoryId === null}
                                         onClick={() => {
-                                            setSelectedTenantOutletId(null);
+                                            setSelectedMainCategoryId(null);
                                             setIsMobileFilterSheetOpen(false);
                                         }}
                                     />
-                                    {tenantTabs.map((tenant) => (
+                                    {mainCategoryTabs.map((category) => (
                                         <CategoryTab
-                                            key={`sheet-tenant-${tenant.id}`}
+                                            key={`sheet-category-${category.id}`}
                                             category={{
-                                                id: tenant.id,
-                                                name: tenant.name,
+                                                id: category.id,
+                                                name: category.name,
                                             }}
                                             isActive={
-                                                Number(selectedTenantOutletId) ===
-                                                Number(tenant.id)
+                                                Number(selectedMainCategoryId) ===
+                                                Number(category.id)
                                             }
                                             onClick={() => {
-                                                setSelectedTenantOutletId(
-                                                    Number(tenant.id)
+                                                setSelectedMainCategoryId(
+                                                    Number(category.id)
                                                 );
                                                 setIsMobileFilterSheetOpen(false);
                                             }}

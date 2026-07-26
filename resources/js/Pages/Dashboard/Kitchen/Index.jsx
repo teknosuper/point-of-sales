@@ -4,7 +4,7 @@ import KitchenTicketPreview from "@/Components/Dashboard/KitchenTicketPreview";
 import Modal from "@/Components/Dashboard/Modal";
 import SoundTestPanel from "@/Components/Dashboard/SoundTestPanel";
 import { Head, Link, router, usePage } from "@inertiajs/react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Swal from "sweetalert2";
 import {
     IconCheck,
@@ -849,6 +849,7 @@ export default function KitchenIndex({
     const pollInFlightRef = useRef(false);
     const failedPrintWarnedRef = useRef(new Set());
     const customerAlertWarnedRef = useRef(new Set());
+    const printedReminderWarnedRef = useRef(new Set());
 
     useEffect(() => {
         if (flash?.success) {
@@ -1067,7 +1068,8 @@ export default function KitchenIndex({
             )
             .join("");
 
-        void playErrorSound();
+        console.info('Kitchen/Index: dispatching kitchen:print-error', newFailedIds);
+        window.dispatchEvent(new CustomEvent('kitchen:print-error', { detail: { count: newFailedIds.length } }));
 
         Swal.fire({
             icon: "warning",
@@ -1082,7 +1084,7 @@ export default function KitchenIndex({
                 ? "#e2e8f0"
                 : undefined,
         });
-    }, [boardState.tickets, playErrorSound]);
+    }, [boardState.tickets]);
 
     useEffect(() => {
         const tickets = boardState.tickets?.data || [];
@@ -1118,7 +1120,7 @@ export default function KitchenIndex({
             )
             .join("");
 
-        void playErrorSound();
+        window.dispatchEvent(new CustomEvent('kitchen:qr-feedback'));
 
         Swal.fire({
             icon: "warning",
@@ -1133,7 +1135,40 @@ export default function KitchenIndex({
                 ? "#e2e8f0"
                 : undefined,
         });
-    }, [boardState.tickets, playErrorSound]);
+    }, [boardState.tickets]);
+
+    useEffect(() => {
+        const tickets = boardState.tickets?.data || [];
+        const printedButNotProcessed = tickets.filter(
+            (ticket) =>
+                ticket?.print?.status === 'printed' &&
+                (ticket?.status === 'pending' || ticket?.status === 'acknowledged')
+        );
+
+        if (printedButNotProcessed.length === 0) {
+            printedReminderWarnedRef.current = new Set();
+            return;
+        }
+
+        const newIds = printedButNotProcessed
+            .map((t) => t.id)
+            .filter((id) => !printedReminderWarnedRef.current.has(id));
+
+        if (newIds.length === 0) {
+            return;
+        }
+
+        printedReminderWarnedRef.current = new Set([
+            ...printedReminderWarnedRef.current,
+            ...newIds,
+        ]);
+
+        window.dispatchEvent(
+            new CustomEvent('kitchen:print-reminder', {
+                detail: { count: newIds.length },
+            })
+        );
+    }, [boardState.tickets]);
 
     // playNotificationSound - now uses database sounds via KitchenNotificationProvider
 
@@ -1857,6 +1892,22 @@ const resolveSelectedKitchenActionItemIds = (ticket, allowedStatuses = []) => {
         returned: Number(selectedStation?.returned_count || 0),
     };
 
+    const boardNotifications = useMemo(() => {
+        const tickets = (boardState.tickets?.data || []);
+        const customerAlerts = tickets.filter((ticket) => Number(ticket?.customer_alert?.event_id || 0) > 0);
+        const undispatchedOrders = tickets.filter((ticket) => {
+            const printStatus = ticket?.print?.status;
+            return printStatus === 'not_printed' || printStatus === 'queued' || printStatus === 'failed';
+        });
+
+        return {
+            customerAlerts,
+            undispatchedOrders,
+            hasCustomerAlert: customerAlerts.length > 0,
+            hasUndispatchedOrder: undispatchedOrders.length > 0,
+        };
+    }, [boardState.tickets]);
+
     return (
         <>
             <Head title="Layar Dapur" />
@@ -2011,6 +2062,63 @@ const resolveSelectedKitchenActionItemIds = (ticket, allowedStatuses = []) => {
                                     Station ini sedang memakai mode manual. Ticket baru tidak akan otomatis diproses sampai tombol
                                     <span className="mx-1 font-semibold">Mulai Proses</span>
                                     ditekan.
+                                </div>
+                            ) : null}
+
+                            {boardNotifications.hasCustomerAlert || boardNotifications.hasUndispatchedOrder ? (
+                                <div className="space-y-2">
+                                    {boardNotifications.hasCustomerAlert ? (
+                                        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 dark:border-rose-900/40 dark:bg-rose-950/20">
+                                            <div className="flex items-center gap-2">
+                                                <span className="inline-flex rounded-full bg-rose-100 px-2 py-0.5 text-xs font-semibold text-rose-700 dark:bg-rose-900/40 dark:text-rose-300">
+                                                    Alert
+                                                </span>
+                                                <span className="text-sm font-semibold text-rose-800 dark:text-rose-200">
+                                                    Ada {boardNotifications.customerAlerts.length} pemberitahuan dari kritik &amp; saran QR
+                                                </span>
+                                            </div>
+                                            <div className="mt-2 space-y-1">
+                                                {boardNotifications.customerAlerts.slice(0, 3).map((ticket) => (
+                                                    <div key={ticket.id} className="text-xs text-rose-700 dark:text-rose-300">
+                                                        <span className="font-semibold">#{ticket.ticket_number || ticket.id}</span>
+                                                        {" — "}
+                                                        {ticket.customer_alert?.message || `Alert untuk ${ticket.customer_alert?.product_title || 'item'}`}
+                                                        {" | "}
+                                                        {ticket.customer_alert?.customer_name || ticket.customer_name || 'Pelanggan'}
+                                                    </div>
+                                                ))}
+                                                {boardNotifications.customerAlerts.length > 3 ? (
+                                                    <div className="text-xs text-rose-600 dark:text-rose-400">
+                                                        +{boardNotifications.customerAlerts.length - 3} lainnya
+                                                    </div>
+                                                ) : null}
+                                            </div>
+                                        </div>
+                                    ) : null}
+                                    {boardNotifications.hasUndispatchedOrder ? (
+                                        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-900/40 dark:bg-amber-950/20">
+                                            <div className="flex items-center gap-2">
+                                                <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                                                    Cetak
+                                                </span>
+                                                <span className="text-sm font-semibold text-amber-800 dark:text-amber-200">
+                                                    {boardNotifications.undispatchedOrders.length} pesanan belum dikirim ke printer
+                                                </span>
+                                            </div>
+                                            <div className="mt-2 flex flex-wrap gap-2 text-xs text-amber-700 dark:text-amber-300">
+                                                {boardNotifications.undispatchedOrders.slice(0, 5).map((ticket) => (
+                                                    <span key={ticket.id} className="rounded-full bg-white px-2 py-1 font-medium dark:bg-slate-900">
+                                                        #{ticket.ticket_number || ticket.id}
+                                                    </span>
+                                                ))}
+                                                {boardNotifications.undispatchedOrders.length > 5 ? (
+                                                    <span className="rounded-full bg-white px-2 py-1 font-medium dark:bg-slate-900">
+                                                        +{boardNotifications.undispatchedOrders.length - 5}
+                                                    </span>
+                                                ) : null}
+                                            </div>
+                                        </div>
+                                    ) : null}
                                 </div>
                             ) : null}
 

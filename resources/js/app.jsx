@@ -35,7 +35,7 @@ createInertiaApp({
                 <PWAInstallPrompt />
                 <KitchenNotificationProvider 
                     outletId={activeOutlet?.id}
-                    enabled={isKitchenOutlet || isKitchenBoardPage}
+                    enabled={isKitchenBoardPage}
                 >
                     <App {...props} />
                 </KitchenNotificationProvider>

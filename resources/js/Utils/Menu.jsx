@@ -35,6 +35,7 @@ import {
     IconLock,
     IconPrinter,
     IconChecklist,
+    IconStar,
 } from "@/Utils/icons";
 import { useAuthorization } from "./authorization";
 
@@ -425,6 +426,13 @@ export default function Menu() {
                     route("settings.notification-sounds.index"),
                     url.startsWith("/dashboard/settings/notification-sounds"),
                     <IconBell size={20} strokeWidth={1.5} />,
+                    ["business-settings-access"]
+                ),
+                menuItem(
+                    "Menu Review",
+                    route("settings.menu-reviews"),
+                    url.startsWith("/dashboard/settings/menu-reviews"),
+                    <IconStar size={20} strokeWidth={1.5} />,
                     ["business-settings-access"]
                 ),
             ],

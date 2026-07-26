@@ -98,9 +98,21 @@ class DemoInitialSetupSeeder extends Seeder
             ]
         ));
 
+        $mainCategoryMap = $categories->keyBy(fn (Category $category) => $category->name);
+
+        $tenantParentMap = [
+            'dapur-minuman' => 'Minuman',
+            'dapur-mie' => 'Makanan Berat',
+            'dapur-durian' => 'Makanan Berat',
+            'dapur-ayam' => 'Makanan Berat',
+            'dapur-buah' => 'Minuman',
+            'dapur-ramen' => 'Makanan Berat',
+        ];
+
         $minumanTenant = $tenantOutlets->get('dapur-minuman');
 
         if ($minumanTenant) {
+            $parentId = $mainCategoryMap->get($tenantParentMap['dapur-minuman'] ?? 'Minuman')?->id;
             $tenantCategories = collect($this->minumanSections())
                 ->map(fn (array $section) => Category::query()->updateOrCreate(
                     [
@@ -113,6 +125,7 @@ class DemoInitialSetupSeeder extends Seeder
                             $section['group']
                         ),
                         'image' => 'default.jpg',
+                        'parent_id' => $parentId,
                     ]
                 ));
 

@@ -224,6 +224,8 @@ export default function Menu({
     bankAccounts = [],
     storeHours = null,
     tenantOutlets = [],
+    mainCategories = [],
+    categories = [],
 }) {
     const { flash, storeProfile } = usePage().props;
     const customer = identity?.customer || null;
@@ -2152,7 +2154,7 @@ export default function Menu({
                         }`}
                     >
                         <ProductGrid
-                            products={tenantOutlets.length > 0
+                             products={tenantOutlets.length > 0
                                 ? products
                                     // Filter produk dari tenant tutup permanen (tidak ada di tenantOutlets)
                                     .filter((p) => {
@@ -2181,8 +2183,9 @@ export default function Menu({
                                         return p;
                                     })
                                 : products}
-                            tenantOutlets={tenantOutlets}
-                            searchQuery={searchQuery}
+                             mainCategories={mainCategories}
+                             categories={categories}
+                             searchQuery={searchQuery}
                             onSearchChange={setSearchQuery}
                             onSearch={() => setIsSearching(false)}
                             isSearching={isSearching}

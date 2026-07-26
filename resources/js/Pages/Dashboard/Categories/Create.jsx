@@ -15,13 +15,14 @@ import {
     prepareImageUpload,
 } from "@/Utils/imageUpload";
 
-export default function Create({ tenantOutlets = [] }) {
+export default function Create({ tenantOutlets = [], mainCategories = [] }) {
     const { errors } = usePage().props;
 
     const { data, setData, post, processing } = useForm({
         name: "",
         description: "",
         tenant_outlet_id: "",
+        parent_id: "",
         image: "",
     });
 
@@ -148,6 +149,30 @@ export default function Create({ tenantOutlets = [] }) {
 
                             {/* Info */}
                             <div className="space-y-4">
+                                <div>
+                                    <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                        Kategori Utama
+                                    </label>
+                                    <select
+                                        value={data.parent_id}
+                                        onChange={(e) =>
+                                            setData("parent_id", e.target.value)
+                                        }
+                                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                    >
+                                        <option value="">Tanpa kategori utama (kategori utama)</option>
+                                        {mainCategories.map((category) => (
+                                            <option key={category.id} value={String(category.id)}>
+                                                {category.name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    {errors.parent_id && (
+                                        <p className="mt-1 text-xs text-red-500">
+                                            {errors.parent_id}
+                                        </p>
+                                    )}
+                                </div>
                                 <div>
                                     <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
                                         Tenant Outlet

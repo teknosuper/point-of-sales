@@ -160,9 +160,16 @@ class TableOrderService
         $products = Product::query()
             ->with(['tenantOutlet:id,name,code'])
             ->whereIn('id', $productIds)
+            ->whereNull('shadow_banned_at')
             ->orderBy('title')
             ->get()
             ->keyBy('id');
+
+        if ($products->count() !== count(array_unique($productIds))) {
+            throw ValidationException::withMessages([
+                'items' => 'Ada menu yang tidak tersedia saat ini.',
+            ]);
+        }
 
         $modifierOptions = ProductModifierOption::query()
             ->whereIn('product_id', $productIds)

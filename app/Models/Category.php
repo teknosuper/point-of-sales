@@ -15,6 +15,7 @@ class Category extends Model
     protected $casts = [
         'id' => 'integer',
         'tenant_outlet_id' => 'integer',
+        'parent_id' => 'integer',
     ];
 
     /**
@@ -23,7 +24,7 @@ class Category extends Model
      * @var array
      */
     protected $fillable = [
-        'image', 'name', 'description', 'tenant_outlet_id',
+        'image', 'name', 'description', 'tenant_outlet_id', 'parent_id',
     ];
 
     /**
@@ -44,6 +45,21 @@ class Category extends Model
     public function tenantOutlet()
     {
         return $this->belongsTo(Outlet::class, 'tenant_outlet_id');
+    }
+
+    public function parent()
+    {
+        return $this->belongsTo(Category::class, 'parent_id');
+    }
+
+    public function children()
+    {
+        return $this->hasMany(Category::class, 'parent_id');
+    }
+
+    public function mainCategory()
+    {
+        return $this->parent() ?? $this;
     }
 
     /**

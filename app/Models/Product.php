@@ -21,8 +21,10 @@ class Product extends Model
         'tenant_discount_price' => 'integer',
         'stock' => 'integer',
         'tenant_outlet_id' => 'integer',
+        'is_featured' => 'boolean',
         'supports_modifiers' => 'boolean',
         'requires_modifier_selection' => 'boolean',
+        'shadow_banned_at' => 'datetime',
     ];
 
     /**
@@ -45,6 +47,10 @@ class Product extends Model
         'supports_modifiers',
         'requires_modifier_selection',
         'stock',
+        'is_featured',
+        'shadow_banned_at',
+        'shadow_ban_reason',
+        'penalty_status',
     ];
 
     /**
@@ -90,6 +96,11 @@ class Product extends Model
     public function kitchenStationMappings()
     {
         return $this->hasMany(ProductKitchenStationMapping::class);
+    }
+
+    public function reviews()
+    {
+        return $this->hasMany(Review::class)->orderByDesc('reviewed_at')->orderByDesc('id');
     }
 
     public function modifierOptions()

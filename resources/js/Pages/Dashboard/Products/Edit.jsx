@@ -277,6 +277,9 @@ export default function Edit({
         buy_price: product.buy_price ?? "",
         sell_price: product.sell_price ?? "",
         tenant_discount_price: product.tenant_discount_price ?? "",
+        is_featured: !!product.is_featured,
+        shadow_ban_reason: product.shadow_ban_reason ?? "",
+        penalty_status: product.penalty_status ?? "",
         _method: "PUT",
     });
     const {
@@ -1988,6 +1991,64 @@ export default function Edit({
                                 )}
                             </div>
                         )}
+
+                        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">
+                            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                <div>
+                                    <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1 flex items-center gap-2">
+                                        <IconStar size={18} />
+                                        Status Publik & Review
+                                    </h3>
+                                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                                        Kelola featured, shadow ban, dan status penalty untuk publikasi menu.
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
+                                <label className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+                                    <div>
+                                        <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">Featured</p>
+                                        <p className="text-[11px] text-slate-500">Tampilkan di bagian atas daftar menu.</p>
+                                    </div>
+                                    <input
+                                        type="checkbox"
+                                        checked={!!data.is_featured}
+                                        onChange={(e) => setData("is_featured", e.target.checked)}
+                                        className="h-5 w-5 rounded border-slate-300 text-primary-500 focus:ring-primary-500"
+                                    />
+                                </label>
+
+                                <div className="md:col-span-2">
+                                    <label className="block text-xs font-medium text-slate-700 dark:text-slate-300">
+                                        Shadow Ban Reason
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={data.shadow_ban_reason}
+                                        onChange={(e) => setData("shadow_ban_reason", e.target.value)}
+                                        placeholder="Alasan shadow ban (jika ada)"
+                                        className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="mt-4">
+                                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300">
+                                    Penalty Status
+                                </label>
+                                <select
+                                    value={data.penalty_status}
+                                    onChange={(e) => setData("penalty_status", e.target.value)}
+                                    className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+                                >
+                                    <option value="">Tidak ada status</option>
+                                    <option value="under_review">Under Review</option>
+                                    <option value="accepted">Accepted (unban)</option>
+                                    <option value="rejected">Rejected (keep banned)</option>
+                                </select>
+                            </div>
+                        </div>
 
                         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">
                             <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">

@@ -9,6 +9,7 @@ use App\Models\PurchaseOrder;
 use App\Models\Supplier;
 use App\Models\SupplierReturn;
 use App\Services\OutletResolver;
+use App\Support\ReportTimezone;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Inertia\Inertia;
@@ -232,44 +233,52 @@ class ProcurementReportController extends Controller
 
     private function purchaseOrdersQuery(?int $outletId, array $filters)
     {
-        return PurchaseOrder::query()
+        $query = PurchaseOrder::query()
             ->when($outletId, fn ($query) => $query->where('outlet_id', $outletId))
             ->when($filters['supplier_id'] !== '', fn ($query) => $query->where('supplier_id', $filters['supplier_id']))
             ->when($filters['po_status'] !== '', fn ($query) => $query->where('status', $filters['po_status']))
-            ->when($filters['search'] !== '', fn ($query) => $query->where('document_number', 'like', '%'.$filters['search'].'%'))
-            ->when($filters['start_date'] !== '', fn ($query) => $query->whereDate('created_at', '>=', $filters['start_date']))
-            ->when($filters['end_date'] !== '', fn ($query) => $query->whereDate('created_at', '<=', $filters['end_date']));
+            ->when($filters['search'] !== '', fn ($query) => $query->where('document_number', 'like', '%'.$filters['search'].'%'));
+
+        ReportTimezone::applySourceDateRange($query, 'created_at', $filters);
+
+        return $query;
     }
 
     private function goodsReceivingsQuery(?int $outletId, array $filters)
     {
-        return GoodsReceiving::query()
+        $query = GoodsReceiving::query()
             ->when($outletId, fn ($query) => $query->where('outlet_id', $outletId))
             ->when($filters['supplier_id'] !== '', fn ($query) => $query->where('supplier_id', $filters['supplier_id']))
-            ->when($filters['search'] !== '', fn ($query) => $query->where('document_number', 'like', '%'.$filters['search'].'%'))
-            ->when($filters['start_date'] !== '', fn ($query) => $query->whereDate('received_at', '>=', $filters['start_date']))
-            ->when($filters['end_date'] !== '', fn ($query) => $query->whereDate('received_at', '<=', $filters['end_date']));
+            ->when($filters['search'] !== '', fn ($query) => $query->where('document_number', 'like', '%'.$filters['search'].'%'));
+
+        ReportTimezone::applySourceDateRange($query, 'received_at', $filters);
+
+        return $query;
     }
 
     private function payablesQuery(?int $outletId, array $filters)
     {
-        return Payable::query()
+        $query = Payable::query()
             ->when($outletId, fn ($query) => $query->where('outlet_id', $outletId))
             ->when($filters['supplier_id'] !== '', fn ($query) => $query->where('supplier_id', $filters['supplier_id']))
             ->when($filters['payable_status'] !== '', fn ($query) => $query->where('status', $filters['payable_status']))
-            ->when($filters['search'] !== '', fn ($query) => $query->where('document_number', 'like', '%'.$filters['search'].'%'))
-            ->when($filters['start_date'] !== '', fn ($query) => $query->whereDate('created_at', '>=', $filters['start_date']))
-            ->when($filters['end_date'] !== '', fn ($query) => $query->whereDate('created_at', '<=', $filters['end_date']));
+            ->when($filters['search'] !== '', fn ($query) => $query->where('document_number', 'like', '%'.$filters['search'].'%'));
+
+        ReportTimezone::applySourceDateRange($query, 'created_at', $filters);
+
+        return $query;
     }
 
     private function supplierReturnsQuery(?int $outletId, array $filters)
     {
-        return SupplierReturn::query()
+        $query = SupplierReturn::query()
             ->when($outletId, fn ($query) => $query->where('outlet_id', $outletId))
             ->when($filters['supplier_id'] !== '', fn ($query) => $query->where('supplier_id', $filters['supplier_id']))
             ->when($filters['return_status'] !== '', fn ($query) => $query->where('status', $filters['return_status']))
-            ->when($filters['search'] !== '', fn ($query) => $query->where('document_number', 'like', '%'.$filters['search'].'%'))
-            ->when($filters['start_date'] !== '', fn ($query) => $query->whereDate('created_at', '>=', $filters['start_date']))
-            ->when($filters['end_date'] !== '', fn ($query) => $query->whereDate('created_at', '<=', $filters['end_date']));
+            ->when($filters['search'] !== '', fn ($query) => $query->where('document_number', 'like', '%'.$filters['search'].'%'));
+
+        ReportTimezone::applySourceDateRange($query, 'created_at', $filters);
+
+        return $query;
     }
 }

@@ -601,4 +601,56 @@ class SettingController extends Controller
 
         return back()->with('success', 'Pengaturan loyalty berhasil disimpan');
     }
+
+    public function menuReviews()
+    {
+        $outlet = $this->resolvedOutlet(request());
+
+        return Inertia::render('Dashboard/Settings/MenuReviews', [
+            'settings' => [
+                'shadow_ban_auto_penalty_enabled' => Setting::getBool('menu_shadow_ban_auto_penalty_enabled', false, $outlet?->id),
+                'shadow_ban_one_star_threshold' => (int) Setting::get('menu_shadow_ban_one_star_threshold', 6, $outlet?->id),
+            ],
+        ]);
+    }
+
+    public function updateMenuReviews(Request $request)
+    {
+        $outlet = $this->resolvedOutlet($request);
+
+        $validated = $request->validate([
+            'shadow_ban_auto_penalty_enabled' => ['nullable', 'boolean'],
+            'shadow_ban_one_star_threshold' => ['nullable', 'integer', 'min:1', 'max:1000'],
+        ]);
+
+        $before = [
+            'shadow_ban_auto_penalty_enabled' => Setting::getBool('menu_shadow_ban_auto_penalty_enabled', false, $outlet?->id),
+            'shadow_ban_one_star_threshold' => (int) Setting::get('menu_shadow_ban_one_star_threshold', 6, $outlet?->id),
+        ];
+
+        Setting::setMany([
+            'menu_shadow_ban_auto_penalty_enabled' => [
+                'value' => (bool) ($validated['shadow_ban_auto_penalty_enabled'] ?? false) ? '1' : '0',
+                'description' => 'Aktifkan auto-penalty shadow ban untuk review bintang 1 berlebih.',
+            ],
+            'menu_shadow_ban_one_star_threshold' => [
+                'value' => (string) ($validated['shadow_ban_one_star_threshold'] ?? 6),
+                'description' => 'Threshold jumlah review bintang 1 sebelum auto-penalty dijalankan.',
+            ],
+        ], $outlet?->id);
+
+        $this->auditLogService->log(
+            event: 'settings.menu_reviews.updated',
+            module: 'menu_reviews',
+            auditable: ['target_label' => 'Menu Review Settings'],
+            description: 'Pengaturan auto-penalty review menu diperbarui.',
+            before: $before,
+            after: [
+                'shadow_ban_auto_penalty_enabled' => (bool) ($validated['shadow_ban_auto_penalty_enabled'] ?? false),
+                'shadow_ban_one_star_threshold' => (int) ($validated['shadow_ban_one_star_threshold'] ?? 6),
+            ]
+        );
+
+        return back()->with('success', 'Pengaturan menu review berhasil disimpan');
+    }
 }

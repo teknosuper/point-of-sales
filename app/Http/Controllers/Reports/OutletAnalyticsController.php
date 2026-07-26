@@ -8,6 +8,7 @@ use App\Models\Transaction;
 use App\Models\TransactionTenantAllocation;
 use App\Models\TransactionTenantAllocationItem;
 use App\Services\OutletResolver;
+use App\Support\ReportTimezone;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 
@@ -78,14 +79,11 @@ class OutletAnalyticsController extends Controller
                 });
             });
 
-        if ($filters['start_date']) {
-            $transactionQuery->whereDate('created_at', '>=', $filters['start_date']);
-            $allocationQuery->whereHas('transaction', fn ($query) => $query->whereDate('created_at', '>=', $filters['start_date']));
-        }
-
-        if ($filters['end_date']) {
-            $transactionQuery->whereDate('created_at', '<=', $filters['end_date']);
-            $allocationQuery->whereHas('transaction', fn ($query) => $query->whereDate('created_at', '<=', $filters['end_date']));
+        if ($filters['start_date'] || $filters['end_date']) {
+            ReportTimezone::applySourceDateRange($transactionQuery, 'created_at', $filters);
+            $allocationQuery->whereHas('transaction', function ($query) use ($filters) {
+                ReportTimezone::applySourceDateRange($query, 'created_at', $filters);
+            });
         }
 
         $outletStats = Outlet::query()
@@ -187,8 +185,6 @@ class OutletAnalyticsController extends Controller
 
     private function applyDateRange($query, array $filters, string $column = 'created_at')
     {
-        return $query
-            ->when($filters['start_date'] ?? null, fn ($innerQuery, $date) => $innerQuery->whereDate($column, '>=', $date))
-            ->when($filters['end_date'] ?? null, fn ($innerQuery, $date) => $innerQuery->whereDate($column, '<=', $date));
+        return ReportTimezone::applySourceDateRange($query, $column, $filters);
     }
 }

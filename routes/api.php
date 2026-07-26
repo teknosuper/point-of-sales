@@ -2,9 +2,10 @@
 
 use App\Http\Controllers\Api\PrintBridgeController;
 use App\Http\Controllers\Api\PaymentWebhookController;
-use App\Http\Controllers\Api\PublicApiDocsController;
 use App\Http\Controllers\Api\PrintQueueController;
+use App\Http\Controllers\Api\PublicApiDocsController;
 use App\Http\Controllers\Api\PublicCatalogController;
+use App\Http\Controllers\PublicMenuController;
 use App\Http\Middleware\AllowPublicApiCors;
 use Illuminate\Support\Facades\Route;
 
@@ -53,6 +54,7 @@ Route::prefix('public/catalog')
         Route::get('/promo-banners', [PublicCatalogController::class, 'promoBanners'])->name('public.catalog.promo-banners');
         Route::get('/home-sections', [PublicCatalogController::class, 'homeSections'])->name('public.catalog.home-sections');
         Route::get('/highlights', [PublicCatalogController::class, 'highlights'])->name('public.catalog.highlights');
+        Route::get('/products/{product}/reviews', [PublicMenuController::class, 'productReviews'])->name('public.catalog.products.reviews');
     });
 
 Route::get('/public/docs', PublicApiDocsController::class)
