@@ -73,6 +73,7 @@ const ProductCard = memo(function ProductCard({
     viewMode = "list",
     interactive = true,
     onProductSelect,
+    bestSellerIds = [],
 }) {
     // Store operational check — treat as unavailable if tenant outlet is closed/outside hours
     const storeClosed = product.store_closed_reason === "store_closed";
@@ -114,6 +115,11 @@ const ProductCard = memo(function ProductCard({
     const modifierTone = resolveModifierTone(product, hasModifierOptions);
     const secondaryLabel =
         product.tenant_outlet?.name || product.category?.name || "-";
+    const isBestSeller = bestSellerIds.includes(Number(product.id));
+    const isFeatured = Boolean(product.is_featured);
+    const soldQty = Number(product.sold_qty || 0);
+    const ratingAvg = Number(product.rating_avg || 0);
+    const ratingCount = Number(product.rating_count || 0);
     const isSelectable =
         interactive || typeof onProductSelect === "function";
     const CardTag = isSelectable ? "button" : "div";
@@ -254,6 +260,16 @@ const ProductCard = memo(function ProductCard({
                                 Sisa {product.stock}
                             </span>
                         )}
+                        {isBestSeller && (
+                            <span className="inline-flex items-center gap-0.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                                Best Seller
+                            </span>
+                        )}
+                        {isFeatured && (
+                            <span className="inline-flex items-center gap-0.5 rounded-full bg-primary-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-primary-700 dark:bg-primary-900/40 dark:text-primary-300">
+                                Rekomendasi
+                            </span>
+                        )}
                     </div>
                     <h3 className={`font-semibold break-words ${
                         isListMode 
@@ -273,6 +289,24 @@ const ProductCard = memo(function ProductCard({
                                 {Number(product.stock || 0)} tersisa
                             </span>
                         </p>
+                        {soldQty > 0 && (
+                            <p className="font-medium text-slate-600 dark:text-slate-300">
+                                {soldQty.toLocaleString('id-ID')} terjual
+                            </p>
+                        )}
+                        {ratingCount > 0 && (
+                            <p className="flex items-center gap-1 font-medium text-slate-600 dark:text-slate-300">
+                                <span className="flex items-center gap-0.5 text-amber-500">
+                                    {[0,1,2,3,4].map((i) => (
+                                        <svg key={i} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill={i < Math.round(ratingAvg) ? "currentColor" : "none"} stroke="currentColor" strokeWidth={2} className="h-3 w-3">
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.562.562 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.562.562 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.562.562 0 0 1 .321-.988l5.518-.442a.562.562 0 0 0 .475-.345L11.48 3.5Z" />
+                                        </svg>
+                                    ))}
+                                </span>
+                                <span>{ratingAvg.toFixed(1)}</span>
+                                <span className="text-slate-400">({ratingCount})</span>
+                            </p>
+                        )}
                         {!interactive && hasModifierOptions && (
                             <p className={`font-medium ${modifierTone.hintClass}`}>
                                 {product.requires_modifier_selection
@@ -440,6 +474,7 @@ export default function ProductGrid({
     embedHeaderInScroll = false,
     scrollIntro = null,
     initialSortMode,
+    bestSellerIds = [],
 }) {
     const [searchDraft, setSearchDraft] = useState(searchQuery || "");
     const [selectedMainCategoryId, setSelectedMainCategoryId] = useState(null);
@@ -484,7 +519,7 @@ export default function ProductGrid({
     });
     const [sortMode, setSortMode] = useState(() => {
         if (typeof window === "undefined") {
-            return initialSortMode || "alphabetical";
+            return initialSortMode || "featured_first";
         }
 
         const savedSort =
@@ -493,7 +528,6 @@ export default function ProductGrid({
             );
 
         if (savedSort && [
-            "alphabetical",
             "cheapest",
             "expensive",
             "promo",
@@ -503,7 +537,7 @@ export default function ProductGrid({
             return savedSort;
         }
 
-        return initialSortMode || "alphabetical";
+        return initialSortMode || "featured_first";
     });
     const toggleCategorySection = (categoryId) => {
         setCollapsedCategoryIds((prev) => ({
@@ -541,8 +575,7 @@ export default function ProductGrid({
     const scrollContainerRef = useRef(null);
     const lastEmittedSearchRef = useRef(searchQuery || "");
     const sortOptions = [
-        { value: "alphabetical", label: "Urutan A-Z" },
-        { value: "featured_first", label: "Featured" },
+        { value: "featured_first", label: "Menu Rekomendasi" },
         { value: "best_seller", label: "Best Seller" },
         { value: "cheapest", label: "Harga Termurah" },
         { value: "expensive", label: "Harga Termahal" },
@@ -708,7 +741,11 @@ export default function ProductGrid({
                     case "best_seller":
                         return rightSoldQty - leftSoldQty || alphabetical;
                     default:
-                        return alphabetical;
+                        return (
+                            Number(right?.is_featured) - Number(left?.is_featured) ||
+                            rightSoldQty - leftSoldQty ||
+                            alphabetical
+                        );
                 }
             }),
         [filteredProducts, sortMode]
@@ -1454,6 +1491,7 @@ export default function ProductGrid({
                                                             viewMode={viewMode}
                                                             interactive={interactive}
                                                             onProductSelect={onProductSelect}
+                                                            bestSellerIds={bestSellerIds}
                                                         />
                                                     ))}
                                                 </div>
@@ -1480,6 +1518,7 @@ export default function ProductGrid({
                                     viewMode={viewMode}
                                     interactive={interactive}
                                     onProductSelect={onProductSelect}
+                                    bestSellerIds={bestSellerIds}
                                 />
                             ))}
                         </div>

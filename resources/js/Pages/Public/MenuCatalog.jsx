@@ -13,7 +13,7 @@ import {
     IconWifiOff,
     IconX,
 } from "@tabler/icons-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const AUTO_REFRESH_INTERVAL = 30 * 1000;
 
@@ -59,6 +59,14 @@ export default function MenuCatalog({
             .filter((t) => t.closed_reason)
             .map((t) => [t.id, t.closed_reason])
     );
+
+    const bestSellerIds = useMemo(() => {
+        return products
+            .slice()
+            .sort((a, b) => (b.sold_qty || 0) - (a.sold_qty || 0))
+            .slice(0, 8)
+            .map((p) => p.id);
+    }, [products]);
 
     // Map tenant ID → jam operasional { open_time, close_time }
     const tenantHoursMap = Object.fromEntries(
@@ -405,7 +413,8 @@ export default function MenuCatalog({
                                         showFilterSummary={false}
                                         groupByCategoryWhenMainCategoryFiltered={true}
                                         storageNamespace={`public-menu:${outlet?.code || store?.name || "default"}`}
-                                        initialSortMode="best_seller"
+                                        initialSortMode="featured_first"
+                                        bestSellerIds={bestSellerIds}
                                     />
 
                                     <div className="border-t border-slate-200 bg-white px-4 py-3">

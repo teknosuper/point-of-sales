@@ -72,9 +72,9 @@ class PublicTableOrderController extends Controller
                 'tenant_outlet_id',
                 'supports_modifiers',
                 'requires_modifier_selection',
+                'is_featured',
                 'shadow_banned_at'
             )
-            ->orderBy('title')
             ->get()
             ->map(function (Product $product) {
                 $product->setAttribute('stock', (int) ($product->stock ?? 0));
@@ -93,12 +93,22 @@ class PublicTableOrderController extends Controller
             ->groupBy('product_id')
             ->pluck('sold_qty', 'product_id');
 
+        $ratingByProduct = \App\Models\Review::query()
+            ->selectRaw('product_id, AVG(rating) as rating_avg, COUNT(*) as rating_count')
+            ->groupBy('product_id')
+            ->get()
+            ->mapWithKeys(fn ($row) => [
+                $row->product_id => [(float) $row->rating_avg, (int) $row->rating_count],
+            ])
+            ->toArray();
+
         $products = $this->productCatalogService->mapProductsForPosGrid(
             $products,
             null,
             $table->outlet_id,
             [
                 'soldQtyByProduct' => $soldQtyByProduct,
+                'ratingByProduct' => $ratingByProduct,
                 'includeKitchenStations' => true,
             ]
         );

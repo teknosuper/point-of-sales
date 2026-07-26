@@ -8,6 +8,8 @@ use App\Models\Outlet;
 use App\Models\PricingRule;
 use App\Models\Product;
 use App\Models\ProductOutletStock;
+use App\Models\Review;
+use App\Models\TransactionDetail;
 use App\Services\ModifierMarkupService;
 use App\Services\PricingService;
 use Illuminate\Http\JsonResponse;
@@ -86,7 +88,31 @@ class PublicCatalogController extends Controller
     {
         $outlet = $this->resolveOutlet($request);
         $products = $this->catalogProducts($request, $outlet);
-        $mapped = $this->mapProductsWithPricing($products, $outlet?->id);
+
+        $soldQtyByProduct = TransactionDetail::query()
+            ->selectRaw('product_id, SUM(qty) as sold_qty')
+            ->whereNotNull('product_id')
+            ->when(
+                Schema::hasColumn('transaction_details', 'is_promo_reward'),
+                fn ($builder) => $builder->where('is_promo_reward', false)
+            )
+            ->whereHas('transaction', fn ($builder) => $builder->where('outlet_id', $outlet?->id))
+            ->groupBy('product_id')
+            ->pluck('sold_qty', 'product_id');
+
+        $ratingByProduct = \App\Models\Review::query()
+            ->selectRaw('product_id, AVG(rating) as rating_avg, COUNT(*) as rating_count')
+            ->groupBy('product_id')
+            ->get()
+            ->mapWithKeys(fn ($row) => [
+                $row->product_id => [(float) $row->rating_avg, (int) $row->rating_count],
+            ])
+            ->toArray();
+
+        $mapped = $this->mapProductsWithPricing($products, $outlet?->id, [
+            'soldQtyByProduct' => $soldQtyByProduct,
+            'ratingByProduct' => $ratingByProduct,
+        ]);
 
         if ($request->boolean('promo_only')) {
             $mapped = $mapped->filter(fn (array $product) => $product['pricing_badge'] !== null)->values();
@@ -399,13 +425,16 @@ class PublicCatalogController extends Controller
         })->values();
     }
 
-    private function mapProductsWithPricing(Collection $products, ?int $outletId): Collection
+    private function mapProductsWithPricing(Collection $products, ?int $outletId, array $options = []): Collection
     {
         $pricing = $this->pricingService->previewProducts($products, outletId: $outletId);
+        $soldQtyByProduct = collect($options['soldQtyByProduct'] ?? []);
+        $ratingByProduct = collect($options['ratingByProduct'] ?? []);
 
-        return $products->map(function (Product $product) use ($pricing, $outletId) {
+        return $products->map(function (Product $product) use ($pricing, $outletId, $soldQtyByProduct, $ratingByProduct) {
             $pricePreview = $pricing->get($product->id);
             $rule = $pricePreview['pricing_rule'] ?? null;
+            $ratingData = $ratingByProduct->get($product->id, [0, 0]);
 
             return [
                 'id' => $product->id,
@@ -472,6 +501,9 @@ class PublicCatalogController extends Controller
                 'is_shadow_banned' => (bool) $product->shadow_banned_at,
                 'shadow_ban_reason' => $product->shadow_ban_reason,
                 'penalty_status' => $product->penalty_status,
+                'sold_qty' => (int) ($soldQtyByProduct[$product->id] ?? 0),
+                'rating_avg' => round($ratingData[0] ?? 0, 1),
+                'rating_count' => (int) ($ratingData[1] ?? 0),
             ];
         })->values();
     }

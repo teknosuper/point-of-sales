@@ -226,6 +226,7 @@ export default function Menu({
     tenantOutlets = [],
     mainCategories = [],
     categories = [],
+    recommendations = null,
 }) {
     const { flash, storeProfile } = usePage().props;
     const customer = identity?.customer || null;
@@ -338,6 +339,15 @@ export default function Menu({
             }, {}),
         [products]
     );
+    const bestSellerIds = useMemo(() => {
+        if (!recommendations?.best_sellers?.length) {
+            return [];
+        }
+
+        return recommendations.best_sellers
+            .map((product) => Number(product.id))
+            .filter(Boolean);
+    }, [recommendations]);
     const cartStorageOwnerKey = customer?.id
         ? `customer:${customer.id}`
         : pendingPhone
@@ -2192,10 +2202,12 @@ export default function Menu({
                             onAddToCart={handleAddProduct}
                             addingProductId={addingProductId}
                             searchInputRef={searchInputRef}
-                            initialViewMode="grid"
-                            persistViewMode={false}
-                            storageNamespace="public:self-order-product-grid"
-                            onBarcodeDetected={(barcode) => {
+                             initialViewMode="grid"
+                             persistViewMode={false}
+                              storageNamespace="public:self-order-product-grid"
+                              initialSortMode="featured_first"
+                              bestSellerIds={bestSellerIds}
+                             onBarcodeDetected={(barcode) => {
                                 setSearchQuery(barcode);
                                 setIsSearching(false);
                             }}

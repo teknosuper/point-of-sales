@@ -73,15 +73,17 @@ class ProductCatalogService
             )
             : collect();
         $soldQtyByProduct = collect($options['soldQtyByProduct'] ?? []);
+        $ratingByProduct = collect($options['ratingByProduct'] ?? []);
         $includeKitchenStations = (bool) ($options['includeKitchenStations'] ?? false);
 
         // Batch-resolve operational status per tenant outlet (avoid N+1)
         $tenantOutletIds = $products->pluck('tenant_outlet_id')->filter()->unique();
         $closedReasonsByTenant = $this->batchResolveClosedReasons($tenantOutletIds);
 
-        return $products->map(function (Product $product) use ($pricingBadges, $soldQtyByProduct, $includeKitchenStations, $outletId, $closedReasonsByTenant) {
+        return $products->map(function (Product $product) use ($pricingBadges, $soldQtyByProduct, $ratingByProduct, $includeKitchenStations, $outletId, $closedReasonsByTenant) {
             $pricing = $pricingBadges->get($product->id);
             $pricingRule = $pricing['pricing_rule'] ?? null;
+            $ratingData = $ratingByProduct->get($product->id, [0, 0]);
 
             $payload = [
                 'id' => $product->id,
@@ -99,6 +101,8 @@ class ProductCatalogService
                 'supports_modifiers' => (bool) $product->supports_modifiers,
                 'requires_modifier_selection' => (bool) $product->requires_modifier_selection,
                 'sold_qty' => (int) ($soldQtyByProduct[$product->id] ?? 0),
+                'rating_avg' => round($ratingData[0], 1),
+                'rating_count' => (int) ($ratingData[1] ?? 0),
                 'effective_price' => (int) ($pricing['effective_unit_price'] ?? $product->sell_price),
                 'promo_discount_total' => (int) ($pricing['line_discount_total'] ?? 0),
                 'category' => $product->category ? [
