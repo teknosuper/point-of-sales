@@ -156,14 +156,22 @@ class PublicTableOrderController extends Controller
         // Daftar tenant aktif untuk filter dapur — pakai aturan baku:
         // closed_reason = null (buka) | 'store_closed' | 'outside_hours'
         $tenantOutlets = \App\Models\Outlet::activeTenantOutletsWithProducts()
-            ->map(fn ($t) => [
-                'id'            => $t->id,
-                'name'          => $t->name,
-                'sort_order'    => $t->sort_order,
-                'closed_reason' => $this->productCatalogService->resolveOutletClosedReason($t->id),
-                'open_time'     => (string) \App\Models\Setting::get('daily_store_open_time', '08:00', $t->id),
-                'close_time'    => (string) \App\Models\Setting::get('daily_store_close_time', '22:00', $t->id),
-            ])
+            ->map(function ($t) {
+                $closedReason = $this->productCatalogService->resolveOutletClosedReason($t->id);
+                $hours = $this->storeHoursService->resolveTimeBased($t);
+
+                return [
+                    'id'                 => $t->id,
+                    'name'               => $t->name,
+                    'sort_order'         => (int) $t->sort_order,
+                    'closed_reason'      => $closedReason,
+                    'open_time'          => $hours['open_time'],
+                    'close_time'         => $hours['close_time'],
+                    'current_time'       => $hours['current_time'],
+                    'minutes_until_open' => $hours['minutes_until_open'],
+                    'next_open_label'    => $hours['next_open_label'],
+                ];
+            })
             ->values();
 
         // storeHours via service terpusat — konsisten dengan daftar menu dan POS

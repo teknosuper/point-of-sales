@@ -495,14 +495,21 @@ class TransactionController extends Controller
                 ->tenant()
                 ->ordered()
                 ->get(['id', 'name', 'code', 'sort_order'])
-                ->map(fn (Outlet $tenantOutlet) => [
-                    'id' => $tenantOutlet->id,
-                    'name' => $tenantOutlet->name,
-                    'code' => $tenantOutlet->code,
-                    'open_time'  => (string) \App\Models\Setting::get('daily_store_open_time', '08:00', $tenantOutlet->id),
-                    'close_time' => (string) \App\Models\Setting::get('daily_store_close_time', '22:00', $tenantOutlet->id),
-                    'closed_reason' => $this->productCatalogService->resolveOutletClosedReason($tenantOutlet->id),
-                ])
+                ->map(function (Outlet $tenantOutlet) {
+                    $hours = $this->storeHoursService->resolveTimeBased($tenantOutlet);
+
+                    return [
+                        'id' => $tenantOutlet->id,
+                        'name' => $tenantOutlet->name,
+                        'code' => $tenantOutlet->code,
+                        'open_time'  => (string) \App\Models\Setting::get('daily_store_open_time', '08:00', $tenantOutlet->id),
+                        'close_time' => (string) \App\Models\Setting::get('daily_store_close_time', '22:00', $tenantOutlet->id),
+                        'closed_reason' => $this->productCatalogService->resolveOutletClosedReason($tenantOutlet->id),
+                        'current_time'       => $hours['current_time'],
+                        'minutes_until_open' => $hours['minutes_until_open'],
+                        'next_open_label'    => $hours['next_open_label'],
+                    ];
+                })
                 ->values(),
         ]);
     }
@@ -576,14 +583,21 @@ class TransactionController extends Controller
                     ->tenant()
                     ->ordered()
                     ->get(['id', 'name', 'code'])
-                    ->map(fn (Outlet $tenantOutlet) => [
-                        'id' => $tenantOutlet->id,
-                        'name' => $tenantOutlet->name,
-                        'code' => $tenantOutlet->code,
-                        'open_time'  => (string) \App\Models\Setting::get('daily_store_open_time', '08:00', $tenantOutlet->id),
-                        'close_time' => (string) \App\Models\Setting::get('daily_store_close_time', '22:00', $tenantOutlet->id),
-                        'closed_reason' => $this->productCatalogService->resolveOutletClosedReason($tenantOutlet->id),
-                    ])
+                    ->map(function (Outlet $tenantOutlet) {
+                        $hours = $this->storeHoursService->resolveTimeBased($tenantOutlet);
+
+                        return [
+                            'id' => $tenantOutlet->id,
+                            'name' => $tenantOutlet->name,
+                            'code' => $tenantOutlet->code,
+                            'open_time'  => (string) \App\Models\Setting::get('daily_store_open_time', '08:00', $tenantOutlet->id),
+                            'close_time' => (string) \App\Models\Setting::get('daily_store_close_time', '22:00', $tenantOutlet->id),
+                            'closed_reason' => $this->productCatalogService->resolveOutletClosedReason($tenantOutlet->id),
+                            'current_time'       => $hours['current_time'],
+                            'minutes_until_open' => $hours['minutes_until_open'],
+                            'next_open_label'    => $hours['next_open_label'],
+                        ];
+                    })
                     ->values(),
                 'kitchenStations' => KitchenStation::query()
                     ->when($outlet, fn ($query) => $query->where('outlet_id', $outlet->id))

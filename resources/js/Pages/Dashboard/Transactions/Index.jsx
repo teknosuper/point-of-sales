@@ -5619,6 +5619,16 @@ export default function Index({
         [tenantOutlets]
     );
 
+    // Map tenant ID → countdown teks untuk badge produk yang buka nanti
+    const tenantOpenCountdownMap = useMemo(
+        () => Object.fromEntries(
+            tenantOutlets
+                .filter((t) => t.next_open_label)
+                .map((t) => [Number(t.id), String(t.next_open_label)])
+        ),
+        [tenantOutlets]
+    );
+
     // Filter products including out of stock
     const allProducts = useMemo(() => {
         const base = shouldUseRemoteProductSearch
@@ -5643,8 +5653,12 @@ export default function Index({
             const tenantId = product.tenant_outlet?.id ?? product.tenant_outlet_id ?? null;
             if (!tenantId) return product;
             const hours = tenantHoursMap[Number(tenantId)] ?? null;
-            if (!hours) return product;
-            return { ...product, tenant_store_hours: hours };
+            const countdown = tenantOpenCountdownMap[Number(tenantId)] ?? null;
+            return {
+                ...product,
+                ...(hours ? { tenant_store_hours: hours } : {}),
+                ...(countdown ? { tenant_open_countdown: countdown } : {}),
+            };
         });
     }, [
         normalizedSearchQuery,

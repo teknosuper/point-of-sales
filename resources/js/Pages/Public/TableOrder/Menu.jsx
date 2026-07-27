@@ -2172,26 +2172,27 @@ export default function Menu({
                                          if (!tid) return true;
                                          return tenantOutlets.some((t) => Number(t.id) === Number(tid));
                                      })
-                                     // Inject store_closed_reason dan tenant_store_hours dari closed_reason tenant (aturan baku)
-                                     .map((p) => {
-                                         const tid = p.tenant_outlet?.id ?? p.tenant_outlet_id ?? null;
-                                         if (!tid) return p;
-                                         const tenant = tenantOutlets.find((t) => Number(t.id) === Number(tid));
-                                         const hours = tenant?.open_time && tenant?.close_time
-                                             ? { open_time: tenant.open_time, close_time: tenant.close_time }
-                                             : null;
-                                         if (tenant?.closed_reason) {
-                                             return {
-                                                 ...p,
-                                                 store_closed_reason: tenant.closed_reason,
-                                                 ...(hours ? { tenant_store_hours: hours } : {}),
-                                             };
-                                         }
-                                         if (hours) {
-                                             return { ...p, tenant_store_hours: hours };
-                                         }
-                                         return p;
-                                     })
+                                      // Inject store_closed_reason, tenant_store_hours, dan countdown buka
+                                      .map((p) => {
+                                          const tid = p.tenant_outlet?.id ?? p.tenant_outlet_id ?? null;
+                                          if (!tid) return p;
+                                          const tenant = tenantOutlets.find((t) => Number(t.id) === Number(tid));
+                                          const hours = tenant?.open_time && tenant?.close_time
+                                              ? { open_time: tenant.open_time, close_time: tenant.close_time }
+                                              : null;
+                                          if (tenant?.closed_reason) {
+                                              return {
+                                                  ...p,
+                                                  store_closed_reason: tenant.closed_reason,
+                                                  ...(hours ? { tenant_store_hours: hours } : {}),
+                                                  ...(tenant.next_open_label ? { tenant_open_countdown: tenant.next_open_label } : {}),
+                                              };
+                                          }
+                                          if (hours) {
+                                              return { ...p, tenant_store_hours: hours };
+                                          }
+                                          return p;
+                                      })
                                  : products}
                               mainCategories={mainCategories.length > 0 ? mainCategories : categories.filter((c) => !c.parent_id)}
                               categories={categories}

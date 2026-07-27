@@ -97,6 +97,10 @@ const ProductCard = memo(function ProductCard({
           : null;
     const hasStock = product.stock > 0 && !isStoreClosed;
     const lowStock = product.stock > 0 && product.stock <= 5 && !isStoreClosed;
+    const tenantOpenCountdown =
+        outsideHours && product.tenant_open_countdown
+            ? String(product.tenant_open_countdown)
+            : null;
     const promoBadge = product.pricing_badge;
     const basePrice = Number(promoBadge?.base_price || product.sell_price || 0);
     const effectivePrice = Number(
@@ -240,11 +244,18 @@ const ProductCard = memo(function ProductCard({
                     {/* Out of stock overlay */}
                     {!hasStock && (
                         <div className="absolute inset-0 flex items-center justify-center bg-slate-900/70 backdrop-blur-sm">
-                            <span className={`rounded-full px-4 py-2 text-xs font-bold uppercase tracking-wider text-white shadow-xl ${
-                                isStoreClosed ? "bg-amber-600" : "bg-danger-600"
-                            }`}>
-                                {storeClosedLabel ?? "Habis"}
-                            </span>
+                            <div className="flex flex-col items-center text-center">
+                                <span className={`rounded-xl px-4 py-2 text-xs font-bold uppercase tracking-wider text-white shadow-xl ${
+                                    isStoreClosed ? "bg-amber-600" : "bg-danger-600"
+                                }`}>
+                                    {storeClosedLabel ?? "Habis"}
+                                </span>
+                                {tenantOpenCountdown && (
+                                    <span className="mt-1.5 rounded-full bg-white/90 px-3 py-1 text-[10px] font-semibold text-slate-800 shadow-lg">
+                                        Buka dalam {tenantOpenCountdown}
+                                    </span>
+                                )}
+                            </div>
                         </div>
                     )}
 

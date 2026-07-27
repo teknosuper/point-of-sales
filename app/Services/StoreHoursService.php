@@ -124,4 +124,98 @@ class StoreHoursService
             'next_open_label' => $base['next_open_label'],
         ];
     }
+
+    /**
+     * Resolve time-based only (tanpa pengecekan active shift).
+     * Dipakai untuk tenant outlet pada halaman self-order, di mana shift kasir tidak relevan.
+     *
+     * @return array{
+     *   is_permanently_closed: bool,
+     *   is_open: bool,
+     *   open_time: string,
+     *   close_time: string,
+     *   notes: string,
+     *   current_time: string,
+     *   minutes_until_open: int|null,
+     *   next_open_label: string|null,
+     * }
+     */
+    public function resolveTimeBased(?Outlet $outlet): array
+    {
+        $outletId = $outlet?->id;
+        $isPermanentlyClosed = $outlet ? ! (bool) $outlet->is_active : false;
+        $isManuallyOpen = Setting::getBool('daily_store_open', true, $outletId);
+        $openTime = (string) Setting::get('daily_store_open_time', '08:00', $outletId);
+        $closeTime = (string) Setting::get('daily_store_close_time', '22:00', $outletId);
+        $notes = (string) Setting::get('daily_store_notes', '', $outletId);
+
+        $now = Carbon::now(ReportTimezone::displayTimezone());
+        $currentTime = $now->format('H:i');
+
+        $minutesUntilOpen = null;
+        $nextOpenLabel = null;
+
+        if ($isPermanentlyClosed) {
+            return [
+                'is_permanently_closed' => true,
+                'is_open' => false,
+                'open_time' => $openTime,
+                'close_time' => $closeTime,
+                'notes' => $notes,
+                'current_time' => $currentTime,
+                'minutes_until_open' => null,
+                'next_open_label' => null,
+            ];
+        }
+
+        $isWithinHours = true;
+        if (filled($openTime) && filled($closeTime)) {
+            $isWithinHours = $currentTime >= $openTime && $currentTime <= $closeTime;
+        }
+
+        // Countdown untuk tenant: ditampilkan saat manual tutup ATAU di luar jam operasional
+        $shouldShowCountdown = !$isManuallyOpen || !$isWithinHours;
+
+        if ($shouldShowCountdown && filled($openTime)) {
+            try {
+                $displayTz = ReportTimezone::displayTimezone();
+                $openCarbon = Carbon::createFromFormat('H:i', $openTime, $displayTz);
+                if ($openCarbon !== false) {
+                    $openCarbon->setDate($now->year, $now->month, $now->day);
+
+                    if ($now->greaterThanOrEqualTo($openCarbon)) {
+                        $openCarbon->addDay();
+                    }
+
+                    $diffMinutes = (int) $now->diffInMinutes($openCarbon);
+                    $minutesUntilOpen = $diffMinutes;
+
+                    if ($diffMinutes < 60) {
+                        $nextOpenLabel = "{$diffMinutes} menit lagi";
+                    } elseif ($diffMinutes < 1440) {
+                        $hours = intdiv($diffMinutes, 60);
+                        $mins = $diffMinutes % 60;
+                        $nextOpenLabel = $mins > 0
+                            ? "{$hours} jam {$mins} menit lagi"
+                            : "{$hours} jam lagi";
+                    } else {
+                        $nextOpenLabel = "Besok pukul {$openTime}";
+                    }
+                }
+            } catch (\Throwable) {
+                //
+            }
+        }
+
+        return [
+            'is_permanently_closed' => false,
+            'is_open' => $isManuallyOpen,
+            'open_time' => $openTime,
+            'close_time' => $closeTime,
+            'notes' => $notes,
+            'current_time' => $currentTime,
+            'minutes_until_open' => $minutesUntilOpen,
+            'next_open_label' => $nextOpenLabel,
+        ];
+    }
 }

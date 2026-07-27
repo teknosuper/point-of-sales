@@ -94,6 +94,7 @@ class PublicMenuController extends Controller
                 // Pakai ProductCatalogService::resolveOutletClosedReason() sebagai sumber kebenaran.
                 // Prioritas: store_closed (flag manual) > outside_hours (time-based) > null (buka).
                 $closedReason = $this->productCatalogService->resolveOutletClosedReason($tenant->id);
+                $hours = $this->storeHoursService->resolveTimeBased($tenant);
                 return [
                     'id'           => $tenant->id,
                     'name'         => $tenant->name,
@@ -103,6 +104,9 @@ class PublicMenuController extends Controller
                     'has_active_shift' => true, // tidak relevan untuk tenant
                     'open_time'    => (string) Setting::get('daily_store_open_time', '08:00', $tenant->id),
                     'close_time'   => (string) Setting::get('daily_store_close_time', '22:00', $tenant->id),
+                    'current_time'       => $hours['current_time'],
+                    'minutes_until_open' => $hours['minutes_until_open'],
+                    'next_open_label'    => $hours['next_open_label'],
                 ];
             })
             ->values();
