@@ -207,9 +207,32 @@ export default function Index({
     });
     const [tenantBreakdownModalOpen, setTenantBreakdownModalOpen] =
         useState(false);
+    const [unallocatedModalOpen, setUnallocatedModalOpen] = useState(false);
+    const [returnsModalOpen, setReturnsModalOpen] = useState(false);
     const [approvalForm, setApprovalForm] = useState(defaultApprovalForm);
     const [rejectionReason, setRejectionReason] = useState("");
     const [rejectionPassword, setRejectionPassword] = useState("");
+    const [repairingUnallocated, setRepairingUnallocated] = useState(false);
+    const [unallocatedRows, setUnallocatedRows] = useState([]);
+    const [unallocatedLoading, setUnallocatedLoading] = useState(false);
+    const [unallocatedFilters, setUnallocatedFilters] = useState({
+        q: "",
+        date_from: "",
+        date_to: "",
+        payment_method: "",
+        payment_status: "",
+    });
+    const [unallocatedPage, setUnallocatedPage] = useState(1);
+    const [unallocatedLastPage, setUnallocatedLastPage] = useState(1);
+    const [returnsRows, setReturnsRows] = useState([]);
+    const [returnsLoading, setReturnsLoading] = useState(false);
+    const [returnsFilters, setReturnsFilters] = useState({
+        q: "",
+        date_from: "",
+        date_to: "",
+    });
+    const [returnsPage, setReturnsPage] = useState(1);
+    const [returnsLastPage, setReturnsLastPage] = useState(1);
 
     useEffect(() => {
         setFilterData({
@@ -257,6 +280,9 @@ export default function Index({
             ownerOverview?.completed_transactions_count ?? 0,
         pending_kitchen_transactions_count:
             ownerOverview?.pending_kitchen_transactions_count ?? 0,
+        unallocated_transactions_count:
+            ownerOverview?.unallocated_transactions_count ?? 0,
+        total_transactions_count: ownerOverview?.total_transactions_count ?? 0,
         completed_gross_sales_total:
             ownerOverview?.completed_gross_sales_total ?? 0,
         pending_kitchen_gross_sales_total:
@@ -495,6 +521,115 @@ export default function Index({
         });
     };
 
+    const repairUnallocated = () => {
+        if (repairingUnallocated) return;
+
+        setRepairingUnallocated(true);
+        router.post(
+            route("cashier-settlements.repair-unallocated"),
+            {},
+            {
+                preserveScroll: true,
+                onSuccess: () => {
+                    toast.success("Pembenaran alokasi tenant selesai.");
+                    setUnallocatedModalOpen(false);
+                },
+                onError: () => toast.error("Gagal memperbaiki alokasi tenant."),
+                onFinish: () => setRepairingUnallocated(false),
+            }
+        );
+    };
+
+    const openUnallocatedModal = () => {
+        setUnallocatedModalOpen(true);
+        setUnallocatedPage(1);
+        loadUnallocatedTransactions({ ...unallocatedFilters, page: 1 });
+    };
+
+    const loadUnallocatedTransactions = async (params = {}) => {
+        if (unallocatedLoading) return;
+        setUnallocatedLoading(true);
+        const searchParams = new URLSearchParams();
+        searchParams.set("page", String(params.page ?? unallocatedPage));
+        if (params.q !== undefined) searchParams.set("q", params.q);
+        if (params.date_from) searchParams.set("date_from", params.date_from);
+        if (params.date_to) searchParams.set("date_to", params.date_to);
+        if (params.payment_method) searchParams.set("payment_method", params.payment_method);
+        if (params.payment_status) searchParams.set("payment_status", params.payment_status);
+
+        try {
+            const response = await fetch(route("cashier-settlements.unallocated-transactions") + "?" + searchParams.toString(), {
+                headers: { "X-Requested-With": "XMLHttpRequest" },
+            });
+            const json = await response.json();
+            const data = Array.isArray(json?.data) ? json.data : [];
+            setUnallocatedRows(data);
+            setUnallocatedPage(json?.current_page ?? 1);
+            setUnallocatedLastPage(json?.last_page ?? 1);
+        } catch {
+            toast.error("Gagal memuat data tanpa alokasi.");
+        } finally {
+            setUnallocatedLoading(false);
+        }
+    };
+
+    const applyUnallocatedFilters = (event) => {
+        event.preventDefault();
+        setUnallocatedPage(1);
+        loadUnallocatedTransactions({ ...unallocatedFilters, page: 1 });
+    };
+
+    const resetUnallocatedFilters = () => {
+        const defaults = { q: "", date_from: "", date_to: "", payment_method: "", payment_status: "" };
+        setUnallocatedFilters(defaults);
+        setUnallocatedPage(1);
+        loadUnallocatedTransactions({ ...defaults, page: 1 });
+    };
+
+    const openReturnsModal = () => {
+        setReturnsModalOpen(true);
+        setReturnsPage(1);
+        loadReturnTransactions({ ...returnsFilters, page: 1 });
+    };
+
+    const loadReturnTransactions = async (params = {}) => {
+        if (returnsLoading) return;
+        setReturnsLoading(true);
+        const searchParams = new URLSearchParams();
+        searchParams.set("page", String(params.page ?? returnsPage));
+        if (params.q !== undefined) searchParams.set("q", params.q);
+        if (params.date_from) searchParams.set("date_from", params.date_from);
+        if (params.date_to) searchParams.set("date_to", params.date_to);
+
+        try {
+            const response = await fetch(route("cashier-settlements.return-transactions") + "?" + searchParams.toString(), {
+                headers: { "X-Requested-With": "XMLHttpRequest" },
+            });
+            const json = await response.json();
+            const data = Array.isArray(json?.data) ? json.data : [];
+            setReturnsRows(data);
+            setReturnsPage(json?.current_page ?? 1);
+            setReturnsLastPage(json?.last_page ?? 1);
+        } catch {
+            toast.error("Gagal memuat data retur.");
+        } finally {
+            setReturnsLoading(false);
+        }
+    };
+
+    const applyReturnsFilters = (event) => {
+        event.preventDefault();
+        setReturnsPage(1);
+        loadReturnTransactions({ ...returnsFilters, page: 1 });
+    };
+
+    const resetReturnsFilters = () => {
+        const defaults = { q: "", date_from: "", date_to: "" };
+        setReturnsFilters(defaults);
+        setReturnsPage(1);
+        loadReturnTransactions({ ...defaults, page: 1 });
+    };
+
     return (
         <>
             <Head title={isTenantRequestMode ? "Penarikan Dana Tenant" : "Approval Penarikan Tenant"} />
@@ -660,10 +795,31 @@ export default function Index({
                         </div>
                         {!isTenantRequestMode && ownerOverview ? (
                             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                                <SummaryCard title="Transaksi Selesai" value={String(safeOwnerOverview.completed_transactions_count)} description={`Transaksi delivered yang sudah masuk settlement tenant • Retur ${safeOwnerOverview.returns_count}`} icon={<IconReceipt2 size={20} />} tone="slate" />
-                                <SummaryCard title="Transaksi Belum Diselesaikan Dapur" value={String(safeOwnerOverview.pending_kitchen_transactions_count)} description="Transaksi tenant yang masih belum berstatus delivered di dapur" icon={<IconClockHour4 size={20} />} tone="amber" />
-                                <SummaryCard title="Penghasilan Selesai Dapur" value={formatCurrency(safeOwnerOverview.completed_gross_sales_total)} description={`Transaksi delivered tenant setelah koreksi retur • Belum selesai ${formatCurrency(safeOwnerOverview.pending_kitchen_gross_sales_total)}`} icon={<IconUserDollar size={20} />} tone="blue" />
-                                <SummaryCard title="Markup Owner" value={formatCurrency(safeOwnerOverview.owner_markup_total)} description="Hak owner dari markup produk dan topping tenant" icon={<IconCashBanknote size={20} />} tone="emerald" />
+                                <SummaryCard title="Total Omzet" value={formatCurrency((safeOwnerOverview.completed_gross_sales_total || 0) + (safeOwnerOverview.pending_kitchen_gross_sales_total || 0))} description={`Selesai ${formatCurrency(safeOwnerOverview.completed_gross_sales_total)} • Belum selesai ${formatCurrency(safeOwnerOverview.pending_kitchen_gross_sales_total)}`} icon={<IconCashBanknote size={20} />} tone="slate" />
+                                <SummaryCard title="Total Transaksi" value={String(safeOwnerOverview.total_transactions_count)} description={`Semua transaksi tenant & outlet utama • Selesai ${safeOwnerOverview.completed_transactions_count} • Belum selesai ${safeOwnerOverview.pending_kitchen_transactions_count} • Tanpa alokasi ${safeOwnerOverview.unallocated_transactions_count} • Retur ${safeOwnerOverview.returns_count}`} icon={<IconReceipt2 size={20} />} tone="blue" />
+                                <SummaryCard title="Markup Owner" value={formatCurrency(safeOwnerOverview.owner_markup_total)} description="Hak owner dari markup produk dan topping tenant" icon={<IconUserDollar size={20} />} tone="emerald" />
+                                <button
+                                    type="button"
+                                    onClick={openReturnsModal}
+                                    className="text-left"
+                                >
+                                    <SummaryCard title="Retur" value={String(safeOwnerOverview.returns_count)} description="Retur yang mengurangi penghasilan tenant • Klik untuk detail" icon={<IconX size={20} />} tone="rose" />
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={openUnallocatedModal}
+                                    className="text-left"
+                                >
+                                    <SummaryCard title="Tanpa Alokasi" value={String(safeOwnerOverview.unallocated_transactions_count)} description="Transaksi tanpa alokasi tenant • Klik untuk detail" icon={<IconInfoCircle size={20} />} tone="amber" />
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={repairUnallocated}
+                                    disabled={repairingUnallocated}
+                                    className="text-left"
+                                >
+                                    <SummaryCard title="Perbaiki Alokasi" value={repairingUnallocated ? "..." : "Scan"} description={repairingUnallocated ? "Memperbaiki alokasi tenant..." : "Perbaiki transaksi tanpa alokasi tenant"} icon={<IconCheck size={20} />} tone="emerald" />
+                                </button>
                                 <button
                                     type="button"
                                     onClick={() => setTenantBreakdownModalOpen(true)}
@@ -1145,9 +1301,9 @@ export default function Index({
                         <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-10 text-center text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
                             {isTenantRequestMode
                                 ? "Belum ada pengajuan penarikan dana tenant."
-                                : "Belum ada pengajuan setoran kasir."}
-                        </div>
-                    )}
+                                 : "Belum ada pengajuan setoran kasir."}
+                             </div>
+                                         )}
                 </div>
                 ) : null}
 
@@ -1601,10 +1757,10 @@ export default function Index({
                                                                                     )}
                                                                                     <span className="text-emerald-600 dark:text-emerald-400">)</span>
                                                                                 </span>
-                                                                            )}
-                                                                        </div>
-                                                                    ))}
-                                                                </div>
+                                                                                     )}
+                                                                                 </div>
+                                                                              ))}
+                                                                          </div>
                                                             ) : null}
                                                         </td>
                                                         <td className="px-4 py-3 text-right text-slate-700 dark:text-slate-300">
@@ -1865,7 +2021,295 @@ export default function Index({
                     </div>
                 ) : null}
 
-                {approvalModal.open ? (
+                {unallocatedModalOpen ? (
+                    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/55 p-4">
+                        <div className="flex min-h-full items-center justify-center py-2">
+                            <div className="flex w-full max-w-6xl max-h-[calc(100vh-2rem)] flex-col overflow-hidden rounded-3xl bg-white shadow-2xl dark:bg-slate-900">
+                                <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-6 py-5 dark:border-slate-800">
+                                    <div>
+                                        <h2 className="text-xl font-semibold text-slate-900 dark:text-white">
+                                            Transaksi Tanpa Alokasi
+                                        </h2>
+                                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                            Transaksi yang belum memiliki alokasi tenant.
+                                        </p>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => setUnallocatedModalOpen(false)}
+                                        className="rounded-xl border border-slate-200 px-3 py-2 text-sm dark:border-slate-700"
+                                    >
+                                        Tutup
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={repairUnallocated}
+                                        disabled={repairingUnallocated}
+                                        className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50 dark:bg-emerald-500 dark:hover:bg-emerald-600"
+                                    >
+                                        {repairingUnallocated ? "Memperbaiki..." : "Perbaiki Alokasi"}
+                                    </button>
+                                </div>
+                                    <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+                                        {unallocatedLoading && unallocatedRows.length === 0 ? (
+                                            <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900">
+                                                Memuat data tanpa alokasi...
+                                            </div>
+                                        ) : (
+                                            <>
+                                                <form onSubmit={applyUnallocatedFilters} className="mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+                                                    <input
+                                                        type="text"
+                                                        value={unallocatedFilters.q}
+                                                        onChange={(event) => setUnallocatedFilters((prev) => ({ ...prev, q: event.target.value }))}
+                                                        placeholder="Cari invoice / pelanggan"
+                                                        className="h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs dark:border-slate-700 dark:bg-slate-800"
+                                                    />
+                                                    <input
+                                                        type="date"
+                                                        value={unallocatedFilters.date_from}
+                                                        onChange={(event) => setUnallocatedFilters((prev) => ({ ...prev, date_from: event.target.value }))}
+                                                        className="h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs dark:border-slate-700 dark:bg-slate-800"
+                                                    />
+                                                    <input
+                                                        type="date"
+                                                        value={unallocatedFilters.date_to}
+                                                        onChange={(event) => setUnallocatedFilters((prev) => ({ ...prev, date_to: event.target.value }))}
+                                                        className="h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs dark:border-slate-700 dark:bg-slate-800"
+                                                    />
+                                                    <select
+                                                        value={unallocatedFilters.payment_method}
+                                                        onChange={(event) => setUnallocatedFilters((prev) => ({ ...prev, payment_method: event.target.value }))}
+                                                        className="h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs dark:border-slate-700 dark:bg-slate-800"
+                                                    >
+                                                        <option value="">Semua metode</option>
+                                                        <option value="cash">Tunai</option>
+                                                        <option value="qris">QRIS</option>
+                                                        <option value="transfer">Transfer</option>
+                                                        <option value="card">Kartu</option>
+                                                        <option value="midtrans">Midtrans</option>
+                                                        <option value="xendit">Xendit</option>
+                                                    </select>
+                                                    <select
+                                                        value={unallocatedFilters.payment_status}
+                                                        onChange={(event) => setUnallocatedFilters((prev) => ({ ...prev, payment_status: event.target.value }))}
+                                                        className="h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs dark:border-slate-700 dark:bg-slate-800"
+                                                    >
+                                                        <option value="">Semua status</option>
+                                                        <option value="pending">Pending</option>
+                                                        <option value="paid">Paid</option>
+                                                    </select>
+                                                    <div className="flex gap-2">
+                                                        <button type="submit" className="h-10 rounded-xl bg-primary-600 px-3 text-xs font-semibold text-white">Terapkan</button>
+                                                        <button type="button" onClick={resetUnallocatedFilters} className="h-10 rounded-xl border border-slate-200 px-3 text-xs font-medium text-slate-600 dark:border-slate-700 dark:text-slate-300">Reset</button>
+                                                    </div>
+                                                </form>
+
+                                                <div className="mb-4 grid gap-3 md:grid-cols-4">
+                                                    <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-800/60">
+                                                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                                            Total Transaksi Tanpa Alokasi
+                                                        </p>
+                                                        <p className="mt-2 text-lg font-bold text-slate-900 dark:text-white">
+                                                            {Number(safeOwnerOverview.unallocated_transactions_count ?? 0).toLocaleString("id-ID")}
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                                <div className="overflow-x-auto">
+                                                <table className="w-full min-w-[900px] text-sm">
+                                                    <thead>
+                                                        <tr className="border-b border-slate-100 dark:border-slate-800">
+                                                            <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Invoice</th>
+                                                            <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Pelanggan</th>
+                                                            <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Total</th>
+                                                            <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Pembayaran</th>
+                                                            <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Metode</th>
+                                                            <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Dibuat</th>
+                                                            <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Alasan</th>
+                                                            <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Tenant Detail</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                                        {unallocatedRows.map((row) => (
+                                                            <tr key={row.transaction_id}>
+                                                                <td className="px-4 py-3 text-left text-slate-700 dark:text-slate-300">{row.invoice || "-"}</td>
+                                                                <td className="px-4 py-3 text-left text-slate-700 dark:text-slate-300">{row.customer_name || "-"}</td>
+                                                                <td className="px-4 py-3 text-right text-slate-700 dark:text-slate-300">{formatCurrency(row.grand_total || 0)}</td>
+                                                                <td className="px-4 py-3 text-left text-slate-700 dark:text-slate-300">{row.payment_status || "-"}</td>
+                                                                <td className="px-4 py-3 text-left text-slate-700 dark:text-slate-300">{row.payment_method || "-"}</td>
+                                                                <td className="px-4 py-3 text-left text-slate-700 dark:text-slate-300">{row.created_at || "-"}</td>
+                                                                         <td className="px-4 py-3 text-left text-slate-700 dark:text-slate-300">{row.reason || "-"}</td>
+                                                                         {row.detail_tenant_ids && row.detail_tenant_ids.length > 0 ? (
+                                                                             <td className="px-4 py-3 text-left text-slate-700 dark:text-slate-300">{row.detail_tenant_ids.join(', ')}</td>
+                                                                         ) : (
+                                                                             <td className="px-4 py-3 text-left text-slate-500">-</td>
+                                                                         )}
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                                <div className="mt-4 space-y-2">
+                                                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Daftar Produk</p>
+                                                    {unallocatedRows.map((row) => (
+                                                        <div key={row.transaction_id} className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
+                                                            <div className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+                                                                {row.invoice || '-'}
+                                                            </div>
+                                                            <div className="mt-2 text-xs text-slate-600 dark:text-slate-300">
+                                                                {(row.products || []).length === 0 ? (
+                                                                    <span className="text-slate-400">Tidak ada detail produk</span>
+                                                                ) : (
+                                                                    <ul className="space-y-1">
+                                                                        {(row.products || []).map((product, idx) => (
+                                                                            <li key={idx} className="flex flex-wrap items-center gap-2">
+                                                                                <span className="font-medium text-slate-700 dark:text-slate-200">{product.product_name}</span>
+                                                                                <span className="text-slate-500">x{product.qty}</span>
+                                                                                <span className="text-slate-500">{formatCurrency(product.unit_price || 0)}</span>
+                                                                                {product.tenant_outlet_id ? (
+                                                                                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">tenant {product.tenant_outlet_id}</span>
+                                                                                ) : (
+                                                                                    <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-semibold text-rose-600 dark:bg-rose-900/40 dark:text-rose-300">tanpa tenant</span>
+                                                                                )}
+                                                                            </li>
+                                                                        ))}
+                                                                    </ul>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                            </>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                 ) : null}
+
+                 {returnsModalOpen ? (
+                     <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/55 p-4">
+                         <div className="flex min-h-full items-center justify-center py-2">
+                             <div className="flex w-full max-w-6xl max-h-[calc(100vh-2rem)] flex-col overflow-hidden rounded-3xl bg-white shadow-2xl dark:bg-slate-900">
+                                 <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-6 py-5 dark:border-slate-800">
+                                     <div>
+                                         <h2 className="text-xl font-semibold text-slate-900 dark:text-white">
+                                             Detail Retur
+                                         </h2>
+                                         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                             Retur yang mengurangi penghasilan tenant.
+                                         </p>
+                                     </div>
+                                     <button
+                                         type="button"
+                                         onClick={() => setReturnsModalOpen(false)}
+                                         className="rounded-xl border border-slate-200 px-3 py-2 text-sm dark:border-slate-700"
+                                     >
+                                         Tutup
+                                     </button>
+                                 </div>
+                                 <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+                                     {returnsLoading && returnsRows.length === 0 ? (
+                                         <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900">
+                                             Memuat data retur...
+                                         </div>
+                                     ) : (
+                                         <>
+                                             <form onSubmit={applyReturnsFilters} className="mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+                                                 <input
+                                                     type="text"
+                                                     value={returnsFilters.q}
+                                                     onChange={(event) => setReturnsFilters((prev) => ({ ...prev, q: event.target.value }))}
+                                                     placeholder="Cari kode / invoice / pelanggan"
+                                                     className="h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs dark:border-slate-700 dark:bg-slate-800"
+                                                 />
+                                                 <input
+                                                     type="date"
+                                                     value={returnsFilters.date_from}
+                                                     onChange={(event) => setReturnsFilters((prev) => ({ ...prev, date_from: event.target.value }))}
+                                                     className="h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs dark:border-slate-700 dark:bg-slate-800"
+                                                 />
+                                                 <input
+                                                     type="date"
+                                                     value={returnsFilters.date_to}
+                                                     onChange={(event) => setReturnsFilters((prev) => ({ ...prev, date_to: event.target.value }))}
+                                                     className="h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs dark:border-slate-700 dark:bg-slate-800"
+                                                 />
+                                                 <div className="xl:col-span-3 flex gap-2">
+                                                     <button type="submit" className="h-10 rounded-xl bg-primary-600 px-3 text-xs font-semibold text-white">Terapkan</button>
+                                                     <button type="button" onClick={resetReturnsFilters} className="h-10 rounded-xl border border-slate-200 px-3 text-xs font-medium text-slate-600 dark:border-slate-700 dark:text-slate-300">Reset</button>
+                                                 </div>
+                                             </form>
+
+                                             {returnsRows.length === 0 ? (
+                                                 <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-10 text-center text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
+                                                     Tidak ada data retur untuk filter ini.
+                                                 </div>
+                                             ) : (
+                                                 <div className="space-y-4">
+                                                     <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
+                                                         <table className="w-full min-w-[900px] text-sm">
+                                                             <thead className="bg-slate-50 dark:bg-slate-950/40">
+                                                                 <tr className="border-b border-slate-100 dark:border-slate-800">
+                                                                     <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Kode Retur</th>
+                                                                     <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Invoice</th>
+                                                                     <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Pelanggan</th>
+                                                                     <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Tgl Retur</th>
+                                                                     <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Qty</th>
+                                                                     <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Total Nilai</th>
+                                                                     <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Tenant</th>
+                                                                 </tr>
+                                                             </thead>
+                                                             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                                                 {returnsRows.map((row) => (
+                                                                     <tr key={`${row.sales_return_id}-${row.transaction_id}-${row.product_name}`}>
+                                                                         <td className="px-4 py-3 text-left text-slate-700 dark:text-slate-300">{row.code || '-'}</td>
+                                                                         <td className="px-4 py-3 text-left text-slate-700 dark:text-slate-300">{row.invoice || '-'}</td>
+                                                                         <td className="px-4 py-3 text-left text-slate-700 dark:text-slate-300">{row.customer_name || '-'}</td>
+                                                                         <td className="px-4 py-3 text-left text-slate-700 dark:text-slate-300">{row.completed_at || '-'}</td>
+                                                                         <td className="px-4 py-3 text-right text-slate-700 dark:text-slate-300">{row.qty_return || 0}</td>
+                                                                         <td className="px-4 py-3 text-right text-slate-700 dark:text-slate-300">{formatCurrency((row.customer_unit_price || 0) * (row.qty_return || 0))}</td>
+                                                                         <td className="px-4 py-3 text-left text-slate-700 dark:text-slate-300">{row.tenant_name || '-'}</td>
+                                                                     </tr>
+                                                                 ))}
+                                                             </tbody>
+                                                         </table>
+                                                     </div>
+
+                                                     <div className="flex items-center justify-between">
+                                                         <div className="text-xs text-slate-500 dark:text-slate-400">
+                                                             Halaman {returnsPage} dari {returnsLastPage}
+                                                         </div>
+                                                         <div className="flex gap-2">
+                                                             <button
+                                                                 type="button"
+                                                                 disabled={returnsPage <= 1}
+                                                                 onClick={() => loadReturnTransactions({ ...returnsFilters, page: returnsPage - 1 })}
+                                                                 className="h-9 rounded-xl border border-slate-200 px-3 text-xs font-medium text-slate-600 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-300"
+                                                             >
+                                                                 Sebelumnya
+                                                             </button>
+                                                             <button
+                                                                 type="button"
+                                                                 disabled={returnsPage >= returnsLastPage}
+                                                                 onClick={() => loadReturnTransactions({ ...returnsFilters, page: returnsPage + 1 })}
+                                                                 className="h-9 rounded-xl border border-slate-200 px-3 text-xs font-medium text-slate-600 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-300"
+                                                             >
+                                                                 Selanjutnya
+                                                             </button>
+                                                         </div>
+                                                     </div>
+                                                 </div>
+                                             )}
+                                         </>
+                                     )}
+                                 </div>
+                             </div>
+                         </div>
+                     </div>
+                 ) : null}
+
+                 {approvalModal.open ? (
                     <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/55 p-4">
                         <div className="flex min-h-full items-center justify-center py-2">
                             <div className="flex w-full max-w-2xl max-h-[calc(100vh-2rem)] flex-col overflow-hidden rounded-3xl bg-white shadow-2xl dark:bg-slate-900">

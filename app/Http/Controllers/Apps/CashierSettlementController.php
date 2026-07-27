@@ -9,11 +9,13 @@ use App\Models\Outlet;
 use App\Models\Product;
 use App\Models\SalesReturn;
 use App\Models\Setting;
+use App\Models\Transaction;
 use App\Models\TransactionTenantAllocation;
 use App\Models\TransactionTenantAllocationItem;
 use App\Models\User;
 use App\Services\AuditLogService;
 use App\Services\CashierShiftService;
+use App\Services\FoodcourtTenantAllocationService;
 use App\Services\ModifierMarkupService;
 use App\Services\OutletResolver;
 use App\Support\ReportTimezone;
@@ -83,13 +85,12 @@ class CashierSettlementController extends Controller
             ->withQueryString()
             ->through(fn (CashierSettlementRequest $settlement) => $this->transformSettlement($settlement));
 
-        $summaryQuery = (clone $query)->get();
         $summary = [
-            'pending_count' => $summaryQuery->where('status', CashierSettlementRequest::STATUS_PENDING)->count(),
-            'approved_count' => $summaryQuery->where('status', CashierSettlementRequest::STATUS_APPROVED)->count(),
-            'rejected_count' => $summaryQuery->where('status', CashierSettlementRequest::STATUS_REJECTED)->count(),
-            'requested_total' => (int) $summaryQuery->where('status', CashierSettlementRequest::STATUS_PENDING)->sum('requested_amount'),
-            'approved_total' => (int) $summaryQuery->where('status', CashierSettlementRequest::STATUS_APPROVED)->sum('approved_amount'),
+            'pending_count' => (clone $query)->where('status', CashierSettlementRequest::STATUS_PENDING)->count(),
+            'approved_count' => (clone $query)->where('status', CashierSettlementRequest::STATUS_APPROVED)->count(),
+            'rejected_count' => (clone $query)->where('status', CashierSettlementRequest::STATUS_REJECTED)->count(),
+            'requested_total' => (int) (clone $query)->where('status', CashierSettlementRequest::STATUS_PENDING)->sum('requested_amount'),
+            'approved_total' => (int) (clone $query)->where('status', CashierSettlementRequest::STATUS_APPROVED)->sum('approved_amount'),
         ];
 
         $cashierOptions = $canApprove
@@ -366,6 +367,289 @@ class CashierSettlementController extends Controller
         ]);
     }
 
+    public function repairUnallocated(Request $request): \Symfony\Component\HttpFoundation\Response
+    {
+        $user = $request->user();
+        abort_unless($user?->can('cashier-settlements-repair'), 403);
+
+        $outlet = $this->outletResolver->resolve($request, $user);
+        abort_if(! $outlet, 404, 'Outlet aktif tidak ditemukan.');
+
+        $visibleOutletIds = $this->resolveVisibleOutletIds($request, $outlet);
+        $tenantOutletIds = $this->resolveOwnerSettlementTenantOutletIds($outlet, $visibleOutletIds);
+
+        if ($tenantOutletIds->isEmpty()) {
+            return back()->with('success', 'Tidak ada tenant outlet dalam scope yang dapat diperbaiki.');
+        }
+
+        $allocationTransactionIds = TransactionTenantAllocation::query()
+            ->whereIn('tenant_outlet_id', $tenantOutletIds->all())
+            ->distinct('transaction_id')
+            ->pluck('transaction_id');
+
+        $repairableTransactions = Transaction::query()
+            ->with(['details'])
+            ->whereNotIn('id', $allocationTransactionIds)
+            ->whereHas('details', function (Builder $builder) use ($tenantOutletIds) {
+                $builder->whereIn('tenant_outlet_id', $tenantOutletIds->all());
+            })
+            ->limit(200)
+            ->get();
+
+        $repaired = 0;
+        foreach ($repairableTransactions as $transaction) {
+            try {
+                $this->foodcourtTenantAllocationService->rebuildForTransaction($transaction->fresh(['details']));
+                $repaired++;
+            } catch (\Throwable $exception) {
+                // Abort repair for individual transaction failures; continue with the next transaction.
+            }
+        }
+
+        return back()->with('success', "Pembenaran alokasi tenant selesai. {$repaired} transaksi berhasil diperbaiki.");
+    }
+
+    public function unallocatedTransactions(Request $request): \Symfony\Component\HttpFoundation\JsonResponse
+    {
+        $user = $request->user();
+        abort_unless($user?->can('cashier-settlements-access'), 403);
+
+        $outlet = $this->outletResolver->resolve($request, $user);
+        abort_if(! $outlet, 404, 'Outlet aktif tidak ditemukan.');
+
+        $visibleOutletIds = $this->resolveVisibleOutletIds($request, $outlet);
+        $tenantOutletIds = $this->resolveOwnerSettlementTenantOutletIds($outlet, $visibleOutletIds);
+
+        if ($tenantOutletIds->isEmpty()) {
+            return response()->json(['data' => []]);
+        }
+
+        $returnTransactionIds = SalesReturn::query()
+            ->where('status', 'completed')
+            ->whereHas('items.transactionDetail', fn (Builder $builder) => $builder->whereIn('tenant_outlet_id', $tenantOutletIds->all()))
+            ->pluck('transaction_id')
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        $allocationTransactionIds = TransactionTenantAllocation::query()
+            ->when(
+                (string) ($outlet->outlet_type ?? '') === 'main',
+                fn (Builder $builder) => $builder->where('outlet_id', (int) $outlet->id)
+            )
+            ->whereIn('tenant_outlet_id', $tenantOutletIds->all())
+            ->distinct('transaction_id')
+            ->pluck('transaction_id');
+
+        $tenantNames = Outlet::query()
+            ->whereIn('id', $tenantOutletIds->all())
+            ->get(['id', 'name', 'code'])
+            ->keyBy('id');
+
+        $filters = [
+            'q' => trim((string) $request->input('q', '')),
+            'date_from' => (string) $request->input('date_from', ''),
+            'date_to' => (string) $request->input('date_to', ''),
+            'payment_method' => (string) $request->input('payment_method', ''),
+            'payment_status' => (string) $request->input('payment_status', ''),
+        ];
+
+        $perPage = (int) $request->input('per_page', 15);
+        $perPage = in_array($perPage, [10, 15, 25, 50]) ? $perPage : 15;
+
+        $query = Transaction::query()
+            ->with(['details.product'])
+            ->when(
+                (string) ($outlet->outlet_type ?? '') === 'main',
+                fn (Builder $builder) => $builder->where('outlet_id', (int) $outlet->id)
+            )
+            ->when(
+                (string) ($outlet->outlet_type ?? '') === 'tenant',
+                fn (Builder $builder) => $builder->where('outlet_id', (int) $outlet->id)
+            )
+            ->when($filters['q'] !== '', function (Builder $builder) use ($filters) {
+                $builder->where(function (Builder $nested) use ($filters) {
+                    $nested
+                        ->where('invoice', 'like', '%'.$filters['q'].'%')
+                        ->orWhereHas('customer', fn (Builder $customerQuery) => $customerQuery->where('name', 'like', '%'.$filters['q'].'%'));
+                });
+            })
+            ->when($filters['payment_method'] !== '', fn (Builder $builder) => $builder->where('payment_method', $filters['payment_method']))
+            ->when($filters['payment_status'] !== '', fn (Builder $builder) => $builder->where('payment_status', $filters['payment_status']))
+            ->when($filters['date_from'] !== '', fn (Builder $builder) => $builder->whereDate('created_at', '>=', $filters['date_from']))
+            ->when($filters['date_to'] !== '', fn (Builder $builder) => $builder->whereDate('created_at', '<=', $filters['date_to']))
+            ->whereNotIn('id', $allocationTransactionIds)
+            ->whereNotIn('id', $returnTransactionIds)
+            ->orderByDesc('created_at');
+
+        $paginator = $query->paginate($perPage)->appends($request->except('page'));
+
+        $rows = $paginator->getCollection()->map(function ($transaction) use ($tenantOutletIds, $tenantNames) {
+            $details = $transaction->details ?? collect();
+            $reason = 'Tidak teralokasi';
+            $detailTenantIds = [];
+            $scopeTenantIds = $tenantOutletIds->values()->all();
+            $inScopeTenantIds = [];
+
+            if ($details->isNotEmpty()) {
+                $detailTenantIds = $details
+                    ->filter(fn ($detail) => (int) ($detail->tenant_outlet_id ?? 0) > 0)
+                    ->pluck('tenant_outlet_id')
+                    ->unique()
+                    ->values()
+                    ->all();
+
+                $inScopeTenantIds = $details
+                    ->filter(fn ($detail) => $tenantOutletIds->contains((int) ($detail->tenant_outlet_id ?? 0)))
+                    ->pluck('tenant_outlet_id')
+                    ->unique()
+                    ->values()
+                    ->all();
+            }
+
+            if ($details->isEmpty()) {
+                $reason = 'Tidak ada detail transaksi';
+            } elseif (empty($detailTenantIds)) {
+                $reason = 'Detail transaksi tanpa tenant_outlet_id';
+            } elseif (!empty($detailTenantIds) && empty($inScopeTenantIds)) {
+                $reason = 'Tenant pada detail tidak termasuk scope aktif: ' . implode(', ', $detailTenantIds);
+            } elseif (!empty($detailTenantIds) && !empty($inScopeTenantIds)) {
+                $reason = 'Tidak ada alokasi tenant untuk transaksi ini';
+            }
+
+            return [
+                'transaction_id' => (int) $transaction->id,
+                'invoice' => $transaction->invoice ?? '-',
+                'customer_name' => $transaction->customer?->name ?? '-',
+                'grand_total' => (int) ($transaction->grand_total ?? 0),
+                'payment_status' => $transaction->payment_status ?? '-',
+                'payment_method' => $transaction->payment_method ?? '-',
+                'created_at' => $transaction->created_at ? ReportTimezone::formatSourceDateTime($transaction->getRawOriginal('created_at'), 'd M H:i') : null,
+                'reason' => $reason,
+                'detail_tenant_ids' => $detailTenantIds,
+                'scope_tenant_ids' => $scopeTenantIds,
+                'products' => $details->map(fn ($detail) => [
+                    'product_name' => $detail->product?->title ?? 'Produk tidak ditemukan',
+                    'qty' => (int) ($detail->qty ?? 0),
+                    'unit_price' => (int) ($detail->unit_price ?? 0),
+                    'tenant_outlet_id' => (int) ($detail->tenant_outlet_id ?? 0),
+                ])->values()->all(),
+            ];
+        })->values()->all();
+
+        return response()->json([
+            'data' => $rows,
+            'current_page' => $paginator->currentPage(),
+            'last_page' => $paginator->lastPage(),
+            'per_page' => $paginator->perPage(),
+            'total' => $paginator->total(),
+        ]);
+    }
+
+    public function returnTransactions(Request $request): \Symfony\Component\HttpFoundation\JsonResponse
+    {
+        $user = $request->user();
+        abort_unless($user?->can('cashier-settlements-access'), 403);
+
+        $outlet = $this->outletResolver->resolve($request, $user);
+        abort_if(! $outlet, 404, 'Outlet aktif tidak ditemukan.');
+
+        $visibleOutletIds = $this->resolveVisibleOutletIds($request, $outlet);
+        $tenantOutletIds = $this->resolveOwnerSettlementTenantOutletIds($outlet, $visibleOutletIds);
+
+        if ($tenantOutletIds->isEmpty()) {
+            return response()->json(['data' => []]);
+        }
+
+        $tenantNames = Outlet::query()
+            ->whereIn('id', $tenantOutletIds->all())
+            ->get(['id', 'name', 'code'])
+            ->keyBy('id');
+
+        $filters = [
+            'q' => trim((string) $request->input('q', '')),
+            'date_from' => (string) $request->input('date_from', ''),
+            'date_to' => (string) $request->input('date_to', ''),
+        ];
+
+        $perPage = (int) $request->input('per_page', 15);
+        $perPage = in_array($perPage, [10, 15, 25, 50]) ? $perPage : 15;
+
+        $query = SalesReturn::query()
+            ->with(['items.transactionDetail.product', 'transaction.customer', 'cashier', 'cashierShift'])
+            ->where('status', 'completed')
+            ->whereHas('items.transactionDetail', fn (Builder $builder) => $builder->whereIn('tenant_outlet_id', $tenantOutletIds->all()))
+            ->when($filters['q'] !== '', function (Builder $builder) use ($filters) {
+                $builder->where(function (Builder $nested) use ($filters) {
+                    $nested
+                        ->where('code', 'like', '%'.$filters['q'].'%')
+                        ->orWhereHas('transaction', fn (Builder $transactionQuery) => $transactionQuery
+                            ->where('invoice', 'like', '%'.$filters['q'].'%')
+                            ->orWhereHas('customer', fn (Builder $customerQuery) => $customerQuery->where('name', 'like', '%'.$filters['q'].'%'))
+                        );
+                });
+            })
+            ->when($filters['date_from'] !== '', fn (Builder $builder) => $builder->whereDate('completed_at', '>=', $filters['date_from']))
+            ->when($filters['date_to'] !== '', fn (Builder $builder) => $builder->whereDate('completed_at', '<=', $filters['date_to']))
+            ->orderByDesc('completed_at');
+
+        $paginator = $query->paginate($perPage)->appends($request->except('page'));
+
+        $rows = $paginator->getCollection()->map(function ($salesReturn) use ($tenantOutletIds, $tenantNames) {
+            $items = $salesReturn->items->map(function ($item) use ($tenantOutletIds, $tenantNames, $salesReturn) {
+                $detail = $item->transactionDetail;
+                if (! $detail || ! $tenantOutletIds->contains((int) ($detail->tenant_outlet_id ?? 0))) {
+                    return null;
+                }
+
+                $qty = (int) ($item->qty_return ?? 0);
+                $customerUnitPrice = (int) ($detail->customer_base_unit_price ?? $detail->unit_price ?? 0);
+                $tenantBaseUnitPrice = (int) ($detail->tenant_base_unit_price ?? 0);
+                $ownerMarkupUnitPrice = (int) ($detail->owner_markup_unit_price ?? 0);
+
+                return [
+                    'sales_return_id' => (int) $salesReturn->id,
+                    'code' => $salesReturn->code,
+                    'transaction_id' => (int) ($salesReturn->transaction_id ?? 0),
+                    'invoice' => $salesReturn->transaction?->invoice ?? '-',
+                    'customer_name' => $salesReturn->transaction?->customer?->name ?? '-',
+                    'completed_at' => $salesReturn->completed_at ? ReportTimezone::formatSourceDateTime($salesReturn->getRawOriginal('completed_at'), 'd M Y H:i') : null,
+                    'qty_return' => $qty,
+                    'customer_unit_price' => $customerUnitPrice,
+                    'tenant_base_unit_price' => $tenantBaseUnitPrice,
+                    'owner_markup_unit_price' => $ownerMarkupUnitPrice,
+                    'tenant_outlet_id' => (int) ($detail->tenant_outlet_id ?? 0),
+                    'tenant_name' => $tenantNames->get((int) ($detail->tenant_outlet_id ?? 0))?->name ?? 'Tenant',
+                    'product_name' => $detail->product?->title ?? 'Produk tidak ditemukan',
+                ];
+            })->filter()->values()->all();
+
+            return [
+                'sales_return_id' => (int) $salesReturn->id,
+                'code' => $salesReturn->code,
+                'transaction_id' => (int) ($salesReturn->transaction_id ?? 0),
+                'invoice' => $salesReturn->transaction?->invoice ?? '-',
+                'customer_name' => $salesReturn->transaction?->customer?->name ?? '-',
+                'completed_at' => $salesReturn->completed_at ? ReportTimezone::formatSourceDateTime($salesReturn->getRawOriginal('completed_at'), 'd M Y H:i') : null,
+                'return_type' => $salesReturn->return_type,
+                'refund_amount' => (int) ($salesReturn->refund_amount ?? 0),
+                'credited_amount' => (int) ($salesReturn->credited_amount ?? 0),
+                'total_return_amount' => (int) ($salesReturn->total_return_amount ?? 0),
+                'status' => $salesReturn->status,
+                'items' => $items,
+            ];
+        })->values()->all();
+
+        return response()->json([
+            'data' => $rows,
+            'current_page' => $paginator->currentPage(),
+            'last_page' => $paginator->lastPage(),
+            'per_page' => $paginator->perPage(),
+            'total' => $paginator->total(),
+        ]);
+    }
+
     private function canApprove(?User $user): bool
     {
         return (bool) ($user?->isSuperAdmin() || $user?->can('cashier-settlements-approve'));
@@ -413,7 +697,6 @@ class CashierSettlementController extends Controller
 
         if (($activeOutlet?->outlet_type ?? 'main') === 'main' && $activeOutlet?->id) {
             $childTenantIds = Outlet::query()
-                ->active()
                 ->where('outlet_type', 'tenant')
                 ->where('parent_outlet_id', (int) $activeOutlet->id)
                 ->pluck('id')
@@ -428,21 +711,18 @@ class CashierSettlementController extends Controller
 
         if ($user->isSuperAdmin()) {
             return Outlet::query()
-                ->active()
                 ->pluck('id')
                 ->map(fn ($id) => (int) $id)
                 ->values();
         }
 
         $outletIds = $user->outlets()
-            ->active()
             ->pluck('outlets.id')
             ->map(fn ($id) => (int) $id)
             ->values();
 
         if ($outletIds->isNotEmpty()) {
             $childTenantIds = Outlet::query()
-                ->active()
                 ->where('outlet_type', 'tenant')
                 ->whereIn('parent_outlet_id', $outletIds->all())
                 ->pluck('id')
@@ -665,6 +945,15 @@ class CashierSettlementController extends Controller
             ->get(['id', 'name', 'code'])
             ->keyBy('id');
 
+        $returns = SalesReturn::query()
+            ->with(['items.transactionDetail'])
+            ->where('status', 'completed')
+            ->whereHas('items.transactionDetail', fn (Builder $builder) => $builder->whereIn('tenant_outlet_id', $tenantOutletIds->all()))
+            ->get();
+
+        $returnsCount = $returns->count();
+        $returnTransactionIds = $returns->pluck('transaction_id')->filter()->unique()->values()->all();
+
         $allocationQuery = TransactionTenantAllocation::query()
             ->where('waiter_status', 'delivered')
             ->whereNotNull('delivered_at')
@@ -680,9 +969,11 @@ class CashierSettlementController extends Controller
             : 0;
         $tenantRightsTotal = TenantWalletMetrics::sumTenantNetValueForAllocationIds($allocationIds);
         $ownerMarkupTotal = TenantWalletMetrics::sumOwnerMarkupValueForAllocationIds($allocationIds);
-        $completedTransactionsCount = (int) (clone $allocationQuery)
+        $completedTransactionIds = (clone $allocationQuery)
             ->distinct('transaction_id')
-            ->count('transaction_id');
+            ->pluck('transaction_id');
+
+        $completedTransactionsCount = $completedTransactionIds->count();
 
         $pendingKitchenTransactionsCount = (int) TransactionTenantAllocation::query()
             ->when(
@@ -695,6 +986,7 @@ class CashierSettlementController extends Controller
                     ->where('waiter_status', '!=', 'delivered')
                     ->orWhereNull('delivered_at');
             })
+            ->whereNotIn('transaction_id', $completedTransactionIds->all())
             ->distinct('transaction_id')
             ->count('transaction_id');
 
@@ -709,7 +1001,22 @@ class CashierSettlementController extends Controller
                     ->where('waiter_status', '!=', 'delivered')
                     ->orWhereNull('delivered_at');
             })
+            ->whereNotIn('transaction_id', $completedTransactionIds->all())
             ->sum('subtotal');
+
+        $totalTransactionsCount = (int) Transaction::query()
+            ->when(
+                (string) ($activeOutlet->outlet_type ?? '') === 'main',
+                fn (Builder $builder) => $builder->where('outlet_id', (int) $activeOutlet->id)
+            )
+            ->when(
+                (string) ($activeOutlet->outlet_type ?? '') === 'tenant',
+                fn (Builder $builder) => $builder->where('outlet_id', (int) $activeOutlet->id)
+            )
+            ->distinct('id')
+            ->count('id');
+
+        $unallocatedTransactionsCount = max(0, $totalTransactionsCount - $completedTransactionsCount - $pendingKitchenTransactionsCount);
 
         $completedByTenant = (clone $allocationQuery)
             ->selectRaw('tenant_outlet_id, COUNT(DISTINCT transaction_id) as total_transactions, COALESCE(SUM(subtotal), 0) as gross_sales_total')
@@ -728,10 +1035,144 @@ class CashierSettlementController extends Controller
                     ->where('waiter_status', '!=', 'delivered')
                     ->orWhereNull('delivered_at');
             })
+            ->whereNotIn('transaction_id', $completedTransactionIds->all())
             ->selectRaw('tenant_outlet_id, COUNT(DISTINCT transaction_id) as total_transactions, COALESCE(SUM(subtotal), 0) as gross_sales_total')
             ->groupBy('tenant_outlet_id')
             ->get()
             ->keyBy('tenant_outlet_id');
+
+        $completedTransactionRows = TransactionTenantAllocation::query()
+            ->selectRaw('DISTINCT transaction_id, tenant_outlet_id, subtotal, delivered_at')
+            ->when(
+                (string) ($activeOutlet->outlet_type ?? '') === 'main',
+                fn (Builder $builder) => $builder->where('outlet_id', (int) $activeOutlet->id)
+            )
+            ->whereIn('tenant_outlet_id', $tenantOutletIds->all())
+            ->where('waiter_status', 'delivered')
+            ->whereNotNull('delivered_at')
+            ->get()
+            ->map(fn ($row) => [
+                'transaction_id' => (int) $row->transaction_id,
+                'tenant_outlet_id' => (int) $row->tenant_outlet_id,
+                'tenant_name' => $tenantNames->get($row->tenant_outlet_id)?->name ?? 'Tenant',
+                'tenant_code' => $tenantNames->get($row->tenant_outlet_id)?->code ?? null,
+                'subtotal' => (int) ($row->subtotal ?? 0),
+                'delivered_at' => $row->delivered_at ? ReportTimezone::formatSourceDateTime($row->getRawOriginal('delivered_at'), 'd M Y H:i') : null,
+            ])
+            ->values()
+            ->all();
+
+        $pendingKitchenTransactionRows = TransactionTenantAllocation::query()
+            ->selectRaw('DISTINCT transaction_id, tenant_outlet_id, subtotal, delivered_at')
+            ->when(
+                (string) ($activeOutlet->outlet_type ?? '') === 'main',
+                fn (Builder $builder) => $builder->where('outlet_id', (int) $activeOutlet->id)
+            )
+            ->whereIn('tenant_outlet_id', $tenantOutletIds->all())
+            ->where(function (Builder $builder) {
+                $builder
+                    ->where('waiter_status', '!=', 'delivered')
+                    ->orWhereNull('delivered_at');
+            })
+            ->get()
+            ->map(fn ($row) => [
+                'transaction_id' => (int) $row->transaction_id,
+                'tenant_outlet_id' => (int) $row->tenant_outlet_id,
+                'tenant_name' => $tenantNames->get($row->tenant_outlet_id)?->name ?? 'Tenant',
+                'tenant_code' => $tenantNames->get($row->tenant_outlet_id)?->code ?? null,
+                'subtotal' => (int) ($row->subtotal ?? 0),
+                'delivered_at' => $row->delivered_at ? ReportTimezone::formatSourceDateTime($row->getRawOriginal('delivered_at'), 'd M Y H:i') : null,
+            ])
+            ->values()
+            ->all();
+
+        $unallocatedTransactionRows = Transaction::query()
+            ->with(['details.product'])
+            ->when(
+                (string) ($activeOutlet->outlet_type ?? '') === 'main',
+                fn (Builder $builder) => $builder->where('outlet_id', (int) $activeOutlet->id)
+            )
+            ->when(
+                (string) ($activeOutlet->outlet_type ?? '') === 'tenant',
+                fn (Builder $builder) => $builder->where('outlet_id', (int) $activeOutlet->id)
+            )
+            ->whereDoesntHave('tenantAllocations', function (Builder $builder) use ($tenantOutletIds, $activeOutlet) {
+                $builder->where('waiter_status', 'delivered')
+                    ->whereNotNull('delivered_at')
+                    ->when(
+                        (string) ($activeOutlet->outlet_type ?? '') === 'main',
+                        fn (Builder $sub) => $sub->where('outlet_id', (int) $activeOutlet->id)
+                    )
+                    ->whereIn('tenant_outlet_id', $tenantOutletIds->all());
+            })
+            ->whereNotIn('id', $returnTransactionIds)
+            ->get()
+            ->map(function ($transaction) use ($tenantOutletIds) {
+                $details = $transaction->details ?? collect();
+                $reason = 'Tidak teralokasi';
+                $detailTenantIds = [];
+                $scopeTenantIds = $tenantOutletIds->values()->all();
+                $inScopeTenantIds = [];
+
+                if ($details->isNotEmpty()) {
+                    $detailTenantIds = $details
+                        ->filter(fn ($detail) => (int) ($detail->tenant_outlet_id ?? 0) > 0)
+                        ->pluck('tenant_outlet_id')
+                        ->unique()
+                        ->values()
+                        ->all();
+
+                    $inScopeTenantIds = $details
+                        ->filter(fn ($detail) => $tenantOutletIds->contains((int) ($detail->tenant_outlet_id ?? 0)))
+                        ->pluck('tenant_outlet_id')
+                        ->unique()
+                        ->values()
+                        ->all();
+                }
+
+                if ($details->isEmpty()) {
+                    $reason = 'Tidak ada detail transaksi';
+                } elseif (empty($detailTenantIds)) {
+                    $reason = 'Detail transaksi tanpa tenant_outlet_id';
+                } elseif (!empty($detailTenantIds) && empty($inScopeTenantIds)) {
+                    $reason = 'Tenant pada detail tidak termasuk scope aktif: ' . implode(', ', $detailTenantIds);
+                } elseif (!empty($detailTenantIds) && !empty($inScopeTenantIds)) {
+                    $reason = 'Tidak ada alokasi tenant untuk transaksi ini';
+                }
+
+                return [
+                    'transaction_id' => (int) $transaction->id,
+                    'invoice' => $transaction->invoice ?? '-',
+                    'customer_name' => $transaction->customer?->name ?? '-',
+                    'grand_total' => (int) ($transaction->grand_total ?? 0),
+                    'payment_status' => $transaction->payment_status ?? '-',
+                    'payment_method' => $transaction->payment_method ?? '-',
+                    'created_at' => $transaction->created_at ? ReportTimezone::formatSourceDateTime($transaction->getRawOriginal('created_at'), 'd M H:i') : null,
+                    'reason' => $reason,
+                    'detail_tenant_ids' => $detailTenantIds,
+                    'scope_tenant_ids' => $scopeTenantIds,
+                    'products' => $details->map(fn ($detail) => [
+                        'product_name' => $detail->product?->title ?? 'Produk tidak ditemukan',
+                        'qty' => (int) ($detail->qty ?? 0),
+                        'unit_price' => (int) ($detail->unit_price ?? 0),
+                        'tenant_outlet_id' => (int) ($detail->tenant_outlet_id ?? 0),
+                    ])->values()->all(),
+                ];
+            })
+            ->values()
+            ->all();
+
+        $totalTransactionsCount = (int) Transaction::query()
+            ->when(
+                (string) ($activeOutlet->outlet_type ?? '') === 'main',
+                fn (Builder $builder) => $builder->where('outlet_id', (int) $activeOutlet->id)
+            )
+            ->when(
+                (string) ($activeOutlet->outlet_type ?? '') === 'tenant',
+                fn (Builder $builder) => $builder->where('outlet_id', (int) $activeOutlet->id)
+            )
+            ->distinct('id')
+            ->count('id');
 
         $allocationIdsByTenant = (clone $allocationQuery)
             ->select(['id', 'tenant_outlet_id'])
@@ -739,13 +1180,6 @@ class CashierSettlementController extends Controller
             ->groupBy('tenant_outlet_id')
             ->map(fn (Collection $rows) => $rows->pluck('id')->map(fn ($id) => (int) $id)->values());
 
-        $returns = SalesReturn::query()
-            ->with(['items.transactionDetail'])
-            ->where('status', 'completed')
-            ->whereHas('items.transactionDetail', fn (Builder $builder) => $builder->whereIn('tenant_outlet_id', $tenantOutletIds->all()))
-            ->get();
-
-        $returnsCount = $returns->count();
         $returnGrossTotal = 0;
         $returnTenantRightsTotal = 0;
         $returnOwnerMarkupTotal = 0;
@@ -890,6 +1324,8 @@ class CashierSettlementController extends Controller
         return [
             'completed_transactions_count' => $completedTransactionsCount,
             'pending_kitchen_transactions_count' => $pendingKitchenTransactionsCount,
+            'unallocated_transactions_count' => $unallocatedTransactionsCount,
+            'total_transactions_count' => $totalTransactionsCount,
             'completed_gross_sales_total' => $grossSalesTotal,
             'pending_kitchen_gross_sales_total' => (int) $pendingKitchenGrossSalesTotal,
             'total_gross_sales_total' => (int) ($grossSalesTotal + $pendingKitchenGrossSalesTotal),
@@ -1404,6 +1840,7 @@ class CashierSettlementController extends Controller
             ->where('outlet_type', 'tenant')
             ->pluck('id')
             ->map(fn ($id) => (int) $id)
-            ->values();
+            ->values()
+            ->prepend((int) $activeOutlet->id);
     }
 }

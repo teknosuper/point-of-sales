@@ -266,6 +266,9 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
     Route::patch('cashier-settlements/{cashierSettlement}/approve', [CashierSettlementController::class, 'approve'])->middleware(['permission:cashier-settlements-approve', 'outlet_access'])->name('cashier-settlements.approve');
     Route::patch('cashier-settlements/{cashierSettlement}/reject', [CashierSettlementController::class, 'reject'])->middleware(['permission:cashier-settlements-approve', 'outlet_access'])->name('cashier-settlements.reject');
     Route::get('cashier-settlements/{cashierSettlement}/receipt', [CashierSettlementController::class, 'receipt'])->middleware(['permission:cashier-settlements-access', 'outlet_access'])->name('cashier-settlements.receipt');
+    Route::post('cashier-settlements/repair-unallocated', [CashierSettlementController::class, 'repairUnallocated'])->middleware(['permission:cashier-settlements-repair', 'outlet_access'])->name('cashier-settlements.repair-unallocated');
+    Route::get('cashier-settlements/unallocated-transactions', [CashierSettlementController::class, 'unallocatedTransactions'])->middleware(['permission:cashier-settlements-access', 'outlet_access'])->name('cashier-settlements.unallocated-transactions');
+    Route::get('cashier-settlements/return-transactions', [CashierSettlementController::class, 'returnTransactions'])->middleware(['permission:cashier-settlements-access', 'outlet_access'])->name('cashier-settlements.return-transactions');
     Route::resource('customers', CustomerController::class)
         ->middlewareFor(['index', 'show'], 'permission:customers-access')
         ->middlewareFor(['create', 'store'], 'permission:customers-create')

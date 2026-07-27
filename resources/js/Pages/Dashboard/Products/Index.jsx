@@ -124,6 +124,7 @@ function ProductCard({
     activeOutletName,
     showCostAsPrimary = false,
     showSellPrice = true,
+    canToggleFeatured = false,
     onToggleFeatured,
     onApplyShadowBan,
     onUpdatePenaltyStatus,
@@ -218,7 +219,7 @@ function ProductCard({
                                 <IconPencilCog size={18} />
                             </Link>
                         )}
-                        {canUpdate && (
+                        {canToggleFeatured && (
                             <button
                                 type="button"
                                 onClick={() => onToggleFeatured?.(product)}
@@ -416,6 +417,10 @@ export default function Index({
         auth.roleNames?.includes('admin-sistem') ||
         (activeOutlet?.outlet_type === 'main' &&
          ['admin-owner-outlet', 'outlet-owner'].some(role => auth.roleNames?.includes(role)));
+    const canToggleFeatured = isSuperAdmin() ||
+        auth.roleNames?.includes('admin-owner-outlet') ||
+        auth.roleNames?.includes('outlet-owner') ||
+        auth.roleNames?.includes('admin-sistem');
     const [viewMode, setViewMode] = useState("grid");
     const [showFilters, setShowFilters] = useState(false);
     const [showSetupGuide, setShowSetupGuide] = useState(false);
@@ -2080,6 +2085,7 @@ export default function Index({
                                     onApplyShadowBan={handleApplyShadowBan}
                                     onUpdatePenaltyStatus={handleUpdatePenaltyStatus}
                                     canViewPenaltyInfo={canViewPenaltyInfo}
+                                    canToggleFeatured={canToggleFeatured}
                                 />
                             ))}
                         </div>
@@ -2276,18 +2282,20 @@ export default function Index({
                                                 <div className="flex flex-wrap gap-2">
                                                     {(canEditCatalog || canOpenTenantProductEdit) ? (
                                                         <>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => handleToggleFeatured(product)}
-                                                                className={`rounded-lg border px-2.5 py-2 text-xs font-medium transition hover:bg-amber-50 ${
-                                                                    product.is_featured
-                                                                        ? "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300"
-                                                                        : "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
-                                                                }`}
-                                                                title={product.is_featured ? "Hapus featured" : "Jadikan featured"}
-                                                            >
-                                                                <IconStar size={16} />
-                                                            </button>
+                                                            {canToggleFeatured && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handleToggleFeatured(product)}
+                                                                    className={`rounded-lg border px-2.5 py-2 text-xs font-medium transition hover:bg-amber-50 ${
+                                                                        product.is_featured
+                                                                            ? "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300"
+                                                                            : "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                                                                    }`}
+                                                                    title={product.is_featured ? "Hapus featured" : "Jadikan featured"}
+                                                                >
+                                                                    <IconStar size={16} />
+                                                                </button>
+                                                            )}
                                                             {canViewPenaltyInfo && (
                                                                 <>
                                                                     <button

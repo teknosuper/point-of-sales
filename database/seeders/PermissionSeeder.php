@@ -131,6 +131,7 @@ class PermissionSeeder extends Seeder
         $create('cashier-shifts-force-close');
         $create('cashier-settlements-access');
         $create('cashier-settlements-approve');
+        $create('cashier-settlements-repair');
 
         // audit logs
         $create('audit-logs-access');

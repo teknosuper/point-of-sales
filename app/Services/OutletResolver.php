@@ -29,11 +29,9 @@ class OutletResolver
         $requestedOutletId = $request?->session()->get('active_outlet_id');
 
         if ($user) {
-            // For tenant owner (has direct tenant access), return their tenant outlet directly
             if ($requestedOutletId) {
                 $matchedOutlet = $user->accessibleOutletsQuery()
                     ->where('outlets.id', $requestedOutletId)
-                    ->active()
                     ->first();
 
                 if ($matchedOutlet) {
@@ -72,7 +70,6 @@ class OutletResolver
             if ($requestedOutletId) {
                 $matchedOutlet = $user->accessibleOutletsQuery()
                     ->where('outlets.id', $requestedOutletId)
-                    ->active()
                     ->first();
 
                 if ($matchedOutlet) {
@@ -89,6 +86,16 @@ class OutletResolver
 
             if ($primaryOutlet) {
                 return $primaryOutlet;
+            }
+
+            $fallbackOutlet = $user->accessibleOutletsQuery()
+                ->orderByDesc('is_default')
+                ->orderBy('sort_order')
+                ->orderBy('name')
+                ->first();
+
+            if ($fallbackOutlet) {
+                return $fallbackOutlet;
             }
         }
 
