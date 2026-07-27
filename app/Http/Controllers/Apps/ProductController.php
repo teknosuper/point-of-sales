@@ -1332,7 +1332,7 @@ class ProductController extends Controller
             'sell_price' => $validated['sell_price'],
             'tenant_discount_price' => $tenantDiscountPrice,
             'is_featured' => (bool) ($validated['is_featured'] ?? false),
-            'shadow_banned_at' => $validated['shadow_banned_at'] ?: null,
+            'shadow_banned_at' => $validated['shadow_banned_at'] ?? null,
             'shadow_ban_reason' => $validated['shadow_ban_reason'] ?? null,
             'penalty_status' => $validated['penalty_status'] ?? null,
         ];
