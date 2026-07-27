@@ -65,7 +65,8 @@ class TransactionController extends Controller
         private readonly FoodcourtTenantAllocationService $foodcourtTenantAllocationService,
         private readonly PrintJobService $printJobService,
         private readonly ReceiptLayoutService $receiptLayoutService,
-        private readonly TransactionInvoiceService $transactionInvoiceService
+        private readonly TransactionInvoiceService $transactionInvoiceService,
+        private readonly StoreHoursService $storeHoursService
     ) {}
 
     private function checkoutReservationSessionKey(?int $outletId): string
@@ -3014,9 +3015,8 @@ class TransactionController extends Controller
     private function resolveOperationalSettings(?int $outletId): array
     {
         $outlet = $outletId ? \App\Models\Outlet::query()->find($outletId) : null;
-        $storeHoursService = app(StoreHoursService::class);
 
-        return $storeHoursService->resolveForPos($outlet);
+        return $this->storeHoursService->resolveForPos($outlet);
     }
 
     private function resolveActiveOutlet(?Request $request = null)
