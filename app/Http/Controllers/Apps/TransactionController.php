@@ -2720,6 +2720,7 @@ class TransactionController extends Controller
             'start_date' => $request->input('start_date'),
             'end_date' => $request->input('end_date'),
             'customer_scope' => $request->input('customer_scope'),
+            'product' => $request->input('product'),
         ];
 
         $query = Transaction::query()
@@ -2746,6 +2747,11 @@ class TransactionController extends Controller
         $query
             ->when($filters['invoice'], function (Builder $builder, $invoice) {
                 $builder->where('invoice', 'like', '%'.$invoice.'%');
+            })
+            ->when($filters['product'], function (Builder $builder, $product) {
+                $builder->whereHas('details.product', function (Builder $productQuery) use ($product) {
+                    $productQuery->where('title', 'like', '%'.$product.'%');
+                });
             })
             ->when($filters['customer_scope'] === 'walk_in', function (Builder $builder) {
                 $builder->whereNull('customer_id');

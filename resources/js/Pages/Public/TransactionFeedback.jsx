@@ -241,17 +241,7 @@ export default function TransactionFeedback({ transaction }) {
         const errors = [];
         form.data.items.forEach((item) => {
             const detailId = item.transaction_detail_id;
-            const hasRating = Number(item.rating || 0) > 0;
-            const hasFeedback = String(item.feedback_text || "").trim() !== "";
             const isAlert = item.not_received;
-
-            if (!hasRating && !hasFeedback && !isAlert) {
-                errors.push({
-                    detailId,
-                    index: transaction.items.findIndex((tx) => tx.id === detailId),
-                    message: "Isi minimal rating, saran, atau aktifkan alert untuk item ini.",
-                });
-            }
 
             if (isAlert && !String(item.customer_alert_message || "").trim()) {
                 errors.push({

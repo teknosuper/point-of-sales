@@ -27,6 +27,7 @@ const defaultFilters = {
     start_date: "",
     end_date: "",
     customer_scope: "",
+    product: "",
 };
 
 const formatCurrency = (value = 0) =>
@@ -95,7 +96,8 @@ const History = ({ transactions, filters }) => {
         filterData.invoice ||
         filterData.start_date ||
         filterData.end_date ||
-        filterData.customer_scope;
+        filterData.customer_scope ||
+        filterData.product;
 
     return (
         <>
@@ -142,7 +144,7 @@ const History = ({ transactions, filters }) => {
                 {showFilters && (
                     <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 animate-slide-up">
                         <form onSubmit={applyFilters}>
-                            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+                            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-6">
                                 <div>
                                     <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
                                         Nomor Invoice
@@ -154,6 +156,23 @@ const History = ({ transactions, filters }) => {
                                         onChange={(e) =>
                                             handleChange(
                                                 "invoice",
+                                                e.target.value
+                                            )
+                                        }
+                                        className="w-full h-11 px-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 placeholder-slate-400 focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                                        Nama Produk
+                                    </label>
+                                    <input
+                                        type="text"
+                                        placeholder="Cari nama produk..."
+                                        value={filterData.product}
+                                        onChange={(e) =>
+                                            handleChange(
+                                                "product",
                                                 e.target.value
                                             )
                                         }

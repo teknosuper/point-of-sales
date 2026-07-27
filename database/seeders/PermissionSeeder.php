@@ -122,6 +122,7 @@ class PermissionSeeder extends Seeder
         $create('sales-returns-access');
         $create('sales-returns-create');
         $create('sales-returns-complete');
+        $create('sales-returns-delete');
 
         // cashier shifts
         $create('cashier-shifts-access');

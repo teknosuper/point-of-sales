@@ -204,15 +204,35 @@ export default function Index({ salesReturns, filters }) {
                                             </span>
                                         </td>
                                         <td className="px-4 py-4 text-center">
-                                            <Link
-                                                href={route(
-                                                    "sales-returns.show",
-                                                    item.id
+                                            <div className="flex items-center justify-center gap-2">
+                                                <Link
+                                                    href={route(
+                                                        "sales-returns.show",
+                                                        item.id
+                                                    )}
+                                                    className="inline-flex rounded-lg bg-primary-50 px-3 py-2 text-xs font-semibold text-primary-700 hover:bg-primary-100 dark:bg-primary-950/40 dark:text-primary-300"
+                                                >
+                                                    Lihat
+                                                </Link>
+                                                {item.status === "draft" && (
+                                                    <Link
+                                                        href={route(
+                                                            "sales-returns.destroy",
+                                                            item.id
+                                                        )}
+                                                        method="delete"
+                                                        as="button"
+                                                        onClick={(event) => {
+                                                            if (! confirm('Hapus draft retur ini?')) {
+                                                                event.preventDefault();
+                                                            }
+                                                        }}
+                                                        className="inline-flex rounded-lg bg-danger-50 px-3 py-2 text-xs font-semibold text-danger-700 hover:bg-danger-100 dark:bg-danger-950/30 dark:text-danger-300"
+                                                    >
+                                                        Hapus
+                                                    </Link>
                                                 )}
-                                                className="inline-flex rounded-lg bg-primary-50 px-3 py-2 text-xs font-semibold text-primary-700 hover:bg-primary-100 dark:bg-primary-950/40 dark:text-primary-300"
-                                            >
-                                                Lihat
-                                            </Link>
+                                            </div>
                                         </td>
                                     </tr>
                                 ))

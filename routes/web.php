@@ -406,6 +406,7 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
     Route::get('/sales-returns/{salesReturn}', [SalesReturnController::class, 'show'])->middleware(['permission:sales-returns-access', 'outlet_access'])->name('sales-returns.show');
     Route::patch('/sales-returns/{salesReturn}', [SalesReturnController::class, 'update'])->middleware(['permission:sales-returns-create', 'outlet_access'])->name('sales-returns.update');
     Route::post('/sales-returns/{salesReturn}/complete', [SalesReturnController::class, 'complete'])->middleware(['permission:sales-returns-complete', 'outlet_access'])->name('sales-returns.complete');
+    Route::delete('/sales-returns/{salesReturn}', [SalesReturnController::class, 'destroy'])->middleware(['permission:sales-returns-delete', 'outlet_access'])->name('sales-returns.destroy');
     // route purchase orders
     Route::get('/purchase-orders', [PurchaseOrderController::class, 'index'])->middleware('permission:purchase-orders-access')->name('purchase-orders.index');
     Route::get('/purchase-orders/create', [PurchaseOrderController::class, 'create'])->middleware('permission:purchase-orders-create')->name('purchase-orders.create');

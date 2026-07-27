@@ -57,7 +57,7 @@ class PublicTransactionFeedbackController extends Controller
         $validated = $request->validate([
             'items' => ['required', 'array', 'min:1'],
             'items.*.transaction_detail_id' => ['required', 'integer'],
-            'items.*.rating' => ['nullable', 'integer', 'min:1', 'max:5'],
+            'items.*.rating' => ['nullable', 'integer', 'max:5'],
             'items.*.feedback_text' => ['nullable', 'string', 'max:1500'],
             'items.*.not_received' => ['nullable', 'boolean'],
             'items.*.customer_alert_message' => ['nullable', 'string', 'max:1000'],
@@ -68,7 +68,7 @@ class PublicTransactionFeedbackController extends Controller
             ->map(function (array $item) {
                 return [
                     'transaction_detail_id' => (int) $item['transaction_detail_id'],
-                    'rating' => isset($item['rating']) && $item['rating'] !== '' ? (int) $item['rating'] : null,
+                    'rating' => $item['rating'] ? (int) $item['rating'] : null,
                     'feedback_text' => trim((string) ($item['feedback_text'] ?? '')),
                     'not_received' => (bool) ($item['not_received'] ?? false),
                     'customer_alert_message' => trim((string) ($item['customer_alert_message'] ?? '')),

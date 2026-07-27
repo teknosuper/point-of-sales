@@ -368,6 +368,30 @@ class SalesReturnController extends Controller
         return back()->with('success', 'Retur penjualan berhasil diselesaikan.');
     }
 
+    public function destroy(Request $request, SalesReturn $salesReturn): RedirectResponse
+    {
+        $this->ensureSalesReturnTablesExist();
+
+        $salesReturn = $this->resolveAccessibleSalesReturn($request, $salesReturn->id);
+        $this->ensureDraft($salesReturn);
+
+        $before = $this->salesReturnAuditPayload($salesReturn);
+
+        $salesReturn->load('items');
+        $salesReturn->items()->delete();
+        $salesReturn->delete();
+
+        $this->auditLogService->log(
+            event: 'sales_return.deleted',
+            module: 'sales_returns',
+            auditable: $salesReturn,
+            description: 'Draft retur penjualan dihapus.',
+            before: $before,
+        );
+
+        return back()->with('success', 'Draft retur penjualan berhasil dihapus.');
+    }
+
     private function salesReturnAuditPayload(SalesReturn $salesReturn): array
     {
         return [

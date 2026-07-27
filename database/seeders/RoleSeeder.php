@@ -207,6 +207,8 @@ class RoleSeeder extends Seeder
                 'reports-access',
                 'profits-access',
                 'cashier-settlements-access',
+                'sales-returns-access',
+                'sales-returns-delete',
             ],
             'owner-pricing' => [
                 'products-access',
@@ -260,6 +262,8 @@ class RoleSeeder extends Seeder
                 'business-settings-update',
                 'reports-access',
                 'cashier-shifts-access',
+                'sales-returns-access',
+                'sales-returns-delete',
             ],
             'admin-sistem' => [
                 'dashboard-access',
@@ -352,6 +356,8 @@ class RoleSeeder extends Seeder
                 'payables-access',
                 'reports-access',
                 'profits-access',
+                'sales-returns-access',
+                'sales-returns-delete',
             ])
             ->get();
 
