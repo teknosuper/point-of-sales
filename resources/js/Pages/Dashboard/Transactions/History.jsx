@@ -37,7 +37,7 @@ const formatCurrency = (value = 0) =>
         minimumFractionDigits: 0,
     }).format(value);
 
-const History = ({ transactions, filters }) => {
+const History = ({ transactions, filters, stats = {} }) => {
     const { can } = useAuthorization();
     const canCreateSalesReturn = can("sales-returns-create");
     const canConfirmPayment = can("transactions-confirm-payment");
@@ -259,6 +259,26 @@ const History = ({ transactions, filters }) => {
                     </div>
                 )}
 
+                {/* Order Source Stats */}
+                <div className="grid grid-cols-2 gap-4 sm:grid-cols-2 lg:grid-cols-2">
+                    <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+                        <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                            Pesanan dari Meja
+                        </p>
+                        <p className="mt-1 text-2xl font-bold text-slate-900 dark:text-white">
+                            {stats.table_orders_count ?? 0}
+                        </p>
+                    </div>
+                    <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+                        <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                            Pesanan dari Kasir
+                        </p>
+                        <p className="mt-1 text-2xl font-bold text-slate-900 dark:text-white">
+                            {stats.cashier_orders_count ?? 0}
+                        </p>
+                    </div>
+                </div>
+
                 {/* Transaction List */}
                 {rows.length > 0 ? (
                     <div className="bg-transparent border-0 shadow-none rounded-2xl sm:bg-white sm:dark:bg-slate-900 sm:border sm:border-slate-200 sm:dark:border-slate-800 sm:overflow-hidden">
@@ -278,6 +298,9 @@ const History = ({ transactions, filters }) => {
                                         </th>
                                         <th className="px-4 py-4 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                                             Kasir
+                                        </th>
+                                        <th className="px-4 py-4 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                                            Sumber
                                         </th>
                                         <th className="px-4 py-4 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                                             Pelanggan
@@ -401,6 +424,11 @@ const History = ({ transactions, filters }) => {
                                                 {transaction.cashier?.name ??
                                                     "-"}
                                             </td>
+                                            <td className="px-4 py-4 text-sm text-slate-600 dark:text-slate-400">
+                                                <span className="inline-flex items-center rounded-full px-2 py-1 text-[11px] font-semibold bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                                                    {transaction.customer_source_label ?? "-"}
+                                                </span>
+                                            </td>
                                             <td className="px-4 py-4">
                                                 <div className="space-y-2">
                                                     <span className="px-2 py-1 text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-md">
@@ -417,6 +445,11 @@ const History = ({ transactions, filters }) => {
                                                     {transaction.order_reference_notes && (
                                                         <div className="text-[11px] text-slate-500 dark:text-slate-400">
                                                             {transaction.order_reference_notes}
+                                                        </div>
+                                                    )}
+                                                    {transaction.customer_phone && (
+                                                        <div className="text-[11px] font-medium text-slate-600 dark:text-slate-400">
+                                                            {transaction.customer_phone}
                                                         </div>
                                                     )}
                                                     <div>
@@ -713,14 +746,13 @@ const History = ({ transactions, filters }) => {
                                     <div className="grid grid-cols-2 gap-2 text-sm text-slate-600 dark:text-slate-300">
                                         <div>
                                             <p className="text-xs text-slate-500 dark:text-slate-400">
-                                                Kasir
+                                                Sumber
                                             </p>
                                             <p className="font-medium">
-                                                {transaction.cashier?.name ??
-                                                    "-"}
+                                                {transaction.customer_source_label ?? "-"}
                                             </p>
                                         </div>
-                                        <div className="text-right">
+                                        <div>
                                             <p className="text-xs text-slate-500 dark:text-slate-400">
                                                 Pelanggan
                                             </p>
@@ -728,6 +760,11 @@ const History = ({ transactions, filters }) => {
                                                 {transaction.customer?.name ??
                                                     "Pelanggan Umum"}
                                             </p>
+                                            {transaction.customer_phone && (
+                                                <p className="mt-1 text-[11px] font-medium text-slate-600 dark:text-slate-400">
+                                                    {transaction.customer_phone}
+                                                </p>
+                                            )}
                                             {transaction.order_reference_name && (
                                                 <p className="mt-1 text-xs font-medium text-slate-700 dark:text-slate-200">
                                                     Nama order:{" "}
@@ -750,6 +787,15 @@ const History = ({ transactions, filters }) => {
                                                     ? "Terdaftar"
                                                     : "Umum"}
                                             </span>
+                                        </div>
+                                        <div>
+                                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                                                Kasir
+                                            </p>
+                                            <p className="font-medium">
+                                                {transaction.cashier?.name ??
+                                                    "-"}
+                                            </p>
                                         </div>
                                         <div>
                                             <p className="text-xs text-slate-500 dark:text-slate-400">

@@ -2727,7 +2727,8 @@ class TransactionController extends Controller
             ->with([
                 'cashier:id,name',
                 'cashierShift:id,opened_at,status',
-                'customer:id,name',
+                'customer:id,name,no_telp',
+                'tableOrder:id,transaction_id',
                 'receivable',
                 'tenantAllocations.tenantOutlet:id,name,code',
             ])
@@ -2761,6 +2762,12 @@ class TransactionController extends Controller
             });
 
         ReportTimezone::applySourceDateRange($query, 'created_at', $filters);
+
+        $statsQuery = clone $query;
+        $stats = [
+            'table_orders_count' => (clone $statsQuery)->whereHas('tableOrder')->count(),
+            'cashier_orders_count' => (clone $statsQuery)->whereDoesntHave('tableOrder')->count(),
+        ];
 
         $transactions = $query->paginate(10)->withQueryString();
         $transactions->through(function (Transaction $transaction) use ($salesReturnTablesReady) {
@@ -2819,6 +2826,8 @@ class TransactionController extends Controller
                 'can_create_sales_return' => $canCreateSalesReturn,
                 'sales_return_summary' => $salesReturnSummary,
                 'can_create_share_campaign' => (bool) $transaction->customer_id,
+                'customer_source_label' => $transaction->tableOrder ? 'Meja' : 'Kasir',
+                'customer_phone' => $transaction->customer?->no_telp,
             ];
         });
 
@@ -2826,6 +2835,7 @@ class TransactionController extends Controller
             'transactions' => $transactions,
             'filters' => $filters,
             'salesReturnFeatureReady' => $salesReturnTablesReady,
+            'stats' => $stats,
         ]);
     }
 

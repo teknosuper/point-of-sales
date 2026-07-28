@@ -128,7 +128,7 @@ export default function Index({ customers, filters = {}, meta = {} }) {
     const canCreateCustomers = can("customers-create");
     const canEditCustomers = can("customers-edit");
     const canDeleteCustomers = can("customers-delete");
-    const tierOptions = meta?.tier_options ?? {};
+    const tierOptions = meta?.tier_options ?? [];
     const perPageOptions = meta?.per_page_options ?? [10, 25, 50, 100];
 
     const hasActiveFilters = useMemo(
@@ -280,8 +280,8 @@ export default function Index({ customers, filters = {}, meta = {} }) {
                                         className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-700 outline-none transition focus:border-primary-300 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
                                     >
                                         <option value="">Semua tier</option>
-                                        {Object.entries(tierOptions).map(([key, label]) => (
-                                            <option key={key} value={key}>
+                                        {(Array.isArray(tierOptions) ? tierOptions : []).map(({value, label}) => (
+                                            <option key={value} value={value}>
                                                 {label}
                                             </option>
                                         ))}
