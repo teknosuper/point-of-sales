@@ -38,7 +38,7 @@ class KitchenDisplayController extends Controller
         $stations = $this->visibleStations($request, $outlet);
         $stations->each(fn (KitchenStation $station) => $this->autoCompleteDeliveredTickets($station, $request->user()?->id));
 
-        $activeStation = $stations->first();
+        $activeStation = $this->resolveDefaultActiveStation($request, $outlet, $stations, $kioskMode);
         $this->autoAcknowledgePendingTickets($activeStation, $request->user()?->id);
         $selectedDevice = $activeStation ? $this->resolveDevice($activeStation, $request->integer('device_id')) : null;
 
@@ -481,6 +481,37 @@ class KitchenDisplayController extends Controller
         return $stations
             ->where('id', (int) $preferredStationId)
             ->values();
+    }
+
+    /**
+     * Tentukan station default untuk halaman index kitchen.
+     *
+     * Aturan:
+     * - Jika user punya preferred_kitchen_station_id dan station itu visible,
+     *   pakai station tersebut.
+     * - Untuk mode kiosk, fallback ke station pertama (layar dapur khusus).
+     * - Untuk outlet main (bukan tenant terkait) tanpa preferensi, kembalikan
+     *   null agar frontend menampilkan station picker, bukan memaksa station
+     *   dengan sort_order terkecil (misal "Dapur Minuman").
+     * - Untuk outlet tenant, hanya ada satu station hasil mapping, aman pakai first().
+     */
+    private function resolveDefaultActiveStation(Request $request, Outlet $outlet, Collection $stations, bool $kioskMode): ?KitchenStation
+    {
+        $preferredStationId = $request->user()?->preferred_kitchen_station_id;
+
+        if ($preferredStationId) {
+            $preferred = $stations->firstWhere('id', (int) $preferredStationId);
+
+            if ($preferred) {
+                return $preferred;
+            }
+        }
+
+        if ($kioskMode || ($outlet->outlet_type ?? 'main') !== 'main') {
+            return $stations->first();
+        }
+
+        return null;
     }
 
     private function visibleStations(Request $request, Outlet $outlet): Collection

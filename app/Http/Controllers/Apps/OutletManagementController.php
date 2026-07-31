@@ -11,6 +11,7 @@ use App\Models\TransactionDetail;
 use App\Models\TransactionTenantAllocation;
 use App\Models\TransactionTenantAllocationItem;
 use App\Models\User;
+use App\Services\OutletProvisioningService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
@@ -333,6 +334,8 @@ class OutletManagementController extends Controller
         ]);
 
         $this->syncOutletUsers($outlet, $data['user_ids'] ?? [], $data['primary_user_id'] ?? null);
+
+        (new OutletProvisioningService)->provisionKitchenSetup($outlet);
 
         return back()->with('success', 'Outlet berhasil ditambahkan.');
     }

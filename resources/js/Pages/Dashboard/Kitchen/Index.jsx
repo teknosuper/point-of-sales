@@ -3,6 +3,15 @@ import KitchenLayout from "@/Layouts/KitchenLayout";
 import KitchenTicketPreview from "@/Components/Dashboard/KitchenTicketPreview";
 import Modal from "@/Components/Dashboard/Modal";
 import SoundTestPanel from "@/Components/Dashboard/SoundTestPanel";
+import {
+    KitchenTicketSummaryDetail,
+    KitchenTicketItemsDetail,
+} from "@/Components/Dashboard/KitchenTicketDetail";
+import KitchenTicketDetailModal from "@/Components/Dashboard/KitchenTicketDetailModal";
+import {
+    KitchenSoundTestModal,
+    KitchenGuideModal,
+} from "@/Components/Dashboard/KitchenInfoModals";
 import { Head, Link, router, usePage } from "@inertiajs/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Swal from "sweetalert2";
@@ -28,781 +37,43 @@ import {
     IconX,
 } from "@/Utils/icons";
 import toast from "react-hot-toast";
+import {
+    statusMeta,
+    ticketStatusMeta,
+    ticketItemStatusMeta,
+    kitchenServiceStatusMeta,
+    emptyTicketPayload,
+    formatTime,
+    formatDateTime,
+    formatOrderLocation,
+    formatCustomerAlertLocation,
+    normalizeKitchenServiceStatus,
+    resolveKitchenItemBadge,
+    summarizeKitchenTicketProgress,
+    resolveKitchenTicketStatusMeta,
+    kitchenPrintStatusMeta,
+    kitchenPrintSummaryLabel,
+    kitchenPrintTimeMeta,
+    kitchenProgressLabel,
+    isKitchenItemSelectable,
+    kitchenItemSelectionLabel,
+    countKitchenActionableItems,
+    countKitchenItemNotes,
+    isReturnedKitchenTicket,
+    kitchenCardPrintClass,
+    kitchenItemQuantityLabel,
+    kitchenActionGroupForItem,
+    resolveKitchenSelectionMode,
+    resolveKitchenSelectionState,
+    reconcileSelectedItemsByTicket,
+    buildBoardFilters,
+    buildBoardState,
+    resolveEligibleKitchenItemIds,
+    resolveEligibleKitchenDeliveredItemIds,
+} from "@/Utils/kitchen";
 
-const statusMeta = {
-    active: { label: "Semua aktif" },
-    pending: { label: "Menunggu" },
-    acknowledged: { label: "Diproses" },
-    ready: { label: "Siap Antar / Ambil" },
-    completed: { label: "Selesai" },
-    returned: { label: "Retur" },
-};
 
-const ticketStatusMeta = {
-    pending: {
-        label: "Menunggu",
-        badge: "bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300",
-    },
-    acknowledged: {
-        label: "Diproses",
-        badge: "bg-sky-100 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300",
-    },
-    ready: {
-        label: "Siap Antar / Ambil",
-        badge: "bg-violet-100 text-violet-700 dark:bg-violet-950/50 dark:text-violet-300",
-    },
-    completed: {
-        label: "Sudah Diserahkan",
-        badge: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300",
-    },
-    returned: {
-        label: "Diretur",
-        badge: "bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300",
-    },
-};
 
-const ticketItemStatusMeta = {
-    pending: {
-        label: "Menunggu",
-        badge: "bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300",
-    },
-    acknowledged: {
-        label: "Diproses",
-        badge: "bg-sky-100 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300",
-    },
-    completed: {
-        label: "Siap Antar",
-        badge: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300",
-    },
-    returned: {
-        label: "Diretur",
-        badge: "bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300",
-    },
-};
-
-const kitchenServiceStatusMeta = {
-    ready: {
-        label: "Siap Antar",
-        badge: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300",
-    },
-    picked_up: {
-        label: "Sedang Dibawa",
-        badge: "bg-sky-100 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300",
-    },
-    delivered: {
-        label: "Sudah Diserahkan",
-        badge: "bg-violet-100 text-violet-700 dark:bg-violet-950/50 dark:text-violet-300",
-    },
-    returned: {
-        label: "Diretur",
-        badge: "bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300",
-    },
-};
-
-const emptyTicketPayload = {
-    data: [],
-    meta: {
-        current_page: 1,
-        last_page: 1,
-        per_page: 15,
-        total: 0,
-        from: null,
-        to: null,
-    },
-};
-
-const formatTime = (value) =>
-    value
-        ? new Date(value).toLocaleTimeString("id-ID", {
-              hour: "2-digit",
-              minute: "2-digit",
-          })
-        : "-";
-
-const formatDateTime = (value) =>
-    value
-        ? new Date(value).toLocaleString("id-ID", {
-              day: "2-digit",
-              month: "2-digit",
-              year: "numeric",
-              hour: "2-digit",
-              minute: "2-digit",
-          })
-        : "-";
-
-const formatOrderLocation = (ticket) => {
-    if (ticket?.order_type === "dine_in") {
-        if (ticket?.table_name && ticket?.table_code) {
-            return `${ticket.table_code} - ${ticket.table_name}`;
-        }
-
-        return ticket?.table_name || ticket?.table_code || "Meja belum dipilih";
-    }
-
-    return "Ambil sendiri / takeaway";
-};
-
-const formatCustomerAlertLocation = (customerAlert, ticket) => {
-    const orderType = customerAlert?.order_type || ticket?.order_type;
-    const tableCode = customerAlert?.table_code || ticket?.table_code;
-    const tableName = customerAlert?.table_name || ticket?.table_name;
-
-    if (orderType === "dine_in") {
-        if (tableCode && tableName) {
-            return `${tableCode} - ${tableName}`;
-        }
-
-        return tableCode || tableName || "Meja belum dipilih";
-    }
-
-    return "Ambil sendiri / takeaway";
-};
-
-const normalizeKitchenServiceStatus = (item) => {
-    if (item?.resolved_service_status) {
-        return item.resolved_service_status;
-    }
-
-    if (item?.service_status) {
-        return item.service_status;
-    }
-
-    if (item?.status === "completed") {
-        return "ready";
-    }
-
-    return "pending";
-};
-
-const resolveKitchenItemBadge = (item) => {
-    if (item?.status === "returned" || item?.service_status === "returned") {
-        return (
-            kitchenServiceStatusMeta.returned || ticketItemStatusMeta.returned
-        );
-    }
-
-    if (item?.status === "completed") {
-        return (
-            kitchenServiceStatusMeta[normalizeKitchenServiceStatus(item)] ||
-            kitchenServiceStatusMeta.ready
-        );
-    }
-
-    return ticketItemStatusMeta[item?.status] || ticketItemStatusMeta.pending;
-};
-
-const summarizeKitchenTicketProgress = (ticket) => {
-    const items = ticket?.items || [];
-    const totalItems = items.length;
-    const readyItems = items.filter(
-        (item) => item.status === "completed" && normalizeKitchenServiceStatus(item) !== "delivered"
-    ).length;
-    const deliveredItems = items.filter(
-        (item) => normalizeKitchenServiceStatus(item) === "delivered"
-    ).length;
-    const processingItems = items.filter((item) =>
-        ["pending", "acknowledged"].includes(item.status)
-    ).length;
-
-    return {
-        totalItems,
-        readyItems,
-        deliveredItems,
-        processingItems,
-    };
-};
-
-const resolveKitchenTicketStatusMeta = (ticket) => {
-    if (ticket?.display_status_key === "returned" || ticket?.is_fully_returned) {
-        return ticketStatusMeta.returned;
-    }
-
-    const baseMeta =
-        ticketStatusMeta[ticket?.status] || ticketStatusMeta.pending;
-    const { totalItems, readyItems, deliveredItems, processingItems } =
-        summarizeKitchenTicketProgress(ticket);
-
-    if (totalItems <= 0) {
-        return baseMeta;
-    }
-
-    if (ticket?.status === "acknowledged" && readyItems > 0 && processingItems > 0) {
-        return {
-            label: "Parsial Siap",
-            badge: "bg-amber-100 text-amber-800 ring-1 ring-amber-200 dark:bg-amber-950/50 dark:text-amber-200 dark:ring-amber-900/40",
-        };
-    }
-
-    if (ticket?.status === "ready" && deliveredItems > 0 && deliveredItems < totalItems) {
-        return {
-            label: "Parsial Diserahkan",
-            badge: "bg-violet-100 text-violet-800 ring-1 ring-violet-200 dark:bg-violet-950/50 dark:text-violet-200 dark:ring-violet-900/40",
-        };
-    }
-
-    return baseMeta;
-};
-
-const kitchenPrintStatusMeta = (ticket) => {
-    const status = ticket?.print?.status || "not_printed";
-
-    return (
-        {
-            not_printed: {
-                label: "Belum tercetak",
-                badge: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
-            },
-            queued: {
-                label: "Menunggu cetak",
-                badge: "bg-sky-100 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300",
-            },
-            reprint_queued: {
-                label: "Cetak ulang antre",
-                badge: "bg-indigo-100 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300",
-            },
-            failed: {
-                label: "Cetak gagal",
-                badge: "bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300",
-            },
-            printed: {
-                label: "Sudah tercetak",
-                badge: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300",
-            },
-        }[status] || {
-            label: "Belum tercetak",
-            badge: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
-        }
-    );
-};
-
-const kitchenPrintSummaryLabel = (ticket) => {
-    const successJobs = Number(ticket?.print?.success_jobs || 0);
-
-    if (successJobs <= 0) {
-        return "Belum ada cetak sukses";
-    }
-
-    if (successJobs === 1) {
-        return "Tercetak 1x";
-    }
-
-    return `Tercetak 1x • Cetak ulang ${successJobs - 1}x`;
-};
-
-const kitchenPrintTimeMeta = (ticket) => {
-    const successJobs = Number(ticket?.print?.success_jobs || 0);
-    const firstPrintedAt = ticket?.print?.first_printed_at;
-    const lastPrintedAt = ticket?.print?.last_printed_at;
-
-    if (successJobs <= 0 || !firstPrintedAt) {
-        return null;
-    }
-
-    if (successJobs === 1) {
-        return {
-            primary: `Cetak pertama: ${formatDateTime(firstPrintedAt)}`,
-            secondary: null,
-        };
-    }
-
-    return {
-        primary: `Cetak pertama: ${formatDateTime(firstPrintedAt)}`,
-        secondary: `Cetak ulang terakhir: ${formatDateTime(
-            lastPrintedAt || firstPrintedAt
-        )}`,
-    };
-};
-
-const kitchenProgressLabel = (ticket) => {
-    if (ticket?.is_fully_returned) {
-        return `${ticket?.returned_qty_total || 0} item dibatalkan / diretur`;
-    }
-
-    const { totalItems, readyItems, deliveredItems, processingItems } =
-        summarizeKitchenTicketProgress(ticket);
-
-    if (totalItems === 0) {
-        return null;
-    }
-
-    if (deliveredItems > 0 && deliveredItems < totalItems) {
-        return `${deliveredItems}/${totalItems} item sudah diserahkan`;
-    }
-
-    if (readyItems > 0 && processingItems > 0) {
-        return `${readyItems}/${totalItems} item siap antar`;
-    }
-
-    if (ticket?.status === "ready") {
-        return `${readyItems}/${totalItems} item siap antar`;
-    }
-
-    if (processingItems > 0) {
-        return `${processingItems}/${totalItems} item masih diproses`;
-    }
-
-    if (Number(ticket?.returned_qty_total || 0) > 0) {
-        return `${ticket.returned_qty_total} item diretur`;
-    }
-
-    return `${totalItems} item`;
-};
-
-const isKitchenItemSelectable = (item) =>
-    item?.status !== "returned" &&
-    (["pending", "acknowledged"].includes(item?.status) ||
-        (item?.status === "completed" &&
-            ["ready", "picked_up"].includes(normalizeKitchenServiceStatus(item))));
-
-const kitchenItemSelectionLabel = (item) => {
-    if (item?.status === "returned" || item?.service_status === "returned") {
-        return "Diretur";
-    }
-
-    const serviceStatus = normalizeKitchenServiceStatus(item);
-
-    if (["pending", "acknowledged"].includes(item?.status)) {
-        return "Pilih untuk siap";
-    }
-
-    if (item?.status === "completed" && serviceStatus === "ready") {
-        return "Pilih untuk diserahkan";
-    }
-
-    if (item?.status === "completed" && serviceStatus === "picked_up") {
-        return "Sedang dibawa";
-    }
-
-    return "Final";
-};
-
-const countKitchenActionableItems = (ticket) => {
-    const items = ticket?.items || [];
-
-    return {
-        readyToMark: items.filter((item) =>
-            ["pending", "acknowledged"].includes(item.status)
-        ).length,
-        readyToDeliver: items.filter(
-            (item) =>
-                ["pending", "acknowledged"].includes(item.status) ||
-                (item.status === "completed" &&
-                    ["ready", "picked_up"].includes(
-                        normalizeKitchenServiceStatus(item)
-                    ))
-        ).length,
-    };
-};
-
-const countKitchenItemNotes = (ticket) =>
-    (ticket?.items || []).filter((item) => Boolean(item?.notes)).length;
-
-const isReturnedKitchenTicket = (ticket) =>
-    ticket?.display_status_key === "returned" || Boolean(ticket?.is_fully_returned);
-
-/**
- * Card border/bg color based on print status — agar kasir/dapur langsung tahu status cetak.
- * failed   → merah
- * queued / reprint_queued → biru
- * printed  → hijau tipis
- * not_printed → abu default
- */
-const kitchenCardPrintClass = (ticket) => {
-    const status = ticket?.print?.status || "not_printed";
-    switch (status) {
-        case "failed":
-            return "border-rose-400 bg-rose-50 dark:border-rose-700 dark:bg-rose-950/20";
-        case "queued":
-        case "reprint_queued":
-            return "border-sky-400 bg-sky-50 dark:border-sky-700 dark:bg-sky-950/20";
-        case "printed":
-            return "border-emerald-300 bg-emerald-50/60 dark:border-emerald-700 dark:bg-emerald-950/10";
-        default:
-            return "border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900";
-    }
-};
-
-const kitchenItemQuantityLabel = (item) => {
-    const activeQty = Number(item?.remaining_qty ?? item?.qty ?? 0);
-    const returnedQty = Number(item?.returned_qty || 0);
-
-    if (item?.status === "returned") {
-        return `Retur x${Number(item?.qty || returnedQty || 0)}`;
-    }
-
-    if (returnedQty > 0 && activeQty > 0) {
-        return `Aktif x${activeQty} • Retur x${returnedQty}`;
-    }
-
-    return `x${Number(item?.qty || activeQty || 0)}`;
-};
-
-function KitchenTicketSummaryDetail({ ticket }) {
-    if (!ticket) {
-        return null;
-    }
-
-    return (
-        <div className="space-y-4">
-            <div className="grid gap-3 md:grid-cols-2">
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/40">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
-                        Waktu
-                    </p>
-                    <div className="mt-2 space-y-2 text-xs text-slate-600 dark:text-slate-300">
-                        <div className="flex items-start gap-2">
-                            <IconClockHour4 size={14} className="mt-0.5 shrink-0" />
-                            <span>Masuk {formatDateTime(ticket.fired_at)}</span>
-                        </div>
-                        {ticket.acknowledged_at ? (
-                            <div className="flex items-start gap-2">
-                                <IconChefHat size={14} className="mt-0.5 shrink-0" />
-                                <span>Proses {formatDateTime(ticket.acknowledged_at)}</span>
-                            </div>
-                        ) : null}
-                        {ticket.ready_at ? (
-                            <div className="flex items-start gap-2">
-                                <IconCheck size={14} className="mt-0.5 shrink-0" />
-                                <span>Siap {formatDateTime(ticket.ready_at)}</span>
-                            </div>
-                        ) : null}
-                        {ticket.completed_at ? (
-                            <div className="flex items-start gap-2">
-                                <IconCheck size={14} className="mt-0.5 shrink-0" />
-                                <span>Diserahkan {formatDateTime(ticket.completed_at)}</span>
-                            </div>
-                        ) : null}
-                    </div>
-                </div>
-
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/40">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
-                        Detail Order
-                    </p>
-                    <div className="mt-2 space-y-2 text-xs text-slate-600 dark:text-slate-300">
-                        {kitchenProgressLabel(ticket) ? (
-                            <div className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-2 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300">
-                                {kitchenProgressLabel(ticket)}
-                            </div>
-                        ) : null}
-                        {ticket.has_return_activity ? (
-                            <div className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-2 text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-300">
-                                Retur terdeteksi. Aktif: {ticket.active_qty_total || 0} item, retur:{" "}
-                                {ticket.returned_qty_total || 0} item.
-                            </div>
-                        ) : null}
-                        <div>
-                            <span className="font-semibold text-slate-700 dark:text-slate-200">
-                                Jenis:
-                            </span>{" "}
-                            {ticket.order_type_label || "Bawa Pulang"}
-                        </div>
-                        <div>
-                            <span className="font-semibold text-slate-700 dark:text-slate-200">
-                                Lokasi:
-                            </span>{" "}
-                            {formatOrderLocation(ticket)}
-                        </div>
-                        <div>
-                            <span className="font-semibold text-slate-700 dark:text-slate-200">
-                                Pelanggan:
-                            </span>{" "}
-                            {ticket.customer_name || "Pelanggan umum"}
-                        </div>
-                        <div>
-                            <span className="font-semibold text-slate-700 dark:text-slate-200">
-                                No. HP:
-                            </span>{" "}
-                            {ticket.customer_phone || "-"}
-                        </div>
-                        {ticket.notes ? (
-                            <div className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-2 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300">
-                                {ticket.notes}
-                            </div>
-                        ) : null}
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
-}
-
-function KitchenTicketItemsDetail({
-    ticket,
-    selectedItemIds = [],
-    selectionMode = null,
-    setSelectedItems,
-    toggleItemSelection,
-}) {
-    if (!ticket) {
-        return null;
-    }
-
-    const readOnlyReturnedTicket = isReturnedKitchenTicket(ticket);
-
-    return (
-        <div className="space-y-4">
-            {readOnlyReturnedTicket ? (
-                <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-[11px] text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-300">
-                    Ticket retur bersifat baca-saja. Aksi proses, checklist, dan cetak disembunyikan dari tampilan ini.
-                </div>
-            ) : (
-                <div className="flex flex-wrap items-center gap-2 text-[11px]">
-                    <button
-                        type="button"
-                        onClick={() =>
-                            setSelectedItems(
-                                ticket.id,
-                                ticket.status === "ready"
-                                    ? resolveEligibleKitchenDeliveredItemIds(ticket)
-                                    : resolveEligibleKitchenItemIds(ticket, ["pending", "acknowledged"])
-                            )
-                        }
-                        className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-slate-600 transition hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
-                    >
-                        Pilih item aktif
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => setSelectedItems(ticket.id, [])}
-                        className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-slate-500 transition hover:border-rose-300 hover:text-rose-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400"
-                    >
-                        Kosongkan pilihan
-                    </button>
-                    <span className="text-slate-400 dark:text-slate-500">
-                        {selectedItemIds.length} item dipilih
-                    </span>
-                    <span className="text-slate-400 dark:text-slate-500">
-                        Hanya item aktif yang bisa dicentang
-                    </span>
-                    <span className="text-slate-400 dark:text-slate-500">
-                        Pilihan beda aksi akan diganti otomatis
-                    </span>
-                    {selectionMode ? (
-                        <span
-                            className={`rounded-full px-2.5 py-1 font-semibold ${
-                                selectionMode === "ready"
-                                    ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
-                                    : "bg-violet-100 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300"
-                            }`}
-                        >
-                            Mode: {selectionMode === "ready" ? "Tandai Siap" : "Antar / Serahkan"}
-                        </span>
-                    ) : null}
-                </div>
-            )}
-
-            <div className="space-y-2">
-                {ticket.items.map((item) => (
-                    <div
-                        key={`detail-item-${ticket.id}-${item.id}`}
-                        className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 dark:border-slate-800 dark:bg-slate-950/40"
-                    >
-                        <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                                <div className="flex flex-wrap items-center gap-2">
-                                    <p className="break-words font-medium text-slate-900 dark:text-white">
-                                        {item.product_title}
-                                    </p>
-                                    <span
-                                        className={`rounded-full px-2 py-1 text-[11px] font-semibold ${
-                                            resolveKitchenItemBadge(item).badge
-                                        }`}
-                                    >
-                                        {resolveKitchenItemBadge(item).label}
-                                    </span>
-                                </div>
-                                {item.notes ? (
-                                    <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
-                                        {item.notes}
-                                    </p>
-                                ) : null}
-                                {item.has_partial_return || item.status === "returned" ? (
-                                    <p className="mt-1 text-[11px] font-medium text-rose-600 dark:text-rose-300">
-                                        {item.status === "returned"
-                                            ? `Item ini sudah diretur ${item.returned_qty || item.qty}x`
-                                            : `Sebagian diretur ${item.returned_qty}x, sisa aktif ${item.remaining_qty}x`}
-                                    </p>
-                                ) : null}
-                                {item.ready_at || item.completed_at ? (
-                                    <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
-                                        Siap: {formatDateTime(item.ready_at || item.completed_at)}
-                                    </p>
-                                ) : null}
-                                {item.picked_up_at ? (
-                                    <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
-                                        Dibawa: {formatDateTime(item.picked_up_at)}
-                                    </p>
-                                ) : null}
-                                {item.delivered_at ? (
-                                    <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
-                                        Diserahkan: {formatDateTime(item.delivered_at)}
-                                    </p>
-                                ) : null}
-                            </div>
-                            <div className="flex shrink-0 items-start gap-3">
-                                <span className="rounded-lg bg-white px-2 py-1 text-xs font-semibold text-slate-700 dark:bg-slate-900 dark:text-slate-200">
-                                    {kitchenItemQuantityLabel(item)}
-                                </span>
-                                <div
-                                    className={`min-w-[112px] rounded-2xl border px-2.5 py-2 text-center ${
-                                        isKitchenItemSelectable(item)
-                                            ? kitchenActionGroupForItem(item) === "ready"
-                                                ? "border-emerald-300 bg-emerald-50 shadow-sm dark:border-emerald-700 dark:bg-emerald-950/30"
-                                                : "border-violet-300 bg-violet-50 shadow-sm dark:border-violet-700 dark:bg-violet-950/30"
-                                            : "border-slate-200 bg-white opacity-75 dark:border-slate-700 dark:bg-slate-900/60"
-                                    }`}
-                                >
-                                    {isKitchenItemSelectable(item) ? (
-                                        <label
-                                            className={`flex cursor-pointer items-center justify-center gap-2 text-[11px] font-semibold ${
-                                                kitchenActionGroupForItem(item) === "ready"
-                                                    ? "text-emerald-700 dark:text-emerald-300"
-                                                    : "text-violet-700 dark:text-violet-300"
-                                            }`}
-                                        >
-                                            <input
-                                                type="checkbox"
-                                                checked={selectedItemIds.includes(item.id)}
-                                                onChange={() => toggleItemSelection(ticket.id, item.id)}
-                                                className={`h-5 w-5 rounded-md border-2 focus:ring-2 ${
-                                                    kitchenActionGroupForItem(item) === "ready"
-                                                        ? "border-emerald-400 text-emerald-600 focus:ring-emerald-500"
-                                                        : "border-violet-400 text-violet-600 focus:ring-violet-500"
-                                                }`}
-                                            />
-                                            <span>{kitchenItemSelectionLabel(item)}</span>
-                                        </label>
-                                    ) : (
-                                        <div className="text-[11px] font-semibold text-slate-400 dark:text-slate-500">
-                                            {kitchenItemSelectionLabel(item)}
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                ))}
-            </div>
-        </div>
-    );
-}
-
-const kitchenActionGroupForItem = (item) => {
-    if (["pending", "acknowledged"].includes(item?.status)) {
-        return "ready";
-    }
-
-    if (
-        item?.status === "completed" &&
-        ["ready", "picked_up"].includes(normalizeKitchenServiceStatus(item))
-    ) {
-        return "deliver";
-    }
-
-    return null;
-};
-
-const resolveKitchenSelectionMode = (ticket, selectedItemIds = []) => {
-    const selectedItems = (ticket?.items || []).filter((item) =>
-        selectedItemIds.map(Number).includes(Number(item.id))
-    );
-
-    const groups = selectedItems
-        .map((item) => kitchenActionGroupForItem(item))
-        .filter(Boolean);
-
-    if (groups.length === 0) {
-        return null;
-    }
-
-    return groups[0] || null;
-};
-
-const resolveKitchenSelectionState = (ticket, selectedItemIds = []) => {
-    const items = (ticket?.items || []).filter((item) =>
-        selectedItemIds.map(Number).includes(Number(item.id))
-    );
-
-    const readyToMark = items.filter((item) =>
-        ["pending", "acknowledged"].includes(item.status)
-    ).length;
-    const readyToDeliver = items.filter(
-        (item) =>
-            ["pending", "acknowledged"].includes(item.status) ||
-            (item.status === "completed" &&
-                ["ready", "picked_up"].includes(
-                    normalizeKitchenServiceStatus(item)
-                ))
-    ).length;
-
-    return {
-        totalSelected: items.length,
-        readyToMark,
-        readyToDeliver,
-        hasMixedAction:
-            readyToMark > 0 && readyToDeliver > 0,
-    };
-};
-
-const reconcileSelectedItemsByTicket = (currentSelections = {}, ticketList = []) => {
-    const nextSelections = {};
-
-    Object.entries(currentSelections).forEach(([ticketId, selectedIds]) => {
-        const ticket = ticketList.find(
-            (candidate) => Number(candidate.id) === Number(ticketId)
-        );
-
-        if (!ticket) {
-            return;
-        }
-
-        const selectedItems = (ticket.items || []).filter((item) =>
-            (selectedIds || []).map(Number).includes(Number(item.id))
-        );
-        const actionableItems = selectedItems.filter((item) =>
-            isKitchenItemSelectable(item)
-        );
-
-        if (actionableItems.length === 0) {
-            return;
-        }
-
-        const targetGroup = kitchenActionGroupForItem(actionableItems[0]);
-        const normalizedIds = actionableItems
-            .filter((item) => kitchenActionGroupForItem(item) === targetGroup)
-            .map((item) => Number(item.id));
-
-        if (normalizedIds.length > 0) {
-            nextSelections[ticketId] = normalizedIds;
-        }
-    });
-
-    return nextSelections;
-};
-
-const buildBoardFilters = (filters = {}, selectedDevice = null) => ({
-    status: filters?.status || "active",
-    q: filters?.q || "",
-    page: Number(filters?.page || 1),
-    per_page: Number(filters?.per_page || 15),
-    sort: filters?.sort || "oldest",
-    device_id: selectedDevice?.id || filters?.device_id || null,
-});
-
-const buildBoardState = ({
-    activeStation,
-    tickets,
-    refreshMeta,
-    filters,
-    selectedDevice,
-}) => ({
-    activeStation,
-    tickets: tickets || emptyTicketPayload,
-    refreshMeta,
-    filters: buildBoardFilters(filters, selectedDevice),
-    selectedDevice,
-});
 
 export default function KitchenIndex({
     stations = [],
@@ -1213,22 +484,6 @@ export default function KitchenIndex({
         });
     };
 
-    const resolveEligibleKitchenItemIds = (ticket, allowedStatuses = []) =>
-        (ticket?.items || [])
-            .filter((item) => allowedStatuses.includes(item.status))
-            .map((item) => Number(item.id));
-
-const resolveEligibleKitchenDeliveredItemIds = (ticket) =>
-    (ticket?.items || [])
-        .filter(
-            (item) =>
-                ["pending", "acknowledged"].includes(item.status) ||
-                (item.status === "completed" &&
-                    ["ready", "picked_up"].includes(
-                        normalizeKitchenServiceStatus(item)
-                    ))
-        )
-        .map((item) => Number(item.id));
 
 const resolveSelectedKitchenActionItemIds = (ticket, allowedStatuses = []) => {
     const eligibleItemIds = resolveEligibleKitchenItemIds(ticket, allowedStatuses);
@@ -1919,9 +1174,70 @@ const resolveSelectedKitchenActionItemIds = (ticket, allowedStatuses = []) => {
                             <h1 className="text-base font-bold text-slate-900 dark:text-white">
                                 {kioskMode ? "Antrean Dapur" : "Layar Dapur"}
                             </h1>
-                            <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                                {selectedStation?.name || "Pilih station dapur"} • {ticketMeta.total || 0} tiket
-                            </p>
+                            {!kioskMode && stations.length > 1 ? (
+                                <div className="mt-1 flex items-center gap-2">
+                                    <select
+                                        value={selectedStation?.slug || ""}
+                                        onChange={(event) => {
+                                            const target = stations.find(
+                                                (station) =>
+                                                    station.slug ===
+                                                    event.target.value
+                                            );
+                                            if (!target) {
+                                                return;
+                                            }
+                                            router.get(
+                                                route("kitchen.show", target.slug),
+                                                {
+                                                    status:
+                                                        boardState.filters
+                                                            ?.status || "active",
+                                                    q: boardState.filters?.q || undefined,
+                                                    page: 1,
+                                                    per_page: Number(
+                                                        boardState.filters
+                                                            ?.per_page || 15
+                                                    ),
+                                                    sort:
+                                                        boardState.filters
+                                                            ?.sort || "oldest",
+                                                    device_id:
+                                                        boardState.selectedDevice
+                                                            ?.id,
+                                                },
+                                                {
+                                                    preserveScroll: true,
+                                                    preserveState: true,
+                                                }
+                                            );
+                                        }}
+                                        className="h-8 max-w-[240px] rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 outline-none transition focus:border-primary-400 focus:ring-2 focus:ring-primary-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                    >
+                                        <option value="" disabled>
+                                            Pilih station dapur
+                                        </option>
+                                        {stations.map((station) => (
+                                            <option
+                                                key={station.slug}
+                                                value={station.slug}
+                                            >
+                                                {station.name}
+                                                {station.pending_count > 0
+                                                    ? ` (${station.pending_count})`
+                                                    : ""}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                                        {ticketMeta.total || 0} tiket
+                                    </span>
+                                </div>
+                            ) : (
+                                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                                    {selectedStation?.name || "Pilih station dapur"} • {ticketMeta.total || 0} tiket
+                                </p>
+                            )}
                         </div>
                         <button
                             type="button"
@@ -3012,89 +2328,17 @@ const resolveSelectedKitchenActionItemIds = (ticket, allowedStatuses = []) => {
                 )}
             </div>
 
-            {showSoundTestPanel ? (
-                <div className="fixed inset-0 z-[120] flex items-end justify-center bg-slate-950/55 p-4 sm:items-center">
-                    <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-800 dark:bg-slate-900">
-                        <div className="flex items-start justify-between gap-4">
-                            <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
-                                🔊 Testing Suara Notifikasi
-                            </h2>
-                            <button
-                                type="button"
-                                onClick={() => setShowSoundTestPanel(false)}
-                                className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 text-slate-500 transition hover:border-rose-300 hover:text-rose-600 dark:border-slate-700 dark:text-slate-300"
-                            >
-                                <IconX size={18} />
-                            </button>
-                        </div>
-                        <div className="mt-4">
-                            <SoundTestPanel />
-                        </div>
-                    </div>
-                </div>
-            ) : null}
+            <KitchenSoundTestModal
+                open={showSoundTestPanel}
+                onClose={() => setShowSoundTestPanel(false)}
+            />
 
-            {showGuideModal ? (
-                <div className="fixed inset-0 z-[120] flex items-end justify-center bg-slate-950/55 p-4 sm:items-center">
-                    <div className="w-full max-w-2xl rounded-3xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-800 dark:bg-slate-900">
-                        <div className="flex items-start justify-between gap-4">
-                            <div>
-                                <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
-                                    Panduan tombol dapur
-                                </h2>
-                                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                                    Ringkasan fungsi tombol agar operasional dapur lebih konsisten.
-                                </p>
-                            </div>
-                            <button
-                                type="button"
-                                onClick={() => setShowGuideModal(false)}
-                                className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 text-slate-500 transition hover:border-rose-300 hover:text-rose-600 dark:border-slate-700 dark:text-slate-300"
-                            >
-                                <IconX size={18} />
-                            </button>
-                        </div>
 
-                        <div className="mt-5 grid gap-3 text-sm text-slate-600 dark:text-slate-300 lg:grid-cols-2">
-                            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 dark:border-slate-700 dark:bg-slate-950/40">
-                                <p className="font-semibold text-slate-900 dark:text-white">
-                                    Mulai Proses
-                                </p>
-                                <p className="mt-1">
-                                    Mode manual: ambil tiket dari status menunggu ke diproses saat dapur mulai mengerjakan.
-                                </p>
-                                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                                    Jika station memakai mode otomatis, langkah ini tidak perlu ditekan karena sistem akan memproses ticket masuk secara otomatis.
-                                </p>
-                            </div>
-                            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 dark:border-slate-700 dark:bg-slate-950/40">
-                                <p className="font-semibold text-slate-900 dark:text-white">
-                                    Siap Diantar / Diambil
-                                </p>
-                                <p className="mt-1">
-                                    Dapur bisa memilih item yang benar-benar siap lebih dulu. Ticket baru berubah penuh ke siap antar saat semua item di dalamnya sudah selesai.
-                                </p>
-                            </div>
-                            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 dark:border-slate-700 dark:bg-slate-950/40">
-                                <p className="font-semibold text-slate-900 dark:text-white">
-                                    Kirim ke Printer
-                                </p>
-                                <p className="mt-1">
-                                    Kirim slip dapur ke printer bila station ini memang memakai cetak.
-                                </p>
-                            </div>
-                            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 dark:border-slate-700 dark:bg-slate-950/40">
-                                <p className="font-semibold text-slate-900 dark:text-white">
-                                    Preview Ticket
-                                </p>
-                                <p className="mt-1">
-                                    Buka preview untuk melihat detail item, catatan pesanan, dan ringkasan ticket lebih lengkap.
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            ) : null}
+            <KitchenGuideModal
+                open={showGuideModal}
+                onClose={() => setShowGuideModal(false)}
+            />
+
 
             <Modal
                 title="Link Printer Dapur"
@@ -3170,100 +2414,16 @@ const resolveSelectedKitchenActionItemIds = (ticket, allowedStatuses = []) => {
                 </div>
             </Modal>
 
-            {ticketDetailModal ? (
-                <div className="fixed inset-0 z-[130] bg-slate-950/60">
-                    <div className="flex min-h-dvh items-end justify-center md:items-center md:p-4">
-                        <div className="flex h-dvh w-full flex-col overflow-hidden bg-white shadow-2xl dark:bg-slate-950 md:h-auto md:max-h-[calc(100vh-3rem)] md:max-w-3xl md:rounded-3xl md:border md:border-slate-200 dark:md:border-slate-800">
-                            <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-4 py-4 dark:border-slate-800">
-                                <div className="min-w-0">
-                                    <h2 className="truncate text-base font-semibold text-slate-900 dark:text-white md:text-lg">
-                                        Detail Pesanan {ticketDetailModal.ticket_number}
-                                    </h2>
-                                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                        {ticketDetailModal.invoice || "Tanpa nomor nota"} •{" "}
-                                        {ticketDetailModal.customer_name || "Pelanggan umum"}
-                                    </p>
-                                </div>
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setTicketDetailModal(null);
-                                        setTicketDetailTab("items");
-                                    }}
-                                    className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 text-slate-500 transition hover:border-rose-300 hover:text-rose-600 dark:border-slate-700 dark:text-slate-300"
-                                >
-                                    <IconX size={18} />
-                                </button>
-                            </div>
+            <KitchenTicketDetailModal
+                ticket={ticketDetailModal}
+                onClose={() => setTicketDetailModal(null)}
+                tab={ticketDetailTab}
+                setTab={setTicketDetailTab}
+                selectedItemIdsByTicket={selectedItemIdsByTicket}
+                setSelectedItems={setSelectedItems}
+                toggleItemSelection={toggleItemSelection}
+            />
 
-                            <div className="border-b border-slate-200 px-4 py-3 dark:border-slate-800">
-                                <div className="flex flex-wrap items-center gap-2">
-                                    <button
-                                        type="button"
-                                        onClick={() => setTicketDetailTab("summary")}
-                                        className={`rounded-full px-3 py-2 text-xs font-semibold transition ${
-                                            ticketDetailTab === "summary"
-                                                ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900"
-                                                : "border border-slate-200 bg-white text-slate-600 hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
-                                        }`}
-                                    >
-                                        Ringkasan Order
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => setTicketDetailTab("items")}
-                                        className={`rounded-full px-3 py-2 text-xs font-semibold transition ${
-                                            ticketDetailTab === "items"
-                                                ? "bg-primary-600 text-white"
-                                                : "border border-slate-200 bg-white text-slate-600 hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
-                                        }`}
-                                    >
-                                        Item & Checklist
-                                    </button>
-                                </div>
-                            </div>
-
-                            <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-                                {ticketDetailTab === "summary" ? (
-                                    <KitchenTicketSummaryDetail ticket={ticketDetailModal} />
-                                ) : (
-                                    <KitchenTicketItemsDetail
-                                        ticket={ticketDetailModal}
-                                        selectedItemIds={(selectedItemIdsByTicket[ticketDetailModal.id] || []).map(Number)}
-                                        selectionMode={resolveKitchenSelectionMode(
-                                            ticketDetailModal,
-                                            (selectedItemIdsByTicket[ticketDetailModal.id] || []).map(Number)
-                                        )}
-                                        setSelectedItems={setSelectedItems}
-                                        toggleItemSelection={toggleItemSelection}
-                                    />
-                                )}
-                            </div>
-
-                            <div className="border-t border-slate-200 px-4 py-3 dark:border-slate-800">
-                                <div className="flex items-center justify-between gap-3">
-                                    <div className="text-xs text-slate-500 dark:text-slate-400">
-                                        {ticketDetailModal.items?.length || 0} item
-                                        {!isReturnedKitchenTicket(ticketDetailModal)
-                                            ? ` • ${(selectedItemIdsByTicket[ticketDetailModal.id] || []).length} dipilih`
-                                            : " • mode histori retur"}
-                                    </div>
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            setTicketDetailModal(null);
-                                            setTicketDetailTab("items");
-                                        }}
-                                        className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-                                    >
-                                        Tutup
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            ) : null}
 
             {showPreviewModal && previewTicket ? (
                 <KitchenTicketPreview

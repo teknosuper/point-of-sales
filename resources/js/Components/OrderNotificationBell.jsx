@@ -177,8 +177,14 @@ export default function OrderNotificationBell({ stationSlug: propStationSlug = '
                 const slug = parts[kitchenIndex + 1];
                 setStationSlug(slug);
                 setFeedUrl(`/dashboard/kitchen/${slug}/feed`);
+                return;
             }
         }
+
+        // Tidak ada konteks kitchen aktif — kosongkan feedUrl agar polling berhenti
+        // dan tidak memanggil URL basi (404) saat pindah halaman / ganti outlet.
+        setStationSlug('');
+        setFeedUrl('');
     }, [propStationSlug, props?.activeStation?.slug]);
 
     const fetchData = useCallback(async () => {
