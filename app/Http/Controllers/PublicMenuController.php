@@ -197,9 +197,13 @@ class PublicMenuController extends Controller
             ->groupBy('product_id')
             ->pluck('sold_qty', 'product_id');
 
+        $ratingByProduct = $this->productCatalogService
+            ->ratingsByProductForOutlet($outletId);
+
         $mapped = $this->productCatalogService
             ->mapProductsForPosGrid($products, null, $outletId, [
                 'soldQtyByProduct' => $soldQtyByProduct,
+                'ratingByProduct' => $ratingByProduct,
             ])
             ->map(fn (array $product) => [
                 ...$product,

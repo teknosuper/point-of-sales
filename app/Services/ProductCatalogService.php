@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Customer;
 use App\Models\Product;
 use App\Models\Setting;
+use App\Models\TransactionItemFeedback;
 use App\Support\ReportTimezone;
 use Illuminate\Support\Collection;
 
@@ -14,6 +15,89 @@ class ProductCatalogService
         private readonly PricingService $pricingService,
         private readonly ModifierMarkupService $modifierMarkupService
     ) {}
+
+    /**
+     * Agregasi rating produk dari kritik & saran (TransactionItemFeedback).
+     * Sumber rating konsisten untuk semua katalog publik (daftarmenu, self-order, dll).
+     *
+     * Returns map: [product_id => [rating_avg, rating_count]]
+     */
+    public function ratingsByProductForOutlet(?int $outletId): array
+    {
+        $query = TransactionItemFeedback::query()
+            ->selectRaw('td.product_id, AVG(tif.rating) as rating_avg, COUNT(tif.id) as rating_count')
+            ->from('transaction_item_feedbacks as tif')
+            ->join('transaction_details as td', 'td.id', '=', 'tif.transaction_detail_id')
+            ->join('transactions as trx', 'trx.id', '=', 'tif.transaction_id')
+            ->whereNotNull('td.product_id')
+            ->whereNotNull('tif.rating');
+
+        if ($outletId) {
+            $query->where('trx.outlet_id', $outletId);
+        }
+
+        return $query
+            ->groupBy('td.product_id')
+            ->get()
+            ->mapWithKeys(fn ($row) => [
+                (int) $row->product_id => [
+                    (float) $row->rating_avg,
+                    (int) $row->rating_count,
+                ],
+            ])
+            ->toArray();
+    }
+
+    /**
+     * Ambil konfigurasi rekomendasi dari Setting (dengan default aman).
+     *
+     * Keys:
+     *  - min_rating_avg     : threshold rata-rata bintang minimum agar masuk rekomendasi (default 4.0)
+     *  - min_rating_count   : jumlah review minimum agar dianggap valid (default 1)
+     *  - min_sold_qty       : jumlah terjual minimum dalam periode (default 5)
+     *  - require_both       : wajib memenuhi penjualan DAN bintang (default true)
+     */
+    public function recommendationConfig(?int $outletId = null): array
+    {
+        return [
+            'min_rating_avg' => (float) Setting::get('recommendation_min_rating_avg', 4.0, $outletId),
+            'min_rating_count' => (int) Setting::get('recommendation_min_rating_count', 1, $outletId),
+            'min_sold_qty' => (int) Setting::get('recommendation_min_sold_qty', 5, $outletId),
+            'require_both' => (bool) Setting::get('recommendation_require_both', true, $outletId),
+        ];
+    }
+
+    /**
+     * Tentukan apakah produk layak masuk "Menu Rekomendasi".
+     *
+     * Aturan:
+     *  1. Produk yang di-flag manual is_featured selalu direkomendasikan.
+     *  2. Jika config require_both=true: wajib sold_qty >= min_sold_qty DAN
+     *     rating_avg >= min_rating_avg DAN rating_count >= min_rating_count.
+     *  3. Jika require_both=false: memenuhi salah satu (penjualan ATAU bintang) sudah cukup.
+     */
+    public function isRecommendedProduct(
+        array $product,
+        array $ratingByProduct,
+        array $config
+    ): bool {
+        if (! empty($product['is_featured'])) {
+            return true;
+        }
+
+        $soldQty = (int) ($product['sold_qty'] ?? 0);
+        $ratingData = $ratingByProduct[(int) ($product['id'] ?? 0)] ?? [0, 0];
+        $ratingAvg = (float) $ratingData[0];
+        $ratingCount = (int) ($ratingData[1] ?? 0);
+
+        $meetsSold = $soldQty >= (int) $config['min_sold_qty'];
+        $meetsRating = $ratingAvg >= (float) $config['min_rating_avg']
+            && $ratingCount >= (int) $config['min_rating_count'];
+
+        return (bool) $config['require_both']
+            ? ($meetsSold && $meetsRating)
+            : ($meetsSold || $meetsRating);
+    }
 
     /**
      * Resolve the operational status of an outlet.
@@ -74,13 +158,14 @@ class ProductCatalogService
             : collect();
         $soldQtyByProduct = collect($options['soldQtyByProduct'] ?? []);
         $ratingByProduct = collect($options['ratingByProduct'] ?? []);
+        $recommendationConfig = $options['recommendationConfig'] ?? $this->recommendationConfig($outletId);
         $includeKitchenStations = (bool) ($options['includeKitchenStations'] ?? false);
 
         // Batch-resolve operational status per tenant outlet (avoid N+1)
         $tenantOutletIds = $products->pluck('tenant_outlet_id')->filter()->unique();
         $closedReasonsByTenant = $this->batchResolveClosedReasons($tenantOutletIds);
 
-        return $products->map(function (Product $product) use ($pricingBadges, $soldQtyByProduct, $ratingByProduct, $includeKitchenStations, $outletId, $closedReasonsByTenant) {
+        return $products->map(function (Product $product) use ($pricingBadges, $soldQtyByProduct, $ratingByProduct, $includeKitchenStations, $outletId, $closedReasonsByTenant, $recommendationConfig) {
             $pricing = $pricingBadges->get($product->id);
             $pricingRule = $pricing['pricing_rule'] ?? null;
             $ratingData = $ratingByProduct->get($product->id, [0, 0]);
@@ -146,6 +231,15 @@ class ProductCatalogService
                 'is_shadow_banned' => (bool) $product->shadow_banned_at,
                 'shadow_ban_reason' => $product->shadow_ban_reason,
                 'penalty_status' => $product->penalty_status,
+                'is_recommended' => $this->isRecommendedProduct(
+                    [
+                        'id' => $product->id,
+                        'is_featured' => (bool) ($product->is_featured ?? false),
+                        'sold_qty' => (int) ($soldQtyByProduct[$product->id] ?? 0),
+                    ],
+                    $ratingByProduct->toArray(),
+                    $recommendationConfig
+                ),
             ];
 
             if ($includeKitchenStations) {

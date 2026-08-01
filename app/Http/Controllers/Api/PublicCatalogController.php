@@ -8,10 +8,10 @@ use App\Models\Outlet;
 use App\Models\PricingRule;
 use App\Models\Product;
 use App\Models\ProductOutletStock;
-use App\Models\Review;
 use App\Models\TransactionDetail;
 use App\Services\ModifierMarkupService;
 use App\Services\PricingService;
+use App\Services\ProductCatalogService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -22,7 +22,8 @@ class PublicCatalogController extends Controller
 {
     public function __construct(
         private readonly PricingService $pricingService,
-        private readonly ModifierMarkupService $modifierMarkupService
+        private readonly ModifierMarkupService $modifierMarkupService,
+        private readonly ProductCatalogService $productCatalogService
     ) {}
 
     public function meta(Request $request): JsonResponse
@@ -100,14 +101,8 @@ class PublicCatalogController extends Controller
             ->groupBy('product_id')
             ->pluck('sold_qty', 'product_id');
 
-        $ratingByProduct = \App\Models\Review::query()
-            ->selectRaw('product_id, AVG(rating) as rating_avg, COUNT(*) as rating_count')
-            ->groupBy('product_id')
-            ->get()
-            ->mapWithKeys(fn ($row) => [
-                $row->product_id => [(float) $row->rating_avg, (int) $row->rating_count],
-            ])
-            ->toArray();
+        $ratingByProduct = $this->productCatalogService
+            ->ratingsByProductForOutlet($outlet?->id);
 
         $mapped = $this->mapProductsWithPricing($products, $outlet?->id, [
             'soldQtyByProduct' => $soldQtyByProduct,
@@ -430,8 +425,10 @@ class PublicCatalogController extends Controller
         $pricing = $this->pricingService->previewProducts($products, outletId: $outletId);
         $soldQtyByProduct = collect($options['soldQtyByProduct'] ?? []);
         $ratingByProduct = collect($options['ratingByProduct'] ?? []);
+        $recommendationConfig = $options['recommendationConfig']
+            ?? $this->productCatalogService->recommendationConfig($outletId);
 
-        return $products->map(function (Product $product) use ($pricing, $outletId, $soldQtyByProduct, $ratingByProduct) {
+        return $products->map(function (Product $product) use ($pricing, $outletId, $soldQtyByProduct, $ratingByProduct, $recommendationConfig) {
             $pricePreview = $pricing->get($product->id);
             $rule = $pricePreview['pricing_rule'] ?? null;
             $ratingData = $ratingByProduct->get($product->id, [0, 0]);
@@ -504,6 +501,15 @@ class PublicCatalogController extends Controller
                 'sold_qty' => (int) ($soldQtyByProduct[$product->id] ?? 0),
                 'rating_avg' => round($ratingData[0] ?? 0, 1),
                 'rating_count' => (int) ($ratingData[1] ?? 0),
+                'is_recommended' => $this->productCatalogService->isRecommendedProduct(
+                    [
+                        'id' => $product->id,
+                        'is_featured' => (bool) ($product->is_featured ?? false),
+                        'sold_qty' => (int) ($soldQtyByProduct[$product->id] ?? 0),
+                    ],
+                    $ratingByProduct->toArray(),
+                    $recommendationConfig
+                ),
             ];
         })->values();
     }

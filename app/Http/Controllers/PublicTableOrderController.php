@@ -93,14 +93,8 @@ class PublicTableOrderController extends Controller
             ->groupBy('product_id')
             ->pluck('sold_qty', 'product_id');
 
-        $ratingByProduct = \App\Models\Review::query()
-            ->selectRaw('product_id, AVG(rating) as rating_avg, COUNT(*) as rating_count')
-            ->groupBy('product_id')
-            ->get()
-            ->mapWithKeys(fn ($row) => [
-                $row->product_id => [(float) $row->rating_avg, (int) $row->rating_count],
-            ])
-            ->toArray();
+        $ratingByProduct = $this->productCatalogService
+            ->ratingsByProductForOutlet($table->outlet_id);
 
         $products = $this->productCatalogService->mapProductsForPosGrid(
             $products,
@@ -1061,10 +1055,16 @@ class PublicTableOrderController extends Controller
             ->filter()
             ->values();
 
+        $recommendedProducts = $products
+            ->filter(fn (array $product) => ! empty($product['is_recommended']))
+            ->take(8)
+            ->values();
+
         return [
             'promo' => $promoProducts->values()->all(),
             'best_sellers' => $bestSellers->values()->all(),
             'history' => $historyProducts->values()->all(),
+            'recommended' => $recommendedProducts->values()->all(),
         ];
     }
 
