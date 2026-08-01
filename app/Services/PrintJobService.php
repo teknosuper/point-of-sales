@@ -75,23 +75,24 @@ class PrintJobService
             ? (string) $configuredReceiptProfile
             : ($paperWidth === '58mm' ? '58_small' : null);
 
-        $existing = PrintJob::query()
-            ->where('transaction_id', $transaction->id)
-            ->where('job_type', PrintJob::TYPE_RECEIPT)
-            ->when(
-                $receiptDevice?->id,
-                fn ($query) => $query->where('kitchen_station_device_id', $receiptDevice->id)
-            )
-            ->whereIn('status', [
-                PrintJob::STATUS_QUEUED,
-                PrintJob::STATUS_PROCESSING,
-                ...($forceRequeue ? [] : [PrintJob::STATUS_SUCCESS]),
-            ])
-            ->latest('id')
-            ->first();
+        // Dedup hanya berlaku untuk alur otomatis (transaksi baru / sinkron).
+        // forceRequeue (cetak ulang manual) harus selalu membuat job baru
+        // agar muncul di antrian print dan benar-benar dicetak ulang.
+        if (! $forceRequeue) {
+            $existing = PrintJob::query()
+                ->where('transaction_id', $transaction->id)
+                ->where('job_type', PrintJob::TYPE_RECEIPT)
+                ->whereIn('status', [
+                    PrintJob::STATUS_QUEUED,
+                    PrintJob::STATUS_PROCESSING,
+                    PrintJob::STATUS_SUCCESS,
+                ])
+                ->latest('id')
+                ->first();
 
-        if ($existing) {
-            return $existing;
+            if ($existing) {
+                return $existing;
+            }
         }
 
         return PrintJob::create([
@@ -116,10 +117,27 @@ class PrintJobService
 
     private function resolveReceiptDevice(int $outletId): ?KitchenStationDevice
     {
+        $configuredDeviceId = Setting::get('cashier_receipt_device_id', null, $outletId);
+
+        if ($configuredDeviceId) {
+            $configured = KitchenStationDevice::query()
+                ->whereHas('kitchenStation', fn ($q) => $q->where('outlet_id', $outletId))
+                ->where('id', (int) $configuredDeviceId)
+                ->where('is_active', true)
+                ->first();
+
+            if ($configured) {
+                return $configured;
+            }
+        }
+
         return KitchenStationDevice::query()
             ->whereHas('kitchenStation', fn ($q) => $q->where('outlet_id', $outletId))
             ->where('is_active', true)
-            ->where('device_type', 'receipt_printer')
+            ->whereIn('device_type', ['receipt_printer', 'printer'])
+            ->orderByRaw("CASE WHEN device_type = 'receipt_printer' THEN 0 ELSE 1 END")
+            ->orderByDesc('is_primary')
+            ->orderBy('name')
             ->first();
     }
 

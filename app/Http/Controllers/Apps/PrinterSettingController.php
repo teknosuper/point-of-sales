@@ -39,9 +39,10 @@ class PrinterSettingController extends Controller
             ->orderBy('name')
             ->get(['id', 'kitchen_station_id', 'name', 'device_type', 'connection_driver', 'endpoint', 'meta']);
 
-        $legacyReceiptDevice = $devices->first(fn (KitchenStationDevice $device) => $device->device_type === 'receipt_printer');
+        $legacyReceiptDevice = $devices->first(fn (KitchenStationDevice $device) => in_array($device->device_type, ['receipt_printer', 'printer'], true));
         $configuredCashierPaperWidth = Setting::get('cashier_receipt_paper_width', null, $outlet->id);
         $configuredCashierReceiptProfile = Setting::get('cashier_receipt_profile', null, $outlet->id);
+        $configuredCashierDeviceId = Setting::get('cashier_receipt_device_id', null, $outlet->id);
 
         $cashierPaperWidth = (string) ($configuredCashierPaperWidth
             ?? ($legacyReceiptDevice ? data_get($legacyReceiptDevice->meta, 'paper_width', '58mm') : '80mm'));
@@ -112,6 +113,7 @@ class PrinterSettingController extends Controller
             'cashierReceipt' => [
                 'paper_width' => $cashierPaperWidth,
                 'receipt_profile' => $cashierReceiptProfile,
+                'device_id' => $configuredCashierDeviceId ? (int) $configuredCashierDeviceId : null,
             ],
         ]);
     }
@@ -124,6 +126,7 @@ class PrinterSettingController extends Controller
         $validated = $request->validate([
             'paper_width' => ['required', 'in:58mm,80mm'],
             'receipt_profile' => ['required', 'in:' . implode(',', array_keys(KitchenStationDevice::receiptProfiles()))],
+            'device_id' => ['nullable', 'integer'],
         ]);
 
         Setting::set(
@@ -139,6 +142,30 @@ class PrinterSettingController extends Controller
             'Profile layout default untuk struk kasir.',
             $outlet->id
         );
+
+        if (array_key_exists('device_id', $validated)) {
+            $deviceId = $validated['device_id'] ? (int) $validated['device_id'] : null;
+
+            if ($deviceId) {
+                $deviceExists = KitchenStationDevice::query()
+                    ->whereHas('kitchenStation', fn ($q) => $q->where('outlet_id', $outlet->id))
+                    ->where('id', $deviceId)
+                    ->exists();
+
+                if (! $deviceExists) {
+                    return back()->withErrors([
+                        'device_id' => 'Printer kasir tidak ditemukan untuk outlet ini.',
+                    ]);
+                }
+            }
+
+            Setting::set(
+                'cashier_receipt_device_id',
+                $deviceId,
+                'Printer default untuk struk kasir (device id).',
+                $outlet->id
+            );
+        }
 
         return back()->with('success', 'Pengaturan struk kasir berhasil diperbarui.');
     }

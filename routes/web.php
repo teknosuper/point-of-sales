@@ -389,6 +389,7 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
     Route::get('/transactions/health', [TransactionController::class, 'health'])->middleware('permission:transactions-access')->name('transactions.health');
     Route::post('/transactions/sync-offline', [TransactionController::class, 'syncOffline'])->middleware(['permission:transactions-access', 'active_shift'])->name('transactions.sync-offline');
     Route::post('/transactions/{transaction}/requeue-receipt', [TransactionController::class, 'requeueReceipt'])->middleware(['permission:transactions-access', 'outlet_access'])->name('transactions.requeue-receipt');
+    Route::get('/transactions/print-jobs', [TransactionController::class, 'printJobs'])->middleware(['permission:transactions-access', 'outlet_access'])->name('transactions.print-jobs');
     Route::get('/transactions/{invoice}/print', [TransactionController::class, 'print'])->middleware('permission:transactions-history-access')->name('transactions.print');
     Route::get('/transactions/history-feed', [TransactionController::class, 'historyFeed'])->middleware('permission:transactions-history-access')->name('transactions.history-feed');
     Route::get('/transactions/history', [TransactionController::class, 'history'])->middleware('permission:transactions-history-access')->name('transactions.history');

@@ -13,6 +13,7 @@ use App\Models\KitchenStationDevice;
 use App\Models\Outlet;
 use App\Models\PaymentSetting;
 use App\Models\PosCheckoutReservation;
+use App\Models\PrintJob;
 use App\Models\Product;
 use App\Models\ProductOutletStock;
 use App\Models\Receivable;
@@ -3028,6 +3029,122 @@ class TransactionController extends Controller
         ]);
     }
 
+    /**
+     * Daftar antrian print (receipt, kitchen ticket, parking ticket) dengan
+     * advanced filter dan pagination. Dipakai modal "Antrian Print" di POS.
+     */
+    public function printJobs(Request $request): JsonResponse
+    {
+        $outlet = $this->resolveActiveOutlet($request);
+
+        $filters = $request->validate([
+            'q' => ['nullable', 'string', 'max:120'],
+            'job_type' => ['nullable', 'string', 'in:receipt,kitchen_ticket,parking_ticket'],
+            'status' => ['nullable', 'string', 'in:queued,processing,success,failed,cancelled'],
+            'start_date' => ['nullable', 'date'],
+            'end_date' => ['nullable', 'date'],
+            'page' => ['nullable', 'integer', 'min:1'],
+            'per_page' => ['nullable', 'integer', 'min:5', 'max:50'],
+        ]);
+
+        $perPage = (int) ($filters['per_page'] ?? 15);
+
+        $query = PrintJob::query()
+            ->with([
+                'transaction:id,invoice,outlet_id,order_type,order_reference_name,cashier_id,created_at',
+                'transaction.cashier:id,name',
+                'kitchenTicket:id,ticket_number,kitchen_station_id,status',
+                'kitchenTicket.kitchenStation:id,name,code',
+                'device:id,name,device_type',
+                'creator:id,name',
+            ])
+            ->when($outlet, fn ($builder, $outlet) => $builder->where('outlet_id', $outlet->id))
+            ->when(! empty($filters['q']), function ($builder) use ($filters) {
+                $needle = '%'.$filters['q'].'%';
+
+                return $builder->where(function ($sub) use ($needle) {
+                    $sub->whereHas('transaction', fn ($q) => $q->where('invoice', 'like', $needle))
+                        ->orWhereHas('kitchenTicket', fn ($q) => $q->where('ticket_number', 'like', $needle))
+                        ->orWhere('id', 'like', $needle);
+                });
+            })
+            ->when(! empty($filters['job_type']), fn ($builder) => $builder->where('job_type', $filters['job_type']))
+            ->when(! empty($filters['status']), fn ($builder) => $builder->where('status', $filters['status']))
+            ->when(! empty($filters['start_date']), fn ($builder) => $builder->whereDate('queued_at', '>=', $filters['start_date']))
+            ->when(! empty($filters['end_date']), fn ($builder) => $builder->whereDate('queued_at', '<=', $filters['end_date']))
+            ->orderByDesc('queued_at')
+            ->orderByDesc('id');
+
+        $jobs = $query->paginate($perPage)->withQueryString();
+
+        return response()->json([
+            'success' => true,
+            'data' => $jobs->through(fn (PrintJob $job) => [
+                'id' => $job->id,
+                'job_type' => $job->job_type,
+                'job_type_label' => match ($job->job_type) {
+                    PrintJob::TYPE_RECEIPT => 'Struk Kasir',
+                    PrintJob::TYPE_KITCHEN_TICKET => 'Tiket Dapur',
+                    PrintJob::TYPE_PARKING_TICKET => 'Karcis Parkir',
+                    default => ucwords(str_replace('_', ' ', (string) $job->job_type)),
+                },
+                'transaction_id' => $job->transaction_id,
+                'status' => $job->status,
+                'status_label' => match ($job->status) {
+                    PrintJob::STATUS_QUEUED => 'Menunggu',
+                    PrintJob::STATUS_PROCESSING => 'Diproses',
+                    PrintJob::STATUS_SUCCESS => 'Tercetak',
+                    PrintJob::STATUS_FAILED => 'Gagal',
+                    PrintJob::STATUS_CANCELLED => 'Dibatalkan',
+                    default => ucwords((string) $job->status),
+                },
+                'copies' => $job->copies,
+                'invoice' => $job->transaction?->invoice,
+                'ticket_number' => $job->kitchenTicket?->ticket_number,
+                'station_name' => $job->kitchenTicket?->kitchenStation?->name,
+                'device_name' => $job->device?->name ?? data_get($job->payload, 'device_name'),
+                'device_type' => $job->device?->device_type ?? data_get($job->payload, 'device_type'),
+                'paper_width' => data_get($job->payload, 'paper_width'),
+                'receipt_profile' => data_get($job->payload, 'receipt_profile'),
+                'print_profile' => data_get($job->payload, 'print_profile'),
+                'created_by_name' => $job->creator?->name,
+                'failure_reason' => $job->failure_reason,
+                'queued_at' => $job->queued_at?->toIso8601String(),
+                'processing_at' => $job->processing_at?->toIso8601String(),
+                'processed_at' => $job->processed_at?->toIso8601String(),
+                'failed_at' => $job->failed_at?->toIso8601String(),
+                'can_requeue' => $job->job_type === PrintJob::TYPE_RECEIPT
+                    && $job->transaction?->payment_status === 'paid',
+            ])->values(),
+            'meta' => [
+                'current_page' => $jobs->currentPage(),
+                'last_page' => $jobs->lastPage(),
+                'per_page' => $jobs->perPage(),
+                'total' => $jobs->total(),
+                'from' => $jobs->firstItem(),
+                'to' => $jobs->lastItem(),
+            ],
+            'summary' => [
+                'queued' => PrintJob::query()
+                    ->when($outlet, fn ($builder, $outlet) => $builder->where('outlet_id', $outlet->id))
+                    ->where('status', PrintJob::STATUS_QUEUED)
+                    ->count(),
+                'processing' => PrintJob::query()
+                    ->when($outlet, fn ($builder, $outlet) => $builder->where('outlet_id', $outlet->id))
+                    ->where('status', PrintJob::STATUS_PROCESSING)
+                    ->count(),
+                'failed' => PrintJob::query()
+                    ->when($outlet, fn ($builder, $outlet) => $builder->where('outlet_id', $outlet->id))
+                    ->where('status', PrintJob::STATUS_FAILED)
+                    ->count(),
+                'success' => PrintJob::query()
+                    ->when($outlet, fn ($builder, $outlet) => $builder->where('outlet_id', $outlet->id))
+                    ->where('status', PrintJob::STATUS_SUCCESS)
+                    ->count(),
+            ],
+        ]);
+    }
+
     private function resolveOperationalSettings(?int $outletId): array
     {
         $outlet = $outletId ? \App\Models\Outlet::query()->find($outletId) : null;
@@ -3169,10 +3286,21 @@ class TransactionController extends Controller
             return '58mm';
         }
 
-        $paperWidth = KitchenStationDevice::query()
+        $configuredDeviceId = Setting::get('cashier_receipt_device_id', null, $outletId);
+
+        $query = KitchenStationDevice::query()
             ->whereHas('kitchenStation', fn ($query) => $query->where('outlet_id', $outletId))
             ->where('is_active', true)
-            ->where('device_type', 'receipt_printer')
+            ->whereIn('device_type', ['receipt_printer', 'printer']);
+
+        if ($configuredDeviceId) {
+            $query->where('id', (int) $configuredDeviceId);
+        }
+
+        $paperWidth = $query
+            ->orderByRaw("CASE WHEN device_type = 'receipt_printer' THEN 0 ELSE 1 END")
+            ->orderByDesc('is_primary')
+            ->orderBy('name')
             ->value('meta->paper_width');
 
         return $paperWidth === '80mm' ? '80mm' : '58mm';

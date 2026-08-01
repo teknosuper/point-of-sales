@@ -25,6 +25,7 @@ import CustomerInfoModal from "@/Components/POS/CustomerInfoModal";
 import TablePickerModal from "@/Components/POS/TablePickerModal";
 import CashPaymentModal from "@/Components/POS/CashPaymentModal";
 import ParkingTicketModal from "@/Components/POS/ParkingTicketModal";
+import PrintJobsModal from "@/Components/POS/PrintJobsModal";
 import HeldTransactions, {
     HoldButton,
 } from "@/Components/POS/HeldTransactions";
@@ -267,6 +268,8 @@ export default function Index({
     const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
     const [isParkingTicketModalOpen, setIsParkingTicketModalOpen] =
         useState(false);
+    const [isPrintJobsModalOpen, setIsPrintJobsModalOpen] = useState(false);
+    const [requeueingPrintJobId, setRequeueingPrintJobId] = useState(null);
     const [parkingTicketQuantity, setParkingTicketQuantity] = useState("1");
     const [isSubmittingParkingTicket, setIsSubmittingParkingTicket] =
         useState(false);
@@ -4741,6 +4744,41 @@ export default function Index({
         }
     }, [parkingTicketQuantity]);
 
+    const handleRequeuePrintJob = useCallback(
+        async (job) => {
+            const transactionId = job?.transaction_id;
+
+            if (!transactionId) {
+                toast.error(
+                    "Job ini tidak memiliki transaksi struk untuk dicetak ulang."
+                );
+                return;
+            }
+
+            setRequeueingPrintJobId(job.id);
+
+            try {
+                const response = await axios.post(
+                    route("transactions.requeue-receipt", transactionId)
+                );
+
+                toast.success(
+                    response.data?.message ||
+                        "Struk berhasil dimasukkan ke antrean print."
+                );
+
+                setRequeueingPrintJobId(null);
+            } catch (error) {
+                toast.error(
+                    error?.response?.data?.message ||
+                        "Gagal memasukkan struk ke antrean print."
+                );
+                setRequeueingPrintJobId(null);
+            }
+        },
+        []
+    );
+
     const buildOfflineTransactionPayload = useCallback(() => {
         const offlineReference = buildOfflineInvoice();
         const normalizedItems = localCarts.map((item) => {
@@ -5701,17 +5739,27 @@ export default function Index({
                                 Utilitas Kasir
                             </p>
                             <p className="text-xs text-slate-500 dark:text-slate-400">
-                                Cetak karcis parkir manual ke printer kasir.
+                                Cetak karcis parkir manual ke printer kasir dan pantau antrean print.
                             </p>
                         </div>
-                        <button
-                            type="button"
-                            onClick={() => setIsParkingTicketModalOpen(true)}
-                            className="inline-flex items-center gap-2 rounded-full bg-primary-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-primary-700"
-                        >
-                            <IconReceipt2 size={14} />
-                            Print Karcis Parkir
-                        </button>
+                        <div className="flex flex-wrap items-center gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setIsPrintJobsModalOpen(true)}
+                                className="inline-flex items-center gap-2 rounded-full border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                            >
+                                <IconPrinter size={14} />
+                                Antrian Print
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setIsParkingTicketModalOpen(true)}
+                                className="inline-flex items-center gap-2 rounded-full bg-primary-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-primary-700"
+                            >
+                                <IconReceipt2 size={14} />
+                                Print Karcis Parkir
+                            </button>
+                        </div>
                     </div>
                 </div>
 
@@ -8113,6 +8161,14 @@ export default function Index({
                 setQuantity={setParkingTicketQuantity}
                 onQueue={handleQueueParkingTicket}
                 isSubmitting={isSubmittingParkingTicket}
+            />
+
+            <PrintJobsModal
+                open={isPrintJobsModalOpen}
+                onClose={() => setIsPrintJobsModalOpen(false)}
+                outletId={activeOutlet?.id}
+                onRequeue={handleRequeuePrintJob}
+                requeueingId={requeueingPrintJobId}
             />
 
         </>

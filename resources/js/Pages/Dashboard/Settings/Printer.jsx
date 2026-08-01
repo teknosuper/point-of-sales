@@ -1,4 +1,4 @@
-import { Head, useForm } from "@inertiajs/react";
+import { Head, Link, useForm } from "@inertiajs/react";
 import React, { useState } from "react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import toast from "react-hot-toast";
@@ -13,10 +13,11 @@ import {
     IconInfoCircle,
 } from "@/Utils/icons";
 
-function CashierReceiptCard({ receipt = null, receiptProfiles = {} }) {
+function CashierReceiptCard({ receipt = null, receiptProfiles = {}, deviceOptions = [] }) {
     const form = useForm({
         receipt_profile: receipt?.receipt_profile || "80_standard",
         paper_width: receipt?.paper_width || "80mm",
+        device_id: receipt?.device_id ? String(receipt.device_id) : "",
     });
 
     const submit = (event) => {
@@ -42,6 +43,26 @@ function CashierReceiptCard({ receipt = null, receiptProfiles = {} }) {
                 </p>
             </div>
             <div className="grid gap-3 md:grid-cols-2">
+                <label className="space-y-1">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                        Printer Kasir
+                    </span>
+                    <select
+                        value={form.data.device_id}
+                        onChange={(event) => form.setData("device_id", event.target.value)}
+                        className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
+                    >
+                        <option value="">Otomatis (default sistem)</option>
+                        {deviceOptions.map((device) => (
+                            <option key={device.id} value={device.id}>
+                                {device.label}
+                            </option>
+                        ))}
+                    </select>
+                    <span className="text-[11px] text-slate-400">
+                        Printer yang dipakai untuk struk kasir. Pilih "Otomatis" untuk memakai printer pertama yang tersedia.
+                    </span>
+                </label>
                 <label className="space-y-1">
                     <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
                         Lebar Kertas
@@ -161,6 +182,15 @@ export default function Printer({
                     <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                         Konfigurasi URL antrian print untuk aplikasi ESC/POS Web Direct. Copy URL di bawah lalu paste ke aplikasi printer.
                     </p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                        <Link
+                            href={route("settings.kitchen-devices.index")}
+                            className="inline-flex items-center gap-2 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-primary-700"
+                        >
+                            <IconDevices size={16} />
+                            Kelola Device & Tambah Printer
+                        </Link>
+                    </div>
                 </div>
 
                 {/* Info Box */}
@@ -263,6 +293,18 @@ export default function Printer({
                     <CashierReceiptCard
                         receipt={cashierReceipt}
                         receiptProfiles={receiptProfiles}
+                        deviceOptions={deviceUrls
+                            .filter(
+                                (device) =>
+                                    device.device_type === "printer" ||
+                                    device.device_type === "receipt_printer"
+                            )
+                            .map((device) => ({
+                                id: String(device.id),
+                                label: device.station_name
+                                    ? `${device.name} (${device.station_name})`
+                                    : device.name,
+                            }))}
                     />
                 </div>
 

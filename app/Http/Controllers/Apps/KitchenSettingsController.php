@@ -609,7 +609,7 @@ class KitchenSettingsController extends Controller
 
     private function defaultPrintProfile(string $connectionDriver, string $deviceType): string
     {
-        if ($deviceType !== 'printer') {
+        if (! in_array($deviceType, ['printer', 'receipt_printer'], true)) {
             return KitchenStationDevice::PRINT_PROFILE_BROWSER;
         }
 

@@ -61,6 +61,7 @@ export default function Index({ stations = [], filters = {}, outlets = [], outle
     const [showHelpModal, setShowHelpModal] = useState(false);
     const [editingStation, setEditingStation] = useState(null);
     const [editingDevice, setEditingDevice] = useState(null);
+    const deviceFormAreaRef = React.useRef(null);
     const stationForm = useForm(defaultStation);
     const deviceForm = useForm(defaultDevice);
     const operationsForm = useForm({
@@ -231,6 +232,17 @@ export default function Index({ stations = [], filters = {}, outlets = [], outle
             is_primary: Boolean(device.is_primary),
             is_active: Boolean(device.is_active),
         });
+    };
+
+    const startDeviceCreate = (station) => {
+        setEditingDevice({ stationId: station.id, deviceId: null });
+        deviceForm.setData(defaultDevice);
+        setTimeout(() => {
+            deviceFormAreaRef.current?.scrollIntoView({
+                behavior: "smooth",
+                block: "start",
+            });
+        }, 60);
     };
 
     const resetDevice = () => {
@@ -928,41 +940,13 @@ export default function Index({ stations = [], filters = {}, outlets = [], outle
                                     >
                                         Edit Station
                                     </button>
-                                </div>
-                            </div>
-
-                            <div className="mb-4 grid gap-2 md:grid-cols-4">
-                                <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs dark:border-slate-700 dark:bg-slate-950/30">
-                                    <p className="font-semibold text-slate-700 dark:text-slate-200">
-                                        Link Masuk Station
-                                    </p>
-                                    <p className="mt-1 break-all text-slate-500 dark:text-slate-400">
-                                        {station.shortcut_urls?.entry_url}
-                                    </p>
-                                </div>
-                                <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs dark:border-slate-700 dark:bg-slate-950/30">
-                                    <p className="font-semibold text-slate-700 dark:text-slate-200">
-                                        Link Queue Langsung
-                                    </p>
-                                    <p className="mt-1 break-all text-slate-500 dark:text-slate-400">
-                                        {station.shortcut_urls?.queue_url}
-                                    </p>
-                                </div>
-                                <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs dark:border-slate-700 dark:bg-slate-950/30">
-                                    <p className="font-semibold text-slate-700 dark:text-slate-200">
-                                        Link Tablet / Kiosk
-                                    </p>
-                                    <p className="mt-1 break-all text-slate-500 dark:text-slate-400">
-                                        {station.shortcut_urls?.kiosk_url}
-                                    </p>
-                                </div>
-                                <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs dark:border-slate-700 dark:bg-slate-950/30">
-                                    <p className="font-semibold text-slate-700 dark:text-slate-200">
-                                        Link Login Dapur
-                                    </p>
-                                    <p className="mt-1 break-all text-slate-500 dark:text-slate-400">
-                                        {station.shortcut_urls?.login_url}
-                                    </p>
+                                    <button
+                                        type="button"
+                                        onClick={() => startDeviceCreate(station)}
+                                        className="rounded-xl bg-primary-600 px-3 py-2 text-sm font-medium text-white hover:bg-primary-700"
+                                    >
+                                        + Tambah Device
+                                    </button>
                                 </div>
                             </div>
 
@@ -981,6 +965,7 @@ export default function Index({ stations = [], filters = {}, outlets = [], outle
                                 >
                                     <option value="screen">Screen</option>
                                     <option value="printer">Printer</option>
+                                    <option value="receipt_printer">Printer Kasir (Receipt)</option>
                                     <option value="tablet">Tablet</option>
                                 </select>
                                 <select
@@ -1114,7 +1099,220 @@ export default function Index({ stations = [], filters = {}, outlets = [], outle
                                         type="submit"
                                         className="rounded-xl bg-primary-500 px-4 py-2.5 text-sm font-medium text-white"
                                     >
-                                        {editingDevice?.stationId === station.id ? "Update Device" : "Tambah Device"}
+                                        {editingDevice?.deviceId ? "Update Device" : "Tambah Device"}
+                                    </button>
+                                    {editingDevice?.stationId === station.id ? (
+                                        <button type="button" onClick={resetDevice} className="text-sm text-slate-500">
+                                            Batal
+                                        </button>
+                                    ) : null}
+                                </div>
+                                <div className="md:col-span-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-xs text-blue-800 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-200">
+                                    {printProfileDescriptions[editingDevice?.stationId === station.id ? deviceForm.data.print_profile : "browser_manual"]}
+                                    <div className="mt-1">
+                                        {editingDevice?.stationId === station.id && deviceForm.data.print_profile === "rawbt_android"
+                                            ? "Untuk RawBT, browser Android tetap jadi UI. Printer Bluetooth ditangani aplikasi RawBT di device Android."
+                                            : null}
+                                        {editingDevice?.stationId === station.id && deviceForm.data.print_profile === "qz_tray"
+                                            ? "Untuk QZ Tray, buka aplikasi dari desktop atau mini PC yang sudah memasang QZ Tray."
+                                            : null}
+                                        {editingDevice?.stationId === station.id && deviceForm.data.print_profile === "local_bridge"
+                                            ? "Untuk Local Bridge, gunakan endpoint/queue yang akan dibaca agent printer lokal."
+                                            : null}
+                                    </div>
+                                </div>
+                            </form>
+                            ) : (
+                                <div className="mb-4 rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-950/30 dark:text-slate-400">
+                                    Klik <span className="font-semibold">Tambah Device</span> dari wizard atau pilih <span className="font-semibold">Edit Device</span> pada salah satu device untuk membuka form.
+                                </div>
+                            )}
+
+                            <div className="mb-4 grid gap-2 md:grid-cols-4">
+                                <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs dark:border-slate-700 dark:bg-slate-950/30">
+                                    <p className="font-semibold text-slate-700 dark:text-slate-200">
+                                        Link Masuk Station
+                                    </p>
+                                    <p className="mt-1 break-all text-slate-500 dark:text-slate-400">
+                                        {station.shortcut_urls?.entry_url}
+                                    </p>
+                                </div>
+                                <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs dark:border-slate-700 dark:bg-slate-950/30">
+                                    <p className="font-semibold text-slate-700 dark:text-slate-200">
+                                        Link Queue Langsung
+                                    </p>
+                                    <p className="mt-1 break-all text-slate-500 dark:text-slate-400">
+                                        {station.shortcut_urls?.queue_url}
+                                    </p>
+                                </div>
+                                <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs dark:border-slate-700 dark:bg-slate-950/30">
+                                    <p className="font-semibold text-slate-700 dark:text-slate-200">
+                                        Link Tablet / Kiosk
+                                    </p>
+                                    <p className="mt-1 break-all text-slate-500 dark:text-slate-400">
+                                        {station.shortcut_urls?.kiosk_url}
+                                    </p>
+                                </div>
+                                <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs dark:border-slate-700 dark:bg-slate-950/30">
+                                    <p className="font-semibold text-slate-700 dark:text-slate-200">
+                                        Link Login Dapur
+                                    </p>
+                                    <p className="mt-1 break-all text-slate-500 dark:text-slate-400">
+                                        {station.shortcut_urls?.login_url}
+                                    </p>
+                                </div>
+                            </div>
+
+                            {showDeviceForm || editingDevice?.stationId === station.id ? (
+                            <form onSubmit={(event) => submitDevice(event, station.id)} className="mb-4 grid gap-4 md:grid-cols-4">
+                                <input
+                                    value={editingDevice?.stationId === station.id ? deviceForm.data.name : ""}
+                                    onChange={(event) => deviceForm.setData("name", event.target.value)}
+                                    placeholder="Nama device"
+                                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
+                                />
+                                <select
+                                    value={editingDevice?.stationId === station.id ? deviceForm.data.device_type : "screen"}
+                                    onChange={(event) => deviceForm.setData("device_type", event.target.value)}
+                                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
+                                >
+                                    <option value="screen">Screen</option>
+                                    <option value="printer">Printer</option>
+                                    <option value="receipt_printer">Printer Kasir (Receipt)</option>
+                                    <option value="tablet">Tablet</option>
+                                </select>
+                                <select
+                                    value={editingDevice?.stationId === station.id ? deviceForm.data.connection_driver : "browser"}
+                                    onChange={(event) => deviceForm.setData("connection_driver", event.target.value)}
+                                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
+                                >
+                                    <option value="browser">Browser</option>
+                                    <option value="network">Network</option>
+                                    <option value="cloud">Cloud</option>
+                                    <option value="usb">USB</option>
+                                </select>
+                                <input
+                                    value={editingDevice?.stationId === station.id ? deviceForm.data.endpoint : ""}
+                                    onChange={(event) => deviceForm.setData("endpoint", event.target.value)}
+                                    placeholder="Endpoint / IP / Queue"
+                                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
+                                />
+                                <select
+                                    value={editingDevice?.stationId === station.id ? deviceForm.data.print_profile : "browser_manual"}
+                                    onChange={(event) => deviceForm.setData("print_profile", event.target.value)}
+                                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
+                                >
+                                    {Object.entries(printProfiles).map(([value, label]) => (
+                                        <option key={value} value={value}>
+                                            {label}
+                                        </option>
+                                    ))}
+                                </select>
+                                <select
+                                    value={editingDevice?.stationId === station.id ? deviceForm.data.paper_width : "80mm"}
+                                    onChange={(event) => deviceForm.setData("paper_width", event.target.value)}
+                                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
+                                >
+                                    <option value="58mm">58mm</option>
+                                    <option value="80mm">80mm</option>
+                                </select>
+                                <select
+                                    value={editingDevice?.stationId === station.id ? deviceForm.data.receipt_profile : "80_standard"}
+                                    onChange={(event) => deviceForm.setData("receipt_profile", event.target.value)}
+                                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
+                                >
+                                    {Object.entries(receiptProfiles).map(([value, label]) => (
+                                        <option key={value} value={value}>
+                                            {label}
+                                        </option>
+                                    ))}
+                                </select>
+                                <select
+                                    value={editingDevice?.stationId === station.id ? deviceForm.data.template_style : "standard"}
+                                    onChange={(event) => deviceForm.setData("template_style", event.target.value)}
+                                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
+                                >
+                                    <option value="standard">Template Standard</option>
+                                    <option value="compact">Template Compact</option>
+                                    <option value="kitchen">Template Kitchen</option>
+                                </select>
+                                <input
+                                    type="number"
+                                    min="1"
+                                    max="3"
+                                    value={editingDevice?.stationId === station.id ? deviceForm.data.print_copies : 1}
+                                    onChange={(event) => deviceForm.setData("print_copies", event.target.value)}
+                                    placeholder="Copies"
+                                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
+                                />
+                                <select
+                                    value={editingDevice?.stationId === station.id ? deviceForm.data.dispatch_mode : "manual"}
+                                    onChange={(event) => deviceForm.setData("dispatch_mode", event.target.value)}
+                                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
+                                >
+                                    <option value="manual">Dispatch Manual</option>
+                                    <option value="auto">Dispatch Otomatis</option>
+                                </select>
+                                <select
+                                    value={editingDevice?.stationId === station.id ? deviceForm.data.fallback_device_id : ""}
+                                    onChange={(event) => deviceForm.setData("fallback_device_id", event.target.value)}
+                                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800"
+                                >
+                                    <option value="">Tanpa fallback device</option>
+                                    {station.devices
+                                        ?.filter((candidate) => !editingDevice?.deviceId || candidate.id !== editingDevice.deviceId)
+                                        .map((candidate) => (
+                                            <option key={candidate.id} value={String(candidate.id)}>
+                                                {candidate.name}
+                                            </option>
+                                        ))}
+                                </select>
+                                {editingDevice?.stationId === station.id && deviceForm.data.print_profile === "rawbt_android" ? (
+                                    <input
+                                        value={deviceForm.data.rawbt_intent_url}
+                                        onChange={(event) => deviceForm.setData("rawbt_intent_url", event.target.value)}
+                                        placeholder="RawBT intent / URL scheme"
+                                        className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm md:col-span-2 dark:border-slate-700 dark:bg-slate-800"
+                                    />
+                                ) : null}
+                                {editingDevice?.stationId === station.id && deviceForm.data.print_profile === "qz_tray" ? (
+                                    <input
+                                        value={deviceForm.data.qz_printer_name}
+                                        onChange={(event) => deviceForm.setData("qz_printer_name", event.target.value)}
+                                        placeholder="Nama printer di QZ Tray"
+                                        className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm md:col-span-2 dark:border-slate-700 dark:bg-slate-800"
+                                    />
+                                ) : null}
+                                {editingDevice?.stationId === station.id && deviceForm.data.print_profile === "local_bridge" ? (
+                                    <input
+                                        value={deviceForm.data.bridge_device_key}
+                                        onChange={(event) => deviceForm.setData("bridge_device_key", event.target.value)}
+                                        placeholder="Bridge device key / queue key"
+                                        className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm md:col-span-2 dark:border-slate-700 dark:bg-slate-800"
+                                    />
+                                ) : null}
+                                <div className="md:col-span-4 flex items-center gap-4">
+                                    <label className="inline-flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+                                        <input
+                                            type="checkbox"
+                                            checked={editingDevice?.stationId === station.id ? deviceForm.data.is_primary : false}
+                                            onChange={(event) => deviceForm.setData("is_primary", event.target.checked)}
+                                        />
+                                        Primary
+                                    </label>
+                                    <label className="inline-flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+                                        <input
+                                            type="checkbox"
+                                            checked={editingDevice?.stationId === station.id ? deviceForm.data.is_active : true}
+                                            onChange={(event) => deviceForm.setData("is_active", event.target.checked)}
+                                        />
+                                        Aktif
+                                    </label>
+                                    <button
+                                        type="submit"
+                                        className="rounded-xl bg-primary-500 px-4 py-2.5 text-sm font-medium text-white"
+                                    >
+                                        {editingDevice?.deviceId ? "Update Device" : "Tambah Device"}
                                     </button>
                                     {editingDevice?.stationId === station.id ? (
                                         <button type="button" onClick={resetDevice} className="text-sm text-slate-500">
