@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Head, Link, router } from "@inertiajs/react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
-import { IconChevronDown, IconChevronUp, IconFilter } from "@/Utils/icons";
+import { IconChevronDown, IconChevronUp, IconFilter, IconUser, IconUsers } from "@/Utils/icons";
 
 const formatCurrency = (value = 0) =>
     new Intl.NumberFormat("id-ID", {
@@ -162,6 +162,35 @@ export default function OutletAnalytics({
                                         <span>Transaksi: {outlet.transactions_count}</span>
                                         <span>Shift: {outlet.shifts_count}</span>
                                         <span>Station: {outlet.stations_count}</span>
+                                    </div>
+                                    <div className="mt-4 border-t border-slate-100 pt-3 dark:border-slate-800">
+                                        <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                            <IconUsers size={14} />
+                                            User Outlet ({outlet.users?.length || 0})
+                                        </div>
+                                        {outlet.users?.length ? (
+                                            <div className="flex flex-wrap gap-2">
+                                                {outlet.users.map((user) => (
+                                                    <span
+                                                        key={user.id}
+                                                        title={user.email}
+                                                        className="inline-flex items-center gap-1.5 rounded-full bg-white px-2.5 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-700"
+                                                    >
+                                                        <IconUser size={12} className="text-slate-400" />
+                                                        {user.name}
+                                                        {user.is_primary ? (
+                                                            <span className="rounded-full bg-primary-100 px-1.5 py-0.5 text-[10px] font-bold text-primary-700 dark:bg-primary-950/40 dark:text-primary-300">
+                                                                PIC
+                                                            </span>
+                                                        ) : null}
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        ) : (
+                                            <p className="text-xs text-slate-400 dark:text-slate-500">
+                                                Belum ada user terhubung ke outlet ini.
+                                            </p>
+                                        )}
                                     </div>
                                 </div>
                             ))}

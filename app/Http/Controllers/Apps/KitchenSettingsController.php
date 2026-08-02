@@ -234,6 +234,14 @@ class KitchenSettingsController extends Controller
             ],
         ], $outletId);
 
+        if ($request->expectsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => 'Operasional outlet hari ini berhasil diperbarui.',
+                'data' => $this->operationalSettingsPayload($outletId),
+            ]);
+        }
+
         return back()->with('success', 'Operasional outlet hari ini berhasil diperbarui.');
     }
 
@@ -301,6 +309,13 @@ class KitchenSettingsController extends Controller
             'is_active' => (bool) ($data['is_active'] ?? true),
         ]);
 
+        if ($request->expectsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => 'Station dapur berhasil ditambahkan.',
+            ]);
+        }
+
         return back()->with('success', 'Station dapur berhasil ditambahkan.');
     }
 
@@ -333,6 +348,13 @@ class KitchenSettingsController extends Controller
             'is_active' => (bool) ($data['is_active'] ?? false),
         ]);
 
+        if ($request->expectsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => 'Station dapur berhasil diperbarui.',
+            ]);
+        }
+
         return back()->with('success', 'Station dapur berhasil diperbarui.');
     }
 
@@ -347,6 +369,15 @@ class KitchenSettingsController extends Controller
         $station->update([
             'processing_mode' => $data['processing_mode'],
         ]);
+
+        if ($request->expectsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => $data['processing_mode'] === 'auto'
+                    ? 'Mode proses station diubah ke otomatis.'
+                    : 'Mode proses station diubah ke manual.',
+            ]);
+        }
 
         return back()->with(
             'success',
@@ -406,6 +437,13 @@ class KitchenSettingsController extends Controller
             ],
         ]);
 
+        if ($request->expectsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => 'Device dapur berhasil ditambahkan.',
+            ]);
+        }
+
         return back()->with('success', 'Device dapur berhasil ditambahkan.');
     }
 
@@ -462,6 +500,13 @@ class KitchenSettingsController extends Controller
                 'bridge_device_key' => $data['bridge_device_key'] ?? (($device->meta ?? [])['bridge_device_key'] ?? null),
             ],
         ]);
+
+        if ($request->expectsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => 'Device dapur berhasil diperbarui.',
+            ]);
+        }
 
         return back()->with('success', 'Device dapur berhasil diperbarui.');
     }
@@ -603,6 +648,14 @@ class KitchenSettingsController extends Controller
         $device->update([
             'is_active' => $nextStatus,
         ]);
+
+        if (request()->expectsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => $nextStatus ? 'Device berhasil diaktifkan.' : 'Device berhasil dinonaktifkan.',
+                'data' => ['is_active' => $nextStatus],
+            ]);
+        }
 
         return back()->with('success', $nextStatus ? 'Device berhasil diaktifkan.' : 'Device berhasil dinonaktifkan.');
     }
@@ -803,5 +856,90 @@ class KitchenSettingsController extends Controller
             'tone' => 'emerald',
             'message' => 'Device siap dipakai untuk operasional.',
         ];
+    }
+
+    /**
+     * Ringkasan operasional dapur untuk outlet (dipakai modal "Operasional Dapur"
+     * di halaman manajemen outlet). Menampilkan station + device + status kesehatan.
+     */
+    public function outletSummary(Request $request, int $outlet)
+    {
+        $outletModel = Outlet::query()
+            ->withCount('kitchenStations')
+            ->findOrFail($outlet);
+
+        // Untuk outlet utama: station milik outlet tersebut langsung.
+        // Untuk outlet tenant: station terhubung lewat mapping produk tenant
+        // (product_kitchen_station_mappings), karena station dapur dimiliki outlet utama.
+        $stationQuery = KitchenStation::query()
+            ->with(['devices'])
+            ->where('is_active', true);
+
+        if (($outletModel->outlet_type ?? 'main') === 'tenant') {
+            $stationQuery->where(function ($query) use ($outlet) {
+                $query->where('outlet_id', $outlet)
+                    ->orWhereHas('productMappings', function ($mapping) use ($outlet) {
+                        $mapping
+                            ->where('is_active', true)
+                            ->whereHas('product', fn ($product) => $product->where('tenant_outlet_id', $outlet));
+                    });
+            });
+        } else {
+            $stationQuery->where('outlet_id', $outlet);
+        }
+
+        $stations = $stationQuery
+            ->orderBy('sort_order')
+            ->orderBy('name')
+            ->get();
+
+        $mappedStations = $stations->map(function (KitchenStation $station) {
+            $devices = $station->devices->map(function (KitchenStationDevice $device) {
+                $health = $this->deviceOperationalStatus($device, null);
+                $printProfile = data_get($device->meta, 'print_profile', 'browser_manual');
+
+                return [
+                    'id' => $device->id,
+                    'name' => $device->name,
+                    'device_type' => $device->device_type,
+                    'connection_driver' => $device->connection_driver,
+                    'is_active' => (bool) $device->is_active,
+                    'is_primary' => (bool) $device->is_primary,
+                    'paper_width' => data_get($device->meta, 'paper_width', '80mm'),
+                    'print_profile' => $printProfile,
+                    'dispatch_mode' => data_get($device->meta, 'dispatch_mode', 'manual'),
+                    'health' => $health,
+                    'endpoint' => $device->endpoint,
+                ];
+            })->values();
+
+            return [
+                'id' => $station->id,
+                'name' => $station->name,
+                'code' => $station->code,
+                'slug' => $station->slug,
+                'station_type' => $station->station_type,
+                'display_mode' => $station->display_mode,
+                'is_active' => (bool) $station->is_active,
+                'processing_mode' => $station->processing_mode ?? data_get($station->meta, 'processing_mode', 'auto'),
+                'device_count' => $devices->count(),
+                'devices' => $devices,
+                'healthy_devices' => $devices->filter(fn (array $d) => ($d['health']['is_issue'] ?? true) === false)->count(),
+            ];
+        })->values();
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'outlet' => [
+                    'id' => $outletModel->id,
+                    'name' => $outletModel->name,
+                    'code' => $outletModel->code,
+                    'stations_count' => $outletModel->kitchen_stations_count,
+                ],
+                'stations' => $mappedStations,
+                'operational' => $this->operationalSettingsPayload($outlet),
+            ],
+        ]);
     }
 }

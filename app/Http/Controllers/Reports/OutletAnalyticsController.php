@@ -97,6 +97,7 @@ class OutletAnalyticsController extends Controller
                 'cashierShifts as shifts_count' => fn ($query) => $this->applyDateRange($query, $filters, 'opened_at'),
                 'kitchenStations as stations_count',
             ])
+            ->with(['users:id,name,email'])
             ->withSum([
                 'transactions as revenue_total' => fn ($query) => $this->applyDateRange($query, $filters),
             ], 'grand_total')
@@ -113,6 +114,14 @@ class OutletAnalyticsController extends Controller
                     'shifts_count' => (int) ($outlet->shifts_count ?? 0),
                     'stations_count' => (int) ($outlet->stations_count ?? 0),
                     'revenue_total' => (int) ($outlet->revenue_total ?? 0),
+                    'users' => $outlet->users
+                        ->map(fn ($user) => [
+                            'id' => $user->id,
+                            'name' => $user->name,
+                            'email' => $user->email,
+                            'is_primary' => (bool) ($user->pivot?->is_primary ?? false),
+                        ])
+                        ->values(),
                 ];
             });
 

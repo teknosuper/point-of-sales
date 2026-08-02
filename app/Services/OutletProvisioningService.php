@@ -17,6 +17,7 @@ class OutletProvisioningService
             'code' => 'ST-'.strtoupper($outlet->code),
             'station_type' => 'kitchen',
             'display_mode' => 'screen',
+            'processing_mode' => 'auto',
             'sort_order' => 0,
             'is_active' => true,
         ]);
@@ -43,9 +44,13 @@ class OutletProvisioningService
 
     private function createDefaultDevices(KitchenStation $station): void
     {
+        // Nama device memakai nama station tanpa prefix "Dapur" agar konsisten
+        // dengan pola seeder (mis. station "Dapur Minuman" -> "Screen Minuman").
+        $stationLabel = preg_replace('/^Dapur\s+/i', '', $station->name);
+
         KitchenStationDevice::create([
             'kitchen_station_id' => $station->id,
-            'name' => 'Layar '.$station->name,
+            'name' => 'Screen '.$stationLabel,
             'device_type' => 'screen',
             'connection_driver' => 'browser',
             'endpoint' => 'screen://'.$station->slug.'-queue',
@@ -59,7 +64,7 @@ class OutletProvisioningService
 
         KitchenStationDevice::create([
             'kitchen_station_id' => $station->id,
-            'name' => 'Printer '.$station->name,
+            'name' => 'Printer '.$stationLabel,
             'device_type' => 'printer',
             'connection_driver' => 'browser',
             'endpoint' => 'bluetooth://rawbt/'.$station->slug,
