@@ -209,71 +209,6 @@ function ProductCard({
                         </span>
                     )}
                 </div>
-
-                {(canUpdate || canDelete) && (
-                    <div className="absolute inset-0 flex items-center justify-center gap-2 bg-slate-900/0 opacity-0 transition-all group-hover:bg-slate-900/40 group-hover:opacity-100">
-                        {canUpdate && (
-                            <Link
-                                href={route("products.edit", product.id)}
-                                className="rounded-xl bg-white p-2.5 text-warning-600 shadow-lg transition-colors hover:bg-warning-50"
-                            >
-                                <IconPencilCog size={18} />
-                            </Link>
-                        )}
-                        {canToggleFeatured && (
-                            <button
-                                type="button"
-                                onClick={() => onToggleFeatured?.(product)}
-                                className={`rounded-xl bg-white p-2.5 shadow-lg transition-colors hover:bg-amber-50 ${
-                                    product.is_featured ? "text-amber-600" : "text-slate-400"
-                                }`}
-                                title={product.is_featured ? "Hapus featured" : "Jadikan featured"}
-                            >
-                                <IconStar size={18} />
-                            </button>
-                        )}
-                        {canUpdate && (
-                            <>
-                                {canViewPenaltyInfo && (
-                                    <>
-                                        <button
-                                            type="button"
-                                            onClick={() => onApplyShadowBan?.(product)}
-                                            className={`rounded-xl bg-white p-2.5 shadow-lg transition-colors ${
-                                                product.shadow_banned_at
-                                                    ? "hover:bg-blue-50 text-blue-600"
-                                                    : "hover:bg-rose-50 text-slate-400"
-                                            }`}
-                                            title={product.shadow_banned_at ? "Buka shadow ban" : "Shadow ban"}
-                                        >
-                                            <IconX size={18} />
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => onUpdatePenaltyStatus?.(product)}
-                                            className={`rounded-xl bg-white p-2.5 shadow-lg transition-colors hover:bg-amber-50 ${
-                                                product.penalty_status
-                                                    ? "text-amber-600"
-                                                    : "text-slate-400"
-                                            }`}
-                                            title="Ubah status penalty"
-                                        >
-                                            <IconAlertTriangle size={18} />
-                                        </button>
-                                    </>
-                                )}
-                            </>
-                        )}
-                        {canDelete && (
-                            <Button
-                                type="delete"
-                                icon={<IconTrash size={18} />}
-                                className="rounded-xl bg-white p-2.5 text-danger-600 shadow-lg hover:bg-danger-50"
-                                url={route("products.destroy", product.id)}
-                            />
-                        )}
-                    </div>
-                )}
             </div>
 
             <div className="p-4">
@@ -348,32 +283,42 @@ function ProductCard({
                 )}
 
                 {/* Rating & Terjual di card */}
-                <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-                    {Number(product.rating_count ?? 0) > 0 ? (
-                        <div className="flex items-center gap-0.5">
-                            <span className="flex items-center gap-0.5 text-amber-500">
-                                {[0,1,2,3,4].map((i) => (
-                                    <svg key={i} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
-                                        fill={i < Math.round(Number(product.rating_avg ?? 0)) ? "currentColor" : "none"}
-                                        stroke="currentColor" strokeWidth={1.5} className="h-3 w-3">
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.562.562 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.562.562 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.562.562 0 0 1 .321-.988l5.518-.442a.562.562 0 0 0 .475-.345L11.48 3.5Z" />
-                                    </svg>
-                                ))}
-                            </span>
-                            <span className="text-[11px] font-bold text-slate-700 dark:text-slate-200 ml-0.5">
-                                {Number(product.rating_avg ?? 0).toFixed(1)}
-                            </span>
-                            <span className="text-[11px] text-slate-400 ml-0.5">({product.rating_count})</span>
-                        </div>
-                    ) : null}
-                    {Number(product.sold_qty ?? 0) > 0 ? (
-                        <div className="flex items-center gap-0.5 text-[11px] text-slate-500 dark:text-slate-400">
-                            <IconTrendingUp size={12} className="text-primary-500 shrink-0" />
+                <div className="mb-2 space-y-1">
+                    {Number(product.sold_qty ?? 0) > 0 && (
+                        <div className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
+                            <IconTrendingUp size={13} className="text-primary-500 shrink-0" />
                             <span className="font-semibold text-slate-600 dark:text-slate-300">
                                 {Number(product.sold_qty).toLocaleString("id-ID")} terjual
                             </span>
                         </div>
-                    ) : null}
+                    )}
+                    {Number(product.rating_count ?? 0) > 0 ? (
+                        <div className="flex items-center gap-1">
+                            <span className="flex items-center gap-0.5 text-amber-500">
+                                {[0,1,2,3,4].map((i) => (
+                                    <svg key={i} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+                                        fill={i < Math.round(Number(product.rating_avg ?? 0)) ? "currentColor" : "none"}
+                                        stroke="currentColor" strokeWidth={2} className="h-3 w-3">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.562.562 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.562.562 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.562.562 0 0 1 .321-.988l5.518-.442a.562.562 0 0 0 .475-.345L11.48 3.5Z" />
+                                    </svg>
+                                ))}
+                            </span>
+                            <span className="text-xs font-bold text-slate-700 dark:text-slate-200">{Number(product.rating_avg ?? 0).toFixed(1)}</span>
+                            <span className="text-xs text-slate-400">({product.rating_count} penilaian)</span>
+                        </div>
+                    ) : (
+                        <div className="flex items-center gap-1">
+                            <span className="flex items-center gap-0.5 text-slate-300 dark:text-slate-600">
+                                {[0,1,2,3,4].map((i) => (
+                                    <svg key={i} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+                                        fill="none" stroke="currentColor" strokeWidth={2} className="h-3 w-3">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.562.562 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.562.562 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.562.562 0 0 1 .321-.988l5.518-.442a.562.562 0 0 0 .475-.345L11.48 3.5Z" />
+                                    </svg>
+                                ))}
+                            </span>
+                            <span className="text-xs text-slate-400">Belum ada ulasan</span>
+                        </div>
+                    )}
                 </div>
 
                 <div className="mt-2 border-t border-slate-100 pt-2 dark:border-slate-800">
@@ -428,6 +373,76 @@ function ProductCard({
                             Sesuaikan Stok Hari Ini
                         </button>
                     ) : null}
+
+                    {/* Action buttons footer */}
+                    {(canUpdate || canDelete) && (
+                        <div className="mt-3 flex flex-wrap gap-2 border-t border-slate-100 pt-3 dark:border-slate-800">
+                            {canUpdate && (
+                                <Link
+                                    href={route("products.edit", product.id)}
+                                    className="inline-flex items-center gap-1.5 rounded-lg border border-warning-200 bg-warning-50 px-3 py-1.5 text-xs font-medium text-warning-700 transition hover:bg-warning-100 dark:border-warning-900/40 dark:bg-warning-950/30 dark:text-warning-300"
+                                >
+                                    <IconPencilCog size={14} />
+                                    Edit
+                                </Link>
+                            )}
+                            {canToggleFeatured && (
+                                <button
+                                    type="button"
+                                    onClick={() => onToggleFeatured?.(product)}
+                                    className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
+                                        product.is_featured
+                                            ? "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300"
+                                            : "border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                                    }`}
+                                    title={product.is_featured ? "Hapus featured" : "Jadikan featured"}
+                                >
+                                    <IconStar size={14} />
+                                    {product.is_featured ? "Featured" : "Set Featured"}
+                                </button>
+                            )}
+                            {canUpdate && canViewPenaltyInfo && (
+                                <>
+                                    <button
+                                        type="button"
+                                        onClick={() => onApplyShadowBan?.(product)}
+                                        className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
+                                            product.shadow_banned_at
+                                                ? "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-blue-900/40 dark:bg-blue-950/30 dark:text-blue-300"
+                                                : "border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                                        }`}
+                                        title={product.shadow_banned_at ? "Buka shadow ban" : "Shadow ban"}
+                                    >
+                                        <IconX size={14} />
+                                        {product.shadow_banned_at ? "Buka Ban" : "Shadow Ban"}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => onUpdatePenaltyStatus?.(product)}
+                                        className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
+                                            product.penalty_status
+                                                ? "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300"
+                                                : "border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                                        }`}
+                                        title="Ubah status penalty"
+                                    >
+                                        <IconAlertTriangle size={14} />
+                                        Penalty
+                                    </button>
+                                </>
+                            )}
+                            {canDelete && (
+                                <Button
+                                    type="delete"
+                                    icon={<IconTrash size={14} />}
+                                    className="inline-flex items-center gap-1.5 rounded-lg border border-danger-200 bg-danger-50 px-3 py-1.5 text-xs font-medium text-danger-700 hover:bg-danger-100 dark:border-danger-900/40 dark:bg-danger-950/30 dark:text-danger-300"
+                                    url={route("products.destroy", product.id)}
+                                >
+                                    Hapus
+                                </Button>
+                            )}
+                        </div>
+                    )}
                 </div>
             </div>
         </div>
@@ -2353,6 +2368,17 @@ export default function Index({
                                                             </Table.Td>
                                                             <Table.Td>
                                                                 <div className="space-y-1.5">
+                                                                    {/* Terjual */}
+                                                                    {Number(product.sold_qty ?? 0) > 0 ? (
+                                                                        <div className="flex items-center gap-1 text-xs">
+                                                                            <IconTrendingUp size={13} className="text-primary-500 shrink-0" />
+                                                                            <span className="font-semibold text-slate-600 dark:text-slate-300">
+                                                                                {Number(product.sold_qty).toLocaleString("id-ID")} terjual
+                                                                            </span>
+                                                                        </div>
+                                                                    ) : (
+                                                                        <span className="text-xs text-slate-400">Belum ada penjualan</span>
+                                                                    )}
                                                                     {/* Rating */}
                                                                     {Number(product.rating_count ?? 0) > 0 ? (
                                                                         <div className="flex items-center gap-1">
@@ -2360,31 +2386,26 @@ export default function Index({
                                                                                 {[0,1,2,3,4].map((i) => (
                                                                                     <svg key={i} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
                                                                                         fill={i < Math.round(Number(product.rating_avg ?? 0)) ? "currentColor" : "none"}
-                                                                                        stroke="currentColor" strokeWidth={1.5} className="h-3.5 w-3.5">
+                                                                                        stroke="currentColor" strokeWidth={2} className="h-3 w-3">
                                                                                         <path strokeLinecap="round" strokeLinejoin="round" d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.562.562 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.562.562 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.562.562 0 0 1 .321-.988l5.518-.442a.562.562 0 0 0 .475-.345L11.48 3.5Z" />
                                                                                     </svg>
                                                                                 ))}
                                                                             </span>
-                                                                            <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
-                                                                                {Number(product.rating_avg ?? 0).toFixed(1)}
-                                                                            </span>
-                                                                            <span className="text-xs text-slate-400">
-                                                                                ({product.rating_count} ulasan)
-                                                                            </span>
+                                                                            <span className="text-xs font-bold text-slate-700 dark:text-slate-200">{Number(product.rating_avg ?? 0).toFixed(1)}</span>
+                                                                            <span className="text-xs text-slate-400">({product.rating_count} penilaian)</span>
                                                                         </div>
                                                                     ) : (
-                                                                        <span className="text-xs text-slate-400">Belum ada ulasan</span>
-                                                                    )}
-                                                                    {/* Terjual */}
-                                                                    {Number(product.sold_qty ?? 0) > 0 ? (
-                                                                        <div className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
-                                                                            <IconTrendingUp size={13} className="text-primary-500 shrink-0" />
-                                                                            <span className="font-semibold text-slate-600 dark:text-slate-300">
-                                                                                {Number(product.sold_qty).toLocaleString("id-ID")} terjual
+                                                                        <div className="flex items-center gap-1">
+                                                                            <span className="flex items-center gap-0.5 text-slate-300 dark:text-slate-600">
+                                                                                {[0,1,2,3,4].map((i) => (
+                                                                                    <svg key={i} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+                                                                                        fill="none" stroke="currentColor" strokeWidth={2} className="h-3 w-3">
+                                                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.562.562 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.562.562 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.562.562 0 0 1 .321-.988l5.518-.442a.562.562 0 0 0 .475-.345L11.48 3.5Z" />
+                                                                                    </svg>
+                                                                                ))}
                                                                             </span>
+                                                                            <span className="text-xs text-slate-400">Belum ada ulasan</span>
                                                                         </div>
-                                                                    ) : (
-                                                                        <span className="text-xs text-slate-400">–</span>
                                                                     )}
                                                                 </div>
                                                             </Table.Td>
