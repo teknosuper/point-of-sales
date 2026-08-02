@@ -87,7 +87,15 @@ class ProductController extends Controller
             ])
             ->withCount([
                 'kitchenStationMappings as active_kitchen_station_mappings_count' => fn ($query) => $query->where('is_active', true),
-            ]);
+            ])
+            ->withAvg('reviews as rating_avg', 'rating')
+            ->withCount('reviews as rating_count')
+            ->selectSub(
+                \DB::table('transaction_details')
+                    ->selectRaw('COALESCE(SUM(qty), 0)')
+                    ->whereColumn('product_id', 'products.id'),
+                'sold_qty'
+            );
 
         $products = $this->applyProductIndexSort($products, $filters['sort'] ?? 'latest', $resolvedStockExpression);
 
@@ -188,13 +196,7 @@ class ProductController extends Controller
             ->when($filters['search'] !== '', function ($query) use ($filters) {
                 $search = $filters['search'];
 
-                $query->where(function ($innerQuery) use ($search) {
-                    $innerQuery
-                        ->where('title', 'like', '%'.$search.'%')
-                        ->orWhere('barcode', 'like', '%'.$search.'%')
-                        ->orWhere('sku', 'like', '%'.$search.'%')
-                        ->orWhere('description', 'like', '%'.$search.'%');
-                });
+                $query->where('title', 'like', '%'.$search.'%');
             })
             ->when($filters['category_id'] !== '', fn ($query) => $query->where('category_id', $filters['category_id']))
             ->when($filters['tenant_outlet_id'] !== '', function ($query) use ($filters) {

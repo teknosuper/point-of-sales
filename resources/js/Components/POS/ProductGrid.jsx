@@ -272,10 +272,10 @@ const ProductCard = memo(function ProductCard({
 
             {/* Product Info */}
             <div
-                className={`flex-1 px-3 py-3 flex ${
+                className={`flex-1 flex ${
                     isListMode
-                        ? "min-w-0 items-center justify-between gap-3"
-                        : "flex-col justify-between"
+                        ? "min-w-0 items-center justify-between gap-3 px-3 py-3"
+                        : "flex-col justify-between px-2.5 py-2.5"
                 }`}
             >
                 <div className="min-w-0 flex-1">
@@ -417,7 +417,7 @@ const ProductCard = memo(function ProductCard({
                     className={`${
                         isListMode
                             ? "flex shrink-0 flex-col items-end text-right"
-                            : "mt-3"
+                            : "mt-2"
                     }`}
                 >
                     {showPromo && (
@@ -425,8 +425,8 @@ const ProductCard = memo(function ProductCard({
                             {formatPrice(basePrice)}
                         </p>
                     )}
-                    <p className={`break-words font-bold text-primary-600 dark:text-primary-400 ${
-                        isListMode ? "text-sm" : "text-base"
+                    <p className={`font-bold text-primary-600 dark:text-primary-400 ${
+                        isListMode ? "text-sm" : "text-sm"
                     }`}>
                         {formatPrice(showPromo ? promoPrice : product.sell_price)}
                     </p>
