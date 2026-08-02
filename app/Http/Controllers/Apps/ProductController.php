@@ -669,6 +669,8 @@ class ProductController extends Controller
                 'tenant_outlet_id' => (string) ($rawFilters['tenant_outlet_id'] ?? ''),
                 'mapping_status' => (string) ($rawFilters['mapping_status'] ?? ''),
                 'stock_status' => (string) ($rawFilters['stock_status'] ?? ''),
+                'featured' => (string) ($rawFilters['featured'] ?? ''),
+                'penalty_status' => (string) ($rawFilters['penalty_status'] ?? ''),
                 'sort' => (string) ($rawFilters['sort'] ?? 'latest'),
                 'per_page' => 10,
             ];
@@ -710,6 +712,8 @@ class ProductController extends Controller
                 'tenant_outlet_id' => (string) ($rawFilters['tenant_outlet_id'] ?? ''),
                 'mapping_status' => (string) ($rawFilters['mapping_status'] ?? ''),
                 'stock_status' => (string) ($rawFilters['stock_status'] ?? ''),
+                'featured' => (string) ($rawFilters['featured'] ?? ''),
+                'penalty_status' => (string) ($rawFilters['penalty_status'] ?? ''),
                 'sort' => (string) ($rawFilters['sort'] ?? 'latest'),
                 'per_page' => 10,
             ];
