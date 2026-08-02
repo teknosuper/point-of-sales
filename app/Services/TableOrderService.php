@@ -158,6 +158,7 @@ class TableOrderService
 
         $productIds = $items->pluck('product_id')->all();
         $products = Product::query()
+            ->published()
             ->with(['tenantOutlet:id,name,code'])
             ->whereIn('id', $productIds)
             ->whereNull('shadow_banned_at')
@@ -558,6 +559,7 @@ class TableOrderService
 
         $productIds = $validatedItems->pluck('product_id')->all();
         $products = Product::query()
+            ->published()
             ->with(['tenantOutlet:id,name,code'])
             ->whereIn('id', $productIds)
             ->orderBy('title')
@@ -735,6 +737,7 @@ class TableOrderService
         ?int $userId = null
     ): void {
         $products = Product::query()
+            ->published()
             ->whereIn('id', $orderItems->pluck('product_id')->filter()->unique()->all())
             ->get()
             ->keyBy('id');
@@ -798,6 +801,7 @@ class TableOrderService
         ?int $userId = null
     ): void {
         $products = Product::query()
+            ->published()
             ->whereIn('id', $items->pluck('product_id')->filter()->unique()->all())
             ->get()
             ->keyBy('id');

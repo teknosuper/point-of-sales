@@ -51,6 +51,7 @@ class PermissionSeeder extends Seeder
         $create('products-stock-update');
         $create('products-pricing-update');
         $create('products-delete');
+        $create('products-review');
         $create('dining-tables-access');
         $create('dining-tables-create');
         $create('dining-tables-update');

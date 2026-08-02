@@ -692,7 +692,8 @@ class TransactionController extends Controller
         $outlet = $this->resolveActiveOutlet($request);
 
         // find product by barcode
-        $product = Product::where('barcode', $request->barcode)
+        $product = Product::published()
+            ->where('barcode', $request->barcode)
             ->whereNull('shadow_banned_at')
             ->first();
 
@@ -3407,7 +3408,8 @@ class TransactionController extends Controller
         $offset = ($page - 1) * $limit;
         $isRemoteSearch = $search !== '';
 
-        $baseProductsQuery = Product::with([
+        $baseProductsQuery = Product::published()
+            ->with([
             'category:id,name,parent_id',
             'modifierOptions',
             'tenantOutlet:id,name,code,slug,sort_order',

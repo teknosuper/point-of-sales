@@ -284,7 +284,7 @@ class ProductController extends Controller
                     'id' => $category->id,
                     'name' => $category->name,
                     'description' => $category->description,
-                    'products' => $category->products->map(function (Product $product) {
+                    'products' => $category->products->map(function (Product $product) use ($outlet) {
                         return [
                             'id' => $product->id,
                             'title' => $product->title,
@@ -860,6 +860,7 @@ class ProductController extends Controller
         }
 
         // create product
+        $canSelfApprove = $request->user()?->can('products-review');
         $product = Product::create([
             'image' => $storedImage['basename'] ?? 'default.jpg',
             'barcode' => $validated['barcode'],
@@ -874,6 +875,9 @@ class ProductController extends Controller
             'buy_price' => $validated['buy_price'],
             'sell_price' => $validated['sell_price'],
             'stock' => $validated['stock'],
+            // Produk baru butuh review owner/main outlet sebelum tampil di publik & POS.
+            'publish_status' => $canSelfApprove ? 'approved' : 'pending',
+            'published_at' => $canSelfApprove ? now() : null,
         ]);
 
         $this->autoAssignKitchenStationMapping(
@@ -1483,6 +1487,101 @@ class ProductController extends Controller
         );
 
         return back()->with('success', 'Status penalty produk berhasil diperbarui.');
+    }
+
+    public function reviewQueue(Request $request)
+    {
+        $outlet = $this->resolveActiveOutlet($request);
+        $query = Product::query()
+            ->pendingReview()
+            ->with([
+                'category:id,name',
+                'tenantOutlet:id,name,code',
+            ])
+            ->select(
+                'id',
+                'title',
+                'image',
+                'barcode',
+                'sku',
+                'sell_price',
+                'stock',
+                'category_id',
+                'tenant_outlet_id',
+                'publish_status',
+                'created_at'
+            )
+            ->when($outlet?->id, fn ($builder) => $builder->where('tenant_outlet_id', $outlet->id))
+            ->orderByDesc('created_at');
+
+        $pending = $request->input('search')
+            ? (clone $query)->where('title', 'like', '%'.trim((string) $request->input('search')).'%')->paginate(20)
+            : $query->paginate(20);
+
+        return Inertia::render('Dashboard/Products/Review', [
+            'pendingProducts' => $pending,
+            'filters' => [
+                'search' => (string) $request->input('search', ''),
+            ],
+        ]);
+    }
+
+    public function approve(Request $request, Product $product)
+    {
+        $product = $this->resolveWorkspaceProduct($product, $request);
+        $before = ['publish_status' => $product->publish_status];
+        $product->update([
+            'publish_status' => 'approved',
+            'published_at' => $product->published_at ?? now(),
+            'reviewed_by' => $request->user()?->id,
+            'reviewed_at' => now(),
+            'review_note' => null,
+        ]);
+
+        $this->auditLogService->log(
+            event: 'product.publish_approved',
+            module: 'products',
+            auditable: $product,
+            description: 'Produk disetujui untuk tampil di publik.',
+            before: $before,
+            after: [
+                'publish_status' => 'approved',
+                'published_at' => $product->published_at?->toISOString(),
+            ]
+        );
+
+        return back()->with('success', 'Produk berhasil disetujui dan kini tampil di publik.');
+    }
+
+    public function reject(Request $request, Product $product)
+    {
+        $product = $this->resolveWorkspaceProduct($product, $request);
+        $validated = $request->validate([
+            'review_note' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $before = ['publish_status' => $product->publish_status];
+        $product->update([
+            'publish_status' => 'rejected',
+            'published_at' => null,
+            'reviewed_by' => $request->user()?->id,
+            'reviewed_at' => now(),
+            'review_note' => trim((string) ($validated['review_note'] ?? '')),
+        ]);
+
+        $this->auditLogService->log(
+            event: 'product.publish_rejected',
+            module: 'products',
+            auditable: $product,
+            description: 'Produk ditolak untuk tampil di publik.',
+            before: $before,
+            after: [
+                'publish_status' => 'rejected',
+                'review_note' => $product->review_note,
+            ]
+        );
+
+        return back()->with('success', 'Produk ditolak dan tidak akan tampil di publik.');
     }
 
     private function generateUniqueSku(

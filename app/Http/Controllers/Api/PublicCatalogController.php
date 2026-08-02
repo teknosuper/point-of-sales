@@ -148,7 +148,13 @@ class PublicCatalogController extends Controller
             abort(404);
         }
 
+        // Produk yang belum di-approve (pending/rejected) tidak boleh diakses publik.
+        if ($product->publish_status !== 'approved') {
+            abort(404);
+        }
+
         $hydratedProduct = Product::query()
+            ->published()
             ->with([
                 'category:id,name,description,image',
                 'tenantOutlet:id,code,slug,name',
@@ -366,6 +372,7 @@ class PublicCatalogController extends Controller
     private function catalogProducts(Request $request, ?Outlet $outlet): Collection
     {
         $query = Product::query()
+            ->published()
             ->with([
                 'category:id,name,description,image,parent_id',
                 'tenantOutlet:id,code,slug,name',

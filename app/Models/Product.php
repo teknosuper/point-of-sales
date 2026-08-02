@@ -25,6 +25,8 @@ class Product extends Model
         'supports_modifiers' => 'boolean',
         'requires_modifier_selection' => 'boolean',
         'shadow_banned_at' => 'datetime',
+        'published_at' => 'datetime',
+        'reviewed_at' => 'datetime',
     ];
 
     /**
@@ -51,7 +53,34 @@ class Product extends Model
         'shadow_banned_at',
         'shadow_ban_reason',
         'penalty_status',
+        'publish_status',
+        'published_at',
+        'reviewed_by',
+        'reviewed_at',
+        'review_note',
     ];
+
+    /**
+     * Produk yang tampil di publik (POS, self order, daftar menu).
+     * Hanya yang sudah di-approve owner/main outlet.
+     */
+    public function scopePublished($query)
+    {
+        return $query->where('publish_status', 'approved');
+    }
+
+    /**
+     * Produk yang sedang menunggu review owner/main outlet.
+     */
+    public function scopePendingReview($query)
+    {
+        return $query->where('publish_status', 'pending');
+    }
+
+    public function reviewedBy()
+    {
+        return $this->belongsTo(User::class, 'reviewed_by');
+    }
 
     /**
      * category

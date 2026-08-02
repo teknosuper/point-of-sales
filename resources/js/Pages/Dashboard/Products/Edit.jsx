@@ -10,6 +10,7 @@ import {
     IconDeviceFloppy,
     IconArrowLeft,
     IconChevronDown,
+    IconChevronRight,
     IconChevronUp,
     IconPhoto,
     IconBarcode,
@@ -909,7 +910,7 @@ export default function Edit({
                                                             Produk ini wajib memilih topping
                                                         </span>
                                                         <span className="mt-1 block text-xs text-slate-500 dark:text-slate-400">
-                                                            Jika aktif, POS dan self order akan meminta minimal satu topping dipilih. Jika ada opsi yang ditandai wajib, user harus memilih salah satunya.
+                                                            Jika aktif, pelanggan harus memilih minimal satu topping sebelum menambah ke keranjang. Berlaku jika produk tidak punya kategori topping yang sudah diatur kewajibannya (Mode &amp; Min) di Langkah 3.
                                                         </span>
                                                     </span>
                                                 </label>
@@ -1711,22 +1712,38 @@ export default function Edit({
                                             {showModifierSection ? <IconChevronUp size={14} /> : <IconChevronDown size={14} />}
                                             {showModifierSection ? "Sembunyikan" : "Lihat detail"}
                                         </button>
-                                        <button
-                                            type="button"
-                                            onClick={addModifierOption}
-                                            className="inline-flex items-center gap-2 rounded-xl bg-primary-500 px-3 py-2 text-xs font-semibold text-white hover:bg-primary-600"
-                                        >
-                                            <IconPlus size={14} />
-                                            Tambah
-                                        </button>
                                     </div>
                                 </div>
 
                                 {showModifierSection ? (
                                 <div className="space-y-3">
+                                    {/* ===== Panduan alur singkat ===== */}
+                                    <div className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 dark:border-sky-900/40 dark:bg-sky-950/20">
+                                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700 dark:text-sky-300">
+                                            Alur mengatur topping
+                                        </p>
+                                        <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-sky-800 dark:text-sky-200">
+                                            <span className="rounded-full bg-white px-2.5 py-1 font-semibold shadow-sm dark:bg-slate-900">
+                                                1. Tambah Kategori Topping
+                                            </span>
+                                            <IconChevronRight size={13} className="text-sky-400" />
+                                            <span className="rounded-full bg-white px-2.5 py-1 font-semibold shadow-sm dark:bg-slate-900">
+                                                2. Tambah Opsi di kategori
+                                            </span>
+                                            <IconChevronRight size={13} className="text-sky-400" />
+                                            <span className="rounded-full bg-white px-2.5 py-1 font-semibold shadow-sm dark:bg-slate-900">
+                                                3. Atur mode, min/max & wajib
+                                            </span>
+                                        </div>
+                                    </div>
+
                                     {data.modifier_options.length === 0 && (
-                                        <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
-                                            Belum ada preset topping.
+                                        <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-4 text-center text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
+                                            Belum ada kategori topping. Klik{" "}
+                                            <span className="font-semibold text-primary-600 dark:text-primary-400">
+                                                "Tambah Kategori Topping"
+                                            </span>{" "}
+                                            di bawah untuk membuat kategori pertama (mis. "Topping Wajib", "Tingkat Pedas", "Ekstra Topping").
                                         </div>
                                     )}
                                     {modifierGroups.map((group, groupIndex) => (
@@ -1749,11 +1766,6 @@ export default function Edit({
                                                         <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
                                                             {modifierModeLabel(group.selection_mode)}
                                                         </span>
-                                                        {group.options.some((option) => option.is_required) ? (
-                                                            <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
-                                                                Wajib
-                                                            </span>
-                                                        ) : null}
                                                     </div>
                                                     <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
                                                         {modifierRuleSummary(group)}
@@ -1833,12 +1845,7 @@ export default function Edit({
                                             </div>
                                             <div className="lg:col-span-4">
                                                 <div className="rounded-xl border border-dashed border-slate-300 px-3 py-3 text-xs text-slate-500 dark:border-slate-700 dark:text-slate-400">
-                                                    Aturan kategori berlaku ke semua opsi di bawah.
-                                                </div>
-                                            </div>
-                                            <div className="lg:col-span-3">
-                                                <div className="rounded-xl border border-dashed border-slate-300 px-3 py-3 text-xs text-slate-500 dark:border-slate-700 dark:text-slate-400">
-                                                    Tandai opsi mana saja yang wajib di level masing-masing opsi.
+                                                    Kewajiban diatur di sini: Mode &amp; Min menentukan berapa opsi yang harus dipilih user.
                                                 </div>
                                             </div>
                                             </div>
@@ -1907,7 +1914,7 @@ export default function Edit({
                                                                 Opsi
                                                             </p>
                                                         </div>
-                                                        <div className="lg:col-span-4">
+                                                        <div className="lg:col-span-5">
                                                             <Input
                                                                 type="text"
                                                                 label={optionIndex === 0 ? "Nama Opsi" : ""}
@@ -1951,22 +1958,7 @@ export default function Edit({
                                                                 placeholder="Bebas"
                                                             />
                                                         </div>
-                                                        <div className="lg:col-span-2">
-                                                            <label className="flex h-full items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
-                                                                <input
-                                                                    type="checkbox"
-                                                                    checked={!!option.is_required}
-                                                                    onChange={(e) =>
-                                                                        updateModifierOption(option.originalIndex, "is_required", e.target.checked)
-                                                                    }
-                                                                    className="h-5 w-5 rounded border-slate-300 text-amber-500 focus:ring-amber-500"
-                                                                />
-                                                                <span className="text-xs font-semibold">
-                                                                    Wajib
-                                                                </span>
-                                                            </label>
-                                                        </div>
-                                                        <div className="lg:col-span-1 flex items-end justify-end">
+                                                        <div className="lg:col-span-2 flex items-end justify-end">
                                                             <button
                                                                 type="button"
                                                                 onClick={() => removeModifierOption(option.originalIndex)}

@@ -52,6 +52,7 @@ class PublicTableOrderController extends Controller
         $editableOrder = $this->resolveEditableOrder($request, $table, $identifiedCustomer);
 
         $products = Product::query()
+            ->published()
             ->with([
                 'category:id,name,parent_id',
                 'modifierOptions',

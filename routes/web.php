@@ -173,6 +173,15 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
     Route::patch('products/{product}/penalty-status', [ProductController::class, 'updatePenaltyStatus'])
         ->middleware(['permission:products-edit', 'step_up'])
         ->name('products.penalty-status');
+    Route::get('products/review-queue', [ProductController::class, 'reviewQueue'])
+        ->middleware('permission:products-review')
+        ->name('products.review');
+    Route::patch('products/{product}/approve', [ProductController::class, 'approve'])
+        ->middleware(['permission:products-review', 'step_up'])
+        ->name('products.approve');
+    Route::patch('products/{product}/reject', [ProductController::class, 'reject'])
+        ->middleware(['permission:products-review', 'step_up'])
+        ->name('products.reject');
     Route::resource('dining-tables', DiningTableController::class)
         ->except(['show', 'create', 'edit'])
         ->middlewareFor('index', 'permission:dining-tables-access')

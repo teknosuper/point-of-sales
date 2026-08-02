@@ -152,6 +152,7 @@ class PublicMenuController extends Controller
         $outletId = $outlet?->id;
 
         $query = Product::query()
+            ->published()
             ->with([
                 'category:id,name,description,image,parent_id',
                 'tenantOutlet:id,code,slug,name,sort_order',

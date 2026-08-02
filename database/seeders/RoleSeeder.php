@@ -327,6 +327,7 @@ class RoleSeeder extends Seeder
                 'products-stock-update',
                 'products-delete',
                 'products-pricing-update',
+                'products-review',
                 'categories-access',
                 'categories-create',
                 'categories-edit',

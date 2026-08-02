@@ -8,6 +8,7 @@ import {
     IconAdjustmentsHorizontal,
     IconCategory,
     IconChevronDown,
+    IconChevronRight,
     IconChevronUp,
     IconCirclePlus,
     IconDatabaseOff,
@@ -638,50 +639,92 @@ export default function Index({ categories, allCategories = [], filters = {}, me
                 ) : null}
 
                 {viewMode === "grid" && categoryTree.length > 0 ? (
-                    <div className="space-y-10">
+                    <div className="space-y-5">
                         {categoryTree.map((parent) => (
-                            <div key={parent.id} className="space-y-4">
-                                {parent.isOther ? (
-                                    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-900/40 dark:bg-amber-950/20">
-                                        <div className="flex items-center gap-2">
-                                            <IconDatabaseOff size={18} className="text-amber-600 dark:text-amber-400" />
-                                            <div>
-                                                <p className="text-sm font-semibold text-amber-900 dark:text-amber-100">
-                                                    Kategori Tanpa Induk
-                                                </p>
-                                                <p className="text-xs text-amber-700 dark:text-amber-300">
-                                                    Pilih kategori di bawah ini lalu pindahkan ke Kategori Utama yang sesuai.
-                                                </p>
+                            <div
+                                key={parent.id}
+                                className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900"
+                            >
+                                {/* ===== Header section parent ===== */}
+                                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 dark:border-slate-800">
+                                    <div className="flex min-w-0 items-center gap-3">
+                                        {parent.isOther ? (
+                                            <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400">
+                                                <IconDatabaseOff size={18} />
+                                            </span>
+                                        ) : (
+                                            <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary-100 text-primary-600 dark:bg-primary-950/40 dark:text-primary-400">
+                                                <IconCategory size={18} />
+                                            </span>
+                                        )}
+                                        <div className="min-w-0">
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                <h3 className="truncate text-sm font-bold text-slate-900 dark:text-white">
+                                                    {parent.isOther
+                                                        ? "Kategori Tanpa Induk"
+                                                        : parent.name}
+                                                </h3>
+                                                {parent.isOther ? (
+                                                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                                                        Perlu induk
+                                                    </span>
+                                                ) : (
+                                                    <span className="rounded-full bg-primary-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-primary-700 dark:bg-primary-950/40 dark:text-primary-300">
+                                                        Kategori Utama
+                                                    </span>
+                                                )}
                                             </div>
+                                            <p className="mt-0.5 truncate text-xs text-slate-500 dark:text-slate-400">
+                                                {parent.children?.length || 0} subkategori
+                                                {parent.isOther
+                                                    ? " • pilih lalu pindahkan ke induk yang sesuai"
+                                                    : " • kategori produk turunan"}
+                                            </p>
                                         </div>
-                                        <button
-                                            type="button"
-                                            onClick={toggleSelectAllVisible}
-                                            className="inline-flex items-center gap-2 rounded-xl border border-amber-200 px-3 py-2 text-sm font-medium text-amber-700 transition hover:bg-amber-100 dark:border-amber-800 dark:text-amber-300 dark:hover:bg-amber-900/30"
-                                        >
-                                            Pilih Semua
-                                        </button>
                                     </div>
-                                ) : (
-                                    <div className="max-w-xs">
-                                        <CategoryCard
-                                            category={parent}
-                                            variant="parent"
-                                            canUpdate={canEditCategories}
-                                            canDelete={canDeleteCategories}
-                                            isSelected={isCategorySelected(parent.id)}
-                                            canSelect={canSelect}
-                                            onToggle={toggleCategorySelection}
-                                        />
+
+                                    <div className="flex shrink-0 items-center gap-2">
+                                        {parent.isOther && canSelect ? (
+                                            <button
+                                                type="button"
+                                                onClick={toggleSelectAllVisible}
+                                                className="inline-flex items-center gap-1.5 rounded-xl border border-amber-200 px-3 py-1.5 text-xs font-semibold text-amber-700 transition hover:bg-amber-100 dark:border-amber-800 dark:text-amber-300 dark:hover:bg-amber-900/30"
+                                            >
+                                                Pilih Semua
+                                            </button>
+                                        ) : null}
+                                        {!parent.isOther && (canEditCategories || canDeleteCategories) ? (
+                                            <>
+                                                {canEditCategories ? (
+                                                    <Link
+                                                        href={route("categories.edit", parent.id)}
+                                                        className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-500 transition hover:border-warning-300 hover:text-warning-600 dark:border-slate-700 dark:text-slate-400"
+                                                        title="Edit kategori utama"
+                                                    >
+                                                        <IconPencilCog size={15} />
+                                                    </Link>
+                                                ) : null}
+                                                {canDeleteCategories ? (
+                                                    <Button
+                                                        type="delete"
+                                                        icon={<IconTrash size={15} />}
+                                                        className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:border-danger-300 hover:text-danger-600 dark:border-slate-700 dark:text-slate-400"
+                                                        url={route("categories.destroy", parent.id)}
+                                                    />
+                                                ) : null}
+                                            </>
+                                        ) : null}
                                     </div>
-                                )}
-                                {parent.children?.length > 0 && (
-                                    <div className="ml-6 grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+                                </div>
+
+                                {/* ===== Children grid ===== */}
+                                {parent.children?.length > 0 ? (
+                                    <div className="grid grid-cols-2 gap-3 p-4 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
                                         {parent.children.map((child) => (
                                             <CategoryCard
                                                 key={child.id}
                                                 category={child}
-                                                variant={parent.isOther ? 'other' : 'child'}
+                                                variant={parent.isOther ? "other" : "child"}
                                                 canUpdate={canEditCategories}
                                                 canDelete={canDeleteCategories}
                                                 isSelected={isCategorySelected(child.id)}
@@ -689,6 +732,12 @@ export default function Index({ categories, allCategories = [], filters = {}, me
                                                 onToggle={toggleCategorySelection}
                                             />
                                         ))}
+                                    </div>
+                                ) : (
+                                    <div className="px-4 py-6 text-center text-sm text-slate-400 dark:text-slate-500">
+                                        {parent.isOther
+                                            ? "Tidak ada kategori tanpa induk saat ini."
+                                            : "Belum ada subkategori di bawah kategori utama ini."}
                                     </div>
                                 )}
                             </div>
@@ -729,17 +778,15 @@ export default function Index({ categories, allCategories = [], filters = {}, me
                                                 />
                                             ) : null}
                                         </Table.Th>
-                                        <Table.Th className="w-10">No</Table.Th>
                                         <Table.Th>Kategori</Table.Th>
-                                        <Table.Th>Kategori Utama</Table.Th>
                                         <Table.Th>Tenant</Table.Th>
                                         <Table.Th>Deskripsi</Table.Th>
-                                        <Table.Th className="w-40">Gambar</Table.Th>
-                                        <Table.Th></Table.Th>
+                                        <Table.Th className="w-32">Gambar</Table.Th>
+                                        <Table.Th className="w-24"></Table.Th>
                                     </tr>
                                 </Table.Thead>
                                 <Table.Tbody>
-                                    {rows.map((category, i) => (
+                                    {rows.map((category) => (
                                         <tr
                                             className={`transition-colors ${
                                                 isCategorySelected(category.id)
@@ -759,37 +806,35 @@ export default function Index({ categories, allCategories = [], filters = {}, me
                                                     />
                                                 ) : null}
                                             </Table.Td>
-                                            <Table.Td className="text-center">
-                                                {i + 1 + (currentPage - 1) * perPage}
-                                            </Table.Td>
                                             <Table.Td>
-                                                <div className={`flex items-center gap-2 ${category.parent_id ? 'ml-4 border-l-2 border-slate-300 pl-3 dark:border-slate-600' : ''}`}>
+                                                <div className={`flex items-center gap-2 ${category.parent_id ? 'ml-5 border-l-2 border-slate-200 pl-3 dark:border-slate-700' : ''}`}>
                                                     {category.parent_id && (
-                                                        <span className="text-slate-400">└</span>
+                                                        <span className="text-slate-300 dark:text-slate-600">└</span>
                                                     )}
-                                                    <div>
-                                                        <div className="flex flex-wrap items-center gap-2">
-                                                            <p className="text-sm font-medium text-slate-800 dark:text-slate-200">
+                                                    <div className="min-w-0">
+                                                        <div className="flex flex-wrap items-center gap-1.5">
+                                                            <p className="truncate text-sm font-semibold text-slate-800 dark:text-slate-100">
                                                                 {category.name}
                                                             </p>
                                                             {isMainCategory(category) && (
-                                                                <span className="inline-flex items-center gap-1 rounded-full bg-primary-50 px-2 py-0.5 text-xs font-medium text-primary-700 dark:bg-primary-950/40 dark:text-primary-300">
-                                                                    Kategori Utama
+                                                                <span className="inline-flex items-center gap-1 rounded-full bg-primary-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-primary-700 dark:bg-primary-950/40 dark:text-primary-300">
+                                                                    Utama
                                                                 </span>
                                                             )}
+                                                            {category.parent_id && !isTenantCategory(category) ? (
+                                                                <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                                                                    Sub
+                                                                </span>
+                                                            ) : null}
                                                         </div>
-                                                        {category.parent?.name && (
-                                                            <p className="text-xs text-slate-400 dark:text-slate-500">
+                                                        {category.parent?.name ? (
+                                                            <p className="mt-0.5 flex items-center gap-1 text-xs text-slate-400 dark:text-slate-500">
+                                                                <IconChevronRight size={11} />
                                                                 Induk: {category.parent.name}
                                                             </p>
-                                                        )}
+                                                        ) : null}
                                                     </div>
                                                 </div>
-                                            </Table.Td>
-                                            <Table.Td>
-                                                <span className="text-sm text-slate-500 dark:text-slate-400">
-                                                    {category.parent?.name || "-"}
-                                                </span>
                                             </Table.Td>
                                             <Table.Td>
                                                 <span className="inline-flex items-center rounded-full bg-primary-50 px-2.5 py-1 text-xs font-medium text-primary-700 dark:bg-primary-950/40 dark:text-primary-300">
@@ -802,8 +847,8 @@ export default function Index({ categories, allCategories = [], filters = {}, me
                                                 </p>
                                             </Table.Td>
                                             <Table.Td>
-                                                <div className="flex items-center gap-3">
-                                                    <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center overflow-hidden rounded-xl bg-slate-100 dark:bg-slate-800">
+                                                <div className="flex items-center gap-2">
+                                                    <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg bg-slate-100 dark:bg-slate-800">
                                                         {category.image ? (
                                                             <img
                                                                 src={category.image}
@@ -820,20 +865,18 @@ export default function Index({ categories, allCategories = [], filters = {}, me
                                                             />
                                                         ) : (
                                                             <IconCategory
-                                                                size={20}
+                                                                size={18}
                                                                 className="text-slate-400"
                                                             />
                                                         )}
                                                     </div>
-                                                    <span className="text-sm text-slate-500 dark:text-slate-400">
-                                                        {category.image
-                                                            ? "Ada gambar"
-                                                            : "Tanpa gambar"}
+                                                    <span className="text-xs text-slate-400 dark:text-slate-500">
+                                                        {category.image ? "Ada" : "Tanpa"}
                                                     </span>
                                                 </div>
                                             </Table.Td>
                                             <Table.Td>
-                                                <div className="flex gap-2">
+                                                <div className="flex gap-1.5">
                                                     {canEditCategories && (
                                                         <Button
                                                             type="edit"
