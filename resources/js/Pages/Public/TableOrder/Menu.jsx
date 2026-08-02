@@ -2212,8 +2212,9 @@ export default function Menu({
                                 setSearchQuery(barcode);
                                 setIsSearching(false);
                             }}
-                            compactHeaderLayout={true}
-                            embedHeaderInScroll={true}
+                             compactHeaderLayout={true}
+                             embedHeaderInScroll={true}
+                             gridLayoutClass="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2"
                             scrollIntro={
                                 <div className="rounded-[24px] border border-[#d8c7ab] bg-[linear-gradient(135deg,_#fffaf2_0%,_#fff1d6_52%,_#f9e3b3_100%)] px-4 py-3 shadow-[0_18px_40px_-30px_rgba(180,83,9,0.35)]">
                                     <div className="flex flex-wrap items-center justify-between gap-3">

@@ -310,50 +310,50 @@ const ProductCard = memo(function ProductCard({
                     )}
 
                     {/* Title */}
-                    <h3 className={`font-bold break-words ${
-                        isListMode 
-                            ? "text-sm leading-snug mt-0.5" 
-                            : "mt-2 text-sm leading-snug"
+                    <h3 className={`font-bold ${
+                        isListMode
+                            ? "text-sm leading-snug mt-0.5 break-words"
+                            : "mt-2 text-xs leading-snug line-clamp-2 break-words"
                     } text-slate-900 dark:text-slate-100`}>
                         {product.title}
                     </h3>
 
                     {/* Grid mode meta info */}
                     {!isListMode && (
-                        <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
+                        <div className="mt-1.5 flex flex-col gap-1 text-[10px] text-slate-500 dark:text-slate-400">
                             {product.stock !== null && (
-                                <span className="flex items-center gap-1">
-                                    <IconBox size={14} className="text-slate-400" />
-                                    <span className="font-semibold text-slate-600 dark:text-slate-300">
+                                <span className="flex items-center gap-0.5">
+                                    <IconBox size={11} className="text-slate-400 shrink-0" />
+                                    <span className="font-semibold text-slate-600 dark:text-slate-300 truncate">
                                         {Number(product.stock || 0)} tersisa
                                     </span>
                                 </span>
                             )}
                             {soldQty > 0 && (
-                                <span className="flex items-center gap-1">
-                                    <IconTrendingUp size={14} className="text-primary-500" />
-                                    <span className="font-semibold text-slate-600 dark:text-slate-300">
+                                <span className="flex items-center gap-0.5">
+                                    <IconTrendingUp size={11} className="text-primary-500 shrink-0" />
+                                    <span className="font-semibold text-slate-600 dark:text-slate-300 truncate">
                                         {soldQty.toLocaleString('id-ID')} terjual
                                     </span>
                                 </span>
                             )}
                             {ratingCount > 0 ? (
-                                <span className="flex items-center gap-1">
+                                <span className="flex items-center gap-0.5 flex-wrap">
                                     <span className="flex items-center gap-0.5 text-amber-500">
                                         {[0,1,2,3,4].map((i) => (
-                                            <svg key={i} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill={i < Math.round(ratingAvg) ? "currentColor" : "none"} stroke="currentColor" strokeWidth={1.5} className="h-3.5 w-3.5">
+                                            <svg key={i} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill={i < Math.round(ratingAvg) ? "currentColor" : "none"} stroke="currentColor" strokeWidth={1.5} className="h-3 w-3">
                                                 <path strokeLinecap="round" strokeLinejoin="round" d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.562.562 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.562.562 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.562.562 0 0 1 .321-.988l5.518-.442a.562.562 0 0 0 .475-.345L11.48 3.5Z" />
                                             </svg>
                                         ))}
                                     </span>
                                     <span className="font-bold text-slate-700 dark:text-slate-200">{ratingAvg.toFixed(1)}</span>
-                                    <span className="text-slate-400">({ratingCount} penilaian)</span>
+                                    <span className="text-slate-400">({ratingCount})</span>
                                 </span>
                             ) : !interactive ? (
-                                <span className="flex items-center gap-1">
+                                <span className="flex items-center gap-0.5">
                                     <span className="flex items-center gap-0.5 text-slate-300 dark:text-slate-600">
                                         {[0,1,2,3,4].map((i) => (
-                                            <svg key={i} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} className="h-3.5 w-3.5">
+                                            <svg key={i} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} className="h-3 w-3">
                                                 <path strokeLinecap="round" strokeLinejoin="round" d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.562.562 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.562.562 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.562.562 0 0 1 .321-.988l5.518-.442a.562.562 0 0 0 .475-.345L11.48 3.5Z" />
                                             </svg>
                                         ))}
