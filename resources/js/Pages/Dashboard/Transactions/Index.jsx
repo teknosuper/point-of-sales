@@ -987,8 +987,9 @@ export default function Index({
 
     const checkServerHealth = useCallback(async () => {
         try {
+            // Jangan ubah isBrowserOnline di sini - itu dihandle oleh event listener window online/offline
             if (typeof navigator !== "undefined" && !navigator.onLine) {
-                setIsServerReachable(false);
+                // Browser offline, skip health check ke server
                 return;
             }
 
@@ -1415,17 +1416,17 @@ export default function Index({
     const offlineModeReason = useMemo(() => {
         if (!isBrowserOnline) {
             return {
-                label: "Mode kasir offline aktif - internet perangkat terputus",
+                label: "⚠️ Mode kasir offline - Tidak ada koneksi internet",
                 detail:
-                    "Perangkat kasir tidak terhubung ke internet. Hanya transaksi tunai yang bisa diproses lokal sampai koneksi kembali.",
+                    "Perangkat kasir tidak terhubung ke internet. Hanya transaksi tunai yang bisa diproses lokal sampai koneksi kembali. Periksa WiFi atau data seluler Anda.",
             };
         }
 
         if (!isServerReachable) {
             return {
-                label: "Mode kasir offline aktif - server POS tidak merespons",
+                label: "⚠️ Mode kasir offline - Server POS tidak merespons",
                 detail:
-                    "Internet perangkat tersedia, tetapi server POS sedang tidak merespons. Transaksi tunai tetap disimpan lokal dan akan sinkron saat server kembali normal.",
+                    "Internet perangkat tersedia ✓, tetapi server POS sedang tidak merespons. Transaksi tunai tetap disimpan lokal dan akan sinkron saat server kembali normal.",
             };
         }
 

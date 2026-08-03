@@ -107,10 +107,7 @@ export default function KitchenIndex({
     const [draftFilters, setDraftFilters] = useState(() =>
         buildBoardFilters(filters, selectedDevice)
     );
-    const audioContextRef = useRef(null);
-    const audioRef = useRef(null);
     const audioUnlockedRef = useRef(false);
-    const errorSoundUrlRef = useRef(undefined);
     const fetchBoardDataRef = useRef(null);
     const boardStateRef = useRef(
         buildBoardState({ activeStation, tickets, refreshMeta, filters, selectedDevice })
@@ -119,8 +116,11 @@ export default function KitchenIndex({
     const pollAbortControllerRef = useRef(null);
     const pollInFlightRef = useRef(false);
     const failedPrintWarnedRef = useRef(new Set());
+    const queuedPrintWarnedRef = useRef(new Set());
     const customerAlertWarnedRef = useRef(new Set());
     const printedReminderWarnedRef = useRef(new Set());
+    const [notificationSounds, setNotificationSounds] = useState([]);
+    const [soundsLoading, setSoundsLoading] = useState(true);
 
     useEffect(() => {
         if (flash?.success) {
@@ -153,9 +153,6 @@ export default function KitchenIndex({
         setBoardState(nextBoardState);
         boardStateRef.current = nextBoardState;
         setDraftFilters(nextBoardState.filters);
-        seenTicketIdsRef.current = new Set(
-            (nextBoardState.tickets?.data || []).map((ticket) => ticket.id)
-        );
         setSelectedItemIdsByTicket((current) =>
             reconcileSelectedItemsByTicket(current, nextBoardState.tickets?.data || [])
         );
@@ -247,66 +244,37 @@ export default function KitchenIndex({
         };
     }, []);
 
-    const loadErrorSoundUrl = useCallback(async () => {
-        if (errorSoundUrlRef.current !== undefined) {
-            return errorSoundUrlRef.current;
-        }
-
+    // Fetch notification sounds data for header info panel
+    const fetchNotificationSounds = useCallback(async () => {
         try {
-            const response = await fetch(
-                `${window.location.origin}/dashboard/settings/notification-sounds/data?type=error`,
-                {
-                    credentials: "include",
-                    headers: {
-                        "X-Requested-With": "XMLHttpRequest",
-                        Accept: "application/json",
-                    },
-                }
-            );
-            const contentType = response.headers.get("content-type");
+            const url = route("settings.notification-sounds.data");
+            const response = await fetch(url, {
+                credentials: "same-origin",
+                headers: {
+                    Accept: "application/json",
+                    "X-Requested-With": "XMLHttpRequest",
+                },
+            });
 
-            if (!response.ok || !contentType?.includes("application/json")) {
-                errorSoundUrlRef.current = null;
-                return null;
-            }
+            if (!response.ok) return;
 
             const data = await response.json();
-            const activeSound = (data?.data || []).find(
-                (sound) => sound?.is_active && sound?.url
-            );
 
-            errorSoundUrlRef.current = activeSound?.url || null;
-
-            return errorSoundUrlRef.current;
-        } catch (_) {
-            errorSoundUrlRef.current = null;
-            return null;
+            if (data.success && Array.isArray(data.data)) {
+                setNotificationSounds(data.data);
+            }
+        } catch (e) {
+            // silent fail - sounds info is optional
+        } finally {
+            setSoundsLoading(false);
         }
     }, []);
 
-    const playErrorSound = useCallback(async () => {
-        if (!audioUnlockedRef.current) {
-            return;
-        }
+    useEffect(() => {
+        fetchNotificationSounds();
+    }, [fetchNotificationSounds]);
 
-        const audioUrl = await loadErrorSoundUrl();
-
-        if (!audioUrl) {
-            return;
-        }
-
-        try {
-            if (!audioRef.current || audioRef.current.src !== audioUrl) {
-                audioRef.current = new Audio(audioUrl);
-                audioRef.current.volume = 1.0;
-            }
-
-            audioRef.current.currentTime = 0;
-            await audioRef.current.play();
-        } catch (_) {}
-    }, [loadErrorSoundUrl]);
-
-    // Failed print alert modal
+     // Failed print alert modal
     useEffect(() => {
         const tickets = boardState.tickets?.data || [];
         const failedTickets = tickets.filter(
@@ -341,6 +309,7 @@ export default function KitchenIndex({
 
         console.info('Kitchen/Index: dispatching kitchen:print-error', newFailedIds);
         window.dispatchEvent(new CustomEvent('kitchen:print-error', { detail: { count: newFailedIds.length } }));
+        window.dispatchEvent(new CustomEvent('kitchen:print-failed', { detail: { count: newFailedIds.length } }));
 
         Swal.fire({
             icon: "warning",
@@ -355,6 +324,38 @@ export default function KitchenIndex({
                 ? "#e2e8f0"
                 : undefined,
         });
+     }, [boardState.tickets]);
+
+    // Dispatch kitchen:print-pending for queued print jobs
+    useEffect(() => {
+        const tickets = boardState.tickets?.data || [];
+        const queuedTickets = tickets.filter(
+            (ticket) => ticket?.print?.status === 'queued' || ticket?.print?.status === 'reprint_queued'
+        );
+
+        if (queuedTickets.length === 0) {
+            queuedPrintWarnedRef.current = new Set();
+            return;
+        }
+
+        const newQueuedIds = queuedTickets
+            .map((t) => t.id)
+            .filter((id) => !queuedPrintWarnedRef.current.has(id));
+
+        if (newQueuedIds.length === 0) {
+            return;
+        }
+
+        queuedPrintWarnedRef.current = new Set([
+            ...queuedPrintWarnedRef.current,
+            ...newQueuedIds,
+        ]);
+
+        window.dispatchEvent(
+            new CustomEvent('kitchen:print-pending', {
+                detail: { count: newQueuedIds.length },
+            })
+        );
     }, [boardState.tickets]);
 
     useEffect(() => {
@@ -1317,6 +1318,67 @@ const resolveSelectedKitchenActionItemIds = (ticket, allowedStatuses = []) => {
                                     <IconRefresh size={15} />
                                     {isRefreshing ? "Memuat..." : "Muat Ulang"}
                                 </button>
+                            </div>
+                            {/* Sound Info Panel */}
+                            <div className="flex flex-col gap-2 border-t border-slate-100 pt-2 dark:border-slate-800">
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400 dark:text-slate-500">
+                                        Suara Notifikasi
+                                    </span>
+                                    {soundsLoading ? (
+                                        <span className="text-[11px] text-slate-400 dark:text-slate-500">
+                                            Memuat...
+                                        </span>
+                                    ) : (
+                                        <>
+                                            {(notificationSounds.length > 0 ? notificationSounds : [
+                                                { type: 'new_order', type_label: 'Pesanan Baru', name: 'Default', url: null, is_active: true },
+                                                { type: 'general', type_label: 'Umum', name: 'Default', url: null, is_active: true },
+                                                { type: 'error', type_label: 'Error', name: 'Default', url: null, is_active: true },
+                                                { type: 'reminder', type_label: 'Pengingat', name: 'Default', url: null, is_active: true },
+                                                { type: 'print_pending', type_label: 'Cetak Tertunda', name: 'Default', url: null, is_active: true },
+                                                { type: 'print_failed', type_label: 'Cetak Gagal', name: 'Default', url: null, is_active: true },
+                                                { type: 'print_success', type_label: 'Cetak Berhasil', name: 'Default', url: null, is_active: true },
+                                            ]).map((sound) => (
+                                                <span
+                                                    key={sound.type}
+                                                    className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                                                        sound.is_active
+                                                            ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300'
+                                                            : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'
+                                                    }`}
+                                                >
+                                                    {sound.is_active ? '🔊' : '🔇'} {sound.type_label}
+                                                    {sound.name && sound.name !== 'Default' ? `: ${sound.name}` : ''}
+                                                </span>
+                                            ))}
+                                        </>
+                                    )}
+                                </div>
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400 dark:text-slate-500">
+                                        Pengingat
+                                    </span>
+                                    <span className="text-[11px] text-slate-600 dark:text-slate-300">
+                                        Pesan belum dikirim → suara <strong>Cetak Tertunda</strong> &amp; <strong>Cetak Gagal</strong>
+                                    </span>
+                                    <span className="text-[11px] text-slate-400 dark:text-slate-500">•</span>
+                                    <span className="text-[11px] text-slate-600 dark:text-slate-300">
+                                        Belum dicetak → suara <strong>Pengingat</strong>
+                                    </span>
+                                    <span className="text-[11px] text-slate-400 dark:text-slate-500">•</span>
+                                    <span className="text-[11px] text-slate-600 dark:text-slate-300">
+                                        Cetak error → suara <strong>Error</strong>
+                                    </span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400 dark:text-slate-500">
+                                        Interval Pengingat
+                                    </span>
+                                    <span className="text-[11px] text-slate-600 dark:text-slate-300">
+                                        {boardState.refreshMeta?.interval_seconds || 15} detik
+                                    </span>
+                                </div>
                             </div>
                         </div>
                     ) : null}
@@ -2331,6 +2393,7 @@ const resolveSelectedKitchenActionItemIds = (ticket, allowedStatuses = []) => {
             <KitchenSoundTestModal
                 open={showSoundTestPanel}
                 onClose={() => setShowSoundTestPanel(false)}
+                outletId={activeOutlet?.id}
             />
 
 

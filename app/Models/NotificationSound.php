@@ -37,6 +37,9 @@ class NotificationSound extends Model
     const TYPE_GENERAL = 'general';
     const TYPE_ERROR = 'error';
     const TYPE_REMINDER = 'reminder';
+    const TYPE_PRINT_PENDING = 'print_pending';
+    const TYPE_PRINT_FAILED = 'print_failed';
+    const TYPE_PRINT_SUCCESS = 'print_success';
 
     public static function getTypes(): array
     {
@@ -45,6 +48,9 @@ class NotificationSound extends Model
             self::TYPE_GENERAL => 'Umum',
             self::TYPE_ERROR => 'Error',
             self::TYPE_REMINDER => 'Pengingat',
+            self::TYPE_PRINT_PENDING => 'Cetak Tertunda',
+            self::TYPE_PRINT_FAILED => 'Cetak Gagal',
+            self::TYPE_PRINT_SUCCESS => 'Cetak Berhasil',
         ];
     }
 

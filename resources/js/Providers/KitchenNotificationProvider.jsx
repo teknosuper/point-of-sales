@@ -18,6 +18,9 @@ export default function KitchenNotificationProvider({ children, outletId = null,
         new_order: null,
         error: null,
         reminder: null,
+        print_pending: null,
+        print_failed: null,
+        print_success: null,
     });
     const audioRef = useRef(null);
     const audioUnlockedRef = useRef(false);
@@ -30,6 +33,9 @@ export default function KitchenNotificationProvider({ children, outletId = null,
         new_order: '/sounds/notification/new_order.mp3',
         error: '/sounds/notification/error.mp3',
         reminder: '/sounds/notification/reminder.mp3',
+        print_pending: '/sounds/notification/print_pending.mp3',
+        print_failed: '/sounds/notification/print_failed.mp3',
+        print_success: '/sounds/notification/print_success.mp3',
     };
 
     const resolveAudioUrl = useCallback((type = 'new_order') => {
@@ -71,6 +77,9 @@ export default function KitchenNotificationProvider({ children, outletId = null,
                         new_order: null,
                         error: null,
                         reminder: null,
+                        print_pending: null,
+                        print_failed: null,
+                        print_success: null,
                     };
 
                     data.data.forEach((sound) => {
@@ -121,7 +130,7 @@ export default function KitchenNotificationProvider({ children, outletId = null,
         }
     }, [getAudioUrl]);
 
-    const ensureErrorBeepFallback = useCallback(() => {
+    const ensureErrorBeepFallback = useCallback(async () => {
         if (typeof window === 'undefined' || !('AudioContext' in window) && !('webkitAudioContext' in window)) {
             return false;
         }
@@ -131,7 +140,7 @@ export default function KitchenNotificationProvider({ children, outletId = null,
             const context = new AudioContextClass();
 
             if (context.state === 'suspended') {
-                context.resume();
+                await context.resume();
             }
 
             const oscillator = context.createOscillator();
@@ -175,7 +184,7 @@ export default function KitchenNotificationProvider({ children, outletId = null,
 
         if (!audioUrl) {
             console.debug(`No sound configured for type: ${type}, using fallback beep`);
-            ensureErrorBeepFallback();
+            await ensureErrorBeepFallback();
             return;
         }
 
@@ -326,15 +335,42 @@ export default function KitchenNotificationProvider({ children, outletId = null,
             playNotificationSound('general');
         };
 
+        const handlePrintPending = () => {
+            console.info('KitchenNotificationProvider: kitchen:print-pending received');
+            if (!enabled) {
+                return;
+            }
+
+            toast('Pesanan menunggu cetak ke printer dapur.', {
+                icon: '🖨️',
+                duration: 4000,
+            });
+            playNotificationSound('print_pending');
+        };
+
+        const handlePrintFailed = () => {
+            console.info('KitchenNotificationProvider: kitchen:print-failed received');
+            if (!enabled) {
+                return;
+            }
+
+            toast.error('Cetak gagal ke printer dapur.');
+            playNotificationSound('print_failed');
+        };
+
         window.addEventListener('kitchen:print-error', handlePrintError);
         window.addEventListener('kitchen:print-reminder', handleReminder);
         window.addEventListener('kitchen:qr-feedback', handleQrFeedback);
+        window.addEventListener('kitchen:print-pending', handlePrintPending);
+        window.addEventListener('kitchen:print-failed', handlePrintFailed);
 
         return () => {
             window.removeEventListener('kitchen:new-order', handleNewOrderEvent);
             window.removeEventListener('kitchen:print-error', handlePrintError);
             window.removeEventListener('kitchen:print-reminder', handleReminder);
             window.removeEventListener('kitchen:qr-feedback', handleQrFeedback);
+            window.removeEventListener('kitchen:print-pending', handlePrintPending);
+            window.removeEventListener('kitchen:print-failed', handlePrintFailed);
         };
     }, [enabled, playNotificationSound]);
 

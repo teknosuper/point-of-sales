@@ -2,7 +2,7 @@
 import { IconX } from "@/Utils/icons";
 import SoundTestPanel from "@/Components/Dashboard/SoundTestPanel";
 
-export function KitchenSoundTestModal({ open, onClose }) {
+export function KitchenSoundTestModal({ open, onClose, outletId = null }) {
     if (!open) {
         return null;
     }
@@ -23,7 +23,7 @@ export function KitchenSoundTestModal({ open, onClose }) {
                     </button>
                 </div>
                 <div className="mt-4">
-                    <SoundTestPanel />
+                    <SoundTestPanel outletId={outletId} />
                 </div>
             </div>
         </div>

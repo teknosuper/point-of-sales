@@ -42,6 +42,30 @@ class NotificationSoundSeeder extends Seeder
                 'is_active' => true,
                 'sort_order' => 1,
             ],
+            [
+                'name' => 'Cetak Tertunda',
+                'type' => NotificationSound::TYPE_PRINT_PENDING,
+                'file_path' => 'notification-sounds/print_pending.mp3',
+                'original_name' => 'print_pending.mp3',
+                'is_active' => true,
+                'sort_order' => 1,
+            ],
+            [
+                'name' => 'Cetak Gagal',
+                'type' => NotificationSound::TYPE_PRINT_FAILED,
+                'file_path' => 'notification-sounds/print_failed.mp3',
+                'original_name' => 'print_failed.mp3',
+                'is_active' => true,
+                'sort_order' => 1,
+            ],
+            [
+                'name' => 'Cetak Berhasil',
+                'type' => NotificationSound::TYPE_PRINT_SUCCESS,
+                'file_path' => 'notification-sounds/print_success.mp3',
+                'original_name' => 'print_success.mp3',
+                'is_active' => true,
+                'sort_order' => 1,
+            ],
         ];
 
         foreach ($sounds as $sound) {

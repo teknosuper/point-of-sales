@@ -1,21 +1,26 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { IconPlayerPlay, IconAlertCircle, IconVolume, IconBell, IconBellOff } from '@tabler/icons-react';
+import { IconPlayerPlay, IconAlertCircle, IconVolume, IconBell, IconBellOff, IconUpload, IconEdit, IconCheck, IconX } from '@tabler/icons-react';
 import toast from 'react-hot-toast';
+import { router } from '@inertiajs/react';
 
 /**
  * Komponen untuk testing suara notifikasi
  * Menampilkan tombol untuk setiap type suara dan feedback error
  */
-export default function SoundTestPanel({ compact = false }) {
+export default function SoundTestPanel({ compact = false, outletId = null }) {
     const [soundUrls, setSoundUrls] = useState({
         general: null,
         new_order: null,
         error: null,
         reminder: null,
     });
+    const [soundData, setSoundData] = useState({});
     const [loading, setLoading] = useState(true);
     const [playingType, setPlayingType] = useState(null);
     const [errors, setErrors] = useState({});
+    const [uploadingType, setUploadingType] = useState(null);
+    const [editingType, setEditingType] = useState(null);
+    const [uploadFile, setUploadFile] = useState(null);
 
     const soundTypes = [
         { key: 'new_order', label: 'Pesanan Baru', icon: <IconBell size={16} />, color: 'primary' },
@@ -29,8 +34,13 @@ export default function SoundTestPanel({ compact = false }) {
         setErrors({});
         try {
             // Use absolute URL with credentials and headers for Inertia session
-            const baseUrl = window.location.origin;
-            const response = await fetch(`${baseUrl}/dashboard/settings/notification-sounds/data`, {
+             const baseUrl = window.location.origin;
+             const params = new URLSearchParams();
+             if (outletId) params.set('outlet_id', String(outletId));
+             const queryString = params.toString();
+             const response = await fetch(
+                 `${baseUrl}/dashboard/settings/notification-sounds/data${queryString ? '?' + queryString : ''}`,
+                 {
                 credentials: 'include',
                 headers: {
                     'X-Requested-With': 'XMLHttpRequest',
@@ -70,6 +80,8 @@ export default function SoundTestPanel({ compact = false }) {
                 reminder: null,
             };
             
+            const sounds = {};
+            
             const newErrors = {};
             
             // Debug: log what we received
@@ -78,6 +90,7 @@ export default function SoundTestPanel({ compact = false }) {
             if (data.data && data.data.length > 0) {
                 data.data.forEach(sound => {
                     console.log('Processing sound:', sound.type, 'is_active:', sound.is_active, 'url:', sound.url);
+                    sounds[sound.type] = sound;
                     if (sound.is_active && sound.url) {
                         urls[sound.type] = sound.url;
                     }
@@ -101,6 +114,7 @@ export default function SoundTestPanel({ compact = false }) {
             }
             
             setSoundUrls(urls);
+            setSoundData(sounds);
             setErrors(newErrors);
         } catch (e) {
             console.error('Failed to fetch sounds:', e);
@@ -178,6 +192,82 @@ export default function SoundTestPanel({ compact = false }) {
         return colors[color] || colors.primary;
     };
 
+    const handleFileSelect = (type, file) => {
+        if (!file) return;
+        
+        const validTypes = ['audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/mp3'];
+        if (!validTypes.includes(file.type) && !file.name.match(/\.(mp3|wav|ogg)$/i)) {
+            toast.error('Format file tidak didukung. Gunakan MP3, WAV, atau OGG');
+            return;
+        }
+        
+        const maxSize = 5 * 1024 * 1024; // 5MB
+        if (file.size > maxSize) {
+            toast.error('Ukuran file terlalu besar. Maksimal 5MB');
+            return;
+        }
+        
+        setUploadFile(file);
+        setUploadingType(type);
+    };
+
+    const handleUpload = () => {
+        if (!uploadFile || !uploadingType) return;
+        
+        const nameWithoutExt = uploadFile.name.replace(/\.[^/.]+$/, '');
+        const formData = new FormData();
+        formData.append('name', nameWithoutExt.replace(/[-_]/g, ' '));
+        formData.append('type', uploadingType);
+        formData.append('file', uploadFile);
+        formData.append('outlet_id', outletId ? String(outletId) : '');
+        
+        router.post(route('settings.notification-sounds.store'), formData, {
+            forceFormData: true,
+            onSuccess: () => {
+                toast.success('Suara berhasil diupload');
+                setUploadFile(null);
+                setUploadingType(null);
+                fetchSounds();
+            },
+            onError: (errors) => {
+                toast.error(errors?.message || 'Gagal upload suara');
+            },
+        });
+    };
+
+    const handleCancelUpload = () => {
+        setUploadFile(null);
+        setUploadingType(null);
+    };
+
+    const handleSetActive = (soundId) => {
+        router.patch(route('settings.notification-sounds.set-active', { sound: soundId }), {}, {
+            preserveScroll: true,
+            onSuccess: () => {
+                toast.success('Suara diaktifkan');
+                fetchSounds();
+            },
+            onError: () => {
+                toast.error('Gagal mengaktifkan suara');
+            },
+        });
+    };
+
+    const handleDelete = (soundId, soundName) => {
+        if (!confirm(`Hapus suara "${soundName}"?`)) return;
+        
+        router.delete(route('settings.notification-sounds.destroy', { sound: soundId }), {
+            preserveScroll: true,
+            onSuccess: () => {
+                toast.success('Suara dihapus');
+                fetchSounds();
+            },
+            onError: () => {
+                toast.error('Gagal menghapus suara');
+            },
+        });
+    };
+
     if (loading) {
         return (
             <div className="flex items-center justify-center p-4">
@@ -203,43 +293,103 @@ export default function SoundTestPanel({ compact = false }) {
                 </div>
             )}
             
-            <div className={compact ? 'flex gap-2' : 'grid grid-cols-2 gap-2'}>
+            <div className={compact ? 'flex gap-2' : 'space-y-3'}>
                 {soundTypes.map((type) => {
                     const hasUrl = soundUrls[type.key] !== null;
                     const isPlaying = playingType === type.key;
                     const hasError = errors[type.key];
+                    const sound = soundData[type.key];
+                    const isUploading = uploadingType === type.key;
                     
                     return (
-                        <div key={type.key} className="relative">
-                            <button
-                                onClick={() => playSound(type.key, soundUrls[type.key])}
-                                disabled={!hasUrl || isPlaying}
-                                className={`w-full flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-xs font-medium transition ${
-                                    getColorClasses(type.color)
-                                } ${getBorderClasses(type.color)} ${
-                                    hasUrl ? '' : 'opacity-50 cursor-not-allowed'
-                                } ${isPlaying ? 'animate-pulse' : ''}`}
-                                title={hasError ? errors[type.key] : (hasUrl ? `Putar ${type.label}` : 'Suara belum dikonfigurasi')}
-                            >
-                                {isPlaying ? (
-                                    <span className="animate-ping">🔊</span>
-                                ) : hasUrl ? (
-                                    type.icon
-                                ) : (
-                                    <IconBellOff size={16} />
+                        <div key={type.key} className={compact ? '' : 'rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/50'}>
+                            <div className="flex items-center justify-between gap-2">
+                                <button
+                                    onClick={() => playSound(type.key, soundUrls[type.key])}
+                                    disabled={!hasUrl || isPlaying}
+                                    className={`flex-1 flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-xs font-medium transition ${
+                                        getColorClasses(type.color)
+                                    } ${getBorderClasses(type.color)} ${
+                                        hasUrl ? '' : 'opacity-50 cursor-not-allowed'
+                                    } ${isPlaying ? 'animate-pulse' : ''}`}
+                                    title={hasError ? errors[type.key] : (hasUrl ? `Putar ${type.label}` : 'Suara belum dikonfigurasi')}
+                                >
+                                    {isPlaying ? (
+                                        <span className="animate-ping">🔊</span>
+                                    ) : hasUrl ? (
+                                        type.icon
+                                    ) : (
+                                        <IconBellOff size={16} />
+                                    )}
+                                    <span>{type.label}</span>
+                                </button>
+
+                                {!compact && (
+                                    <div className="flex gap-1">
+                                        {hasUrl && sound ? (
+                                            <>
+                                                <button
+                                                    onClick={() => handleSetActive(sound.id)}
+                                                    className="rounded-lg border border-emerald-200 bg-emerald-50 p-2 text-emerald-700 transition hover:bg-emerald-100 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-300"
+                                                    title="Aktifkan suara ini"
+                                                >
+                                                    <IconCheck size={14} />
+                                                </button>
+                                                <button
+                                                    onClick={() => handleDelete(sound.id, sound.name)}
+                                                    className="rounded-lg border border-rose-200 bg-rose-50 p-2 text-rose-700 transition hover:bg-rose-100 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-300"
+                                                    title="Hapus suara"
+                                                >
+                                                    <IconX size={14} />
+                                                </button>
+                                            </>
+                                        ) : (
+                                            <label className="cursor-pointer rounded-lg border border-primary-200 bg-primary-50 p-2 text-primary-700 transition hover:bg-primary-100 dark:border-primary-900/40 dark:bg-primary-950/30 dark:text-primary-300">
+                                                <IconUpload size={14} />
+                                                <input
+                                                    type="file"
+                                                    accept="audio/mpeg,audio/wav,audio/ogg,.mp3,.wav,.ogg"
+                                                    className="hidden"
+                                                    onChange={(e) => handleFileSelect(type.key, e.target.files[0])}
+                                                />
+                                            </label>
+                                        )}
+                                    </div>
                                 )}
-                                <span>{type.label}</span>
-                            </button>
-                            
-                            {hasError && (
-                                <div className="absolute -top-1 -right-1">
-                                    <IconAlertCircle size={14} className="text-rose-500" />
+                            </div>
+
+                            {isUploading && uploadFile && (
+                                <div className="mt-2 rounded-lg border border-primary-200 bg-primary-50 p-2 dark:border-primary-900/40 dark:bg-primary-950/30">
+                                    <p className="text-xs font-medium text-primary-900 dark:text-primary-100">
+                                        {uploadFile.name}
+                                    </p>
+                                    <div className="mt-2 flex gap-2">
+                                        <button
+                                            onClick={handleUpload}
+                                            className="flex-1 rounded-lg bg-primary-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-primary-700"
+                                        >
+                                            Upload
+                                        </button>
+                                        <button
+                                            onClick={handleCancelUpload}
+                                            className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                                        >
+                                            Batal
+                                        </button>
+                                    </div>
                                 </div>
                             )}
-                            
-                            {!hasUrl && (
-                                <div className="mt-1 text-center">
-                                    <span className="text-[10px] text-slate-400">Belum aktif</span>
+
+                            {hasError && !compact && (
+                                <div className="mt-2 flex items-start gap-1 text-xs text-rose-600 dark:text-rose-400">
+                                    <IconAlertCircle size={12} className="mt-0.5 shrink-0" />
+                                    <span>{errors[type.key]}</span>
+                                </div>
+                            )}
+
+                            {hasUrl && sound && !compact && (
+                                <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                                    <p className="truncate">{sound.name}</p>
                                 </div>
                             )}
                         </div>
@@ -247,16 +397,9 @@ export default function SoundTestPanel({ compact = false }) {
                 })}
             </div>
             
-            {Object.keys(errors).length > 0 && !compact && (
-                <div className="mt-3 rounded-lg bg-rose-50 p-2 text-xs text-rose-700 dark:bg-rose-900/20 dark:text-rose-300">
-                    <strong>Catatan:</strong> Upload dan aktifkan suara di{' '}
-                    <a 
-                        href="/dashboard/settings/notification-sounds" 
-                        target="_blank"
-                        className="underline hover:text-rose-900"
-                    >
-                        Pengaturan Suara Notifikasi
-                    </a>
+            {!compact && (
+                <div className="mt-3 rounded-lg bg-slate-50 p-2 text-xs text-slate-600 dark:bg-slate-800/50 dark:text-slate-400">
+                    <strong>Tips:</strong> Upload file MP3, WAV, atau OGG (maks 5MB). Klik ✓ untuk aktifkan, ✗ untuk hapus.
                 </div>
             )}
         </div>

@@ -584,7 +584,8 @@ class KitchenDisplayController extends Controller
                 'transaction.customer:id,name,no_telp',
                 'transaction.diningTable:id,name,code',
                 'items',
-                'printJobs:id,kitchen_ticket_id,status,copies,queued_at,processing_at,processed_at,failed_at',
+                'printJobs:id,kitchen_ticket_id,outlet_id,status,copies,queued_at,processing_at,processed_at,failed_at',
+                'printJobs.outlet:id,name,code,outlet_type',
             ])
             ->where('outlet_id', $station->outlet_id)
             ->where('kitchen_station_id', $station->id);
@@ -738,6 +739,43 @@ class KitchenDisplayController extends Controller
             default => 'not_printed',
         };
 
+        // Group print jobs by tenant outlet
+        $printJobsByTenant = $printJobs
+            ->groupBy(fn ($job) => $job->outlet_id)
+            ->map(function ($jobs, $outletId) {
+                $outlet = $jobs->first()?->outlet;
+                $successJobs = $jobs->where('status', 'success');
+                $queuedJobs = $jobs->whereIn('status', ['queued', 'processing']);
+                $failedJobs = $jobs->where('status', 'failed');
+                $latestJob = $jobs->sortByDesc('id')->first();
+                
+                $status = match (true) {
+                    $queuedJobs->isNotEmpty() && $successJobs->isNotEmpty() => 'reprint_queued',
+                    $queuedJobs->isNotEmpty() => 'queued',
+                    $latestJob?->status === 'failed' => 'failed',
+                    $successJobs->isNotEmpty() => 'printed',
+                    default => 'not_printed',
+                };
+
+                return [
+                    'outlet_id' => (int) $outletId,
+                    'outlet_name' => $outlet?->name ?? 'Unknown',
+                    'outlet_code' => $outlet?->code ?? '',
+                    'outlet_type' => $outlet?->outlet_type ?? '',
+                    'status' => $status,
+                    'total_jobs' => $jobs->count(),
+                    'success_jobs' => $successJobs->count(),
+                    'failed_jobs' => $failedJobs->count(),
+                    'queued_jobs' => $queuedJobs->count(),
+                    'printed_copies' => (int) $successJobs->sum(fn ($job) => max(1, (int) ($job->copies ?? 1))),
+                    'last_printed_at' => ReportTimezone::formatSourceIso8601($successJobs->sortByDesc('processed_at')->first()?->getRawOriginal('processed_at')),
+                    'last_failed_at' => ReportTimezone::formatSourceIso8601($failedJobs->sortByDesc('failed_at')->first()?->getRawOriginal('failed_at')),
+                    'last_queued_at' => ReportTimezone::formatSourceIso8601($queuedJobs->sortByDesc('queued_at')->first()?->getRawOriginal('queued_at')),
+                ];
+            })
+            ->values()
+            ->all();
+
         $displayStatusKey = $activeItems->isEmpty() && $returnedItems->isNotEmpty()
             ? 'returned'
             : (string) ($ticket->status ?: 'pending');
@@ -825,6 +863,7 @@ class KitchenDisplayController extends Controller
                 'last_failed_at' => ReportTimezone::formatSourceIso8601($failedPrintJobs->sortByDesc('failed_at')->first()?->getRawOriginal('failed_at')),
                 'last_queued_at' => ReportTimezone::formatSourceIso8601($queuedPrintJobs->sortByDesc('queued_at')->first()?->getRawOriginal('queued_at')),
                 'preview' => $this->buildKitchenTicketPrintPreview($ticket),
+                'jobs_by_tenant' => $printJobsByTenant,
             ],
             'items' => $displayItems->values()->all(),
         ];
