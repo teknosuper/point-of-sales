@@ -281,6 +281,44 @@ class KitchenDisplayController extends Controller
             : 'Sebagian item ditandai siap diantar / diambil.');
     }
 
+    public function syncTicketOutlets(Request $request): JsonResponse
+    {
+        $outlet = $this->outletResolver->resolve($request, $request->user());
+        abort_if(! $outlet, 403, 'Outlet aktif tidak ditemukan.');
+
+        // Repair tickets whose outlet_id doesn't match their station's outlet_id.
+        // This happens in foodcourt setups where the transaction belongs to the
+        // main outlet but the kitchen station belongs to a tenant outlet.
+        $tenantChildIds = \App\Models\Outlet::query()
+            ->where('parent_outlet_id', $outlet->id)
+            ->pluck('id');
+
+        $tickets = KitchenTicket::query()
+            ->join('kitchen_stations', 'kitchen_stations.id', '=', 'kitchen_tickets.kitchen_station_id')
+            ->whereColumn('kitchen_tickets.outlet_id', '!=', 'kitchen_stations.outlet_id')
+            ->where(function ($q) use ($outlet, $tenantChildIds) {
+                $q->where('kitchen_stations.outlet_id', $outlet->id)
+                  ->orWhereIn('kitchen_stations.outlet_id', $tenantChildIds);
+            })
+            ->select('kitchen_tickets.id', 'kitchen_stations.outlet_id as correct_outlet_id')
+            ->get();
+
+        $fixed = 0;
+        foreach ($tickets as $ticket) {
+            KitchenTicket::where('id', $ticket->id)
+                ->update(['outlet_id' => $ticket->correct_outlet_id]);
+            $fixed++;
+        }
+
+        return response()->json([
+            'success' => true,
+            'fixed'   => $fixed,
+            'message' => $fixed > 0
+                ? "{$fixed} tiket berhasil disinkronisasi outlet-nya."
+                : 'Semua tiket sudah sinkron, tidak ada yang perlu diperbaiki.',
+        ]);
+    }
+
     public function deliver(Request $request, KitchenTicket $kitchenTicket): RedirectResponse
     {
         $this->ensureKitchenAccess($request, $kitchenTicket);

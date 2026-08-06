@@ -167,13 +167,21 @@ class KitchenTicketService
         $date = Carbon::now()->format('dmy');
         $lockKey = sprintf('kitchen-ticket:%d:%d:%s', (int) $transaction->id, $stationId, $date);
 
+        // Use the station's outlet_id, not the transaction's outlet_id.
+        // In a foodcourt setup, the transaction belongs to the main outlet
+        // but the kitchen station belongs to a tenant outlet. The display
+        // query in KitchenDisplayController::ticketPayloads() filters by
+        // $station->outlet_id, so the ticket must match the station's outlet.
+        $station = KitchenStation::query()->find($stationId);
+        $outletId = $station?->outlet_id ?? $transaction->outlet_id;
+
         try {
-            return Cache::lock($lockKey, 10)->block(5, function () use ($transaction, $stationId, $sourceChannel) {
+            return Cache::lock($lockKey, 10)->block(5, function () use ($transaction, $stationId, $sourceChannel, $outletId) {
                 return KitchenTicket::query()->firstOrCreate([
                     'transaction_id' => $transaction->id,
                     'kitchen_station_id' => $stationId,
                 ], [
-                    'outlet_id' => $transaction->outlet_id,
+                    'outlet_id' => $outletId,
                     'cashier_shift_id' => $transaction->cashier_shift_id,
                     'ticket_number' => $this->generateTicketNumber($transaction, $stationId),
                     'source_channel' => $sourceChannel,
@@ -186,7 +194,7 @@ class KitchenTicketService
                 'transaction_id' => $transaction->id,
                 'kitchen_station_id' => $stationId,
             ], [
-                'outlet_id' => $transaction->outlet_id,
+                'outlet_id' => $outletId,
                 'cashier_shift_id' => $transaction->cashier_shift_id,
                 'ticket_number' => $this->generateTicketNumber($transaction, $stationId),
                 'source_channel' => $sourceChannel,

@@ -175,6 +175,7 @@ export default function ModifierOptionsModal({
     // ----- UX: panduan topping & wizard (2 langkah) -----
     const toppingSectionRef = useRef(null);
     const notesFieldRef = useRef(null);
+    const notesSectionRef = useRef(null);
     const [toppingAlert, setToppingAlert] = useState(false);
     const [step, setStep] = useState(
         hasModifierOptions ? "topping" : "menu"
@@ -188,11 +189,15 @@ export default function ModifierOptionsModal({
     }, [product?.id]);
 
     React.useEffect(() => {
-        // Saat masuk ke langkah keterangan, fokus ke field catatan
+        // Saat masuk ke langkah keterangan, scroll ke section tanpa fokus ke textarea
+        // agar keyboard tidak muncul otomatis di tablet/mobile
         if (step === "notes") {
             const timer = window.setTimeout(() => {
-                notesFieldRef.current?.focus();
-            }, 120);
+                notesSectionRef.current?.scrollIntoView({
+                    behavior: "smooth",
+                    block: "start",
+                });
+            }, 100);
             return () => window.clearTimeout(timer);
         }
     }, [step]);
@@ -619,7 +624,7 @@ export default function ModifierOptionsModal({
                     ) : null}
 
                     {step === "notes" ? (
-                        <div className="px-5 pb-4 pt-4">
+                        <div ref={notesSectionRef} className="px-5 pb-4 pt-4">
                             <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/30">
                                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                                     Catatan Item

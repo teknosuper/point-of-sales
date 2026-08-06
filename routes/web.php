@@ -412,6 +412,7 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
     Route::post('/kitchen/tickets/{kitchenTicket}/acknowledge', [KitchenDisplayController::class, 'acknowledge'])->middleware(['permission:kitchen-access', 'outlet_access'])->name('kitchen.tickets.acknowledge');
     Route::post('/kitchen/tickets/{kitchenTicket}/complete', [KitchenDisplayController::class, 'complete'])->middleware(['permission:kitchen-access', 'outlet_access'])->name('kitchen.tickets.complete');
     Route::post('/kitchen/tickets/{kitchenTicket}/deliver', [KitchenDisplayController::class, 'deliver'])->middleware(['permission:kitchen-access', 'outlet_access'])->name('kitchen.tickets.deliver');
+    Route::post('/kitchen/sync-ticket-outlets', [KitchenDisplayController::class, 'syncTicketOutlets'])->middleware('permission:kitchen-access')->name('kitchen.sync-ticket-outlets');
     Route::post('/transactions/{transaction}/share-campaign', [CrmCampaignController::class, 'shareTransaction'])->middleware(['permission:crm-campaigns-create', 'outlet_access'])->name('transactions.share-campaign');
     Route::get('/transactions/history/{transaction}/sales-return/create', [SalesReturnController::class, 'create'])->middleware(['permission:sales-returns-create', 'outlet_access'])->name('sales-returns.create');
     Route::post('/transactions/history/{transaction}/sales-return', [SalesReturnController::class, 'store'])->middleware(['permission:sales-returns-create', 'outlet_access'])->name('sales-returns.store');

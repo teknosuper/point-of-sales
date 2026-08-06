@@ -33,6 +33,7 @@ import {
     IconPrinter,
     IconReceipt2,
     IconRefresh,
+    IconRotateClockwise2,
     IconSearch,
     IconX,
 } from "@/Utils/icons";
@@ -99,6 +100,7 @@ export default function KitchenIndex({
     const [printerLinkDevice, setPrinterLinkDevice] = useState(null);
     const [previewTicket, setPreviewTicket] = useState(null);
     const [isRefreshing, setIsRefreshing] = useState(false);
+    const [isSyncingOutlets, setIsSyncingOutlets] = useState(false);
     const [selectedItemIdsByTicket, setSelectedItemIdsByTicket] = useState({});
     const [submittingActionByTicket, setSubmittingActionByTicket] = useState({});
     const [boardState, setBoardState] = useState(
@@ -880,6 +882,36 @@ const resolveSelectedKitchenActionItemIds = (ticket, allowedStatuses = []) => {
         }
     };
 
+    const handleSyncTicketOutlets = async () => {
+        setIsSyncingOutlets(true);
+        try {
+            // Read CSRF token from cookie (Laravel sets XSRF-TOKEN cookie)
+            const xsrfToken = document.cookie
+                .split("; ")
+                .find((row) => row.startsWith("XSRF-TOKEN="))
+                ?.split("=")[1];
+
+            const res = await fetch(route("kitchen.sync-ticket-outlets"), {
+                method: "POST",
+                headers: {
+                    "X-XSRF-TOKEN": xsrfToken ? decodeURIComponent(xsrfToken) : "",
+                    Accept: "application/json",
+                },
+            });
+            const data = await res.json();
+            if (data.success) {
+                toast.success(data.message);
+                if (data.fixed > 0) handleRefresh();
+            } else {
+                toast.error("Sinkronisasi gagal.");
+            }
+        } catch {
+            toast.error("Gagal melakukan sinkronisasi.");
+        } finally {
+            setIsSyncingOutlets(false);
+        }
+    };
+
     const toggleFullscreen = async () => {
         try {
             if (document.fullscreenElement) {
@@ -1308,6 +1340,15 @@ const resolveSelectedKitchenActionItemIds = (ticket, allowedStatuses = []) => {
                                     className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
                                 >
                                     🔊 Testing Suara
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleSyncTicketOutlets}
+                                    disabled={isSyncingOutlets}
+                                    className="inline-flex items-center gap-2 rounded-xl border border-orange-200 bg-orange-50 px-3 py-2 text-xs font-medium text-orange-700 transition hover:border-orange-300 hover:bg-orange-100 dark:border-orange-900/40 dark:bg-orange-950/30 dark:text-orange-300"
+                                >
+                                    <IconRotateClockwise2 size={15} />
+                                    {isSyncingOutlets ? "Menyinkron..." : "Sync Data Salah"}
                                 </button>
                                 <button
                                     type="button"
