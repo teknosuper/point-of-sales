@@ -172,10 +172,11 @@ class EmployeeScheduleService
 
                 $offEmployeeIds = array_map('intval', $offPlan[$dateKey][$type] ?? []);
 
-                $newWorkers = [];
+                $workers = [];
 
                 for ($step = 0; $step < $count; $step++) {
-                    $employee = $employees[($dayNumber + $step) % $count];
+                    $index = ($dayNumber + $step) % $count;
+                    $employee = $employees[$index];
 
                     if ($existing->has($employee->id)) {
                         continue;
@@ -194,25 +195,39 @@ class EmployeeScheduleService
                         continue;
                     }
 
-                    $newWorkers[] = $employee->id;
+                    $workers[$index] = $employee;
                 }
+
+                // Urutkan pekerja menurut indeks asli (rotation_order) agar rotasi
+                // penugasan shift TIDAK sinkron dengan rotasi urutan pekerja harian.
+                // Bila keduanya berputar bersama, karyawan yang sama bisa terus
+                // mendapat shift yang sama (mis. selalu Pagi / selalu Malam).
+                ksort($workers);
+                $workerCount = count($workers);
 
                 $occupiedShifts = $existing->pluck('shift_id')->filter();
 
-                foreach (array_unique($newWorkers) as $workerId) {
+                foreach (array_values($workers) as $i => $employee) {
                     $shift = null;
 
-                    for ($slot = 0; $slot < $shiftCount; $slot++) {
-                        $candidate = ($slot + $dayNumber) % $shiftCount;
+                    if ($shiftCount > 0) {
+                        // Sebar pekerja secara merata ke daftar shift. Contoh:
+                        // 2 pekerja dengan 3 shift → shift 1 dan shift 3, bukan 1 & 2.
+                        $base = (int) round($i * $shiftCount / max($workerCount, 1));
+                        $offset = $dayNumber % $shiftCount;
 
-                        if (! $occupiedShifts->contains($shifts[$candidate]->id)) {
-                            $shift = $shifts[$candidate];
-                            break;
+                        for ($t = 0; $t < $shiftCount; $t++) {
+                            $candidate = ($base + $offset + $t) % $shiftCount;
+
+                            if (! $occupiedShifts->contains($shifts[$candidate]->id)) {
+                                $shift = $shifts[$candidate];
+                                break;
+                            }
                         }
-                    }
 
-                    // Bila semua shift terpakai (pegawai > shift), duplikasi shift.
-                    $shift ??= $shiftCount > 0 ? $shifts[$dayNumber % $shiftCount] : null;
+                        // Bila semua shift terpakai (pegawai > shift), duplikasi shift.
+                        $shift ??= $shifts[($base + $offset) % $shiftCount];
+                    }
 
                     if ($shift) {
                         $occupiedShifts->push($shift->id);
@@ -220,7 +235,7 @@ class EmployeeScheduleService
 
                     EmployeeSchedule::create([
                         'schedule_date' => $dateKey,
-                        'employee_id' => $workerId,
+                        'employee_id' => $employee->id,
                         'shift_id' => $shift?->id,
                         'status' => \App\Models\EmployeeSchedule::STATUS_MASUK,
                     ]);
