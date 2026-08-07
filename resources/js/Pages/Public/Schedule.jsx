@@ -139,8 +139,8 @@ export default function Schedule({ groups, shifts, view, period, storeName, toke
             <Head title="Jadwal Kerja" />
 
             <header className="border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
-                <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-4">
-                    <div className="flex items-center gap-2">
+                <div className="mx-auto flex max-w-6xl flex-col gap-3 px-4 py-4 md:flex-row md:items-center md:justify-between">
+                    <div className="flex min-w-0 items-center gap-2">
                         <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary-500 text-white">
                             <IconCalendarEvent size={18} />
                         </span>
@@ -152,7 +152,7 @@ export default function Schedule({ groups, shifts, view, period, storeName, toke
                         </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
                         <button
                             type="button"
                             onClick={() => {
@@ -340,7 +340,7 @@ export default function Schedule({ groups, shifts, view, period, storeName, toke
                                         <button
                                             key={d.key}
                                             type="button"
-                                            onClick={() => toggleFor(d.key)}
+                                            onClick={() => toggleDay(d.key)}
                                             className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-medium transition ${
                                                 on
                                                     ? "border-green-300 bg-green-50 text-green-700 dark:border-green-800 dark:bg-green-950/40 dark:text-green-300"
