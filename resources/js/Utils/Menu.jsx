@@ -110,6 +110,13 @@ export default function Menu() {
                     ["products-access"]
                 ),
                 menuItem(
+                    "Review Produk",
+                    route("products.review"),
+                    url.startsWith("/dashboard/products/review-queue"),
+                    <IconClipboardCheck size={20} strokeWidth={1.5} />,
+                    ["products-review"]
+                ),
+                menuItem(
                     "Meja",
                     route("dining-tables.index"),
                     url.startsWith("/dashboard/dining-tables"),

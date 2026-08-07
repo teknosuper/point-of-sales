@@ -133,9 +133,9 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
     Route::resource('/roles', RoleController::class)
         ->except(['create', 'edit', 'show'])
         ->middlewareFor('index', 'permission:roles-access')
-        ->middlewareFor('store', ['permission:roles-create', 'step_up'])
-        ->middlewareFor('update', ['permission:roles-update', 'step_up'])
-        ->middlewareFor('destroy', ['permission:roles-delete', 'step_up']);
+        ->middlewareFor('store', 'permission:roles-create')
+        ->middlewareFor('update', 'permission:roles-update')
+        ->middlewareFor('destroy', 'permission:roles-delete');
     // users route
     Route::resource('/users', UserController::class)
         ->except('show')
@@ -164,6 +164,10 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
         ->middleware('permission:categories-edit')
         ->name('categories.bulk-move');
 
+    Route::get('products/review-queue', [ProductController::class, 'reviewQueue'])
+        ->middleware('permission:products-review')
+        ->name('products.review');
+
     Route::resource('products', ProductController::class)
         ->middlewareFor(['index', 'show'], 'permission:products-access')
         ->middlewareFor(['create', 'store'], 'permission:products-create')
@@ -178,9 +182,6 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
     Route::patch('products/{product}/penalty-status', [ProductController::class, 'updatePenaltyStatus'])
         ->middleware(['permission:products-edit', 'step_up'])
         ->name('products.penalty-status');
-    Route::get('products/review-queue', [ProductController::class, 'reviewQueue'])
-        ->middleware('permission:products-review')
-        ->name('products.review');
     Route::patch('products/{product}/approve', [ProductController::class, 'approve'])
         ->middleware(['permission:products-review', 'step_up'])
         ->name('products.approve');

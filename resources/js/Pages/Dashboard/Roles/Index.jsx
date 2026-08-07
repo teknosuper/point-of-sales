@@ -181,9 +181,12 @@ export default function Index() {
     const canDeleteRoles = can("roles-delete");
     const canCreateUsers = can("users-create");
     const [showGuide, setShowGuide] = useState(false);
-    const [showFilters, setShowFilters] = useState(
-        Boolean(filters.search || filters.kind)
-    );
+    const [showFilterModal, setShowFilterModal] = useState(false);
+    const [filterDraft, setFilterDraft] = useState({
+        search: filters.search || "",
+        kind: filters.kind || "",
+        per_page: filters.per_page || 12,
+    });
     const {
         data,
         setData,
@@ -305,6 +308,30 @@ export default function Index() {
             per_page: filters.per_page || 12,
         });
     };
+
+    const openFilterModal = () => {
+        setFilterDraft({
+            search: filters.search || "",
+            kind: filters.kind || "",
+            per_page: filters.per_page || 12,
+        });
+        setShowFilterModal(true);
+    };
+
+    const applyFilterModal = () => {
+        applyFilters({
+            search: filterDraft.search,
+            kind: filterDraft.kind,
+            per_page: filterDraft.per_page,
+        });
+        setShowFilterModal(false);
+    };
+
+    const resetFilterModal = () => {
+        setFilterDraft({ search: "", kind: "", per_page: 12 });
+        applyFilters({ search: "", kind: "", per_page: 12 });
+        setShowFilterModal(false);
+    };
     return (
         <>
             <Head title="Role Akses" />
@@ -408,89 +435,111 @@ export default function Index() {
                     </div>
                     <button
                         type="button"
-                        onClick={() => setShowFilters((value) => !value)}
+                        onClick={openFilterModal}
                         className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
                     >
-                        {showFilters ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
-                        {showFilters ? "Sembunyikan filter" : "Buka filter"}
+                        <IconAdjustmentsHorizontal size={16} />
+                        Filter
                     </button>
                 </div>
-                {showFilters ? (
-                <>
-                <div className="mt-4 grid gap-3 md:grid-cols-4">
-                    <div className="relative md:col-span-2">
-                        <input
-                            type="text"
-                            defaultValue={filters.search || ""}
-                            onKeyDown={(event) => {
-                                if (event.key === "Enter") {
-                                    applyFilters({
-                                        ...filters,
-                                        search: event.currentTarget.value,
-                                    });
+            </div>
+
+            {/* Modal Filter */}
+            <Modal
+                show={showFilterModal}
+                onClose={() => setShowFilterModal(false)}
+                title="Filter Role Akses"
+                icon={<IconAdjustmentsHorizontal size={20} strokeWidth={1.5} />}
+            >
+                <div className="space-y-4">
+                    <div>
+                        <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                            Nama role
+                        </label>
+                        <div className="relative">
+                            <input
+                                type="text"
+                                value={filterDraft.search}
+                                onChange={(e) =>
+                                    setFilterDraft({ ...filterDraft, search: e.target.value })
                                 }
-                            }}
-                            placeholder="Cari nama role..."
-                            className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 pr-11 text-sm text-slate-800 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
-                        />
-                        <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-4 text-slate-400">
-                            <IconSearch size={18} />
+                                onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                        applyFilterModal();
+                                    }
+                                }}
+                                placeholder="Cari nama role..."
+                                className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 pr-11 text-sm text-slate-800 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                            />
+                            <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-4 text-slate-400">
+                                <IconSearch size={18} />
+                            </div>
                         </div>
                     </div>
-                    <select
-                        value={filters.kind || ""}
-                        onChange={(event) =>
-                            applyFilters({
-                                ...filters,
-                                kind: event.target.value,
-                            })
-                        }
-                        className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-800 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
-                    >
-                        <option value="">Semua Jenis Role</option>
-                        <option value="system">Role Sistem</option>
-                        <option value="tenant">Role Tenant</option>
-                        <option value="pricing">Role Pricing</option>
-                        <option value="admin">Role Admin Modul</option>
-                    </select>
-                    <select
-                        value={filters.per_page || 12}
-                        onChange={(event) =>
-                            applyFilters({
-                                ...filters,
-                                per_page: event.target.value,
-                            })
-                        }
-                        className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-800 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
-                    >
-                        {perPageOptions.map((option) => (
-                            <option key={option} value={option}>
-                                {option} per halaman
-                            </option>
-                        ))}
-                    </select>
-                </div>
-                <div className="mt-4 flex flex-wrap gap-2">
-                    <button
-                        type="button"
-                        onClick={resetFilters}
-                        className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
-                    >
-                        <IconFilterOff size={14} />
-                        Reset Filter
-                    </button>
-                    {permissionGroups.map((group) => (
-                        <span
-                            key={group.key}
-                            className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                    <div>
+                        <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                            Jenis role
+                        </label>
+                        <select
+                            value={filterDraft.kind}
+                            onChange={(e) =>
+                                setFilterDraft({ ...filterDraft, kind: e.target.value })
+                            }
+                            className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-800 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
                         >
-                            {group.label}: {group.count}
-                        </span>
-                    ))}
+                            <option value="">Semua Jenis Role</option>
+                            <option value="system">Role Sistem</option>
+                            <option value="tenant">Role Tenant</option>
+                            <option value="pricing">Role Pricing</option>
+                            <option value="admin">Role Admin Modul</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                            Jumlah per halaman
+                        </label>
+                        <select
+                            value={filterDraft.per_page}
+                            onChange={(e) =>
+                                setFilterDraft({ ...filterDraft, per_page: e.target.value })
+                            }
+                            className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-800 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                        >
+                            {perPageOptions.map((option) => (
+                                <option key={option} value={option}>
+                                    {option} per halaman
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                        {permissionGroups.map((group) => (
+                            <span
+                                key={group.key}
+                                className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                            >
+                                {group.label}: {group.count}
+                            </span>
+                        ))}
+                    </div>
                 </div>
-                </>
-                ) : null}
-            </div>
+                <div className="mt-5 flex items-center justify-end gap-2 border-t border-slate-100 pt-4 dark:border-slate-800">
+                    <Button
+                        type="button"
+                        icon={<IconFilterOff size={16} />}
+                        label="Reset"
+                        onClick={resetFilterModal}
+                        className="border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                    />
+                    <Button
+                        type="button"
+                        label="Terapkan Filter"
+                        icon={<IconChecks size={16} />}
+                        onClick={applyFilterModal}
+                        className="bg-primary-500 hover:bg-primary-600 text-white"
+                    />
+                </div>
+            </Modal>
 
             {/* Modal */}
             <Modal

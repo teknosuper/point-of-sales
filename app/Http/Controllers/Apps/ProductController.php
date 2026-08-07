@@ -15,12 +15,11 @@ use App\Services\ModifierMarkupService;
 use App\Services\OutletResolver;
 use App\Services\PricingService;
 use App\Services\StockMutationService;
-use Illuminate\Http\Request;
-use Illuminate\Http\RedirectResponse;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -538,7 +537,7 @@ class ProductController extends Controller
             event: 'product.bulk_modifier_stocks_updated',
             module: 'products',
             auditable: Product::query()->whereKey($targetProductIds[0])->first(),
-            description: "Stok topping massal diperbarui untuk ".count($targetProductIds)." produk.",
+            description: 'Stok topping massal diperbarui untuk '.count($targetProductIds).' produk.',
             after: [
                 'target_product_ids' => $targetProductIds,
                 'modifier_count' => $modifierRows->count(),
@@ -547,7 +546,7 @@ class ProductController extends Controller
             ],
         );
 
-        return back()->with('success', "Stok topping berhasil diperbarui untuk {$updatedCount} baris topping di ".count($targetProductIds)." produk.");
+        return back()->with('success', "Stok topping berhasil diperbarui untuk {$updatedCount} baris topping di ".count($targetProductIds).' produk.');
     }
 
     public function previewBulkModifierStocks(Request $request): JsonResponse
@@ -590,16 +589,16 @@ class ProductController extends Controller
                 GROUP_CONCAT(DISTINCT name ORDER BY name SEPARATOR '||') as variant_names,
                 COUNT(DISTINCT product_id) as product_count,
                 COUNT(*) as option_count,
-                COUNT(DISTINCT ".self::NORMALIZED_MODIFIER_NAME_SQL.") as variant_count,
+                COUNT(DISTINCT ".self::NORMALIZED_MODIFIER_NAME_SQL.') as variant_count,
                 MIN(stock) as min_stock,
                 MAX(stock) as max_stock
-            ")
+            ')
             ->whereIn('product_id', $targetProductIds)
             ->where('is_active', true)
             ->whereNotNull('name')
             ->whereRaw("TRIM(name) <> ''")
-            ->groupByRaw("group_name, ".self::NORMALIZED_MODIFIER_NAME_SQL)
-            ->orderByRaw("normalized_group_name asc")
+            ->groupByRaw('group_name, '.self::NORMALIZED_MODIFIER_NAME_SQL)
+            ->orderByRaw('normalized_group_name asc')
             ->orderBy('display_name', 'asc')
             ->get()
             ->map(fn ($row) => [
@@ -1384,6 +1383,7 @@ class ProductController extends Controller
             if ($canManageCatalog) {
                 $this->syncModifierOptions($product, $validated['modifier_options'] ?? []);
             }
+            $this->resubmitRejectedProduct($product, $request);
 
             return to_route('products.index');
         }
@@ -1401,6 +1401,7 @@ class ProductController extends Controller
             forceReplace: $beforeTenantOutletId !== $attributes['tenant_outlet_id'],
         );
         $this->logProductUpdate($product, $before);
+        $this->resubmitRejectedProduct($product, $request);
 
         // redirect
         return to_route('products.index');
@@ -1497,7 +1498,9 @@ class ProductController extends Controller
 
     public function reviewQueue(Request $request)
     {
-        $outlet = $this->resolveActiveOutlet($request);
+        $outlet = $this->outletResolver->resolve($request, $request->user());
+        $isTenantWorkspace = $outlet?->outlet_type === 'tenant';
+
         $query = Product::query()
             ->pendingReview()
             ->with([
@@ -1507,17 +1510,22 @@ class ProductController extends Controller
             ->select(
                 'id',
                 'title',
+                'description',
                 'image',
                 'barcode',
                 'sku',
+                'buy_price',
                 'sell_price',
                 'stock',
                 'category_id',
                 'tenant_outlet_id',
                 'publish_status',
+                'review_note',
                 'created_at'
             )
-            ->when($outlet?->id, fn ($builder) => $builder->where('tenant_outlet_id', $outlet->id))
+            // Owner/main outlet melihat SEMUA produk tenant yang menunggu review;
+            // tenant hanya melihat antrian milik outlet-nya sendiri.
+            ->when($isTenantWorkspace, fn ($builder) => $builder->where('tenant_outlet_id', $outlet->id))
             ->orderByDesc('created_at');
 
         $pending = $request->input('search')
@@ -1588,6 +1596,38 @@ class ProductController extends Controller
         );
 
         return back()->with('success', 'Produk ditolak dan tidak akan tampil di publik.');
+    }
+
+    /**
+     * Produk yang ditolak otomatis kembali ke antrian review (pending) saat
+     * tenant memperbaiki dan menyimpan produknya, sehingga owner dapat
+     * mereview ulang tanpa harus membuat produk baru.
+     */
+    private function resubmitRejectedProduct(Product $product, Request $request): void
+    {
+        if ($product->fresh()?->publish_status !== 'rejected') {
+            return;
+        }
+
+        if (! $this->isTenantOutletWorkspace($request)) {
+            return;
+        }
+
+        $product->update([
+            'publish_status' => 'pending',
+            'published_at' => null,
+            'reviewed_by' => null,
+            'reviewed_at' => null,
+            'review_note' => null,
+        ]);
+
+        $this->auditLogService->log(
+            event: 'product.publish_resubmitted',
+            module: 'products',
+            auditable: $product,
+            description: 'Produk yang ditolak diperbaiki dan diajukan ulang untuk review.',
+            after: ['publish_status' => 'pending'],
+        );
     }
 
     private function generateUniqueSku(
@@ -2094,8 +2134,7 @@ class ProductController extends Controller
         ?int $activeOutletId = null,
         bool $canViewOwnerSellPrice = true,
         ?array $pricing = null
-    ): array
-    {
+    ): array {
         $outletStocks = $product->outletStocks
             ->map(fn ($stock) => [
                 'id' => $stock->id,
