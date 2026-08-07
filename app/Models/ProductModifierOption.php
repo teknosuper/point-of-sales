@@ -12,6 +12,7 @@ class ProductModifierOption extends Model
     protected $fillable = [
         'product_id',
         'group_name',
+        'order_type_scope',
         'name',
         'price',
         'stock',
@@ -35,6 +36,17 @@ class ProductModifierOption extends Model
         'sort_order' => 'integer',
         'group_sort_order' => 'integer',
     ];
+
+    public function appliesTo(?string $orderType): bool
+    {
+        $scope = trim((string) ($this->order_type_scope ?? ''));
+
+        if ($scope === '' || $scope === 'both') {
+            return true;
+        }
+
+        return $orderType !== null && $scope === $orderType;
+    }
 
     public function product()
     {

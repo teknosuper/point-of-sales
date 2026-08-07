@@ -91,6 +91,7 @@ class ModifierMarkupService
         return [
             'id' => $option->id,
             'group_name' => $option->group_name,
+            'order_type_scope' => trim((string) ($option->order_type_scope ?? '')),
             'selection_mode' => $option->selection_mode ?: 'optional',
             'min_select' => (int) ($option->min_select ?? 0),
             'max_select' => $option->max_select !== null ? (int) $option->max_select : null,

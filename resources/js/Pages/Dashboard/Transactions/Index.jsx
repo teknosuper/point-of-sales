@@ -76,6 +76,28 @@ import {
     resolvedProductDisplayPrice,
     buildCartConsistencySignature,
 } from "@/Utils/posFormat";
+
+const ORDER_TYPE_LABEL = {
+    take_away: "Take Away",
+    dine_in: "Dine In",
+};
+
+const ORDER_TYPE_NOTES_TAG = {
+    take_away: "[TAKE AWAY]",
+    dine_in: "[DINE IN]",
+};
+
+const buildOrderTypeNotes = (orderType, rawNotes) => {
+    const tag = ORDER_TYPE_NOTES_TAG[orderType] || "";
+    const trimmed = String(rawNotes || "").trim();
+
+    return tag ? [tag, trimmed].filter(Boolean).join(" ") : trimmed;
+};
+
+const stripOrderTypeNotes = (notes) =>
+    String(notes || "")
+        .replace(/^\s*\[(TAKE AWAY|DINE IN)\]\s*/i, "")
+        .trim();
 import {
     IconShoppingCart,
     IconReceipt,
@@ -171,6 +193,9 @@ export default function Index({
         useState(0);
     const [orderType, setOrderType] = useState("dine_in");
     const [draftOrderType, setDraftOrderType] = useState("dine_in");
+    const [modifierModalOrderType, setModifierModalOrderType] = useState(
+        "dine_in"
+    );
     const [selectedTableId, setSelectedTableId] = useState("");
     const [draftSelectedTableId, setDraftSelectedTableId] = useState("");
     const [orderReferenceName, setOrderReferenceName] = useState("");
@@ -1058,10 +1083,11 @@ export default function Index({
         setModifierModalProduct(product);
         setModifierModalCartTargetId(null);
         setModifierModalNotes("");
+        setModifierModalOrderType(orderType);
         setIsModifierPromoDetailOpen(false);
         setSelectedModifierOptionIds([]);
         setModifierModalQuantity(1);
-    }, []);
+    }, [orderType]);
 
     // Barcode scanner integration
     const handleBarcodeScan = useCallback(
@@ -2810,6 +2836,7 @@ export default function Index({
                         qty: quantity,
                         price: resolvedProductDisplayPrice(product) * quantity,
                         notes: normalizedNotes,
+                        order_type: options.orderType || null,
                         product: { ...product },
                         tenant_outlet_id: product.tenant_outlet_id || null,
                         promo_reward_meta: rewardPromoMeta,
@@ -2941,6 +2968,7 @@ export default function Index({
                         route("transactions.syncCartModifiers", serverCart.id),
                         {
                             notes: normalizedNotes,
+                            order_type: options.orderType || null,
                             modifiers: modifiers.map((modifier) => ({
                                 name: modifier.name,
                                 qty: 1,
@@ -3526,6 +3554,11 @@ export default function Index({
         setSelectedModifierOptionIds([]);
     }, [isModifierModalSubmitting]);
 
+    const handleModifierOrderTypeChange = useCallback((nextOrderType) => {
+        setModifierModalOrderType(nextOrderType);
+        setSelectedModifierOptionIds([]);
+    }, []);
+
     const openCartModifierModal = useCallback((item) => {
         if (checkoutModalStep === "preview" || isSubmitting) {
             return;
@@ -3554,10 +3587,11 @@ export default function Index({
         setModifierModalProduct(item.product);
         setModifierModalCartTargetId(item.id);
         setModifierModalQuantity(Math.max(1, Number(item.qty || 1)));
-        setModifierModalNotes(item.notes || "");
+        setModifierModalNotes(stripOrderTypeNotes(item.notes));
+        setModifierModalOrderType(item.order_type || orderType);
         setIsModifierPromoDetailOpen(false);
         setSelectedModifierOptionIds(activeOptionIds);
-    }, [checkoutModalStep, isSubmitting]);
+    }, [checkoutModalStep, isSubmitting, orderType]);
 
     const submitModifierModal = useCallback(
         async (includeModifiers) => {
@@ -3565,7 +3599,17 @@ export default function Index({
                 return;
             }
 
-            const modifierOptions = modifierModalProduct.modifier_options || [];
+            const modifierOptions = (modifierModalProduct.modifier_options || []).filter(
+                (option) => {
+                    const scope = String(option?.order_type_scope || "").trim();
+
+                    if (!scope || scope === "both") {
+                        return true;
+                    }
+
+                    return scope === modifierModalOrderType;
+                }
+            );
             const selectedOptionIdSet = new Set(
                 selectedModifierOptionIds.map((id) => Number(id || 0))
             );
@@ -3636,7 +3680,10 @@ export default function Index({
                       selectedOptionIdSet.has(Number(option.id || 0))
                   )
                 : [];
-            const normalizedNotes = modifierModalNotes.trim() || null;
+            const normalizedNotes = buildOrderTypeNotes(
+                modifierModalOrderType,
+                modifierModalNotes.trim()
+            );
 
             setIsModifierModalSubmitting(true);
 
@@ -3669,6 +3716,7 @@ export default function Index({
                                 ? {
                                       ...item,
                                       notes: normalizedNotes,
+                                      order_type: modifierModalOrderType,
                                       modifiers: Array.from(
                                           selectedModifierMap.values()
                                       ),
@@ -3688,6 +3736,7 @@ export default function Index({
                         ),
                         {
                             notes: normalizedNotes,
+                            order_type: modifierModalOrderType,
                             modifiers: selectedModifiers.map((option) => ({
                                 name: option.name,
                                 qty: 1,
@@ -3719,6 +3768,7 @@ export default function Index({
                         qty: modifierModalQuantity,
                         modifiers: selectedModifiers,
                         notes: normalizedNotes,
+                        orderType: modifierModalOrderType,
                     });
 
                     if (success) {
@@ -3764,6 +3814,7 @@ export default function Index({
             modifierModalNotes,
             modifierModalProduct,
             modifierModalQuantity,
+            modifierModalOrderType,
             selectedModifierOptionIds,
         ]
     );
@@ -8003,6 +8054,8 @@ export default function Index({
 
             <ModifierOptionsModal
                 product={modifierModalProduct}
+                orderType={modifierModalOrderType || orderType}
+                onOrderTypeChange={handleModifierOrderTypeChange}
                 cartTargetId={modifierModalCartTargetId}
                 quantity={modifierModalQuantity}
                 notesValue={modifierModalNotes}

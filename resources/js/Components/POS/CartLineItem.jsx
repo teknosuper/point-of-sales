@@ -123,9 +123,24 @@ export default function CartLineItem({
                 )}
             </div>
             <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-slate-700 dark:text-slate-300">
-                    {item.product?.title || "Produk"}
-                </p>
+                <div className="flex flex-wrap items-center gap-1.5">
+                    <p className="truncate text-sm font-medium text-slate-700 dark:text-slate-300">
+                        {item.product?.title || "Produk"}
+                    </p>
+                    {item.order_type ? (
+                        <span
+                            className={
+                                item.order_type === "take_away"
+                                    ? "inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700 dark:bg-amber-950/30 dark:text-amber-300"
+                                    : "inline-flex items-center rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-bold text-sky-700 dark:bg-sky-950/30 dark:text-sky-300"
+                            }
+                        >
+                            {item.order_type === "take_away"
+                                ? "TA"
+                                : "DI"}
+                        </span>
+                    ) : null}
+                </div>
                 {(item.product?.kitchen_stations || []).length > 0 ? (
                     <div className="mt-1 flex flex-wrap items-center gap-1.5">
                         <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">

@@ -16,7 +16,6 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
-use App\Services\TransactionInvoiceService;
 
 class TableOrderService
 {
@@ -133,6 +132,7 @@ class TableOrderService
                     'product_id' => (int) ($item['product_id'] ?? 0),
                     'qty' => max(0, (int) ($item['qty'] ?? 0)),
                     'notes' => filled($item['notes'] ?? null) ? (string) $item['notes'] : null,
+                    'order_type' => in_array($item['order_type'] ?? null, ['dine_in', 'take_away'], true) ? $item['order_type'] : 'dine_in',
                     'is_promo_reward' => (bool) ($item['is_promo_reward'] ?? false),
                     'promo_reward_rule_name' => filled($item['promo_reward_rule_name'] ?? null)
                         ? (string) $item['promo_reward_rule_name']
@@ -215,7 +215,8 @@ class TableOrderService
                 $product,
                 $productModifierOptions,
                 $selectedModifiers,
-                'items'
+                'items',
+                (string) ($item['order_type'] ?? 'dine_in')
             );
 
             $modifierPricing = $selectedModifiers
@@ -230,6 +231,7 @@ class TableOrderService
                 'product_id' => $product->id,
                 'tenant_outlet_id' => $product->tenant_outlet_id ?: $table->outlet_id,
                 'product_title' => $product->title,
+                'order_type' => (string) ($item['order_type'] ?? 'dine_in'),
                 'qty' => $item['qty'],
                 'base_unit_price' => $unitPrice,
                 'unit_price' => $unitPrice,
@@ -359,8 +361,7 @@ class TableOrderService
         User $cashier,
         int $cashAmount,
         string $paymentMethod = 'cash'
-    ): Transaction
-    {
+    ): Transaction {
         if ($tableOrder->status !== 'pending_cashier_payment') {
             throw ValidationException::withMessages([
                 'order' => 'Order ini tidak lagi menunggu pembayaran kasir.',
@@ -539,6 +540,7 @@ class TableOrderService
                     'product_id' => (int) ($item['product_id'] ?? 0),
                     'qty' => max(0, (int) ($item['qty'] ?? 0)),
                     'notes' => filled($item['notes'] ?? null) ? (string) $item['notes'] : null,
+                    'order_type' => in_array($item['order_type'] ?? null, ['dine_in', 'take_away'], true) ? $item['order_type'] : 'dine_in',
                     'modifier_ids' => collect($item['modifier_ids'] ?? [])
                         ->map(fn (array $modifier) => (int) ($modifier['id'] ?? 0))
                         ->filter(fn (int $id) => $id > 0)
@@ -613,7 +615,8 @@ class TableOrderService
                 $product,
                 $productModifierOptions,
                 $selectedModifiers,
-                'items'
+                'items',
+                (string) ($item['order_type'] ?? 'dine_in')
             );
 
             $modifierPricing = $selectedModifiers
@@ -626,6 +629,7 @@ class TableOrderService
                 'product_id' => $product->id,
                 'tenant_outlet_id' => $product->tenant_outlet_id ?: $tableOrder->outlet_id,
                 'product_title' => $product->title,
+                'order_type' => (string) ($item['order_type'] ?? 'dine_in'),
                 'qty' => $item['qty'],
                 'base_unit_price' => $unitPrice,
                 'unit_price' => $unitPrice + $modifierUnitTotal,
@@ -642,7 +646,7 @@ class TableOrderService
             ];
         });
 
-        return DB::transaction(function () use ($tableOrder, $orderItems, $products, $currentReservedQtyByProduct, $requestedQtyByProduct) {
+        return DB::transaction(function () use ($tableOrder, $orderItems) {
             $this->releaseReservedStockForOrder(
                 $tableOrder,
                 $tableOrder->items,
@@ -657,7 +661,7 @@ class TableOrderService
             foreach ($orderItems as $item) {
                 $modifiers = collect($item['modifiers']);
                 unset($item['modifiers']);
-                
+
                 $tableOrderItem = $tableOrder->items()->create($item);
                 $grandTotal += (int) $item['line_total'];
 
@@ -1040,10 +1044,12 @@ class TableOrderService
         Product $product,
         Collection $productModifierOptions,
         Collection $selectedModifiers,
-        string $errorKey
+        string $errorKey,
+        string $orderType = 'dine_in'
     ): void {
         $groupedOptions = $productModifierOptions
             ->where('is_active', true)
+            ->filter(fn (ProductModifierOption $option) => $option->appliesTo($orderType))
             ->groupBy(function (ProductModifierOption $option) {
                 $groupName = trim((string) ($option->group_name ?? ''));
 

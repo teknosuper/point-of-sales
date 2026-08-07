@@ -14,6 +14,7 @@ class TableOrderItem extends Model
         'product_id',
         'tenant_outlet_id',
         'product_title',
+        'order_type',
         'qty',
         'base_unit_price',
         'customer_base_unit_price',

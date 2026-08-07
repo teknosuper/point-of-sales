@@ -6,6 +6,8 @@ import {
     IconPhoto,
     IconChevronUp,
     IconX,
+    IconToolsKitchen2,
+    IconShoppingBag,
 } from "@/Utils/icons";
 import { PROMO_TOTAL_LABEL, formatRuleItems } from "@/Utils/pricingRules";
 
@@ -54,6 +56,8 @@ const resolveSelectionSummary = (group) => {
 
 export default function ModifierOptionsModal({
     product = null,
+    orderType = null,
+    onOrderTypeChange = null,
     cartTargetId = null,
     quantity = 1,
     notesValue = "",
@@ -75,17 +79,32 @@ export default function ModifierOptionsModal({
         return null;
     }
 
-    const hasModifierOptions =
-        Array.isArray(product?.modifier_options) &&
-        product.modifier_options.length > 0;
+    const applicableModifierOptions = (product?.modifier_options || []).filter(
+        (option) => {
+            const scope = String(option?.order_type_scope || "").trim();
+
+            if (!scope || scope === "both") {
+                return true;
+            }
+
+            if (!orderType) {
+                return true;
+            }
+
+            return scope === orderType;
+        }
+    );
+    const hasModifierOptions = applicableModifierOptions.length > 0;
     const selectedOptionIdSet = new Set(
         (selectedModifierOptionIds || []).map((id) => Number(id || 0))
     );
-    const groupedModifierOptions = (product?.modifier_options || []).reduce(
+    const groupedModifierOptions = applicableModifierOptions.reduce(
         (groups, option) => {
             const groupName = normalizeModifierGroupName(option?.group_name);
             const currentGroup = groups[groupName] || {
                 group_name: groupName,
+                order_type_scope:
+                    String(option?.order_type_scope || "").trim() || "",
                 selection_mode:
                     String(option?.selection_mode || "optional").trim() ||
                     "optional",
@@ -182,11 +201,12 @@ export default function ModifierOptionsModal({
     );
 
     React.useEffect(() => {
-        // Reset wizard setiap kali produk berubah
+        // Reset wizard setiap kali produk atau jenis penyajian berubah
+        // (perubahan order type bisa mengubah set topping yang berlaku)
         setStep(hasModifierOptions ? "topping" : "menu");
         setToppingAlert(false);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [product?.id]);
+    }, [product?.id, hasModifierOptions]);
 
     React.useEffect(() => {
         // Saat masuk ke langkah keterangan, scroll ke section tanpa fokus ke textarea
@@ -316,6 +336,48 @@ export default function ModifierOptionsModal({
                                     </p>
                                 </div>
                             </div>
+                        </div>
+                    </div>
+
+                    {/* ===== Pilihan Take Away / Dine In per menu ===== */}
+                    <div className="mx-5 mt-4 rounded-2xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+                        <div className="flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                                <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
+                                    Jenis Penyajian
+                                </p>
+                                <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">
+                                    {orderType === "take_away"
+                                        ? "Akan dicatat [TAKE AWAY] di keterangan agar dapur tahu & bungkus wajib dipilih."
+                                        : "Akan dicatat [DINE IN] di keterangan agar dapur tahu."}
+                                </p>
+                            </div>
+                        </div>
+                        <div className="mt-2 grid grid-cols-2 gap-2">
+                            <button
+                                type="button"
+                                onClick={() => onOrderTypeChange?.("dine_in")}
+                                className={`inline-flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-bold transition ${
+                                    orderType === "dine_in"
+                                        ? "border-sky-500 bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300"
+                                        : "border-slate-200 bg-white text-slate-500 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400"
+                                }`}
+                            >
+                                <IconToolsKitchen2 size={16} />
+                                Dine In
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => onOrderTypeChange?.("take_away")}
+                                className={`inline-flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-bold transition ${
+                                    orderType === "take_away"
+                                        ? "border-amber-500 bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
+                                        : "border-slate-200 bg-white text-slate-500 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400"
+                                }`}
+                            >
+                                <IconShoppingBag size={16} />
+                                Take Away
+                            </button>
                         </div>
                     </div>
 
@@ -538,6 +600,13 @@ export default function ModifierOptionsModal({
                                                 </p>
                                                 <p className="mt-1 text-sm font-bold text-slate-900 dark:text-white">
                                                     {group.group_name}
+                                                    {group.order_type_scope ? (
+                                                        <span className="ml-2 inline-block rounded-full bg-amber-100 px-2 py-0.5 align-middle text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                                                            {group.order_type_scope === "take_away"
+                                                                ? "Take-away"
+                                                                : "Dine-in"}
+                                                        </span>
+                                                    ) : null}
                                                 </p>
                                             </div>
                                             <div className="text-right">

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Apps;
 use App\Exceptions\PaymentGatewayException;
 use App\Http\Controllers\Controller;
 use App\Models\Cart;
+use App\Models\CartModifier;
 use App\Models\Customer;
 use App\Models\CustomerVoucher;
 use App\Models\DiningTable;
@@ -15,13 +16,11 @@ use App\Models\PaymentSetting;
 use App\Models\PosCheckoutReservation;
 use App\Models\PrintJob;
 use App\Models\Product;
-use App\Models\ProductOutletStock;
 use App\Models\Receivable;
+use App\Models\Setting;
 use App\Models\TableOrder;
 use App\Models\Transaction;
 use App\Models\TransactionDetail;
-use App\Models\CartModifier;
-use App\Models\Setting;
 use App\Services\AuditLogService;
 use App\Services\CashierShiftService;
 use App\Services\FoodcourtTenantAllocationService;
@@ -31,8 +30,8 @@ use App\Services\ModifierMarkupService;
 use App\Services\OutletResolver;
 use App\Services\Payments\PaymentGatewayManager;
 use App\Services\PricingService;
-use App\Services\ProductCatalogService;
 use App\Services\PrintJobService;
+use App\Services\ProductCatalogService;
 use App\Services\ReceiptLayoutService;
 use App\Services\StockMutationService;
 use App\Services\StoreHoursService;
@@ -42,14 +41,14 @@ use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
-use Symfony\Component\HttpFoundation\Response;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
+use Symfony\Component\HttpFoundation\Response;
 
 class TransactionController extends Controller
 {
@@ -123,6 +122,7 @@ class TransactionController extends Controller
         if (! is_array($reservation) || empty($reservation)) {
             $request->session()->forget($sessionKey);
             $request->session()->forget($previewSessionKey);
+
             return;
         }
 
@@ -224,6 +224,7 @@ class TransactionController extends Controller
                 $this->checkoutReservationPreviewSessionKey($outlet?->id),
                 true
             );
+
             return response()->json([
                 'success' => true,
                 'message' => 'Reservasi checkout masih aktif.',
@@ -316,7 +317,7 @@ class TransactionController extends Controller
             ->active()
             ->latest()
             ->get();
-        
+
         $activePricingRules = $this->pricingService->getActiveRules(outletId: $outlet?->id);
         $carts = $this->pricingService->normalizeRewardCarts(
             $carts,
@@ -504,12 +505,12 @@ class TransactionController extends Controller
                         'id' => $tenantOutlet->id,
                         'name' => $tenantOutlet->name,
                         'code' => $tenantOutlet->code,
-                        'open_time'  => (string) \App\Models\Setting::get('daily_store_open_time', '08:00', $tenantOutlet->id),
+                        'open_time' => (string) \App\Models\Setting::get('daily_store_open_time', '08:00', $tenantOutlet->id),
                         'close_time' => (string) \App\Models\Setting::get('daily_store_close_time', '22:00', $tenantOutlet->id),
                         'closed_reason' => $this->productCatalogService->resolveOutletClosedReason($tenantOutlet->id),
-                        'current_time'       => $hours['current_time'],
+                        'current_time' => $hours['current_time'],
                         'minutes_until_open' => $hours['minutes_until_open'],
-                        'next_open_label'    => $hours['next_open_label'],
+                        'next_open_label' => $hours['next_open_label'],
                     ];
                 })
                 ->values(),
@@ -592,12 +593,12 @@ class TransactionController extends Controller
                             'id' => $tenantOutlet->id,
                             'name' => $tenantOutlet->name,
                             'code' => $tenantOutlet->code,
-                            'open_time'  => (string) \App\Models\Setting::get('daily_store_open_time', '08:00', $tenantOutlet->id),
+                            'open_time' => (string) \App\Models\Setting::get('daily_store_open_time', '08:00', $tenantOutlet->id),
                             'close_time' => (string) \App\Models\Setting::get('daily_store_close_time', '22:00', $tenantOutlet->id),
                             'closed_reason' => $this->productCatalogService->resolveOutletClosedReason($tenantOutlet->id),
-                            'current_time'       => $hours['current_time'],
+                            'current_time' => $hours['current_time'],
                             'minutes_until_open' => $hours['minutes_until_open'],
-                            'next_open_label'    => $hours['next_open_label'],
+                            'next_open_label' => $hours['next_open_label'],
                         ];
                     })
                     ->values(),
@@ -820,11 +821,11 @@ class TransactionController extends Controller
             if ($request->expectsJson()) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Stok outlet tidak mencukupi untuk produk ' . $product->title . '.',
+                    'message' => 'Stok outlet tidak mencukupi untuk produk '.$product->title.'.',
                 ], 422);
             }
 
-            return redirect()->back()->with('error', 'Stok outlet tidak mencukupi untuk produk ' . $product->title . '.');
+            return redirect()->back()->with('error', 'Stok outlet tidak mencukupi untuk produk '.$product->title.'.');
         }
 
         if ($cart) {
@@ -841,6 +842,7 @@ class TransactionController extends Controller
                 'cashier_id' => auth()->user()->id,
                 'outlet_id' => $outlet?->id,
                 'tenant_outlet_id' => $product->tenant_outlet_id ?: $outlet?->id,
+                'order_type' => $this->normalizeCartOrderType($request->input('order_type')),
                 'product_id' => $request->product_id,
                 'qty' => $request->qty,
                 'price' => $request->sell_price * $request->qty,
@@ -954,7 +956,7 @@ class TransactionController extends Controller
         if ($availableStock < $request->qty && (int) $request->qty > (int) $cart->qty) {
             return response()->json([
                 'success' => false,
-                'message' => 'Stok outlet tidak mencukupi untuk produk ' . $cart->product->title . '. Stok tersedia: '.$availableStock,
+                'message' => 'Stok outlet tidak mencukupi untuk produk '.$cart->product->title.'. Stok tersedia: '.$availableStock,
             ], 422);
         }
 
@@ -1045,7 +1047,7 @@ class TransactionController extends Controller
             'total_price' => $qty * $unitPrice,
         ]);
 
-        $this->ensureRequiredModifiersSatisfied($cart->fresh(['product.modifierOptions', 'modifiers']));
+        $this->ensureRequiredModifiersSatisfied($cart->fresh(['product.modifierOptions', 'modifiers']), $request->input('order_type'));
 
         return response()->json([
             'success' => true,
@@ -1083,7 +1085,7 @@ class TransactionController extends Controller
             'total_price' => $qty * $unitPrice,
         ])->save();
 
-        $this->ensureRequiredModifiersSatisfied($cart->fresh(['product.modifierOptions', 'modifiers']));
+        $this->ensureRequiredModifiersSatisfied($cart->fresh(['product.modifierOptions', 'modifiers']), $request->input('order_type'));
 
         return response()->json([
             'success' => true,
@@ -1106,6 +1108,7 @@ class TransactionController extends Controller
             'modifiers.*.base_price' => ['nullable', 'integer', 'min:0', 'max:100000000'],
             'modifiers.*.markup_price' => ['nullable', 'integer', 'min:0', 'max:100000000'],
             'notes' => ['nullable', 'string', 'max:2000'],
+            'order_type' => ['nullable', 'in:dine_in,take_away'],
         ]);
 
         $cart = $this->findEditableCart($request, $cart_id);
@@ -1138,9 +1141,10 @@ class TransactionController extends Controller
 
         $cart->forceFill([
             'notes' => filled($validated['notes'] ?? null) ? trim((string) $validated['notes']) : null,
+            'order_type' => $this->normalizeCartOrderType($validated['order_type'] ?? null),
         ])->save();
 
-        $this->ensureRequiredModifiersSatisfied($cart->fresh(['product.modifierOptions', 'modifiers']));
+        $this->ensureRequiredModifiersSatisfied($cart->fresh(['product.modifierOptions', 'modifiers']), $request->input('order_type'));
 
         return response()->json([
             'success' => true,
@@ -1164,7 +1168,7 @@ class TransactionController extends Controller
 
         $modifier->delete();
 
-        $this->ensureRequiredModifiersSatisfied($cart->fresh(['product.modifierOptions', 'modifiers']));
+        $this->ensureRequiredModifiersSatisfied($cart->fresh(['product.modifierOptions', 'modifiers']), $request->input('order_type'));
 
         return response()->json([
             'success' => true,
@@ -1249,6 +1253,7 @@ class TransactionController extends Controller
             'cashier_id' => $cart->cashier_id,
             'outlet_id' => $cart->outlet_id,
             'tenant_outlet_id' => $cart->tenant_outlet_id,
+            'order_type' => $cart->order_type,
             'product_id' => $cart->product_id,
             'qty' => (int) $cart->qty,
             'price' => (int) $cart->price,
@@ -1420,7 +1425,16 @@ class TransactionController extends Controller
         ];
     }
 
-    private function ensureRequiredModifiersSatisfied(?Cart $cart): void
+    private function normalizeCartOrderType(mixed $value): ?string
+    {
+        $orderType = strtolower(trim((string) ($value ?? '')));
+
+        return in_array($orderType, ['dine_in', 'take_away'], true)
+            ? $orderType
+            : null;
+    }
+
+    private function ensureRequiredModifiersSatisfied(?Cart $cart, ?string $orderType = null): void
     {
         if (! $cart || ! $cart->product) {
             return;
@@ -1428,6 +1442,7 @@ class TransactionController extends Controller
 
         $activeOptions = $cart->product->modifierOptions
             ->where('is_active', true)
+            ->filter(fn ($option) => $option->appliesTo($orderType))
             ->values();
 
         $selectedModifierKeys = $cart->modifiers
@@ -1810,56 +1825,72 @@ class TransactionController extends Controller
                 return $this->transactionStoreErrorResponse($request, 'Keranjang kosong.');
             }
 
-        $cartSignature = $checkoutCarts
-            ->map(fn (Cart $cart) => $cart->id.':'.$cart->product_id.':'.$cart->qty.':'.$cart->price)
-            ->sort()
-            ->values()
-            ->implode('|');
-        $activeCheckoutReservation = $this->activeCheckoutReservationRecord($outlet?->id);
-        $checkoutReservation = $request->session()->get(
-            $this->checkoutReservationSessionKey($outlet?->id)
-        );
+            foreach ($checkoutCarts as $checkoutCart) {
+                try {
+                    $this->ensureRequiredModifiersSatisfied(
+                        $checkoutCart,
+                        $checkoutCart->order_type ?? $orderType
+                    );
+                } catch (ValidationException $exception) {
+                    $firstError = collect($exception->errors())->flatten()->first();
 
-        $pricingPreview = $this->pricingService->previewCart($checkoutCarts, $customer, outletId: $outlet?->id);
-        $checkoutPreview = $this->loyaltyService->previewCheckout($pricingPreview, $customer, [
-            'manual_discount' => $manualDiscount,
-            'shipping_cost' => $shippingCost,
-            'redeem_points' => $requestedRedeemPoints,
-            'voucher' => $voucher,
-        ], outletId: $outlet?->id);
-        $pricingItems = collect($pricingPreview['items']);
-        $subtotalAfterPromo = (int) data_get($pricingPreview, 'summary.subtotal_after_promo', 0);
-        $voucherDiscount = (int) data_get($checkoutPreview, 'summary.voucher_discount_total', 0);
-        $loyaltyDiscount = (int) data_get($checkoutPreview, 'summary.loyalty_discount_total', 0);
-        $appliedManualDiscount = (int) data_get($checkoutPreview, 'summary.manual_discount_total', 0);
-        $grandTotal = (int) data_get($checkoutPreview, 'summary.grand_total', 0);
-        $redeemedPoints = (int) data_get($checkoutPreview, 'summary.applied_redeem_points', 0);
-        $changeAmount = $isCashPayment ? max(0, $cashAmount - $grandTotal) : 0;
+                    return $this->transactionStoreErrorResponse(
+                        $request,
+                        $firstError ?: 'Ada topping wajib yang belum dipilih.'
+                    );
+                }
+            }
+
+            $cartSignature = $checkoutCarts
+                ->map(fn (Cart $cart) => $cart->id.':'.$cart->product_id.':'.$cart->qty.':'.$cart->price)
+                ->sort()
+                ->values()
+                ->implode('|');
+            $activeCheckoutReservation = $this->activeCheckoutReservationRecord($outlet?->id);
+            $checkoutReservation = $request->session()->get(
+                $this->checkoutReservationSessionKey($outlet?->id)
+            );
+
+            $pricingPreview = $this->pricingService->previewCart($checkoutCarts, $customer, outletId: $outlet?->id);
+            $checkoutPreview = $this->loyaltyService->previewCheckout($pricingPreview, $customer, [
+                'manual_discount' => $manualDiscount,
+                'shipping_cost' => $shippingCost,
+                'redeem_points' => $requestedRedeemPoints,
+                'voucher' => $voucher,
+            ], outletId: $outlet?->id);
+            $pricingItems = collect($pricingPreview['items']);
+            $subtotalAfterPromo = (int) data_get($pricingPreview, 'summary.subtotal_after_promo', 0);
+            $voucherDiscount = (int) data_get($checkoutPreview, 'summary.voucher_discount_total', 0);
+            $loyaltyDiscount = (int) data_get($checkoutPreview, 'summary.loyalty_discount_total', 0);
+            $appliedManualDiscount = (int) data_get($checkoutPreview, 'summary.manual_discount_total', 0);
+            $grandTotal = (int) data_get($checkoutPreview, 'summary.grand_total', 0);
+            $redeemedPoints = (int) data_get($checkoutPreview, 'summary.applied_redeem_points', 0);
+            $changeAmount = $isCashPayment ? max(0, $cashAmount - $grandTotal) : 0;
 
             $stockAuditPayloads = [];
             $usedReservedStock = false;
             $transaction = DB::transaction(function () use (
                 $request,
-            $invoice,
-            $cashAmount,
-            $paymentGateway,
-            $isCashPayment,
-            $isManualQrisPayment,
-            $isPayLater,
-            $manualDiscount,
-            $shippingCost,
-            $requestedRedeemPoints,
-            $customer,
-            $voucher,
-            $outlet,
-            $orderType,
-            $tableId,
-            $orderReferenceName,
-            $orderReferenceNotes,
-            $cartSignature,
-            $checkoutPreview,
-            $pricingItems,
-            $subtotalAfterPromo,
+                $invoice,
+                $cashAmount,
+                $paymentGateway,
+                $isCashPayment,
+                $isManualQrisPayment,
+                $isPayLater,
+                $manualDiscount,
+                $shippingCost,
+                $requestedRedeemPoints,
+                $customer,
+                $voucher,
+                $outlet,
+                $orderType,
+                $tableId,
+                $orderReferenceName,
+                $orderReferenceNotes,
+                $cartSignature,
+                $checkoutPreview,
+                $pricingItems,
+                $subtotalAfterPromo,
                 $voucherDiscount,
                 $loyaltyDiscount,
                 $appliedManualDiscount,
@@ -1869,7 +1900,6 @@ class TransactionController extends Controller
                 $changeAmount,
                 &$perfMarks,
                 $markPerf,
-                $shouldPerfLog,
                 &$stockAuditPayloads,
                 &$usedReservedStock,
                 $checkoutReservation,
@@ -1899,14 +1929,14 @@ class TransactionController extends Controller
                     abort(422, 'Keranjang kosong.');
                 }
 
-            $currentSignature = $carts
-                ->map(fn (Cart $cart) => $cart->id.':'.$cart->product_id.':'.$cart->qty.':'.$cart->price)
-                ->sort()
-                ->values()
-                ->implode('|');
+                $currentSignature = $carts
+                    ->map(fn (Cart $cart) => $cart->id.':'.$cart->product_id.':'.$cart->qty.':'.$cart->price)
+                    ->sort()
+                    ->values()
+                    ->implode('|');
 
-            // If carts changed between pre-checkout preview and the transactional save,
-            // recompute pricing inside the transaction to avoid mismatched totals.
+                // If carts changed between pre-checkout preview and the transactional save,
+                // recompute pricing inside the transaction to avoid mismatched totals.
                 if ($currentSignature !== $cartSignature) {
                     $this->applyRewardCartMeta($carts, $validatedMeta['reward_cart_meta'] ?? []);
                     $carts = $this->pricingService->normalizeRewardCarts(
@@ -1933,130 +1963,130 @@ class TransactionController extends Controller
                     $markPerf('pricing_recomputed');
                 }
 
-            if ($orderType === 'dine_in') {
-                if (! $tableId) {
-                    abort(422, 'Meja wajib dipilih untuk transaksi dine in.');
-                }
+                if ($orderType === 'dine_in') {
+                    if (! $tableId) {
+                        abort(422, 'Meja wajib dipilih untuk transaksi dine in.');
+                    }
 
-                $table = DiningTable::query()
-                    ->where('outlet_id', $outlet?->id)
-                    ->where('status', 'active')
-                    ->find($tableId);
+                    $table = DiningTable::query()
+                        ->where('outlet_id', $outlet?->id)
+                        ->where('status', 'active')
+                        ->find($tableId);
 
-                if (! $table) {
-                    abort(422, 'Meja tidak ditemukan atau tidak aktif.');
+                    if (! $table) {
+                        abort(422, 'Meja tidak ditemukan atau tidak aktif.');
+                    }
                 }
-            }
 
                 $transaction = Transaction::create([
-                'cashier_id' => auth()->user()->id,
-                'cashier_shift_id' => $activeShift->id,
-                'outlet_id' => $outlet?->id,
-                'customer_id' => $request->customer_id,
-                'order_type' => $orderType,
-                'order_reference_name' => $orderReferenceName !== '' ? $orderReferenceName : ($customer?->name ?? null),
-                'order_reference_notes' => $orderReferenceNotes !== '' ? $orderReferenceNotes : null,
-                'table_id' => $tableId,
-                'invoice' => $invoice,
-                'cash' => $cashAmount,
-                'change' => $changeAmount,
-                'discount' => $appliedManualDiscount,
-                'loyalty_points_redeemed' => $redeemedPoints,
-                'loyalty_discount_total' => $loyaltyDiscount,
-                'customer_voucher_discount' => $voucherDiscount,
-                'customer_voucher_code' => data_get($checkoutPreview, 'voucher.code'),
-                'customer_voucher_name' => data_get($checkoutPreview, 'voucher.name'),
-                'shipping_cost' => $shippingCost,
-                'grand_total' => $grandTotal,
-                'payment_method' => $isPayLater ? 'pay_later' : ($paymentGateway ?: 'cash'),
-                'payment_status' => ($isCashPayment || $isManualQrisPayment) ? 'paid' : ($isPayLater ? 'unpaid' : 'pending'),
-                'bank_account_id' => $paymentGateway === 'bank_transfer' ? $request->bank_account_id : null,
+                    'cashier_id' => auth()->user()->id,
+                    'cashier_shift_id' => $activeShift->id,
+                    'outlet_id' => $outlet?->id,
+                    'customer_id' => $request->customer_id,
+                    'order_type' => $orderType,
+                    'order_reference_name' => $orderReferenceName !== '' ? $orderReferenceName : ($customer?->name ?? null),
+                    'order_reference_notes' => $orderReferenceNotes !== '' ? $orderReferenceNotes : null,
+                    'table_id' => $tableId,
+                    'invoice' => $invoice,
+                    'cash' => $cashAmount,
+                    'change' => $changeAmount,
+                    'discount' => $appliedManualDiscount,
+                    'loyalty_points_redeemed' => $redeemedPoints,
+                    'loyalty_discount_total' => $loyaltyDiscount,
+                    'customer_voucher_discount' => $voucherDiscount,
+                    'customer_voucher_code' => data_get($checkoutPreview, 'voucher.code'),
+                    'customer_voucher_name' => data_get($checkoutPreview, 'voucher.name'),
+                    'shipping_cost' => $shippingCost,
+                    'grand_total' => $grandTotal,
+                    'payment_method' => $isPayLater ? 'pay_later' : ($paymentGateway ?: 'cash'),
+                    'payment_status' => ($isCashPayment || $isManualQrisPayment) ? 'paid' : ($isPayLater ? 'unpaid' : 'pending'),
+                    'bank_account_id' => $paymentGateway === 'bank_transfer' ? $request->bank_account_id : null,
                 ]);
                 $markPerf('transaction_created');
 
                 foreach ($carts as $cart) {
-                $pricingItem = $pricingItems->firstWhere('cart_id', $cart->id);
-                $lineTotal = (int) data_get($pricingItem, 'line_total', $cart->price);
-                $linePromoDiscount = (int) data_get($pricingItem, 'line_discount_total', 0);
-                $baseUnitPrice = (int) data_get($pricingItem, 'base_unit_price', $cart->product->sell_price);
-                $unitPrice = (int) data_get($pricingItem, 'effective_unit_price', $cart->product->sell_price);
+                    $pricingItem = $pricingItems->firstWhere('cart_id', $cart->id);
+                    $lineTotal = (int) data_get($pricingItem, 'line_total', $cart->price);
+                    $linePromoDiscount = (int) data_get($pricingItem, 'line_discount_total', 0);
+                    $baseUnitPrice = (int) data_get($pricingItem, 'base_unit_price', $cart->product->sell_price);
+                    $unitPrice = (int) data_get($pricingItem, 'effective_unit_price', $cart->product->sell_price);
 
-                $detailAttributes = [
-                    'transaction_id' => $transaction->id,
-                    'outlet_id' => $outlet?->id,
-                    'tenant_outlet_id' => $cart->tenant_outlet_id ?: $outlet?->id,
-                    'product_id' => $cart->product_id,
-                    'qty' => $cart->qty,
-                    'base_unit_price' => $baseUnitPrice,
-                    'customer_base_unit_price' => (int) data_get($pricingItem, 'customer_base_unit_price', $cart->product->sell_price),
-                    'tenant_base_unit_price' => (int) data_get($pricingItem, 'tenant_base_unit_price', $cart->product->buy_price),
-                    'owner_markup_unit_price' => (int) data_get($pricingItem, 'owner_markup_unit_price', max(0, (int) $cart->product->sell_price - (int) $cart->product->buy_price)),
-                    'unit_price' => $unitPrice,
-                    'price' => $lineTotal,
-                    'notes' => $cart->notes,
-                    'discount_total' => $linePromoDiscount,
-                    'tenant_discount_total' => (int) data_get($pricingItem, 'tenant_discount_total', 0),
-                    'owner_discount_total' => (int) data_get($pricingItem, 'owner_discount_total', 0),
-                    'tenant_net_total' => (int) data_get($pricingItem, 'tenant_net_total', ((int) $cart->product->buy_price * (int) $cart->qty)),
-                    'owner_net_total' => (int) data_get($pricingItem, 'owner_net_total', max(0, ((int) $cart->product->sell_price - (int) $cart->product->buy_price) * (int) $cart->qty)),
-                    'pricing_rule_id' => data_get($pricingItem, 'pricing_rule.id'),
-                    'pricing_rule_name' => data_get($pricingItem, 'pricing_rule.name'),
-                    'pricing_rule_kind' => data_get($pricingItem, 'pricing_rule.kind'),
-                    'pricing_rule_price_basis' => data_get($pricingItem, 'pricing_rule.price_basis'),
-                    'pricing_group_key' => data_get($pricingItem, 'pricing_group_key'),
-                    'pricing_group_label' => data_get($pricingItem, 'pricing_group_label'),
-                ];
+                    $detailAttributes = [
+                        'transaction_id' => $transaction->id,
+                        'outlet_id' => $outlet?->id,
+                        'tenant_outlet_id' => $cart->tenant_outlet_id ?: $outlet?->id,
+                        'product_id' => $cart->product_id,
+                        'qty' => $cart->qty,
+                        'base_unit_price' => $baseUnitPrice,
+                        'customer_base_unit_price' => (int) data_get($pricingItem, 'customer_base_unit_price', $cart->product->sell_price),
+                        'tenant_base_unit_price' => (int) data_get($pricingItem, 'tenant_base_unit_price', $cart->product->buy_price),
+                        'owner_markup_unit_price' => (int) data_get($pricingItem, 'owner_markup_unit_price', max(0, (int) $cart->product->sell_price - (int) $cart->product->buy_price)),
+                        'unit_price' => $unitPrice,
+                        'price' => $lineTotal,
+                        'notes' => $cart->notes,
+                        'discount_total' => $linePromoDiscount,
+                        'tenant_discount_total' => (int) data_get($pricingItem, 'tenant_discount_total', 0),
+                        'owner_discount_total' => (int) data_get($pricingItem, 'owner_discount_total', 0),
+                        'tenant_net_total' => (int) data_get($pricingItem, 'tenant_net_total', ((int) $cart->product->buy_price * (int) $cart->qty)),
+                        'owner_net_total' => (int) data_get($pricingItem, 'owner_net_total', max(0, ((int) $cart->product->sell_price - (int) $cart->product->buy_price) * (int) $cart->qty)),
+                        'pricing_rule_id' => data_get($pricingItem, 'pricing_rule.id'),
+                        'pricing_rule_name' => data_get($pricingItem, 'pricing_rule.name'),
+                        'pricing_rule_kind' => data_get($pricingItem, 'pricing_rule.kind'),
+                        'pricing_rule_price_basis' => data_get($pricingItem, 'pricing_rule.price_basis'),
+                        'pricing_group_key' => data_get($pricingItem, 'pricing_group_key'),
+                        'pricing_group_label' => data_get($pricingItem, 'pricing_group_label'),
+                    ];
 
-                if ($supportsDetailRewardMeta) {
-                    $detailAttributes['is_promo_reward'] = (bool) ($cart->is_promo_reward ?? false);
-                    $detailAttributes['promo_reward_rule_name'] = $cart->promo_reward_rule_name ?? null;
-                    $detailAttributes['promo_reward_label'] = $cart->promo_reward_label ?? null;
-                }
+                    if ($supportsDetailRewardMeta) {
+                        $detailAttributes['is_promo_reward'] = (bool) ($cart->is_promo_reward ?? false);
+                        $detailAttributes['promo_reward_rule_name'] = $cart->promo_reward_rule_name ?? null;
+                        $detailAttributes['promo_reward_label'] = $cart->promo_reward_label ?? null;
+                    }
 
-                $detail = $transaction->details()->create($detailAttributes);
+                    $detail = $transaction->details()->create($detailAttributes);
 
-                foreach ($cart->modifiers as $modifier) {
-                    $detail->modifiers()->create([
-                        'name' => $modifier->name,
-                        'qty' => (int) $modifier->qty,
-                        'unit_price' => (int) $modifier->unit_price,
-                        'base_price' => (int) ($modifier->base_price ?? $modifier->unit_price),
-                        'markup_price' => (int) ($modifier->markup_price ?? 0),
-                        'total_price' => (int) $modifier->total_price,
+                    foreach ($cart->modifiers as $modifier) {
+                        $detail->modifiers()->create([
+                            'name' => $modifier->name,
+                            'qty' => (int) $modifier->qty,
+                            'unit_price' => (int) $modifier->unit_price,
+                            'base_price' => (int) ($modifier->base_price ?? $modifier->unit_price),
+                            'markup_price' => (int) ($modifier->markup_price ?? 0),
+                            'total_price' => (int) $modifier->total_price,
+                        ]);
+
+                        // Decrement modifier stock if tracked (stock > 0 only; NULL = unlimited)
+                        $modifierOptionId = (int) ($modifier->product_modifier_option_id ?? 0);
+                        if ($modifierOptionId > 0) {
+                            \DB::table('product_modifier_options')
+                                ->where('id', $modifierOptionId)
+                                ->where('stock', '>', 0)
+                                ->update(['stock' => \DB::raw('GREATEST(0, stock - '.(int) $modifier->qty.')')]);
+                        }
+                    }
+
+                    $total_buy_price = $cart->product->buy_price * $cart->qty;
+                    $lineShare = $subtotalAfterPromo > 0 ? $lineTotal / $subtotalAfterPromo : 0;
+                    $allocatedManualDiscount = (int) round($appliedManualDiscount * $lineShare);
+                    $netSellPrice = max(0, $lineTotal - $allocatedManualDiscount);
+                    $profits = $netSellPrice - $total_buy_price;
+
+                    $transaction->profits()->create([
+                        'transaction_id' => $transaction->id,
+                        'total' => $profits,
                     ]);
 
-                    // Decrement modifier stock if tracked (stock > 0 only; NULL = unlimited)
-                    $modifierOptionId = (int) ($modifier->product_modifier_option_id ?? 0);
-                    if ($modifierOptionId > 0) {
-                        \DB::table('product_modifier_options')
-                            ->where('id', $modifierOptionId)
-                            ->where('stock', '>', 0)
-                            ->update(['stock' => \DB::raw('GREATEST(0, stock - '.(int) $modifier->qty.')')]);
+                    $product = $cart->product;
+                    if (! isset($stockMutationItems)) {
+                        $stockMutationItems = [];
                     }
-                }
-
-                $total_buy_price = $cart->product->buy_price * $cart->qty;
-                $lineShare = $subtotalAfterPromo > 0 ? $lineTotal / $subtotalAfterPromo : 0;
-                $allocatedManualDiscount = (int) round($appliedManualDiscount * $lineShare);
-                $netSellPrice = max(0, $lineTotal - $allocatedManualDiscount);
-                $profits = $netSellPrice - $total_buy_price;
-
-                $transaction->profits()->create([
-                    'transaction_id' => $transaction->id,
-                    'total' => $profits,
-                ]);
-
-                $product = $cart->product;
-                if (! isset($stockMutationItems)) {
-                    $stockMutationItems = [];
-                }
                     $stockMutationItems[] = [
                         'product' => $product,
                         'detail' => $detail,
                         'qty' => (int) $cart->qty,
                     ];
                 }
-                
+
                 $shouldReuseReservedStock = (
                     is_array($checkoutReservation)
                     && ($checkoutReservation['signature'] ?? null) === $currentSignature
@@ -2092,16 +2122,16 @@ class TransactionController extends Controller
 
                 if ($isPayLater) {
                     Receivable::create([
-                    'outlet_id' => $outlet?->id,
-                    'customer_id' => $request->customer_id,
-                    'transaction_id' => $transaction->id,
-                    'invoice' => $invoice,
-                    'total' => $grandTotal,
-                    'paid' => 0,
-                    'due_date' => $request->due_date,
-                    'status' => 'unpaid',
-                ]);
-            }
+                        'outlet_id' => $outlet?->id,
+                        'customer_id' => $request->customer_id,
+                        'transaction_id' => $transaction->id,
+                        'invoice' => $invoice,
+                        'total' => $grandTotal,
+                        'paid' => 0,
+                        'due_date' => $request->due_date,
+                        'status' => 'unpaid',
+                    ]);
+                }
 
                 return $transaction->fresh(['customer', 'waiter', 'diningTable']);
             });
@@ -2187,20 +2217,20 @@ class TransactionController extends Controller
                 }
             }
 
-        $paymentWarning = null;
+            $paymentWarning = null;
 
-        if ($paymentGateway && ! $isManualQrisPayment) {
-            try {
-                $paymentResponse = $paymentGatewayManager->createPayment($transaction, $paymentGateway, $paymentSetting);
+            if ($paymentGateway && ! $isManualQrisPayment) {
+                try {
+                    $paymentResponse = $paymentGatewayManager->createPayment($transaction, $paymentGateway, $paymentSetting);
 
-                $transaction->update([
-                    'payment_reference' => $paymentResponse['reference'] ?? null,
-                    'payment_url' => $paymentResponse['payment_url'] ?? null,
-                ]);
-            } catch (PaymentGatewayException $exception) {
-                $paymentWarning = $exception->getMessage();
+                    $transaction->update([
+                        'payment_reference' => $paymentResponse['reference'] ?? null,
+                        'payment_url' => $paymentResponse['payment_url'] ?? null,
+                    ]);
+                } catch (PaymentGatewayException $exception) {
+                    $paymentWarning = $exception->getMessage();
+                }
             }
-        }
 
             $combinedWarning = collect(array_filter([
                 $paymentWarning,
@@ -2208,18 +2238,18 @@ class TransactionController extends Controller
             ]))->implode(' ');
 
             $transaction->load([
-            'details.product',
-            'details.modifiers',
-            'details.pricingRule',
-            'cashier',
-            'waiter',
-            'diningTable',
-            'customer',
-            'receivable',
-            'bankAccount',
-            'kitchenTickets.kitchenStation',
-            'tenantAllocations.tenantOutlet:id,name,code',
-            'tenantAllocations.items.product:id,title',
+                'details.product',
+                'details.modifiers',
+                'details.pricingRule',
+                'cashier',
+                'waiter',
+                'diningTable',
+                'customer',
+                'receivable',
+                'bankAccount',
+                'kitchenTickets.kitchenStation',
+                'tenantAllocations.tenantOutlet:id,name,code',
+                'tenantAllocations.items.product:id,title',
             ]);
             $markPerf('response_loaded');
 
@@ -2435,97 +2465,97 @@ class TransactionController extends Controller
                     $outlet?->id
                 );
 
-            $invoice = $validated['offline_reference'];
+                $invoice = $validated['offline_reference'];
 
-            $transaction = Transaction::create([
-                'cashier_id' => auth()->id(),
-                'cashier_shift_id' => $activeShift->id,
-                'outlet_id' => $outlet?->id,
-                'customer_id' => $customer?->id,
-                'order_type' => $orderType,
-                'order_reference_name' => $orderReferenceName !== '' ? $orderReferenceName : ($customer?->name ?? null),
-                'order_reference_notes' => $orderReferenceNotes !== '' ? $orderReferenceNotes : null,
-                'table_id' => $tableId,
-                'invoice' => $invoice,
-                'cash' => (int) $validated['cash'],
-                'change' => (int) ($validated['change'] ?? 0),
-                'discount' => 0,
-                'loyalty_points_redeemed' => 0,
-                'loyalty_discount_total' => 0,
-                'customer_voucher_discount' => 0,
-                'shipping_cost' => (int) ($validated['shipping_cost'] ?? 0),
-                'grand_total' => (int) $validated['grand_total'],
-                'payment_method' => 'cash',
-                'payment_status' => 'paid',
-                'payment_reference' => $validated['offline_signature'] ?? $validated['offline_reference'],
-            ]);
-
-            foreach ($validated['details'] as $row) {
-                $product = Product::query()->findOrFail($row['product_id']);
-
-                $detailAttributes = [
-                    'transaction_id' => $transaction->id,
+                $transaction = Transaction::create([
+                    'cashier_id' => auth()->id(),
+                    'cashier_shift_id' => $activeShift->id,
                     'outlet_id' => $outlet?->id,
-                    'tenant_outlet_id' => $row['tenant_outlet_id'] ?? ($outlet?->id),
-                    'product_id' => $product->id,
-                    'qty' => (int) $row['qty'],
-                    'base_unit_price' => (int) $row['base_unit_price'],
-                    'unit_price' => (int) $row['unit_price'],
-                    'price' => (int) $row['price'],
-                    'notes' => $row['notes'] ?? null,
-                    'discount_total' => (int) ($row['discount_total'] ?? 0),
-                    'pricing_rule_name' => $row['pricing_rule_name'] ?? null,
-                    'pricing_rule_kind' => $row['pricing_rule_kind'] ?? null,
-                    'pricing_group_key' => $row['pricing_group_key'] ?? null,
-                    'pricing_group_label' => $row['pricing_group_label'] ?? null,
-                ];
-
-                if ($supportsDetailRewardMeta) {
-                    $detailAttributes['is_promo_reward'] = (bool) ($row['is_promo_reward'] ?? false);
-                    $detailAttributes['promo_reward_rule_name'] = $row['promo_reward_rule_name'] ?? null;
-                    $detailAttributes['promo_reward_label'] = $row['promo_reward_label'] ?? null;
-                }
-
-                $detail = $transaction->details()->create($detailAttributes);
-
-                foreach (($row['modifiers'] ?? []) as $modifier) {
-                    $detail->modifiers()->create([
-                        'name' => $modifier['name'],
-                        'qty' => (int) ($modifier['qty'] ?? 1),
-                        'unit_price' => (int) ($modifier['unit_price'] ?? 0),
-                        'total_price' => (int) ($modifier['total_price'] ?? 0),
-                    ]);
-                }
-
-                $totalBuyPrice = (int) $product->buy_price * (int) $row['qty'];
-                $profitTotal = (int) $row['price'] - $totalBuyPrice;
-
-                $transaction->profits()->create([
-                    'transaction_id' => $transaction->id,
-                    'total' => $profitTotal,
+                    'customer_id' => $customer?->id,
+                    'order_type' => $orderType,
+                    'order_reference_name' => $orderReferenceName !== '' ? $orderReferenceName : ($customer?->name ?? null),
+                    'order_reference_notes' => $orderReferenceNotes !== '' ? $orderReferenceNotes : null,
+                    'table_id' => $tableId,
+                    'invoice' => $invoice,
+                    'cash' => (int) $validated['cash'],
+                    'change' => (int) ($validated['change'] ?? 0),
+                    'discount' => 0,
+                    'loyalty_points_redeemed' => 0,
+                    'loyalty_discount_total' => 0,
+                    'customer_voucher_discount' => 0,
+                    'shipping_cost' => (int) ($validated['shipping_cost'] ?? 0),
+                    'grand_total' => (int) $validated['grand_total'],
+                    'payment_method' => 'cash',
+                    'payment_status' => 'paid',
+                    'payment_reference' => $validated['offline_signature'] ?? $validated['offline_reference'],
                 ]);
 
-                $this->stockMutationService->decrementForTransactionDetail(
-                    $product,
-                    $transaction,
-                    $detail,
-                    (int) $row['qty'],
-                    auth()->id()
-                );
-            }
+                foreach ($validated['details'] as $row) {
+                    $product = Product::query()->findOrFail($row['product_id']);
+
+                    $detailAttributes = [
+                        'transaction_id' => $transaction->id,
+                        'outlet_id' => $outlet?->id,
+                        'tenant_outlet_id' => $row['tenant_outlet_id'] ?? ($outlet?->id),
+                        'product_id' => $product->id,
+                        'qty' => (int) $row['qty'],
+                        'base_unit_price' => (int) $row['base_unit_price'],
+                        'unit_price' => (int) $row['unit_price'],
+                        'price' => (int) $row['price'],
+                        'notes' => $row['notes'] ?? null,
+                        'discount_total' => (int) ($row['discount_total'] ?? 0),
+                        'pricing_rule_name' => $row['pricing_rule_name'] ?? null,
+                        'pricing_rule_kind' => $row['pricing_rule_kind'] ?? null,
+                        'pricing_group_key' => $row['pricing_group_key'] ?? null,
+                        'pricing_group_label' => $row['pricing_group_label'] ?? null,
+                    ];
+
+                    if ($supportsDetailRewardMeta) {
+                        $detailAttributes['is_promo_reward'] = (bool) ($row['is_promo_reward'] ?? false);
+                        $detailAttributes['promo_reward_rule_name'] = $row['promo_reward_rule_name'] ?? null;
+                        $detailAttributes['promo_reward_label'] = $row['promo_reward_label'] ?? null;
+                    }
+
+                    $detail = $transaction->details()->create($detailAttributes);
+
+                    foreach (($row['modifiers'] ?? []) as $modifier) {
+                        $detail->modifiers()->create([
+                            'name' => $modifier['name'],
+                            'qty' => (int) ($modifier['qty'] ?? 1),
+                            'unit_price' => (int) ($modifier['unit_price'] ?? 0),
+                            'total_price' => (int) ($modifier['total_price'] ?? 0),
+                        ]);
+                    }
+
+                    $totalBuyPrice = (int) $product->buy_price * (int) $row['qty'];
+                    $profitTotal = (int) $row['price'] - $totalBuyPrice;
+
+                    $transaction->profits()->create([
+                        'transaction_id' => $transaction->id,
+                        'total' => $profitTotal,
+                    ]);
+
+                    $this->stockMutationService->decrementForTransactionDetail(
+                        $product,
+                        $transaction,
+                        $detail,
+                        (int) $row['qty'],
+                        auth()->id()
+                    );
+                }
 
                 $this->foodcourtTenantAllocationService->rebuildForTransaction($transaction->fresh(['details']));
                 $this->kitchenTicketService->createForTransaction($transaction->fresh(['details.product.kitchenStationMappings']));
 
                 return $transaction->fresh([
-                'details.product',
-                'details.modifiers',
-                'cashier',
-                'diningTable',
-                'customer',
-                'bankAccount',
-                'tenantAllocations.tenantOutlet:id,name,code',
-                'tenantAllocations.items.product:id,title',
+                    'details.product',
+                    'details.modifiers',
+                    'cashier',
+                    'diningTable',
+                    'customer',
+                    'bankAccount',
+                    'tenantAllocations.tenantOutlet:id,name,code',
+                    'tenantAllocations.items.product:id,title',
                 ]);
             });
 
@@ -2818,7 +2848,7 @@ class TransactionController extends Controller
 
             return [
                 ...$transaction->toArray(),
-                'created_at_label' => $transaction->created_at 
+                'created_at_label' => $transaction->created_at
                     ? ReportTimezone::formatSourceDateTime($transaction->getRawOriginal('created_at'), 'd M Y H:i')
                     : '-',
                 'total_discount' => (int) ($transaction->total_promo_discount ?? 0)
@@ -3217,7 +3247,7 @@ class TransactionController extends Controller
             'id' => $transaction->id,
             'invoice' => $transaction->invoice,
             'created_at' => optional($transaction->created_at)->toISOString(),
-            'created_at_label' => $transaction->created_at 
+            'created_at_label' => $transaction->created_at
                 ? ReportTimezone::formatSourceDateTime($transaction->getRawOriginal('created_at'), 'd M Y H:i')
                 : '-',
             'order_type' => $transaction->order_type,
@@ -3410,10 +3440,10 @@ class TransactionController extends Controller
 
         $baseProductsQuery = Product::published()
             ->with([
-            'category:id,name,parent_id',
-            'modifierOptions',
-            'tenantOutlet:id,name,code,slug,sort_order',
-        ])
+                'category:id,name,parent_id',
+                'modifierOptions',
+                'tenantOutlet:id,name,code,slug,sort_order',
+            ])
             ->select(
                 'id',
                 'barcode',
@@ -3568,8 +3598,8 @@ class TransactionController extends Controller
         $tokens = array_values(array_filter(preg_split('/\s+/', $normalizedSearch) ?: []));
         $query->where(function (Builder $outerQuery) use ($tokens, $lowerSearch) {
             // Produk non-shadow-banned: cari seperti biasa (LIKE per token, case-insensitive)
-            $outerQuery->where(function (Builder $normalQuery) use ($tokens, $lowerSearch) {
-                $normalQuery->whereNull('shadow_banned_at')->where(function (Builder $tokenQuery) use ($tokens, $lowerSearch) {
+            $outerQuery->where(function (Builder $normalQuery) use ($tokens) {
+                $normalQuery->whereNull('shadow_banned_at')->where(function (Builder $tokenQuery) use ($tokens) {
                     foreach ($tokens as $token) {
                         $tokenLower = mb_strtolower($token);
                         $like = '%'.$tokenLower.'%';
@@ -3593,5 +3623,4 @@ class TransactionController extends Controller
             }
         });
     }
-
 }

@@ -145,6 +145,7 @@ const modifierRuleSummary = (option) => {
 
 const defaultModifierOption = (groupName = "Topping") => ({
     group_name: groupName,
+    order_type_scope: "",
     selection_mode: "optional",
     min_select: 0,
     max_select: "",
@@ -272,6 +273,7 @@ export default function Edit({
         requires_modifier_selection: !!product.requires_modifier_selection,
         modifier_options: (product.modifier_options || []).map((option) => ({
             group_name: option.group_name || "Topping",
+            order_type_scope: option.order_type_scope ?? "",
             selection_mode: option.selection_mode || "optional",
             min_select: option.min_select ?? 0,
             max_select: option.max_select ?? "",
@@ -414,6 +416,7 @@ export default function Edit({
                 buckets.set(groupName, {
                     groupKey: index,
                     groupName,
+                    order_type_scope: option.order_type_scope ?? "",
                     selection_mode: option.selection_mode || "optional",
                     min_select: option.min_select ?? 0,
                     max_select: option.max_select ?? "",
@@ -498,6 +501,7 @@ export default function Edit({
         const clonedGroupName = `${group.groupName} Copy`;
         const clonedRows = group.options.map((option) => ({
             ...defaultModifierOption(clonedGroupName),
+            order_type_scope: group.order_type_scope ?? "",
             selection_mode: group.selection_mode || "optional",
             min_select: group.min_select ?? 0,
             max_select: group.max_select ?? "",
@@ -526,6 +530,7 @@ export default function Edit({
             ...data.modifier_options,
             {
                 ...defaultModifierOption(groupName),
+                order_type_scope: group?.order_type_scope ?? "",
                 selection_mode: group?.selection_mode || "optional",
                 min_select: group?.min_select ?? 0,
                 max_select: group?.max_select ?? "",
@@ -1766,6 +1771,21 @@ export default function Edit({
                                                         <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
                                                             {modifierModeLabel(group.selection_mode)}
                                                         </span>
+                                                        <span
+                                                            className={
+                                                                group.order_type_scope === "take_away"
+                                                                    ? "rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-semibold text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
+                                                                    : group.order_type_scope === "dine_in"
+                                                                        ? "rounded-full bg-sky-100 px-2.5 py-1 text-[11px] font-semibold text-sky-700 dark:bg-sky-950/40 dark:text-sky-300"
+                                                                        : "rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-300"
+                                                            }
+                                                        >
+                                                            {group.order_type_scope === "take_away"
+                                                                ? "Take-away"
+                                                                : group.order_type_scope === "dine_in"
+                                                                    ? "Dine-in"
+                                                                    : "Semua"}
+                                                        </span>
                                                     </div>
                                                     <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
                                                         {modifierRuleSummary(group)}
@@ -1841,6 +1861,22 @@ export default function Edit({
                                                     <option value="single">1 opsi</option>
                                                     <option value="multiple">Bisa &gt;1</option>
                                                     <option value="optional">Opsional</option>
+                                                </select>
+                                            </div>
+                                            <div className="lg:col-span-3">
+                                                <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                                    Berlaku saat
+                                                </label>
+                                                <select
+                                                    value={group.order_type_scope ?? ""}
+                                                    onChange={(e) =>
+                                                        updateModifierGroupMeta(group.groupName, "order_type_scope", e.target.value)
+                                                    }
+                                                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                                >
+                                                    <option value="">Semua (dine-in & take-away)</option>
+                                                    <option value="take_away">Hanya take-away</option>
+                                                    <option value="dine_in">Hanya dine-in</option>
                                                 </select>
                                             </div>
                                             <div className="lg:col-span-4">

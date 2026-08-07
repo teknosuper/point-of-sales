@@ -2,31 +2,29 @@
 
 namespace App\Http\Controllers;
 
+use App\Exceptions\PaymentGatewayException;
+use App\Models\BankAccount;
 use App\Models\Customer;
 use App\Models\DiningTable;
-use App\Models\BankAccount;
 use App\Models\PaymentSetting;
 use App\Models\Product;
-use App\Models\ProductOutletStock;
 use App\Models\TableOrder;
 use App\Models\TableOrderItem;
 use App\Models\Transaction;
-use App\Models\User;
 use App\Models\TransactionDetail;
+use App\Models\User;
 use App\Services\CustomerOutletMetricService;
-use App\Exceptions\PaymentGatewayException;
 use App\Services\LoyaltyService;
 use App\Services\Payments\PaymentGatewayManager;
 use App\Services\ProductCatalogService;
 use App\Services\StoreHoursService;
 use App\Services\TableOrderService;
 use App\Support\ReportTimezone;
-use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Schema;
-use Illuminate\Validation\ValidationException;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 
 class PublicTableOrderController extends Controller
@@ -156,15 +154,15 @@ class PublicTableOrderController extends Controller
                 $hours = $this->storeHoursService->resolveTimeBased($t);
 
                 return [
-                    'id'                 => $t->id,
-                    'name'               => $t->name,
-                    'sort_order'         => (int) $t->sort_order,
-                    'closed_reason'      => $closedReason,
-                    'open_time'          => $hours['open_time'],
-                    'close_time'         => $hours['close_time'],
-                    'current_time'       => $hours['current_time'],
+                    'id' => $t->id,
+                    'name' => $t->name,
+                    'sort_order' => (int) $t->sort_order,
+                    'closed_reason' => $closedReason,
+                    'open_time' => $hours['open_time'],
+                    'close_time' => $hours['close_time'],
+                    'current_time' => $hours['current_time'],
                     'minutes_until_open' => $hours['minutes_until_open'],
-                    'next_open_label'    => $hours['next_open_label'],
+                    'next_open_label' => $hours['next_open_label'],
                 ];
             })
             ->values();
@@ -208,6 +206,7 @@ class PublicTableOrderController extends Controller
                     'product_id' => (int) ($item->product_id ?? 0),
                     'qty' => (int) ($item->qty ?? 0),
                     'notes' => $item->notes,
+                    'order_type' => $item->order_type,
                     'modifiers' => $item->modifiers->map(fn ($modifier) => [
                         'id' => (int) ($modifier->product_modifier_option_id ?? 0),
                         'name' => $modifier->name,
@@ -436,6 +435,7 @@ class PublicTableOrderController extends Controller
                     'pricing_rule_name' => $item->pricing_rule_name,
                     'pricing_rule_kind' => $item->pricing_rule_kind,
                     'notes' => $item->notes,
+                    'order_type' => $item->order_type,
                     'modifiers' => $item->modifiers->map(fn ($modifier) => [
                         'id' => $modifier->id,
                         'product_modifier_option_id' => (int) ($modifier->product_modifier_option_id ?? 0),
@@ -645,12 +645,14 @@ class PublicTableOrderController extends Controller
         $remainingItems = $order->items
             ->filter(function (TableOrderItem $item) {
                 $currentStock = (int) ($item->product?->stock ?? 0) + (int) ($item->qty ?? 0);
+
                 return $currentStock >= (int) ($item->qty ?? 0);
             })
             ->map(fn (TableOrderItem $item) => [
                 'product_id' => (int) ($item->product_id ?? 0),
                 'qty' => (int) ($item->qty ?? 0),
                 'notes' => $item->notes,
+                'order_type' => $item->order_type,
                 'modifier_ids' => $item->modifiers
                     ->map(fn ($modifier) => [
                         'id' => (int) ($modifier->product_modifier_option_id ?? 0),
@@ -696,6 +698,7 @@ class PublicTableOrderController extends Controller
                     'product_id' => (int) ($item['product_id'] ?? 0),
                     'qty' => (int) ($item['qty'] ?? 0),
                     'notes' => filled($item['notes'] ?? null) ? (string) $item['notes'] : null,
+                    'order_type' => in_array($item['order_type'] ?? null, ['dine_in', 'take_away'], true) ? $item['order_type'] : null,
                     'modifier_ids' => collect($item['modifiers'] ?? [])
                         ->map(fn (array $modifier) => ['id' => (int) ($modifier['id'] ?? 0)])
                         ->filter(fn (array $modifier) => $modifier['id'] > 0)
@@ -911,8 +914,7 @@ class PublicTableOrderController extends Controller
         int $outletId,
         int $ordersPage = 1,
         int $transactionsPage = 1
-    ): array
-    {
+    ): array {
         $perPage = 5;
         $ordersPage = max(1, $ordersPage);
         $transactionsPage = max(1, $transactionsPage);
@@ -1112,6 +1114,7 @@ class PublicTableOrderController extends Controller
             'items.*.product_id' => ['required', 'integer', 'exists:products,id'],
             'items.*.qty' => ['required', 'integer', 'min:1', 'max:50'],
             'items.*.notes' => ['nullable', 'string', 'max:500'],
+            'items.*.order_type' => ['nullable', Rule::in(['dine_in', 'take_away'])],
             'items.*.is_promo_reward' => ['nullable', 'boolean'],
             'items.*.promo_reward_rule_name' => ['nullable', 'string', 'max:255'],
             'items.*.promo_reward_label' => ['nullable', 'string', 'max:255'],

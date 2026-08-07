@@ -802,6 +802,7 @@ class ProductController extends Controller
             'requires_modifier_selection' => 'nullable|boolean',
             'modifier_options' => 'nullable|array',
             'modifier_options.*.group_name' => 'nullable|string|max:120',
+            'modifier_options.*.order_type_scope' => 'nullable|in:dine_in,take_away,both',
             'modifier_options.*.selection_mode' => 'nullable|in:single,multiple,optional',
             'modifier_options.*.min_select' => 'nullable|integer|min:0|max:50',
             'modifier_options.*.max_select' => 'nullable|integer|min:0|max:50',
@@ -1214,6 +1215,7 @@ class ProductController extends Controller
             'requires_modifier_selection' => 'nullable|boolean',
             'modifier_options' => 'nullable|array',
             'modifier_options.*.group_name' => 'nullable|string|max:120',
+            'modifier_options.*.order_type_scope' => 'nullable|in:dine_in,take_away,both',
             'modifier_options.*.selection_mode' => 'nullable|in:single,multiple,optional',
             'modifier_options.*.min_select' => 'nullable|integer|min:0|max:50',
             'modifier_options.*.max_select' => 'nullable|integer|min:0|max:50',
@@ -2051,6 +2053,7 @@ class ProductController extends Controller
 
                 return [
                     'group_name' => $groupName !== '' ? $groupName : 'Topping',
+                    'order_type_scope' => $this->normalizeOrderTypeScope(data_get($row, 'order_type_scope')),
                     'name' => $name,
                     'price' => max(0, $price),
                     'stock' => filled($stock) ? max(0, (int) $stock) : null,
@@ -2071,6 +2074,17 @@ class ProductController extends Controller
         if ($normalized->isNotEmpty()) {
             $product->modifierOptions()->createMany($normalized->all());
         }
+    }
+
+    private function normalizeOrderTypeScope(mixed $value): ?string
+    {
+        $scope = trim((string) ($value ?? ''));
+
+        if ($scope === '') {
+            return null;
+        }
+
+        return in_array($scope, ['dine_in', 'take_away'], true) ? $scope : null;
     }
 
     private function rejectStockOnlyUpdate(): RedirectResponse

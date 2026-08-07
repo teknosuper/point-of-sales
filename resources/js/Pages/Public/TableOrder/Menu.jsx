@@ -63,6 +63,38 @@ const normalizeModifierGroupName = (value) => {
     return normalized !== "" ? normalized : "Topping";
 };
 
+const ORDER_TYPE_LABEL = {
+    take_away: "Take Away",
+    dine_in: "Dine In",
+};
+
+const ORDER_TYPE_NOTES_TAG = {
+    take_away: "[TAKE AWAY]",
+    dine_in: "[DINE IN]",
+};
+
+const buildOrderTypeNotes = (orderType, rawNotes) => {
+    const tag = ORDER_TYPE_NOTES_TAG[orderType] || "";
+    const trimmed = String(rawNotes || "").trim();
+
+    return tag ? [tag, trimmed].filter(Boolean).join(" ") : trimmed;
+};
+
+const stripOrderTypeNotes = (notes) =>
+    String(notes || "")
+        .replace(/^\s*\[(TAKE AWAY|DINE IN)\]\s*/i, "")
+        .trim();
+
+const appliesToOrderType = (option, orderType) => {
+    const scope = String(option?.order_type_scope || "").trim();
+
+    if (!scope || scope === "both") {
+        return true;
+    }
+
+    return scope === orderType;
+};
+
 const sanitizePhoneNumber = (value = "") =>
     String(value)
         .replace(/[^\d+]/g, "")
@@ -282,6 +314,7 @@ export default function Menu({
     const [modifierModalProduct, setModifierModalProduct] = useState(null);
     const [modifierModalQuantity, setModifierModalQuantity] = useState(1);
     const [modifierModalNotes, setModifierModalNotes] = useState("");
+    const [modifierModalOrderType, setModifierModalOrderType] = useState("dine_in");
     const [orderNotesDraft, setOrderNotesDraft] = useState("");
     const [selectedModifierOptionIds, setSelectedModifierOptionIds] = useState(
         []
@@ -537,6 +570,7 @@ export default function Menu({
             product_id: Number(modifierModalProduct.id),
             qty: Math.max(1, Number(modifierModalQuantity || 1)),
             notes: modifierModalNotes,
+            order_type: modifierModalOrderType,
             product: modifierModalProduct,
             modifiers: (modifierModalProduct.modifier_options || [])
                 .filter((option) =>
@@ -560,6 +594,7 @@ export default function Menu({
         };
     }, [
         modifierModalNotes,
+        modifierModalOrderType,
         modifierModalProduct,
         modifierModalQuantity,
         selectedModifierOptionIds,
@@ -664,7 +699,8 @@ export default function Menu({
             modifiers = [],
             quantity = 1,
             rewardPromoMeta = null,
-            notes = ""
+            notes = "",
+            orderType = "dine_in"
         ) => ({
             id: `line-${product.id}-${Date.now()}-${Math.random()
                 .toString(36)
@@ -672,6 +708,7 @@ export default function Menu({
             product_id: Number(product.id),
             qty: Math.max(1, Number(quantity || 1)),
             notes,
+            order_type: orderType === "take_away" ? "take_away" : "dine_in",
             product,
             modifiers: modifiers.map((modifier) => ({
                 id: Number(modifier.id),
@@ -697,7 +734,11 @@ export default function Menu({
                         id: `edit-${sourceOrder.access_token}-${line.id}`,
                         product_id: Number(line.product_id),
                         qty: Math.max(1, Number(line.qty || 1)),
-                        notes: line.notes || "",
+                        notes: stripOrderTypeNotes(line.notes),
+                        order_type:
+                            line.order_type === "take_away"
+                                ? "take_away"
+                                : "dine_in",
                         product,
                         modifiers: (line.modifiers || []).map((modifier) => ({
                             id: Number(modifier.id),
@@ -719,7 +760,11 @@ export default function Menu({
                 client_key: String(item.id),
                 product_id: item.product_id,
                 qty: item.qty,
-                notes: item.notes || null,
+                notes: buildOrderTypeNotes(
+                    item.order_type,
+                    item.notes
+                ),
+                order_type: item.order_type,
                 is_promo_reward: Boolean(item.promo_reward_meta),
                 promo_reward_rule_name:
                     item.promo_reward_meta?.rule_name || null,
@@ -750,6 +795,8 @@ export default function Menu({
             const quantity = Math.max(1, Number(options?.qty || 1));
             const rewardPromoMeta = options?.rewardPromoMeta || null;
             const notes = String(options?.notes || "");
+            const orderType =
+                options?.orderType === "take_away" ? "take_away" : "dine_in";
             const selectedModifiers = Array.isArray(options?.modifiers)
                 ? options.modifiers
                 : [];
@@ -770,7 +817,8 @@ export default function Menu({
                                 selectedModifiers,
                                 quantity,
                                 rewardPromoMeta,
-                                notes
+                                notes,
+                                orderType
                             ),
                         ];
                     }
@@ -785,7 +833,14 @@ export default function Menu({
                     if (existingIndex < 0) {
                         return [
                             ...current,
-                            createCartLine(product, [], quantity, null, notes),
+                            createCartLine(
+                                product,
+                                [],
+                                quantity,
+                                null,
+                                notes,
+                                orderType
+                            ),
                         ];
                     }
 
@@ -939,6 +994,7 @@ export default function Menu({
             setModifierModalProduct(product);
             setModifierModalQuantity(1);
             setModifierModalNotes("");
+            setModifierModalOrderType("dine_in");
             setSelectedModifierOptionIds([]);
             setIsModifierPromoDetailOpen(false);
         },
@@ -1056,11 +1112,15 @@ export default function Menu({
                 return;
             }
 
-            const modifierOptions = modifierModalProduct.modifier_options || [];
+            const applicableOptions = (
+                modifierModalProduct.modifier_options || []
+            ).filter((option) =>
+                appliesToOrderType(option, modifierModalOrderType)
+            );
             const selectedOptionIdSet = new Set(
                 selectedModifierOptionIds.map((id) => Number(id || 0))
             );
-            const groupedOptions = modifierOptions.reduce((groups, option) => {
+            const groupedOptions = applicableOptions.reduce((groups, option) => {
                 const groupName = normalizeModifierGroupName(option?.group_name);
 
                 if (!groups.has(groupName)) {
@@ -1125,7 +1185,7 @@ export default function Menu({
             setIsModifierModalSubmitting(true);
 
             const selectedModifiers = includeModifiers
-                ? modifierOptions.filter((option) =>
+                ? applicableOptions.filter((option) =>
                       selectedOptionIdSet.has(Number(option.id || 0))
                   )
                 : [];
@@ -1133,12 +1193,14 @@ export default function Menu({
             addProductToCart(modifierModalProduct, {
                 qty: modifierModalQuantity,
                 notes: modifierModalNotes,
+                orderType: modifierModalOrderType,
                 modifiers: selectedModifiers,
             }).then(() => {
                 setIsModifierModalSubmitting(false);
                 setModifierModalProduct(null);
                 setModifierModalQuantity(1);
                 setModifierModalNotes("");
+                setModifierModalOrderType("dine_in");
                 setSelectedModifierOptionIds([]);
                 setIsModifierPromoDetailOpen(false);
                 toast.success(`${modifierModalProduct.title} ditambahkan`);
@@ -1147,6 +1209,7 @@ export default function Menu({
         [
             addProductToCart,
             modifierModalNotes,
+            modifierModalOrderType,
             modifierModalProduct,
             modifierModalQuantity,
             selectedModifierOptionIds,
@@ -3011,6 +3074,11 @@ export default function Menu({
 
             <ModifierOptionsModal
                 product={modifierModalProduct}
+                orderType={modifierModalOrderType}
+                onOrderTypeChange={(nextOrderType) => {
+                    setModifierModalOrderType(nextOrderType);
+                    setSelectedModifierOptionIds([]);
+                }}
                 quantity={modifierModalQuantity}
                 onQuantityChange={setModifierModalQuantity}
                 notesValue={modifierModalNotes}

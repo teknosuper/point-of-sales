@@ -52,6 +52,7 @@ const createModifierRuleSummary = (option) => {
 
 const defaultModifierOption = (groupName = "Topping") => ({
     group_name: groupName,
+    order_type_scope: "",
     selection_mode: "optional",
     min_select: 0,
     max_select: "",
@@ -194,6 +195,7 @@ export default function Create({
                 buckets.set(groupName, {
                     groupKey: index,
                     groupName,
+                    order_type_scope: option.order_type_scope ?? "",
                     selection_mode: option.selection_mode || "optional",
                     min_select: option.min_select ?? 0,
                     max_select: option.max_select ?? "",
@@ -316,6 +318,7 @@ export default function Create({
         const clonedGroupName = `${group.groupName} Copy`;
         const clonedRows = group.options.map((option) => ({
             ...defaultModifierOption(clonedGroupName),
+            order_type_scope: group.order_type_scope ?? "",
             selection_mode: group.selection_mode || "optional",
             min_select: group.min_select ?? 0,
             max_select: group.max_select ?? "",
@@ -344,6 +347,7 @@ export default function Create({
             ...data.modifier_options,
             {
                 ...defaultModifierOption(groupName),
+                order_type_scope: group?.order_type_scope ?? "",
                 selection_mode: group?.selection_mode || "optional",
                 min_select: group?.min_select ?? 0,
                 max_select: group?.max_select ?? "",
@@ -927,6 +931,27 @@ export default function Create({
                                                         <option value="optional">Opsional</option>
                                                     </select>
                                                 </div>
+                                                <div className="lg:col-span-3">
+                                                    <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                                        Berlaku saat
+                                                    </label>
+                                                    <select
+                                                        value={group.order_type_scope ?? ""}
+                                                        onChange={(e) =>
+                                                            updateModifierGroupMeta(group.groupName, "order_type_scope", e.target.value)
+                                                        }
+                                                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                                    >
+                                                        <option value="">Semua (dine-in & take-away)</option>
+                                                        <option value="take_away">Hanya take-away</option>
+                                                        <option value="dine_in">Hanya dine-in</option>
+                                                    </select>
+                                                </div>
+                                                <div className="lg:col-span-4 rounded-xl border border-dashed border-slate-300 px-3 py-3 text-xs text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                                                    Kewajiban diatur di sini: Mode &amp; Min menentukan berapa opsi yang harus dipilih user. Grup "Hanya take-away" hanya muncul & wajib saat order take-away.
+                                                </div>
+                                            </div>
+                                            <div className="grid grid-cols-2 gap-3 lg:grid-cols-12">
                                                 <div className="lg:col-span-2">
                                                     <Input
                                                         type="number"
@@ -950,7 +975,7 @@ export default function Create({
                                                         placeholder="∞"
                                                     />
                                                 </div>
-                                                <div className="lg:col-span-3 rounded-xl border border-dashed border-slate-300 px-3 py-3 text-xs text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                                                <div className="col-span-2 lg:col-span-8 rounded-xl border border-dashed border-slate-300 px-3 py-3 text-xs text-slate-500 dark:border-slate-700 dark:text-slate-400">
                                                     {toppingMarkupRules.length > 0
                                                         ? `${toppingMarkupRules.length} rule aktif dari menu markup topping.`
                                                         : "Belum ada rule markup aktif. Harga efektif = harga dasar."}

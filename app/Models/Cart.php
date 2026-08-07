@@ -16,7 +16,7 @@ class Cart extends Model
      * @var array
      */
     protected $fillable = [
-        'cashier_id', 'outlet_id', 'tenant_outlet_id', 'product_id', 'qty', 'price', 'notes', 'is_promo_reward', 'promo_reward_rule_name', 'promo_reward_label', 'hold_id', 'hold_label', 'held_at',
+        'cashier_id', 'outlet_id', 'tenant_outlet_id', 'order_type', 'product_id', 'qty', 'price', 'notes', 'is_promo_reward', 'promo_reward_rule_name', 'promo_reward_label', 'hold_id', 'hold_label', 'held_at',
     ];
 
     /**
