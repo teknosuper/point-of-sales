@@ -1,8 +1,8 @@
 <?php
 
 use App\Http\Controllers\Apps\AuditLogController;
-use App\Http\Controllers\Apps\CashierShiftController;
 use App\Http\Controllers\Apps\CashierSettlementController;
+use App\Http\Controllers\Apps\CashierShiftController;
 use App\Http\Controllers\Apps\CategoryController;
 use App\Http\Controllers\Apps\CrmCampaignController;
 use App\Http\Controllers\Apps\CrmReminderController;
@@ -11,43 +11,45 @@ use App\Http\Controllers\Apps\CustomerSegmentController;
 use App\Http\Controllers\Apps\CustomerVoucherController;
 use App\Http\Controllers\Apps\DataRepairController;
 use App\Http\Controllers\Apps\DiningTableController;
+use App\Http\Controllers\Apps\EmployeeController;
+use App\Http\Controllers\Apps\EmployeeScheduleController;
+use App\Http\Controllers\Apps\EmployeeShiftController;
 use App\Http\Controllers\Apps\ExpenseController;
 use App\Http\Controllers\Apps\GoodsReceivingController;
-use App\Http\Controllers\Apps\KitchenSettingsController;
 use App\Http\Controllers\Apps\KitchenDisplayController;
+use App\Http\Controllers\Apps\KitchenSettingsController;
 use App\Http\Controllers\Apps\MemberController;
 use App\Http\Controllers\Apps\OperationsGuideController;
 use App\Http\Controllers\Apps\OutletManagementController;
 use App\Http\Controllers\Apps\PaymentSettingController;
-use App\Http\Controllers\Apps\PwaPushSubscriptionController;
 use App\Http\Controllers\Apps\PricingRuleController;
 use App\Http\Controllers\Apps\ProductController;
 use App\Http\Controllers\Apps\PurchaseOrderController;
+use App\Http\Controllers\Apps\PwaPushSubscriptionController;
 use App\Http\Controllers\Apps\SalesReturnController;
 use App\Http\Controllers\Apps\StockMutationController;
 use App\Http\Controllers\Apps\StockOpnameController;
 use App\Http\Controllers\Apps\SupplierReturnController;
 use App\Http\Controllers\Apps\TableOrderController;
-use App\Http\Controllers\Apps\TransactionFeedbackController;
 use App\Http\Controllers\Apps\TransactionController;
+use App\Http\Controllers\Apps\TransactionFeedbackController;
 use App\Http\Controllers\Apps\WaiterBoardController;
 use App\Http\Controllers\Apps\WorkspaceSalesController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\NotificationController;
-use App\Http\Controllers\PublicTransactionFeedbackController;
 use App\Http\Controllers\OutletContextController;
 use App\Http\Controllers\PermissionController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\PublicTableOrderController;
+use App\Http\Controllers\PublicTransactionFeedbackController;
 use App\Http\Controllers\Reports\AdvancedSalesInsightsController;
 use App\Http\Controllers\Reports\OutletAnalyticsController;
-use App\Http\Controllers\Reports\ProfitReportController;
 use App\Http\Controllers\Reports\ProcurementReportController;
+use App\Http\Controllers\Reports\ProfitReportController;
 use App\Http\Controllers\Reports\SalesReportController;
 use App\Http\Controllers\Reports\SetupAuditController;
 use App\Http\Controllers\RoleController;
 use App\Http\Controllers\UserController;
-use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
@@ -109,6 +111,9 @@ Route::post('/order/status/{accessToken}/cancel', [PublicTableOrderController::c
     ->name('table-order.cancel');
 Route::post('/order/status/{accessToken}/remove-unavailable', [PublicTableOrderController::class, 'removeUnavailableItems'])
     ->name('table-order.remove-unavailable');
+
+Route::get('/schedule/{token}', [\App\Http\Controllers\PublicScheduleController::class, 'show'])
+    ->name('public.schedule.show');
 
 Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
     Route::get('/', [DashboardController::class, 'index'])->middleware(['auth', 'permission:dashboard-access'])->name('dashboard');
@@ -188,22 +193,22 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
         ->middlewareFor('store', ['permission:dining-tables-create', 'outlet_access'])
         ->middlewareFor('update', ['permission:dining-tables-update', 'outlet_access'])
         ->middlewareFor('destroy', ['permission:dining-tables-delete', 'outlet_access']);
-        Route::get('dining-tables/print-v2', [DiningTableController::class, 'printV2All'])
-            ->middleware(['permission:dining-tables-access', 'outlet_access'])
-            ->name('dining-tables.print-v2-all');
-        Route::get('dining-tables/{diningTable}/print', [DiningTableController::class, 'print'])
-            ->middleware(['permission:dining-tables-access', 'outlet_access'])
-            ->name('dining-tables.print');
+    Route::get('dining-tables/print-v2', [DiningTableController::class, 'printV2All'])
+        ->middleware(['permission:dining-tables-access', 'outlet_access'])
+        ->name('dining-tables.print-v2-all');
+    Route::get('dining-tables/{diningTable}/print', [DiningTableController::class, 'print'])
+        ->middleware(['permission:dining-tables-access', 'outlet_access'])
+        ->name('dining-tables.print');
 
-        Route::get('dining-tables/{diningTable}/print-v2', [DiningTableController::class, 'printV2'])
-            ->middleware(['permission:dining-tables-access', 'outlet_access'])
-            ->name('dining-tables.print-v2');
-        Route::get('dining-tables/{diningTable}/print-image', [DiningTableController::class, 'printImage'])
-            ->middleware(['permission:dining-tables-access', 'outlet_access'])
-            ->name('dining-tables.print-image');
-        Route::get('dining-tables/{diningTable}/print-pdf', [DiningTableController::class, 'printPdf'])
-            ->middleware(['permission:dining-tables-access', 'outlet_access'])
-            ->name('dining-tables.print-pdf');
+    Route::get('dining-tables/{diningTable}/print-v2', [DiningTableController::class, 'printV2'])
+        ->middleware(['permission:dining-tables-access', 'outlet_access'])
+        ->name('dining-tables.print-v2');
+    Route::get('dining-tables/{diningTable}/print-image', [DiningTableController::class, 'printImage'])
+        ->middleware(['permission:dining-tables-access', 'outlet_access'])
+        ->name('dining-tables.print-image');
+    Route::get('dining-tables/{diningTable}/print-pdf', [DiningTableController::class, 'printPdf'])
+        ->middleware(['permission:dining-tables-access', 'outlet_access'])
+        ->name('dining-tables.print-pdf');
     Route::get('table-orders', [TableOrderController::class, 'index'])
         ->middleware('permission:table-orders-access')
         ->name('table-orders.index');
@@ -278,6 +283,26 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
     Route::post('cashier-settlements/repair-unallocated', [CashierSettlementController::class, 'repairUnallocated'])->middleware(['permission:cashier-settlements-repair', 'outlet_access'])->name('cashier-settlements.repair-unallocated');
     Route::get('cashier-settlements/unallocated-transactions', [CashierSettlementController::class, 'unallocatedTransactions'])->middleware(['permission:cashier-settlements-access', 'outlet_access'])->name('cashier-settlements.unallocated-transactions');
     Route::get('cashier-settlements/return-transactions', [CashierSettlementController::class, 'returnTransactions'])->middleware(['permission:cashier-settlements-access', 'outlet_access'])->name('cashier-settlements.return-transactions');
+    // employees & schedules
+    Route::resource('employees', EmployeeController::class)
+        ->except(['create', 'edit', 'show'])
+        ->middlewareFor('index', 'permission:employees-access')
+        ->middlewareFor('store', 'permission:employees-create')
+        ->middlewareFor('update', 'permission:employees-update')
+        ->middlewareFor('destroy', 'permission:employees-delete');
+    Route::resource('employee-shifts', EmployeeShiftController::class)
+        ->except(['create', 'edit', 'show'])
+        ->middlewareFor('index', 'permission:employees-update')
+        ->middlewareFor('store', 'permission:employees-update')
+        ->middlewareFor('update', 'permission:employees-update')
+        ->middlewareFor('destroy', 'permission:employees-update');
+    Route::get('employee-schedules', [EmployeeScheduleController::class, 'index'])->middleware('permission:employee-schedules-access')->name('employee-schedules.index');
+    Route::get('employee-schedules/report', [EmployeeScheduleController::class, 'report'])->middleware('permission:employee-schedules-access')->name('employee-schedules.report');
+    Route::post('employee-schedules/generate', [EmployeeScheduleController::class, 'generate'])->middleware('permission:employee-schedules-generate')->name('employee-schedules.generate');
+    Route::post('employee-schedules/set', [EmployeeScheduleController::class, 'set'])->middleware('permission:employee-schedules-generate')->name('employee-schedules.set');
+    Route::delete('employee-schedules/{employeeSchedule}', [EmployeeScheduleController::class, 'destroy'])->middleware('permission:employee-schedules-generate')->name('employee-schedules.destroy');
+    Route::post('employee-schedules/share', [EmployeeScheduleController::class, 'toggleShare'])->middleware('permission:employee-schedules-access')->name('employee-schedules.share');
+    Route::post('employee-schedules/config', [EmployeeScheduleController::class, 'updateConfig'])->middleware('permission:employee-schedules-generate')->name('employee-schedules.config');
     Route::resource('customers', CustomerController::class)
         ->middlewareFor(['index', 'show'], 'permission:customers-access')
         ->middlewareFor(['create', 'store'], 'permission:customers-create')

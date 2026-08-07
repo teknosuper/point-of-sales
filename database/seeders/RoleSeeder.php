@@ -267,6 +267,12 @@ class RoleSeeder extends Seeder
                 'cashier-shifts-access',
                 'sales-returns-access',
                 'sales-returns-delete',
+                'employees-access',
+                'employees-create',
+                'employees-update',
+                'employees-delete',
+                'employee-schedules-access',
+                'employee-schedules-generate',
             ],
             'admin-sistem' => [
                 'dashboard-access',
@@ -283,6 +289,12 @@ class RoleSeeder extends Seeder
                 'permissions-update',
                 'permissions-delete',
                 'audit-logs-access',
+                'employees-access',
+                'employees-create',
+                'employees-update',
+                'employees-delete',
+                'employee-schedules-access',
+                'employee-schedules-generate',
                 'payment-settings-access',
                 'payment-settings-update',
                 'business-settings-access',
@@ -363,6 +375,12 @@ class RoleSeeder extends Seeder
                 'profits-access',
                 'sales-returns-access',
                 'sales-returns-delete',
+                'employees-access',
+                'employees-create',
+                'employees-update',
+                'employees-delete',
+                'employee-schedules-access',
+                'employee-schedules-generate',
             ])
             ->get();
 

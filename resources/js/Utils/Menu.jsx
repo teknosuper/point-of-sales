@@ -36,6 +36,7 @@ import {
     IconPrinter,
     IconChecklist,
     IconStar,
+    IconCalendar,
 } from "@/Utils/icons";
 import { useAuthorization } from "./authorization";
 
@@ -196,6 +197,20 @@ export default function Menu() {
                     url.startsWith("/dashboard/cashier-shifts"),
                     <IconClockHour6 size={20} strokeWidth={1.5} />,
                     ["cashier-shifts-access"]
+                ),
+                menuItem(
+                    "Karyawan",
+                    route("employees.index"),
+                    url.startsWith("/dashboard/employees"),
+                    <IconUsers size={20} strokeWidth={1.5} />,
+                    ["employees-access"]
+                ),
+                menuItem(
+                    "Jadwal Kerja",
+                    route("employee-schedules.index"),
+                    url.startsWith("/dashboard/employee-schedules"),
+                    <IconCalendar size={20} strokeWidth={1.5} />,
+                    ["employee-schedules-access"]
                 ),
                 menuItem(
                     "Retur",

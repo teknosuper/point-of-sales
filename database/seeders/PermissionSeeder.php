@@ -137,6 +137,14 @@ class PermissionSeeder extends Seeder
         // audit logs
         $create('audit-logs-access');
 
+        // employees & schedules
+        $create('employees-access');
+        $create('employees-create');
+        $create('employees-update');
+        $create('employees-delete');
+        $create('employee-schedules-access');
+        $create('employee-schedules-generate');
+
         // purchase orders
         $create('purchase-orders-access');
         $create('purchase-orders-create');

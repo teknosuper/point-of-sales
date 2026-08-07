@@ -23,6 +23,7 @@ class DatabaseSeeder extends Seeder
             OutletKitchenSeeder::class,
             DemoInitialSetupSeeder::class,
             DemoPricingRuleSeeder::class,
+            EmployeeScheduleSeeder::class,
         ];
 
         $this->call($defaultSeeders);
