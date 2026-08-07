@@ -790,7 +790,7 @@ export default function Index({ groups = [], shifts = [], jobTypes = [], view = 
                                 type="button"
                                 label="Matikan Tautan"
                                 className="border border-danger-200 bg-white text-danger-600 hover:bg-danger-50 dark:border-danger-800 dark:bg-slate-900 dark:text-danger-300"
-                                onClick={() => toggleBus(false)}
+                                onClick={() => toggleShared(false)}
                             />
                             <Button
                                 type="button"
@@ -818,7 +818,7 @@ export default function Index({ groups = [], shifts = [], jobTypes = [], view = 
                                 type="button"
                                 label="Aktifkan Tautan"
                                 className="bg-primary-500 text-white hover:bg-primary-600"
-                                onClick={() => toggleBus(true)}
+                                onClick={() => toggleShared(true)}
                             />
                         </div>
                     </div>
