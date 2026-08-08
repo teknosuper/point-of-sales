@@ -11,8 +11,8 @@ use App\Models\PricingRuleQtyBreak;
 use App\Models\Product;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 
 class PricingService
 {
@@ -386,6 +386,7 @@ class PricingService
                     $cart->setAttribute('promo_reward_rule_name', $ruleName);
                     $cart->setAttribute('promo_reward_label', $rewardLabel);
                     $remainingRewardQty -= $rowQty;
+
                     continue;
                 }
 
@@ -956,8 +957,7 @@ class PricingService
         PricingRule $rule,
         int $discountTotal,
         ?string $priceBasisOverride = null
-    ): array
-    {
+    ): array {
         ['tenant_discount_total' => $tenantDiscountTotal, 'owner_discount_total' => $ownerDiscountTotal] = $this->splitDiscountBetweenTenantAndOwner(
             $rule,
             $discountTotal,
@@ -991,30 +991,11 @@ class PricingService
             ];
         }
 
-        $priceBasis = $priceBasisOverride ?: $this->rulePriceBasis($rule);
-
-        if ($priceBasis === PricingRule::PRICE_BASIS_BUY_PRICE) {
-            return [
-                'tenant_discount_total' => min($tenantBase, $discount),
-                'owner_discount_total' => 0,
-            ];
-        }
-
-        $combinedBase = max(1, $tenantBase + $ownerBase);
-        $tenantShare = $ownerBase <= 0
-            ? $discount
-            : (int) floor($discount * ($tenantBase / $combinedBase));
-        $tenantShare = max(0, min($tenantBase, $tenantShare));
-        $ownerShare = max(0, min($ownerBase, $discount - $tenantShare));
-
-        if (($tenantShare + $ownerShare) < $discount) {
-            $remaining = $discount - ($tenantShare + $ownerShare);
-            if ($ownerBase - $ownerShare >= $remaining) {
-                $ownerShare += $remaining;
-            } else {
-                $tenantShare = min($tenantBase, $tenantShare + $remaining);
-            }
-        }
+        // Peraturan kru: voucher/diskon dipotong dari bagian tenant terlebih dahulu,
+        // markup owner (sell_price - buy_price) tetap utuh. Owner baru menanggung
+        // bila diskon melebihi seluruh bagian tenant (penjualan tidak boleh minus).
+        $tenantShare = min($tenantBase, $discount);
+        $ownerShare = min($ownerBase, $discount - $tenantShare);
 
         return [
             'tenant_discount_total' => $tenantShare,
@@ -1692,8 +1673,7 @@ class PricingService
         int $qty,
         int $index,
         bool $isPromoReward = false
-    ): Cart
-    {
+    ): Cart {
         $quantity = max(1, $qty);
         $cart = new Cart([
             'product_id' => $product->id,

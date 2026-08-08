@@ -471,7 +471,7 @@ class PricingRuleTest extends TestCase
         $this->assertSame(55000, data_get($response->json(), 'data.summary.subtotal_after_promo'));
     }
 
-    public function test_sell_price_basis_discount_splits_between_tenant_and_owner_in_preview(): void
+    public function test_sell_price_basis_discount_is_borne_by_tenant_and_preserves_owner_markup(): void
     {
         $user = $this->createUserWithPermissions([
             'pricing-rules-access',
@@ -496,8 +496,9 @@ class PricingRuleTest extends TestCase
         $response->assertOk();
         $this->assertSame(60000, data_get($response->json(), 'data.summary.base_subtotal'));
         $this->assertSame(10000, data_get($response->json(), 'data.summary.promo_discount_total'));
-        $this->assertSame(7500, data_get($response->json(), 'data.summary.tenant_discount_total'));
-        $this->assertSame(2500, data_get($response->json(), 'data.summary.owner_discount_total'));
+        // Diskon ditanggung tenant seluruhnya; markup owner (sell - buy) tetap utuh.
+        $this->assertSame(10000, data_get($response->json(), 'data.summary.tenant_discount_total'));
+        $this->assertSame(0, data_get($response->json(), 'data.summary.owner_discount_total'));
         $this->assertSame(50000, data_get($response->json(), 'data.summary.subtotal_after_promo'));
     }
 

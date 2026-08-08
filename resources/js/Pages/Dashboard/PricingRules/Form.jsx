@@ -1307,13 +1307,13 @@ export default function Form({
                     <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-100">
                         <p className="font-semibold">Promo Tenant</p>
                         <p className="mt-1">
-                            Dipakai saat outlet aktif adalah tenant atau workspace dapur. Perhitungan promo memakai harga beli tenant, bukan harga jual owner.
+                            Dipakai saat outlet aktif adalah tenant atau workspace dapur. Perhitungan promonya memakai harga beli tenant, bukan harga jual owner.
                         </p>
                     </div>
                     <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-100">
-                        <p className="font-semibold">Promo Outlet Owner</p>
+                        <p className="font-semibold">Beban Diskon & Markup Owner</p>
                         <p className="mt-1">
-                            Dipakai untuk outlet utama atau owner outlet. Perhitungan promo memakai harga jual owner kecuali rule diatur berbeda.
+                            Voucher/diskon selalu dipotong dari bagian tenant terlebih dahulu. Markup owner (sell_price - buy_price) tetap utuh diterima owner; owner baru menanggung bila diskon melebihi seluruh bagian tenant.
                         </p>
                     </div>
                     <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100">

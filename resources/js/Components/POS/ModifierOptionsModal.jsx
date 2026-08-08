@@ -191,20 +191,19 @@ export default function ModifierOptionsModal({
             : "bg-sky-950 text-sky-50 shadow-sky-950/15 dark:bg-sky-500/20 dark:text-sky-100"
         : "bg-slate-950 text-white shadow-slate-900/10 dark:bg-primary-500/20 dark:text-primary-100";
 
-    // ----- UX: panduan topping & wizard (2 langkah) -----
+    // ----- UX: panduan topping & wizard (3 langkah) -----
     const toppingSectionRef = useRef(null);
     const notesFieldRef = useRef(null);
     const notesSectionRef = useRef(null);
     const jenisSectionRef = useRef(null);
     const [toppingAlert, setToppingAlert] = useState(false);
-    const [step, setStep] = useState(
-        hasModifierOptions ? "topping" : "menu"
-    );
+    // Step 1 = Jenis Penyajian, step 2 = Topping/Menu, step 3 = Keterangan
+    const [step, setStep] = useState("jenis");
 
     React.useEffect(() => {
         // Reset wizard setiap kali produk atau jenis penyajian berubah
         // (perubahan order type bisa mengubah set topping yang berlaku)
-        setStep(hasModifierOptions ? "topping" : "menu");
+        setStep("jenis");
         setToppingAlert(false);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [product?.id, hasModifierOptions]);
@@ -248,23 +247,14 @@ export default function ModifierOptionsModal({
         setStep("notes");
     };
 
-    const handleNextToJenis = () => {
-        // Validasi topping wajib sebelum pindah ke pemilihan jenis penyajian
-        if (selectionIsRequired && !hasSatisfiedRequiredSelection) {
-            setToppingAlert(true);
-            toppingSectionRef.current?.scrollIntoView({
-                behavior: "smooth",
-                block: "start",
-            });
-            return;
-        }
-
+    const handleNextToToping = () => {
         setToppingAlert(false);
-        setStep("jenis");
+        setStep(hasModifierOptions ? "topping" : "notes");
     };
 
-    const handleBackToToping = () => {
-        setStep(hasModifierOptions ? "topping" : "menu");
+    const handleBackToJenis = () => {
+        setToppingAlert(false);
+        setStep("jenis");
     };
 
     const handleSubmit = () => {
@@ -416,13 +406,13 @@ export default function ModifierOptionsModal({
                     {/* ===== Indikator langkah (simpel) ===== */}
                     <div className="mx-5 mt-4 flex items-center gap-2">
                         {[
+                            { key: "jenis", label: "1. Penyajian" },
                             hasModifierOptions
-                                ? { key: "topping", label: "1. Topping" }
-                                : { key: "menu", label: "1. Menu" },
-                            { key: "jenis", label: "2. Penyajian" },
+                                ? { key: "topping", label: "2. Topping" }
+                                : { key: "menu", label: "2. Menu" },
                             { key: "notes", label: "3. Keterangan" },
                         ].map((item, index) => {
-                            const stepOrder = ["topping", "menu", "jenis", "notes"];
+                            const stepOrder = ["jenis", "topping", "menu", "notes"];
                             const currentIndex = stepOrder.indexOf(step);
                             const isDone = index < currentIndex;
 
@@ -831,7 +821,7 @@ export default function ModifierOptionsModal({
                             Pilih topping yang wajib terlebih dahulu untuk lanjut.
                         </div>
                     ) : null}
-                    {step === "topping" || step === "menu" ? (
+                    {step === "jenis" ? (
                         <div className="grid grid-cols-2 gap-3">
                             <button
                                 type="button"
@@ -843,7 +833,28 @@ export default function ModifierOptionsModal({
                             </button>
                             <button
                                 type="button"
-                                onClick={handleNextToJenis}
+                                onClick={handleNextToToping}
+                                disabled={isSubmitting}
+                                className="rounded-2xl bg-primary-500 px-4 py-3 text-sm font-semibold text-white hover:bg-primary-600 disabled:opacity-50"
+                            >
+                                {hasModifierOptions
+                                    ? "Lanjut ke Topping"
+                                    : "Lanjut ke Keterangan"}
+                            </button>
+                        </div>
+                    ) : step === "topping" || step === "menu" ? (
+                        <div className="grid grid-cols-2 gap-3">
+                            <button
+                                type="button"
+                                onClick={handleBackToJenis}
+                                disabled={isSubmitting}
+                                className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                            >
+                                Kembali
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleNextToNotes}
                                 disabled={isSubmitting}
                                 className={`rounded-2xl px-4 py-3 text-sm font-semibold text-white transition disabled:opacity-50 ${
                                     selectionIsRequired &&
@@ -855,33 +866,14 @@ export default function ModifierOptionsModal({
                                 {selectionIsRequired &&
                                 !hasSatisfiedRequiredSelection
                                     ? "Pilih topping dulu"
-                                    : "Lanjut ke Penyajian"}
-                            </button>
-                        </div>
-                    ) : step === "jenis" ? (
-                        <div className="grid grid-cols-2 gap-3">
-                            <button
-                                type="button"
-                                onClick={handleBackToToping}
-                                disabled={isSubmitting}
-                                className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
-                            >
-                                Kembali
-                            </button>
-                            <button
-                                type="button"
-                                onClick={handleNextToNotes}
-                                disabled={isSubmitting}
-                                className="rounded-2xl bg-primary-500 px-4 py-3 text-sm font-semibold text-white hover:bg-primary-600 disabled:opacity-50"
-                            >
-                                Lanjut ke Keterangan
+                                    : "Lanjut ke Keterangan"}
                             </button>
                         </div>
                     ) : (
                         <div className="grid grid-cols-2 gap-3">
                             <button
                                 type="button"
-                                onClick={() => setStep("jenis")}
+                                onClick={handleBackToJenis}
                                 disabled={isSubmitting}
                                 className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
                             >
