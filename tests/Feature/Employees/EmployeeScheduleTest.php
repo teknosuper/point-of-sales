@@ -191,6 +191,179 @@ class EmployeeScheduleTest extends TestCase
         $this->assertSame([6, 7], array_map('intval', $config->blocked_weekdays));
     }
 
+    public function test_night_rules_can_be_updated_via_controller(): void
+    {
+        $this->createShifts();
+
+        $user = $this->createUserWithPermissions(['employee-schedules-generate']);
+
+        $this->actingAs($user)
+            ->post(route('employee-schedules.config'), [
+                'day_off_per_week' => 1,
+                'blocked_weekdays' => [5, 6, 7],
+                'max_night_per_week' => 4,
+                'night_after_off' => false,
+            ])
+            ->assertRedirect()
+            ->assertSessionHas('success');
+
+        $config = \App\Models\EmployeeScheduleConfig::rule();
+        $this->assertSame(4, $config->max_night_per_week);
+        $this->assertFalse($config->night_after_off);
+    }
+
+    public function test_employee_after_libur_is_placed_on_night_shift(): void
+    {
+        [$shifts, $employees] = $this->createNightFixture();
+
+        $nightShiftId = (int) $shifts->last()->id;
+
+        // Kamis libur → Jumat wajib shift malam.
+        EmployeeSchedule::create([
+            'schedule_date' => '2026-08-06',
+            'employee_id' => $employees[0]->id,
+            'shift_id' => null,
+            'status' => EmployeeSchedule::STATUS_LIBUR,
+        ]);
+
+        app(EmployeeScheduleService::class)->generate(
+            CarbonImmutable::parse('2026-08-07'),
+            CarbonImmutable::parse('2026-08-07')
+        );
+
+        $friday = EmployeeSchedule::whereDate('schedule_date', '2026-08-07')
+            ->where('employee_id', $employees[0]->id)
+            ->first();
+
+        $this->assertNotNull($friday);
+        $this->assertSame(EmployeeSchedule::STATUS_MASUK, $friday->status);
+        $this->assertSame($nightShiftId, (int) $friday->shift_id);
+    }
+
+    public function test_night_shift_cap_per_week_is_respected(): void
+    {
+        [$shifts, $employees] = $this->createNightFixture();
+
+        $nightShiftId = (int) $shifts->last()->id;
+
+        \App\Models\EmployeeScheduleConfig::query()->delete();
+        \App\Models\EmployeeScheduleConfig::create([
+            'day_off_per_week' => 1,
+            'blocked_weekdays' => [5, 6, 7],
+            'max_night_per_week' => 2,
+            'night_after_off' => true,
+        ]);
+
+        app(EmployeeScheduleService::class)->generate(
+            CarbonImmutable::parse('2026-08-03'),
+            CarbonImmutable::parse('2026-08-09')
+        );
+
+        // Tidak ada karyawan yang mendapat shift malam lebih dari batas per pekan.
+        foreach ($employees as $employee) {
+            $nightCount = EmployeeSchedule::where('employee_id', $employee->id)
+                ->where('shift_id', $nightShiftId)
+                ->whereBetween('schedule_date', ['2026-08-03', '2026-08-09'])
+                ->count();
+
+            $this->assertLessThanOrEqual(2, $nightCount, "{$employee->name} melebihi batas shift malam.");
+        }
+    }
+
+    public function test_extras_fall_to_night_shift_when_employees_exceed_shifts(): void
+    {
+        [$shifts, $employees] = $this->createNightFixture();
+
+        $nightShiftId = (int) $shifts->last()->id;
+
+        \App\Models\EmployeeScheduleConfig::query()->delete();
+        \App\Models\EmployeeScheduleConfig::create([
+            'day_off_per_week' => 1,
+            'blocked_weekdays' => [5, 6, 7],
+            'max_night_per_week' => 7,
+            'night_after_off' => false,
+        ]);
+
+        app(EmployeeScheduleService::class)->generate(
+            CarbonImmutable::parse('2026-08-03'),
+            CarbonImmutable::parse('2026-08-09')
+        );
+
+        // Minggu (terlarang libur, 4 orang aktif, 3 shift) → 2 orang shift malam.
+        $sundayNight = EmployeeSchedule::whereDate('schedule_date', '2026-08-09')
+            ->where('shift_id', $nightShiftId)
+            ->count();
+
+        $this->assertSame(2, $sundayNight);
+    }
+
+    public function test_extras_fall_to_configured_priority_shift(): void
+    {
+        [$shifts, $employees] = $this->createNightFixture();
+
+        $priorityShiftId = (int) $shifts->first()->id;
+
+        \App\Models\EmployeeScheduleConfig::query()->delete();
+        \App\Models\EmployeeScheduleConfig::create([
+            'day_off_per_week' => 1,
+            'blocked_weekdays' => [5, 6, 7],
+            'max_night_per_week' => 7,
+            'night_after_off' => false,
+            'priority_shift_id' => $priorityShiftId,
+        ]);
+
+        app(EmployeeScheduleService::class)->generate(
+            CarbonImmutable::parse('2026-08-03'),
+            CarbonImmutable::parse('2026-08-09')
+        );
+
+        // Minggu (terlarang libur, 4 orang aktif, 3 shift) → 2 orang di shift prioritas.
+        $sundayPriority = EmployeeSchedule::whereDate('schedule_date', '2026-08-09')
+            ->where('shift_id', $priorityShiftId)
+            ->count();
+
+        $this->assertSame(2, $sundayPriority);
+
+        // Default tanpa config → kelebihan jatuh ke shift terakhir (tidak ke shift pertama).
+        \App\Models\EmployeeScheduleConfig::query()->delete();
+        \App\Models\EmployeeScheduleConfig::create([
+            'day_off_per_week' => 1,
+            'blocked_weekdays' => [5, 6, 7],
+            'max_night_per_week' => 7,
+            'night_after_off' => false,
+        ]);
+
+        EmployeeSchedule::query()->delete();
+
+        app(EmployeeScheduleService::class)->generate(
+            CarbonImmutable::parse('2026-08-03'),
+            CarbonImmutable::parse('2026-08-09')
+        );
+
+        $sundayFirstDefault = EmployeeSchedule::whereDate('schedule_date', '2026-08-09')
+            ->where('shift_id', $priorityShiftId)
+            ->count();
+
+        $this->assertLessThan(2, $sundayFirstDefault);
+    }
+
+    private function createNightFixture(): array
+    {
+        $shifts = collect($this->createShifts());
+
+        $employees = [];
+        foreach (['Adil', 'Bilal', 'Ipan', 'Ajik'] as $index => $name) {
+            $employees[] = Employee::create([
+                'name' => $name,
+                'job_type' => 'KASIR',
+                'rotation_order' => $index + 1,
+                'is_active' => true,
+            ]);
+        }
+
+        return [$shifts, $employees];
+    }
+
     public function test_generation_skips_dates_that_already_have_schedule(): void
     {
         $this->createShifts();

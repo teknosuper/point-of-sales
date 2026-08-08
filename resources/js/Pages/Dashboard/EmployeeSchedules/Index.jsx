@@ -100,6 +100,9 @@ export default function Index({ groups = [], shifts = [], jobTypes = [], view = 
     const [configForm, setConfigForm] = useState(() => ({
         day_off_per_week: config?.day_off_per_week ?? 1,
         blocked_weekdays: config?.blocked_weekdays?.length ? config.blocked_weekdays : [5, 6, 7],
+        max_night_per_week: config?.max_night_per_week ?? 3,
+        night_after_off: config?.night_after_off ?? true,
+        priority_shift_id: config?.priority_shift_id ?? null,
     }));
 
     const submitConfig = (e) => {
@@ -109,6 +112,9 @@ export default function Index({ groups = [], shifts = [], jobTypes = [], view = 
             {
                 day_off_per_week: configForm.day_off_per_week,
                 blocked_weekdays: configForm.blocked_weekdays,
+                max_night_per_week: configForm.max_night_per_week,
+                night_after_off: configForm.night_after_off,
+                priority_shift_id: configForm.priority_shift_id || null,
             },
             { preserveScroll: true, onSuccess: () => setShowConfig(false) }
         );
@@ -828,8 +834,8 @@ export default function Index({ groups = [], shifts = [], jobTypes = [], view = 
             <Modal
                 show={showConfig}
                 onClose={() => setShowConfig(false)}
-                title="Atur Peraturan Libur"
-                subtitle="Jatah libur per pekan dan hari yang melarang libur untuk generate jadwal otomatis."
+                title="Atur Peraturan Jadwal"
+                subtitle="Jatah libur, shift malam, dan hari terlarang libur untuk generate jadwal otomatis."
             >
                 <form onSubmit={submitConfig} className="space-y-4">
                     <div>
@@ -849,6 +855,86 @@ export default function Index({ groups = [], shifts = [], jobTypes = [], view = 
                                 className="w-24 rounded-xl border border-slate-200 px-3 py-2 text-center text-sm font-medium outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-900"
                             />
                             <span className="text-sm text-slate-500 dark:text-slate-400">hari libur setiap karyawan</span>
+                        </div>
+                    </div>
+
+                    <div className="rounded-xl border border-indigo-200 bg-indigo-50/60 p-4 dark:border-indigo-800 dark:bg-indigo-950/20">
+                        <div className="flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                                <p className="text-xs font-bold uppercase tracking-[0.16em] text-indigo-600 dark:text-indigo-300">
+                                    Peraturan Shift Malam
+                                </p>
+                                <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
+                                    Shift malam = shift terakhir (urutan tertinggi).
+                                </p>
+                            </div>
+                        </div>
+                        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                            <div>
+                                <FormLabel>Maksimal malam per pekan</FormLabel>
+                                <input
+                                    type="number"
+                                    min="0"
+                                    max="7"
+                                    value={configForm.max_night_per_week}
+                                    onChange={(e) =>
+                                        setConfigForm((prev) => ({
+                                            ...prev,
+                                            max_night_per_week: Math.max(0, Math.min(7, Number(e.target.value))),
+                                        }))
+                                    }
+                                    className="w-24 rounded-xl border border-slate-200 px-3 py-2 text-center text-sm font-medium outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-900"
+                                />
+                                <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
+                                    Hari shift malam per karyawan dalam satu pekan.
+                                </p>
+                            </div>
+                            <div>
+                                <FormLabel>Setelah libur</FormLabel>
+                                <label className="mt-1 flex cursor-pointer items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                                    <input
+                                        type="checkbox"
+                                        checked={Boolean(configForm.night_after_off)}
+                                        onChange={(e) =>
+                                            setConfigForm((prev) => ({
+                                                ...prev,
+                                                night_after_off: e.target.checked,
+                                            }))
+                                        }
+                                        className="h-4 w-4 rounded border-slate-300 text-indigo-500 focus:ring-indigo-500"
+                                    />
+                                    Wajib masuk shift malam
+                                </label>
+                                <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
+                                    Karyawan yang libur kemarin wajib shift malam hari ini.
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="mt-3 border-t border-indigo-200/60 pt-3 dark:border-indigo-800">
+                            <div>
+                                <FormLabel>Shift prioritas (kelebihan pegawai)</FormLabel>
+                                <select
+                                    value={configForm.priority_shift_id || ""}
+                                    onChange={(e) =>
+                                        setConfigForm((prev) => ({
+                                            ...prev,
+                                            priority_shift_id: e.target.value ? Number(e.target.value) : null,
+                                        }))
+                                    }
+                                    className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm text-slate-700 outline-none transition focus:border-primary-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                >
+                                    <option value="">Otomatis (shift terakhir)</option>
+                                    {shifts.map((shift) => (
+                                        <option key={shift.id} value={shift.id}>
+                                            {shift.name}
+                                        </option>
+                                    ))}
+                                </select>
+                                <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
+                                    Saat jumlah karyawan melebihi jumlah shift, kelebihan karyawan diplot ke shift ini.
+                                </p>
+                            </div>
                         </div>
                     </div>
 

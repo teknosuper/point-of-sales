@@ -163,18 +163,30 @@ class EmployeeScheduleController extends Controller
             'day_off_per_week' => ['required', 'integer', 'min:0', 'max:7'],
             'blocked_weekdays' => ['present', 'array'],
             'blocked_weekdays.*' => ['integer', 'between:1,7'],
+            'max_night_per_week' => ['nullable', 'integer', 'min:0', 'max:7'],
+            'night_after_off' => ['sometimes', 'boolean'],
+            'priority_shift_id' => ['nullable', 'integer', 'exists:employee_shifts,id'],
         ], [
             'day_off_per_week.required' => 'Jatah libur per pekan wajib diisi.',
             'blocked_weekdays.array' => 'Format hari terlarang libur tidak valid.',
+            'max_night_per_week.integer' => 'Batas shift malam harus berupa angka.',
+            'priority_shift_id.exists' => 'Shift prioritas yang dipilih tidak valid.',
         ]);
 
         $config = EmployeeScheduleConfig::rule();
 
         $config->day_off_per_week = (int) $validated['day_off_per_week'];
         $config->blocked_weekdays = array_values(array_map('intval', array_unique($validated['blocked_weekdays'])));
+        $config->max_night_per_week = isset($validated['max_night_per_week'])
+            ? (int) $validated['max_night_per_week']
+            : (int) $config->max_night_per_week;
+        $config->night_after_off = $request->boolean('night_after_off', (bool) $config->night_after_off);
+        $config->priority_shift_id = isset($validated['priority_shift_id'])
+            ? (int) $validated['priority_shift_id']
+            : null;
         $config->save();
 
-        return back()->with('success', 'Peraturan libur diperbarui.');
+        return back()->with('success', 'Peraturan jadwal diperbarui.');
     }
 
     private function configPayload(): array
@@ -184,6 +196,9 @@ class EmployeeScheduleController extends Controller
         return [
             'day_off_per_week' => (int) $config->day_off_per_week,
             'blocked_weekdays' => array_map('intval', $config->blockedDays()),
+            'max_night_per_week' => (int) $config->max_night_per_week,
+            'night_after_off' => (bool) $config->night_after_off,
+            'priority_shift_id' => $config->priority_shift_id ? (int) $config->priority_shift_id : null,
         ];
     }
 

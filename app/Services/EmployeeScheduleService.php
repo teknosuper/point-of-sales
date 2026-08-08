@@ -7,6 +7,7 @@ use App\Models\EmployeeSchedule;
 use App\Models\EmployeeShift;
 use Carbon\Carbon;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Collection;
 
 class EmployeeScheduleService
 {
@@ -24,6 +25,17 @@ class EmployeeScheduleService
      *    (mis. Jumat/Sabtu/Minggu);
      *  - pada hari terlarang libur, semua pegawai bekerja (bila pegawai > shift,
      *    satu slot shift boleh dipakai oleh lebih dari satu pegawai).
+     *
+     * Peraturan kru shift malam:
+     *  - shift malam adalah shift terakhir (sort_order tertinggi);
+     *  - bila pegawai > shift, kelebihan pegawai jatuh ke shift malam;
+     *  - setelah libur, pegawai wajib masuk shift malam di hari kerja berikutnya
+     *    (dapat dimatikan via `night_after_off`);
+     *  - setiap pegawai maksimal `max_night_per_week` shift malam per pekan.
+     *
+     * Shift prioritas:
+     *  - saat pegawai > shift, pegawai berlebih ditempatkan di `priority_shift_id`
+     *    (default: shift terakhir / malam).
      *
      * @return array{generated_dates: int, generated_rows: int, skipped_dates: int}
      */
@@ -80,6 +92,9 @@ class EmployeeScheduleService
         $config = \App\Models\EmployeeScheduleConfig::rule();
         $blocked = $config->blockedDays();
         $quota = (int) $config->day_off_per_week;
+        $nightAfterOff = (bool) $config->night_after_off;
+        $maxNightPerWeek = (int) $config->max_night_per_week;
+        $priorityShiftId = $config->priority_shift_id ? (int) $config->priority_shift_id : null;
 
         $offPlan = [];
 
@@ -203,40 +218,177 @@ class EmployeeScheduleService
                 // Bila keduanya berputar bersama, karyawan yang sama bisa terus
                 // mendapat shift yang sama (mis. selalu Pagi / selalu Malam).
                 ksort($workers);
-                $workerCount = count($workers);
+                $workerList = array_values($workers);
+                $workerCount = count($workerList);
+
+                // Peraturan kru: shift malam = shift terakhir (sort_order tertinggi).
+                $nightShift = $shiftCount > 0 ? $shifts->last() : null;
+                $nightShiftId = $nightShift?->id;
+
+                // Hitung jumlah shift malam per karyawan pada pekan berjalan
+                // (termasuk jadwal lama) agar batas `max_night_per_week` konsisten.
+                $nightCountByEmployee = [];
+                if ($nightShiftId && $maxNightPerWeek > 0) {
+                    $weekStartDate = $date->copy()->startOfWeek(Carbon::MONDAY)->toDateString();
+                    $weekEndDate = $date->copy()->startOfWeek(Carbon::MONDAY)->addDays(6)->toDateString();
+
+                    $nightCountByEmployee = EmployeeSchedule::query()
+                        ->whereBetween('schedule_date', [$weekStartDate, $weekEndDate])
+                        ->where('shift_id', $nightShiftId)
+                        ->whereIn('employee_id', $employees->pluck('id'))
+                        ->selectRaw('employee_id, COUNT(*) as total')
+                        ->groupBy('employee_id')
+                        ->pluck('total', 'employee_id')
+                        ->all();
+                }
+
+                // Peraturan kru: setelah libur, wajib masuk shift malam hari berikutnya.
+                $offYesterdayIds = [];
+                if ($nightAfterOff && $nightShiftId) {
+                    $offYesterdayIds = EmployeeSchedule::query()
+                        ->whereDate('schedule_date', $date->copy()->subDay()->toDateString())
+                        ->whereIn('employee_id', $employees->pluck('id'))
+                        ->whereNull('shift_id')
+                        ->pluck('employee_id')
+                        ->map(fn ($id) => (int) $id)
+                        ->all();
+                }
 
                 $occupiedShifts = $existing->pluck('shift_id')->filter();
 
-                foreach (array_values($workers) as $i => $employee) {
-                    $shift = null;
+                // Prioritas: karyawan yang kemarin libur ditempatkan ke shift malam
+                // (selama belum melebihi batas malam per pekan).
+                $assignments = [];
+                $remainingWorkers = [];
 
-                    if ($shiftCount > 0) {
-                        // Sebar pekerja secara merata ke daftar shift. Contoh:
-                        // 2 pekerja dengan 3 shift → shift 1 dan shift 3, bukan 1 & 2.
-                        $base = (int) round($i * $shiftCount / max($workerCount, 1));
+                foreach ($workerList as $index => $employee) {
+                    $isOffYesterday = in_array((int) $employee->id, $offYesterdayIds, true);
+                    $nightCount = (int) ($nightCountByEmployee[$employee->id] ?? 0);
+                    $canNight = $nightShiftId !== null
+                        && ($maxNightPerWeek <= 0 || $nightCount < $maxNightPerWeek);
+
+                    if ($isOffYesterday && $canNight) {
+                        $assignments[$employee->id] = $nightShiftId;
+                        $occupiedShifts->push($nightShiftId);
+                        $nightCountByEmployee[$employee->id] = $nightCount + 1;
+
+                        continue;
+                    }
+
+                    $remainingWorkers[$index] = $employee;
+                }
+
+                // Sisa pekerja disebar ke shift yang tersisa. Contoh:
+                // 2 pekerja dengan 3 shift → shift 1 dan shift 3, bukan 1 & 2.
+                // Kelebihan pekerja (pegawai > shift) ditempatkan di shift prioritas
+                // (konfigurasi `priority_shift_id`; default shift terakhir),
+                // tetapi shift malam TIDAK diberikan bila batas per pekan tercapai.
+                $priorityIndex = $this->resolvePriorityShiftIndex($shifts, $priorityShiftId);
+
+                $remainingCount = count($remainingWorkers);
+                $normalCount = min($remainingCount, $shiftCount);
+                $overflowCount = $remainingCount - $normalCount;
+                $i = 0;
+
+                foreach ($remainingWorkers as $employee) {
+                    $shift = null;
+                    $nightCount = (int) ($nightCountByEmployee[$employee->id] ?? 0);
+
+                    if ($shiftCount <= 0) {
+                        $assignments[$employee->id] = null;
+                        $i++;
+
+                        continue;
+                    }
+
+                    // Pegawai "normal" disebar merata ke daftar shift terlebih dahulu.
+                    if ($i < $normalCount) {
+                        $base = (int) round($i * $shiftCount / max($normalCount, 1));
                         $offset = $dayNumber % $shiftCount;
 
                         for ($t = 0; $t < $shiftCount; $t++) {
                             $candidate = ($base + $offset + $t) % $shiftCount;
+                            $candidateShift = $shifts[$candidate];
 
-                            if (! $occupiedShifts->contains($shifts[$candidate]->id)) {
-                                $shift = $shifts[$candidate];
+                            if ($candidateShift->id === $nightShiftId
+                                && $maxNightPerWeek > 0
+                                && $nightCount >= $maxNightPerWeek) {
+                                continue;
+                            }
+
+                            if (! $occupiedShifts->contains($candidateShift->id)) {
+                                $shift = $candidateShift;
                                 break;
                             }
                         }
 
                         // Bila semua shift terpakai (pegawai > shift), duplikasi shift.
-                        $shift ??= $shifts[($base + $offset) % $shiftCount];
+                        if (! $shift) {
+                            for ($t = 0; $t < $shiftCount; $t++) {
+                                $candidate = ($base + $offset + $t) % $shiftCount;
+                                $candidateShift = $shifts[$candidate];
+
+                                if ($candidateShift->id === $nightShiftId
+                                    && $maxNightPerWeek > 0
+                                    && $nightCount >= $maxNightPerWeek) {
+                                    continue;
+                                }
+
+                                $shift = $candidateShift;
+                                break;
+                            }
+                        }
+                    }
+
+                    // Kelebihan pegawai ditempatkan di shift prioritas.
+                    if ($i >= $normalCount && $overflowCount > 0) {
+                        $priorityShift = $shifts[$priorityIndex];
+
+                        if ($priorityShift->id === $nightShiftId
+                            && $maxNightPerWeek > 0
+                            && $nightCount >= $maxNightPerWeek) {
+                            // Shift prioritas adalah shift malam dan batas sudah penuh:
+                            // cari shift lain yang masih mungkin dipakai.
+                            for ($t = 0; $t < $shiftCount; $t++) {
+                                $candidate = ($priorityIndex + $t) % $shiftCount;
+                                $candidateShift = $shifts[$candidate];
+
+                                if ($candidateShift->id === $nightShiftId
+                                    && $maxNightPerWeek > 0
+                                    && $nightCount >= $maxNightPerWeek) {
+                                    continue;
+                                }
+
+                                $shift = $candidateShift;
+                                break;
+                            }
+
+                            $shift ??= $priorityShift;
+                        } else {
+                            $shift = $priorityShift;
+                        }
                     }
 
                     if ($shift) {
                         $occupiedShifts->push($shift->id);
+
+                        if ($nightShiftId && $shift->id === $nightShiftId) {
+                            $nightCountByEmployee[$employee->id] = $nightCount + 1;
+                        }
+
+                        $assignments[$employee->id] = $shift->id;
+                    } else {
+                        $assignments[$employee->id] = null;
                     }
 
+                    $i++;
+                }
+
+                foreach ($assignments as $employeeId => $shiftId) {
                     EmployeeSchedule::create([
                         'schedule_date' => $dateKey,
-                        'employee_id' => $employee->id,
-                        'shift_id' => $shift?->id,
+                        'employee_id' => $employeeId,
+                        'shift_id' => $shiftId,
                         'status' => \App\Models\EmployeeSchedule::STATUS_MASUK,
                     ]);
 
@@ -311,6 +463,25 @@ class EmployeeScheduleService
         }
 
         return $map;
+    }
+
+    /**
+     * Tentukan indeks shift prioritas (shift yang menampung kelebihan pegawai).
+     *
+     * Bila `priority_shift_id` terisi dan shift tersebut ada, indeksnya dipakai.
+     * Default: shift terakhir (sort_order tertinggi) — e.g. shift malam.
+     */
+    private function resolvePriorityShiftIndex(Collection $shifts, ?int $priorityShiftId): int
+    {
+        if ($priorityShiftId !== null && $priorityShiftId > 0) {
+            $index = $shifts->search(fn ($shift) => (int) $shift->id === $priorityShiftId);
+
+            if ($index !== false) {
+                return $index;
+            }
+        }
+
+        return $shifts->count() - 1;
     }
 
     /**
