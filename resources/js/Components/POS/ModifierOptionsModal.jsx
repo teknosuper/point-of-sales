@@ -195,6 +195,7 @@ export default function ModifierOptionsModal({
     const toppingSectionRef = useRef(null);
     const notesFieldRef = useRef(null);
     const notesSectionRef = useRef(null);
+    const jenisSectionRef = useRef(null);
     const [toppingAlert, setToppingAlert] = useState(false);
     const [step, setStep] = useState(
         hasModifierOptions ? "topping" : "menu"
@@ -209,8 +210,18 @@ export default function ModifierOptionsModal({
     }, [product?.id, hasModifierOptions]);
 
     React.useEffect(() => {
-        // Saat masuk ke langkah keterangan, scroll ke section tanpa fokus ke textarea
-        // agar keyboard tidak muncul otomatis di tablet/mobile
+        // Saat masuk ke langkah penyajian atau keterangan, scroll ke section-nya
+        // agar user langsung melihat konten yang relevan (tanpa fokus ke input).
+        if (step === "jenis") {
+            const timer = window.setTimeout(() => {
+                jenisSectionRef.current?.scrollIntoView({
+                    behavior: "smooth",
+                    block: "start",
+                });
+            }, 100);
+            return () => window.clearTimeout(timer);
+        }
+
         if (step === "notes") {
             const timer = window.setTimeout(() => {
                 notesSectionRef.current?.scrollIntoView({
@@ -235,6 +246,25 @@ export default function ModifierOptionsModal({
 
         setToppingAlert(false);
         setStep("notes");
+    };
+
+    const handleNextToJenis = () => {
+        // Validasi topping wajib sebelum pindah ke pemilihan jenis penyajian
+        if (selectionIsRequired && !hasSatisfiedRequiredSelection) {
+            setToppingAlert(true);
+            toppingSectionRef.current?.scrollIntoView({
+                behavior: "smooth",
+                block: "start",
+            });
+            return;
+        }
+
+        setToppingAlert(false);
+        setStep("jenis");
+    };
+
+    const handleBackToToping = () => {
+        setStep(hasModifierOptions ? "topping" : "menu");
     };
 
     const handleSubmit = () => {
@@ -340,46 +370,48 @@ export default function ModifierOptionsModal({
                     </div>
 
                     {/* ===== Pilihan Take Away / Dine In per menu ===== */}
-                    <div className="mx-5 mt-4 rounded-2xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
-                        <div className="flex items-center justify-between gap-3">
-                            <div className="min-w-0">
-                                <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
-                                    Jenis Penyajian
-                                </p>
-                                <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">
-                                    {orderType === "take_away"
-                                        ? "Akan dicatat [TAKE AWAY] di keterangan agar dapur tahu & bungkus wajib dipilih."
-                                        : "Akan dicatat [DINE IN] di keterangan agar dapur tahu."}
-                                </p>
+                    {step === "jenis" ? (
+                        <div ref={jenisSectionRef} className="mx-5 mt-4 rounded-2xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+                            <div className="flex items-center justify-between gap-3">
+                                <div className="min-w-0">
+                                    <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
+                                        Jenis Penyajian
+                                    </p>
+                                    <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">
+                                        {orderType === "take_away"
+                                            ? "Akan dicatat [TAKE AWAY] di keterangan agar dapur tahu & bungkus wajib dipilih."
+                                            : "Akan dicatat [DINE IN] di keterangan agar dapur tahu."}
+                                    </p>
+                                </div>
+                            </div>
+                            <div className="mt-2 grid grid-cols-2 gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => onOrderTypeChange?.("dine_in")}
+                                    className={`inline-flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-bold transition ${
+                                        orderType === "dine_in"
+                                            ? "border-sky-500 bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300"
+                                            : "border-slate-200 bg-white text-slate-500 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400"
+                                    }`}
+                                >
+                                    <IconToolsKitchen2 size={16} />
+                                    Dine In
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => onOrderTypeChange?.("take_away")}
+                                    className={`inline-flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-bold transition ${
+                                        orderType === "take_away"
+                                            ? "border-amber-500 bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
+                                            : "border-slate-200 bg-white text-slate-500 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400"
+                                    }`}
+                                >
+                                    <IconShoppingBag size={16} />
+                                    Take Away
+                                </button>
                             </div>
                         </div>
-                        <div className="mt-2 grid grid-cols-2 gap-2">
-                            <button
-                                type="button"
-                                onClick={() => onOrderTypeChange?.("dine_in")}
-                                className={`inline-flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-bold transition ${
-                                    orderType === "dine_in"
-                                        ? "border-sky-500 bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300"
-                                        : "border-slate-200 bg-white text-slate-500 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400"
-                                }`}
-                            >
-                                <IconToolsKitchen2 size={16} />
-                                Dine In
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => onOrderTypeChange?.("take_away")}
-                                className={`inline-flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-bold transition ${
-                                    orderType === "take_away"
-                                        ? "border-amber-500 bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
-                                        : "border-slate-200 bg-white text-slate-500 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400"
-                                }`}
-                            >
-                                <IconShoppingBag size={16} />
-                                Take Away
-                            </button>
-                        </div>
-                    </div>
+                    ) : null}
 
                     {/* ===== Indikator langkah (simpel) ===== */}
                     <div className="mx-5 mt-4 flex items-center gap-2">
@@ -387,35 +419,41 @@ export default function ModifierOptionsModal({
                             hasModifierOptions
                                 ? { key: "topping", label: "1. Topping" }
                                 : { key: "menu", label: "1. Menu" },
-                            { key: "notes", label: "2. Keterangan" },
-                        ].map((item, index) => (
-                            <React.Fragment key={item.key}>
-                                {index > 0 ? (
-                                    <span className="h-px w-5 shrink-0 bg-slate-200 dark:bg-slate-700" />
-                                ) : null}
-                                <span
-                                    className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-bold transition ${
-                                        step === item.key
-                                            ? "bg-primary-600 text-white shadow-sm"
-                                            : index === 0 &&
-                                                (step === "notes")
-                                              ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
-                                              : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"
-                                    }`}
-                                >
+                            { key: "jenis", label: "2. Penyajian" },
+                            { key: "notes", label: "3. Keterangan" },
+                        ].map((item, index) => {
+                            const stepOrder = ["topping", "menu", "jenis", "notes"];
+                            const currentIndex = stepOrder.indexOf(step);
+                            const isDone = index < currentIndex;
+
+                            return (
+                                <React.Fragment key={item.key}>
+                                    {index > 0 ? (
+                                        <span className="h-px w-5 shrink-0 bg-slate-200 dark:bg-slate-700" />
+                                    ) : null}
                                     <span
-                                        className={`h-1.5 w-1.5 rounded-full ${
+                                        className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-bold transition ${
                                             step === item.key
-                                                ? "bg-white"
-                                                : index === 0 && step === "notes"
-                                                  ? "bg-emerald-500"
-                                                  : "bg-current"
+                                                ? "bg-primary-600 text-white shadow-sm"
+                                                : isDone
+                                                  ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
+                                                  : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"
                                         }`}
-                                    />
-                                    {item.label}
-                                </span>
-                            </React.Fragment>
-                        ))}
+                                    >
+                                        <span
+                                            className={`h-1.5 w-1.5 rounded-full ${
+                                                step === item.key
+                                                    ? "bg-white"
+                                                    : isDone
+                                                      ? "bg-emerald-500"
+                                                      : "bg-current"
+                                            }`}
+                                        />
+                                        {item.label}
+                                    </span>
+                                </React.Fragment>
+                            );
+                        })}
                     </div>
 
                     {product.pricing_badge && promo && promoBenefit ? (
@@ -805,7 +843,7 @@ export default function ModifierOptionsModal({
                             </button>
                             <button
                                 type="button"
-                                onClick={handleNextToNotes}
+                                onClick={handleNextToJenis}
                                 disabled={isSubmitting}
                                 className={`rounded-2xl px-4 py-3 text-sm font-semibold text-white transition disabled:opacity-50 ${
                                     selectionIsRequired &&
@@ -817,22 +855,37 @@ export default function ModifierOptionsModal({
                                 {selectionIsRequired &&
                                 !hasSatisfiedRequiredSelection
                                     ? "Pilih topping dulu"
-                                    : "Lanjut ke Keterangan"}
+                                    : "Lanjut ke Penyajian"}
+                            </button>
+                        </div>
+                    ) : step === "jenis" ? (
+                        <div className="grid grid-cols-2 gap-3">
+                            <button
+                                type="button"
+                                onClick={handleBackToToping}
+                                disabled={isSubmitting}
+                                className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                            >
+                                Kembali
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleNextToNotes}
+                                disabled={isSubmitting}
+                                className="rounded-2xl bg-primary-500 px-4 py-3 text-sm font-semibold text-white hover:bg-primary-600 disabled:opacity-50"
+                            >
+                                Lanjut ke Keterangan
                             </button>
                         </div>
                     ) : (
                         <div className="grid grid-cols-2 gap-3">
                             <button
                                 type="button"
-                                onClick={
-                                    hasModifierOptions
-                                        ? () => setStep("topping")
-                                        : () => setStep("menu")
-                                }
+                                onClick={() => setStep("jenis")}
                                 disabled={isSubmitting}
                                 className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
                             >
-                                {hasModifierOptions ? "Kembali" : "Kembali"}
+                                Kembali
                             </button>
                             <button
                                 type="button"
